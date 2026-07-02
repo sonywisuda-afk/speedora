@@ -13,6 +13,7 @@ AI video repurposing platform (mirip OpusClip) — upload video panjang, otomati
 - [Node.js](https://nodejs.org/) >= 20
 - [pnpm](https://pnpm.io/) 9.x (lihat catatan instalasi di bawah kalau `pnpm` belum ada di PATH)
 - [Docker](https://www.docker.com/) (untuk Postgres + Redis lokal)
+- [FFmpeg](https://ffmpeg.org/) di `PATH` (untuk `apps/worker`'s `render-clip` job — potong video & burn-in caption). Kalau tidak di `PATH`, set `FFMPEG_PATH` di `.env` ke path binary-nya.
 
 ### Install pnpm
 
@@ -128,3 +129,4 @@ Lihat [`.env.example`](./.env.example) untuk daftar lengkap. Yang penting:
 - `REDIS_URL` — dipakai `apps/api` (enqueue job) dan `apps/worker` (consume job) lewat BullMQ
 - `NEXT_PUBLIC_API_URL` — base URL API yang dipanggil `apps/web`
 - `OPENAI_API_KEY` — dipakai `apps/worker` untuk transcribe job (Whisper via OpenAI's audio API)
+- `FFMPEG_PATH` — path ke binary FFmpeg, dipakai `apps/worker` untuk render-clip job. Default `ffmpeg` (asumsi ada di `PATH`)

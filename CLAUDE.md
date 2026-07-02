@@ -42,7 +42,7 @@ packages/
 1. **Upload** — `apps/web` upload file ke `apps/api`, video disimpan (object storage), record dibuat di PostgreSQL dengan status `UPLOADED`.
 2. **Transcript** — `apps/api` enqueue job `transcribe` ke BullMQ. `apps/worker` menjalankan Whisper, hasil transcript (dengan timestamp) disimpan ke PostgreSQL. Status -> `TRANSCRIBED`.
 3. **Auto-clip** — job `detect-clips` (dienqueue oleh `apps/worker` sendiri begitu `transcribe` sukses, bukan oleh `apps/api`) mengirim transcript ke LLM (GPT) untuk memilih 1-3 momen paling menarik/viral-worthy sebagai kandidat klip (start/end timestamp + virality score 0-100). Menghasilkan daftar kandidat klip. Status -> `CLIPS_DETECTED`.
-4. **Caption** — job `render-clip` memotong video dengan FFmpeg sesuai timestamp klip, lalu burn-in caption dari transcript ke video hasil potongan. Status -> `RENDERED`.
+4. **Caption** — untuk tiap kandidat klip, `detect-clips` yang sukses langsung enqueue satu job `render-clip` (self-chain, sama seperti `transcribe` -> `detect-clips`). `render-clip` memotong video dengan FFmpeg sesuai timestamp klip, generate file SRT dari transcript (timestamp digeser relatif ke awal klip), lalu burn-in sebagai subtitle ke video hasil potongan. `Clip.outputUrl` di-set setelah render sukses; `Video.status` -> `RENDERED` baru setelah **semua** klip milik video tersebut selesai di-render (bukan begitu klip pertama selesai).
 5. **Download** — `apps/web` polling/menerima notifikasi status, lalu menyediakan link download klip hasil render dari object storage.
 
 Setiap tahap adalah job terpisah di BullMQ (bukan satu job monolitik) agar retry granular per-tahap dan agar FFmpeg cluster bisa discale independen dari proses ASR.
@@ -56,7 +56,9 @@ Setiap tahap adalah job terpisah di BullMQ (bukan satu job monolitik) agar retry
 - **Prisma di `packages/database` sebagai satu-satunya akses ke PostgreSQL**, dipakai baik oleh `apps/api` maupun `apps/worker` (model: `User`, `Video`, `TranscriptSegment`, `Clip` — lihat `packages/database/prisma/schema.prisma`). Transcript segment disimpan per-video (bukan diduplikasi per-klip); transcript sebuah klip didapat dengan query segment dalam rentang `startTime`-`endTime` klip tersebut.
 - **Video disimpan di local disk untuk MVP** (`apps/api/src/storage`), dengan `Video.sourceUrl` berupa absolute path (bukan path relatif) supaya `apps/worker` — proses terpisah dengan cwd berbeda — bisa langsung baca file yang sama tanpa perlu tahu `UPLOAD_DIR` milik `apps/api`. Ganti implementasi `StorageService` untuk pindah ke object storage nanti.
 - **Worker meng-update status video sendiri** setelah job selesai (mis. `transcribe` job set status `TRANSCRIBED` setelah berhasil, atau `FAILED` kalau error), bukan lewat callback ke `apps/api`.
-- **Worker self-chains job berikutnya dalam pipeline**: `transcribe` job yang sukses langsung enqueue job `detect-clips` sendiri (lihat `apps/worker/src/queues.ts`), bukan lewat `apps/api`. Orkestrasi antar-tahap pipeline berada di `apps/worker`, bukan di layer API.
+- **Worker self-chains job berikutnya dalam pipeline**: `transcribe` job yang sukses langsung enqueue job `detect-clips` sendiri, dan `detect-clips` yang sukses langsung enqueue satu job `render-clip` per kandidat klip (lihat `apps/worker/src/queues.ts`), bukan lewat `apps/api`. Orkestrasi antar-tahap pipeline berada di `apps/worker`, bukan di layer API.
+- **FFmpeg dipanggil langsung via `child_process`** (bukan wrapper library seperti `fluent-ffmpeg`) dari `apps/worker/src/ffmpeg.ts`. Butuh binary FFmpeg tersedia (di `PATH`, atau via `FFMPEG_PATH`) di environment tempat `apps/worker` jalan.
+- **Render output disimpan di local disk juga** (subfolder `renders/` di bawah `UPLOAD_DIR`, lihat `apps/worker/src/storage.ts`), konsisten dengan keputusan storage video asli — `apps/worker` satu-satunya penulis file ini, jadi tidak ada masalah cross-process path resolution seperti pada upload.
 
 ## Konvensi Coding
 
