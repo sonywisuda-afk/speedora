@@ -6,4 +6,4 @@ out
 coverage
 pnpm-lock.yaml
 *.md
-apps/api/src/generated
+packages/database/src/generated

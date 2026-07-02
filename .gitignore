@@ -7,7 +7,7 @@ dist/
 build/
 .next/
 out/
-apps/api/src/generated/
+packages/database/src/generated/
 
 # env
 .env

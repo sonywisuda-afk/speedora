@@ -35,6 +35,9 @@ jobs:
       - name: Build packages/shared
         run: pnpm --filter @viral-clip-app/shared build
 
+      - name: Build packages/database
+        run: pnpm --filter @viral-clip-app/database build
+
       - name: Typecheck
         run: pnpm typecheck
 

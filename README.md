@@ -51,13 +51,13 @@ export PATH="$HOME/.npm-global:$PATH"   # tambahkan ke ~/.bashrc atau profile sh
    pnpm docker:up
    ```
 
-4. Buat schema database (Prisma migration, lihat `apps/api/prisma/schema.prisma`):
+4. Buat schema database (Prisma migration, lihat `packages/database/prisma/schema.prisma`):
 
    ```bash
-   pnpm --filter @viral-clip-app/api db:migrate:dev
+   pnpm --filter @viral-clip-app/database db:migrate:dev
    ```
 
-5. Jalankan semua service dalam mode dev (build `packages/shared` dalam watch mode, lalu `apps/web`, `apps/api`, `apps/worker` paralel):
+5. Jalankan semua service dalam mode dev (build `packages/shared` + `packages/database` dalam watch mode, lalu `apps/web`, `apps/api`, `apps/worker` paralel):
 
    ```bash
    pnpm dev
@@ -94,9 +94,9 @@ pnpm --filter @viral-clip-app/shared build
 
 ## Database
 
-`apps/api` pakai [Prisma](https://www.prisma.io/) (provider `postgresql`) sebagai ORM & migration tool. Skema ada di `apps/api/prisma/schema.prisma`, client hasil generate masuk ke `apps/api/src/generated/prisma` (gitignored, dibuat otomatis lewat `postinstall` setiap `pnpm install`).
+`packages/database` pakai [Prisma](https://www.prisma.io/) (provider `postgresql`) sebagai ORM & migration tool, dipakai bersama oleh `apps/api` dan `apps/worker`. Skema ada di `packages/database/prisma/schema.prisma`, client hasil generate masuk ke `packages/database/src/generated/prisma` (gitignored, dibuat otomatis lewat `postinstall` setiap `pnpm install`).
 
-Dijalankan dengan `pnpm --filter @viral-clip-app/api <script>`:
+Dijalankan dengan `pnpm --filter @viral-clip-app/database <script>`:
 
 | Script | Keterangan |
 |---|---|
@@ -115,6 +115,7 @@ apps/
   worker/     # Konsumer BullMQ — transcribe (Whisper), detect-clips, render-clip (FFmpeg)
 packages/
   shared/     # Tipe TypeScript & util yang dipakai lintas apps
+  database/   # Prisma schema/client Postgres, dipakai apps/api dan apps/worker
 ```
 
 Detail alur pemrosesan video, keputusan arsitektur, dan konvensi coding ada di [`CLAUDE.md`](./CLAUDE.md).
@@ -123,6 +124,7 @@ Detail alur pemrosesan video, keputusan arsitektur, dan konvensi coding ada di [
 
 Lihat [`.env.example`](./.env.example) untuk daftar lengkap. Yang penting:
 
-- `DATABASE_URL` — connection string Postgres, dipakai `apps/api`
+- `DATABASE_URL` — connection string Postgres, dipakai `apps/api` dan `apps/worker` lewat `packages/database`
 - `REDIS_URL` — dipakai `apps/api` (enqueue job) dan `apps/worker` (consume job) lewat BullMQ
 - `NEXT_PUBLIC_API_URL` — base URL API yang dipanggil `apps/web`
+- `OPENAI_API_KEY` — dipakai `apps/worker` untuk transcribe job (Whisper via OpenAI's audio API)

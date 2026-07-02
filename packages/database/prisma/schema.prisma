@@ -51,8 +51,8 @@ model TranscriptSegment {
   id        String   @id @default(cuid())
   videoId   String
   video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
-  startTime Float
-  endTime   Float
+  start     Float
+  end       Float
   text      String
   speaker   String?
   createdAt DateTime @default(now())

@@ -7,8 +7,8 @@
   },
   "packageManager": "pnpm@9.15.9",
   "scripts": {
-    "dev": "concurrently -n shared,web,api,worker -c blue,green,magenta,yellow \"pnpm --filter @viral-clip-app/shared dev\" \"pnpm --filter @viral-clip-app/web dev\" \"pnpm --filter @viral-clip-app/api start:dev\" \"pnpm --filter @viral-clip-app/worker dev\"",
-    "build": "pnpm --filter @viral-clip-app/shared build && pnpm --filter @viral-clip-app/web build && pnpm --filter @viral-clip-app/api build && pnpm --filter @viral-clip-app/worker build",
+    "dev": "concurrently -n shared,database,web,api,worker -c blue,cyan,green,magenta,yellow \"pnpm --filter @viral-clip-app/shared dev\" \"pnpm --filter @viral-clip-app/database dev\" \"pnpm --filter @viral-clip-app/web dev\" \"pnpm --filter @viral-clip-app/api start:dev\" \"pnpm --filter @viral-clip-app/worker dev\"",
+    "build": "pnpm --filter @viral-clip-app/shared build && pnpm --filter @viral-clip-app/database build && pnpm --filter @viral-clip-app/web build && pnpm --filter @viral-clip-app/api build && pnpm --filter @viral-clip-app/worker build",
     "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
     "format": "prettier --write .",

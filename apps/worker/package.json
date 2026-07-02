@@ -12,10 +12,12 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@viral-clip-app/database": "workspace:^",
     "@viral-clip-app/shared": "workspace:*",
     "bullmq": "^5.7.8",
     "dotenv": "^17.4.2",
-    "ioredis": "5.10.1"
+    "ioredis": "5.10.1",
+    "openai": "^6.45.0"
   },
   "devDependencies": {
     "@types/node": "^20.12.12",

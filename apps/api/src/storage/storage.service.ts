@@ -4,8 +4,10 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 
 export interface StoredFile {
-  // Relative path stored as Video.sourceUrl. Swap this service's
-  // implementation for a cloud-backed one to move off local disk.
+  // Absolute path stored as Video.sourceUrl, so apps/worker (a separate
+  // process/cwd) can read it directly without resolving against apps/api's
+  // UPLOAD_DIR. Swap this service's implementation for a cloud-backed one
+  // (returning a real URL) to move off local disk.
   sourceUrl: string;
 }
 
@@ -18,8 +20,9 @@ export class StorageService {
 
     const ext = path.extname(file.originalname).toLowerCase();
     const filename = `${randomUUID()}${ext}`;
-    await writeFile(path.join(this.uploadDir, filename), file.buffer);
+    const absolutePath = path.join(this.uploadDir, filename);
+    await writeFile(absolutePath, file.buffer);
 
-    return { sourceUrl: `uploads/${filename}` };
+    return { sourceUrl: absolutePath };
   }
 }

@@ -16,10 +16,10 @@ Upload video -> Transcript (ASR) -> Auto-clip (deteksi momen menarik) -> Caption
 |---|---|
 | Frontend | Next.js + TypeScript |
 | Backend API | NestJS |
-| Database | PostgreSQL (via Prisma ORM di `apps/api`) |
+| Database | PostgreSQL (via Prisma ORM di `packages/database`, dipakai `apps/api` & `apps/worker`) |
 | Queue / Cache | Redis + BullMQ |
 | Video processing | FFmpeg cluster (worker nodes terpisah) |
-| ASR (speech-to-text) | Whisper |
+| ASR (speech-to-text) | Whisper (OpenAI audio transcription API) |
 
 ## Struktur Monorepo
 
@@ -30,6 +30,7 @@ apps/
   worker/     # Job consumer — ASR (Whisper), auto-clip detection, FFmpeg render, captioning
 packages/
   shared/     # Tipe TypeScript, DTO, konstanta, util yang dipakai lintas apps
+  database/   # Prisma schema/client Postgres, dipakai apps/api dan apps/worker
 ```
 
 - `apps/web` dan `apps/api` hanya berkomunikasi lewat HTTP API — tidak ada import langsung antar keduanya.
@@ -52,7 +53,9 @@ Setiap tahap adalah job terpisah di BullMQ (bukan satu job monolitik) agar retry
 - **Worker dipisah dari API** supaya FFmpeg cluster dan proses ASR yang CPU/GPU-intensive bisa di-scale terpisah dari layer API yang menangani traffic HTTP.
 - **PostgreSQL sebagai source of truth** untuk status job dan metadata video/klip; Redis hanya untuk antrian (BullMQ) dan cache, bukan penyimpanan permanen.
 - **Status video/klip berbentuk state machine linear** (`UPLOADED -> TRANSCRIBED -> CLIPS_DETECTED -> RENDERED`) yang disimpan di PostgreSQL agar frontend bisa polling progres secara konsisten.
-- **Prisma sebagai satu-satunya akses ke PostgreSQL** di `apps/api` (model: `User`, `Video`, `TranscriptSegment`, `Clip` — lihat `apps/api/prisma/schema.prisma`). Transcript segment disimpan per-video (bukan diduplikasi per-klip); transcript sebuah klip didapat dengan query segment dalam rentang `startTime`-`endTime` klip tersebut.
+- **Prisma di `packages/database` sebagai satu-satunya akses ke PostgreSQL**, dipakai baik oleh `apps/api` maupun `apps/worker` (model: `User`, `Video`, `TranscriptSegment`, `Clip` — lihat `packages/database/prisma/schema.prisma`). Transcript segment disimpan per-video (bukan diduplikasi per-klip); transcript sebuah klip didapat dengan query segment dalam rentang `startTime`-`endTime` klip tersebut.
+- **Video disimpan di local disk untuk MVP** (`apps/api/src/storage`), dengan `Video.sourceUrl` berupa absolute path (bukan path relatif) supaya `apps/worker` — proses terpisah dengan cwd berbeda — bisa langsung baca file yang sama tanpa perlu tahu `UPLOAD_DIR` milik `apps/api`. Ganti implementasi `StorageService` untuk pindah ke object storage nanti.
+- **Worker meng-update status video sendiri** setelah job selesai (mis. `transcribe` job set status `TRANSCRIBED` setelah berhasil, atau `FAILED` kalau error), bukan lewat callback ke `apps/api`.
 
 ## Konvensi Coding
 
