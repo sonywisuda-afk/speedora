@@ -1,11 +1,13 @@
-import { createReadStream } from 'node:fs';
+import * as path from 'node:path';
 import { VideoStatus } from '@viral-clip-app/database';
 import {
   QueueName,
   type TranscribeJobData,
   type TranscribeJobResult,
 } from '@viral-clip-app/shared';
+import { getObjectStream } from '@viral-clip-app/storage';
 import { Worker, type Job } from 'bullmq';
+import { toFile } from 'openai';
 import { openai } from '../openai';
 import { prisma } from '../prisma';
 import { detectClipsQueue } from '../queues';
@@ -19,8 +21,14 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
       console.log(`[transcribe] processing video ${videoId} from ${sourceUrl}`);
 
       try {
+        // sourceUrl is an object storage key; stream it straight from the
+        // bucket into Whisper without ever touching local disk (unlike
+        // render-clip, which needs a real file for ffmpeg to seek within).
+        const stream = await getObjectStream(sourceUrl);
+        const file = await toFile(stream, path.basename(sourceUrl));
+
         const transcription = await openai.audio.transcriptions.create({
-          file: createReadStream(sourceUrl),
+          file,
           model: 'whisper-1',
           response_format: 'verbose_json',
           timestamp_granularities: ['segment'],

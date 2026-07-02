@@ -1,23 +1,18 @@
 import { randomUUID } from 'node:crypto';
 import { mkdir, unlink } from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 
-// Reuses the UPLOAD_DIR env var apps/api uses for source uploads, so there's
-// one setting to point at a shared volume in production. Resolved against
-// this process's own cwd (like apps/api's StorageService does), so with the
-// relative local-dev default they land in different physical folders - that's
-// fine, since apps/worker is the sole writer and stores the resulting
-// absolute path in Clip.outputUrl for anyone else to read later.
-const outputDir = path.resolve(process.cwd(), process.env.UPLOAD_DIR ?? 'uploads', 'renders');
+// Pure scratch space for render-clip - ffmpeg needs a real local file to
+// seek within, and there's no way around downloading the source and
+// writing the output locally first. This is not persisted storage; every
+// file written here is deleted once the job finishes (success or not).
+// The actual persisted files live in object storage (@viral-clip-app/storage).
+const scratchDir = path.join(os.tmpdir(), 'viral-clip-app');
 
-export async function reserveClipOutputPath(clipId: string): Promise<string> {
-  await mkdir(outputDir, { recursive: true });
-  return path.join(outputDir, `${clipId}-${randomUUID()}.mp4`);
-}
-
-export async function reserveSrtPath(clipId: string): Promise<string> {
-  await mkdir(outputDir, { recursive: true });
-  return path.join(outputDir, `${clipId}-${randomUUID()}.srt`);
+export async function reserveScratchPath(prefix: string, ext: string): Promise<string> {
+  await mkdir(scratchDir, { recursive: true });
+  return path.join(scratchDir, `${prefix}-${randomUUID()}${ext}`);
 }
 
 export async function cleanupTempFile(filePath: string): Promise<void> {

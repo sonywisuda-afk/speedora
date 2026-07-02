@@ -1,28 +1,22 @@
 import { Injectable } from '@nestjs/common';
+import { uploadObject } from '@viral-clip-app/storage';
 import { randomUUID } from 'node:crypto';
-import { mkdir, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 
 export interface StoredFile {
-  // Absolute path stored as Video.sourceUrl, so apps/worker (a separate
-  // process/cwd) can read it directly without resolving against apps/api's
-  // UPLOAD_DIR. Swap this service's implementation for a cloud-backed one
-  // (returning a real URL) to move off local disk.
+  // Object storage key stored as Video.sourceUrl (not a local path or a
+  // full URL) - apps/worker reads the same key directly from the same
+  // bucket, so there's no cross-process filesystem concern at all here.
   sourceUrl: string;
 }
 
 @Injectable()
 export class StorageService {
-  private readonly uploadDir = path.resolve(process.cwd(), process.env.UPLOAD_DIR ?? 'uploads');
-
   async saveVideo(file: Express.Multer.File): Promise<StoredFile> {
-    await mkdir(this.uploadDir, { recursive: true });
-
     const ext = path.extname(file.originalname).toLowerCase();
-    const filename = `${randomUUID()}${ext}`;
-    const absolutePath = path.join(this.uploadDir, filename);
-    await writeFile(absolutePath, file.buffer);
+    const key = `videos/${randomUUID()}${ext}`;
+    await uploadObject(key, file.buffer, file.mimetype);
 
-    return { sourceUrl: absolutePath };
+    return { sourceUrl: key };
   }
 }

@@ -1,4 +1,5 @@
 import { Controller, Get, Param, Res, UseGuards } from '@nestjs/common';
+import { getObjectStream } from '@viral-clip-app/storage';
 import type { Response } from 'express';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -13,6 +14,10 @@ export class ClipsController {
   @Get(':id/download')
   async download(@CurrentUser() user: SafeUser, @Param('id') id: string, @Res() res: Response) {
     const clip = await this.clipsService.findRenderedOrThrow(id, user.id);
-    res.download(clip.outputUrl as string, `clip-${clip.id}.mp4`);
+    const stream = await getObjectStream(clip.outputUrl as string);
+
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Content-Disposition', `attachment; filename="clip-${clip.id}.mp4"`);
+    stream.pipe(res);
   }
 }

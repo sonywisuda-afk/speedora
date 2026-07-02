@@ -32,6 +32,9 @@ jobs:
       - name: Build packages/database
         run: pnpm --filter @viral-clip-app/database build
 
+      - name: Build packages/storage
+        run: pnpm --filter @viral-clip-app/storage build
+
       - name: Lint
         run: pnpm --filter @viral-clip-app/worker lint
 
