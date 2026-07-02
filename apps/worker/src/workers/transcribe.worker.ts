@@ -48,6 +48,7 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
 
         return { videoId, segments };
       } catch (error) {
+        console.error(`[transcribe] video ${videoId} failed:`, error);
         await prisma.video.update({
           where: { id: videoId },
           data: { status: VideoStatus.FAILED },

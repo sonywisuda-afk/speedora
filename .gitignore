@@ -37,3 +37,4 @@ coverage/
 
 # local file uploads (dev-only storage backend)
 apps/api/uploads/
+apps/worker/uploads/

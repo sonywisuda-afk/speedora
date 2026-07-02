@@ -9,6 +9,7 @@ import {
 import { Worker, type Job } from 'bullmq';
 import { openai } from '../openai';
 import { prisma } from '../prisma';
+import { renderClipQueue } from '../queues';
 import { createRedisConnection } from '../redis';
 
 const MAX_CANDIDATES = 3;
@@ -133,15 +134,36 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
           startTime: clip.startTime,
           endTime: clip.endTime,
           viralityScore: clip.viralityScore,
+          // Overlap (not strict containment) - clip.startTime/endTime round-trip
+          // through Postgres float storage, so exact boundary comparisons are
+          // fragile to precision drift. render-clip's buildSrt() clamps/trims
+          // each segment to the clip window anyway.
           transcript: segments.filter(
-            (segment) => segment.start >= clip.startTime && segment.end <= clip.endTime,
+            (segment) => segment.end > clip.startTime && segment.start < clip.endTime,
           ),
         }));
 
         console.log(`[detect-clips] video ${videoId} -> ${candidates.length} candidates`);
 
+        if (candidates.length > 0) {
+          const video = await prisma.video.findUniqueOrThrow({ where: { id: videoId } });
+          await Promise.all(
+            candidates.map((candidate) =>
+              renderClipQueue.add(QueueName.RENDER_CLIP, {
+                clipId: candidate.id,
+                videoId: candidate.videoId,
+                sourceUrl: video.sourceUrl,
+                startTime: candidate.startTime,
+                endTime: candidate.endTime,
+                transcript: candidate.transcript,
+              }),
+            ),
+          );
+        }
+
         return { videoId, candidates };
       } catch (error) {
+        console.error(`[detect-clips] video ${videoId} failed:`, error);
         await prisma.video.update({
           where: { id: videoId },
           data: { status: VideoStatus.FAILED },
