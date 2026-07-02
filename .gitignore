@@ -9,6 +9,10 @@ build/
 out/
 packages/database/src/generated/
 
+# MediaPipe face detector model - fetched from its canonical source (see
+# apps/worker/Dockerfile and README.md), not tracked in git as a binary blob.
+apps/worker/models/
+
 # env
 .env
 .env.local

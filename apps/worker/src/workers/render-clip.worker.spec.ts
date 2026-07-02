@@ -23,9 +23,25 @@ jest.mock('node:fs/promises', () => ({
 
 const buildSrtMock = jest.fn();
 const renderClipMock = jest.fn();
+const getVideoDimensionsMock = jest.fn();
 jest.mock('../ffmpeg', () => ({
   buildSrt: (...args: unknown[]) => buildSrtMock(...args),
   renderClip: (...args: unknown[]) => renderClipMock(...args),
+  getVideoDimensions: (...args: unknown[]) => getVideoDimensionsMock(...args),
+}));
+
+const detectFacesMock = jest.fn();
+jest.mock('../faceDetection', () => ({
+  detectFaces: (...args: unknown[]) => detectFacesMock(...args),
+}));
+
+const computeCropDimensionsMock = jest.fn();
+const buildCropPathMock = jest.fn();
+const buildSendCmdScriptMock = jest.fn();
+jest.mock('../reframe', () => ({
+  computeCropDimensions: (...args: unknown[]) => computeCropDimensionsMock(...args),
+  buildCropPath: (...args: unknown[]) => buildCropPathMock(...args),
+  buildSendCmdScript: (...args: unknown[]) => buildSendCmdScriptMock(...args),
 }));
 
 let scratchCounter = 0;
@@ -99,6 +115,11 @@ describe('render-clip worker', () => {
     clipUpdateMock.mockResolvedValue({});
     videoUpdateMock.mockResolvedValue({});
     cleanupTempFileMock.mockResolvedValue(undefined);
+    getVideoDimensionsMock.mockResolvedValue({ width: 320, height: 240 });
+    computeCropDimensionsMock.mockReturnValue({ width: 136, height: 240 });
+    detectFacesMock.mockResolvedValue([{ t: 0, box: null }]);
+    buildCropPathMock.mockReturnValue(null); // no face -> static center-crop by default
+    buildSendCmdScriptMock.mockReturnValue('0 crop@reframe x 10, crop@reframe y 0;');
   });
 
   it('downloads the source, renders with captions, uploads the result, and marks the video RENDERED once all clips are done', async () => {
@@ -136,6 +157,7 @@ describe('render-clip worker', () => {
       where: { id: 'video-1' },
       data: { status: VideoStatus.RENDERED },
     });
+    // source + captions + output - no reframe-cmds file (no face detected).
     expect(cleanupTempFileMock).toHaveBeenCalledTimes(3);
     expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
   });
@@ -163,8 +185,85 @@ describe('render-clip worker', () => {
     expect(reserveScratchPathMock).not.toHaveBeenCalledWith('captions', '.srt');
     expect(writeFileMock).not.toHaveBeenCalled();
     expect(renderClipMock).toHaveBeenCalledWith(expect.objectContaining({ srtPath: null }));
-    // Only source + output scratch files created and cleaned up, no srt.
+    // Only source + output scratch files created and cleaned up, no srt, no reframe-cmds.
     expect(cleanupTempFileMock).toHaveBeenCalledTimes(2);
+  });
+
+  describe('smart reframe', () => {
+    it('falls back to a static center-crop when no face is detected anywhere in the clip', async () => {
+      buildSrtMock.mockReturnValue('');
+      clipFindManyMock.mockResolvedValue([{ id: 'clip-1', outputUrl: 'renders/clip-1.mp4' }]);
+      buildCropPathMock.mockReturnValue(null);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(getVideoDimensionsMock).toHaveBeenCalledWith(expect.stringContaining('source'));
+      expect(detectFacesMock).toHaveBeenCalledWith(expect.stringContaining('source'), 10, 20);
+      expect(renderClipMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reframe: {
+            width: 136,
+            height: 240,
+            x: Math.round((320 - 136) / 2),
+            y: Math.round((240 - 240) / 2),
+            sendCmdPath: null,
+          },
+        }),
+      );
+      // No reframe-cmds scratch file created for a static crop.
+      expect(reserveScratchPathMock).not.toHaveBeenCalledWith('reframe-cmds', '.txt');
+    });
+
+    it('writes a sendcmd file and passes a moving reframe plan when a face is detected', async () => {
+      buildSrtMock.mockReturnValue('');
+      clipFindManyMock.mockResolvedValue([{ id: 'clip-1', outputUrl: 'renders/clip-1.mp4' }]);
+      const cropPath = [
+        { t: 0, x: 10, y: 0 },
+        { t: 0.2, x: 20, y: 0 },
+      ];
+      buildCropPathMock.mockReturnValue(cropPath);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(reserveScratchPathMock).toHaveBeenCalledWith('reframe-cmds', '.txt');
+      expect(buildSendCmdScriptMock).toHaveBeenCalledWith(cropPath, 'crop@reframe');
+      expect(writeFileMock).toHaveBeenCalledWith(
+        expect.stringContaining('reframe-cmds'),
+        '0 crop@reframe x 10, crop@reframe y 0;',
+      );
+      expect(renderClipMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reframe: expect.objectContaining({
+            width: 136,
+            height: 240,
+            x: 10,
+            y: 0,
+            sendCmdPath: expect.stringContaining('reframe-cmds'),
+          }),
+        }),
+      );
+      // source + output + reframe-cmds all cleaned up (no captions this time).
+      expect(cleanupTempFileMock).toHaveBeenCalledTimes(3);
+    });
+
+    it('falls back to a static center-crop without failing the job when face detection itself throws', async () => {
+      buildSrtMock.mockReturnValue('');
+      clipFindManyMock.mockResolvedValue([{ id: 'clip-1', outputUrl: 'renders/clip-1.mp4' }]);
+      detectFacesMock.mockRejectedValue(new Error('python3 not found'));
+
+      const processor = getProcessor();
+      const result = await processor({ data: baseJobData });
+
+      expect(renderClipMock).toHaveBeenCalledWith(
+        expect.objectContaining({ reframe: expect.objectContaining({ sendCmdPath: null }) }),
+      );
+      expect(videoUpdateMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: VideoStatus.FAILED } }),
+      );
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+    });
   });
 
   it('marks the video FAILED, rethrows, and still cleans up scratch files when rendering fails', async () => {
@@ -181,7 +280,8 @@ describe('render-clip worker', () => {
     });
     expect(uploadObjectMock).not.toHaveBeenCalled();
     expect(clipUpdateMock).not.toHaveBeenCalled();
-    // source + captions + output were all reserved before renderClip threw.
+    // source + captions + output were all reserved before renderClip threw
+    // (no reframe-cmds this run - no face detected).
     expect(cleanupTempFileMock).toHaveBeenCalledTimes(3);
   });
 });
