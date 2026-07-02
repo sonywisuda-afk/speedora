@@ -5,13 +5,15 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   clipDownloadUrl,
   getVideo,
-  resolveUser,
+  login,
+  logout,
+  me,
+  register,
   uploadVideo,
+  type UserDto,
   type VideoWithClipsDto,
 } from '../lib/api';
 
-const USER_STORAGE_KEY = 'viral-clip-app:userId';
-const USER_EMAIL_STORAGE_KEY = 'viral-clip-app:userEmail';
 const POLL_INTERVAL_MS = 2000;
 
 const STEPS: VideoStatus[] = [
@@ -30,10 +32,14 @@ const STEP_LABELS: Record<VideoStatus, string> = {
 };
 
 export default function Home() {
-  const [userId, setUserId] = useState<string | null>(null);
+  const [checkingAuth, setCheckingAuth] = useState(true);
+  const [user, setUser] = useState<UserDto | null>(null);
+
+  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
-  const [resolvingUser, setResolvingUser] = useState(false);
-  const [userError, setUserError] = useState<string | null>(null);
+  const [password, setPassword] = useState('');
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -41,10 +47,9 @@ export default function Home() {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const storedUserId = localStorage.getItem(USER_STORAGE_KEY);
-    const storedEmail = localStorage.getItem(USER_EMAIL_STORAGE_KEY);
-    if (storedUserId) setUserId(storedUserId);
-    if (storedEmail) setEmail(storedEmail);
+    me()
+      .then(setUser)
+      .finally(() => setCheckingAuth(false));
   }, []);
 
   useEffect(() => {
@@ -64,31 +69,39 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [video]);
 
-  async function handleResolveUser(e: FormEvent) {
+  async function handleAuthSubmit(e: FormEvent) {
     e.preventDefault();
-    setUserError(null);
-    setResolvingUser(true);
+    setAuthError(null);
+    setAuthSubmitting(true);
     try {
-      const user = await resolveUser(email);
-      localStorage.setItem(USER_STORAGE_KEY, user.id);
-      localStorage.setItem(USER_EMAIL_STORAGE_KEY, user.email);
-      setUserId(user.id);
+      const authedUser =
+        authMode === 'login' ? await login(email, password) : await register(email, password);
+      setUser(authedUser);
+      setPassword('');
     } catch (err) {
-      setUserError(err instanceof Error ? err.message : 'Could not resolve user');
+      setAuthError(err instanceof Error ? err.message : 'Something went wrong');
     } finally {
-      setResolvingUser(false);
+      setAuthSubmitting(false);
     }
+  }
+
+  async function handleLogout() {
+    await logout();
+    setUser(null);
+    setVideo(null);
+    setEmail('');
+    setPassword('');
   }
 
   async function handleUpload(e: FormEvent) {
     e.preventDefault();
     const file = fileInputRef.current?.files?.[0];
-    if (!file || !userId) return;
+    if (!file) return;
 
     setUploadError(null);
     setUploading(true);
     try {
-      const uploaded = await uploadVideo(userId, file);
+      const uploaded = await uploadVideo(file);
       setVideo({ ...uploaded, clips: [] });
     } catch (err) {
       setUploadError(err instanceof Error ? err.message : 'Upload failed');
@@ -111,13 +124,17 @@ export default function Home() {
           Upload a video and get auto-clipped, captioned highlights.
         </p>
 
-        {!userId ? (
+        {checkingAuth ? null : !user ? (
           <form
-            onSubmit={handleResolveUser}
+            onSubmit={handleAuthSubmit}
             className="mt-8 rounded-lg border border-neutral-200 bg-white p-6 shadow-sm"
           >
-            <label htmlFor="email" className="block text-sm font-medium">
-              Your email
+            <h2 className="text-sm font-medium">
+              {authMode === 'login' ? 'Log in' : 'Create an account'}
+            </h2>
+
+            <label htmlFor="email" className="mt-4 block text-sm font-medium">
+              Email
             </label>
             <input
               id="email"
@@ -128,20 +145,54 @@ export default function Home() {
               className="mt-2 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
               placeholder="you@example.com"
             />
-            {userError && <p className="mt-2 text-sm text-red-600">{userError}</p>}
+
+            <label htmlFor="password" className="mt-4 block text-sm font-medium">
+              Password
+            </label>
+            <input
+              id="password"
+              type="password"
+              required
+              minLength={8}
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="mt-2 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
+              placeholder="At least 8 characters"
+            />
+
+            {authError && <p className="mt-2 text-sm text-red-600">{authError}</p>}
+
             <button
               type="submit"
-              disabled={resolvingUser}
+              disabled={authSubmitting}
               className="mt-4 rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
             >
-              {resolvingUser ? 'Continuing...' : 'Continue'}
+              {authSubmitting ? 'Please wait...' : authMode === 'login' ? 'Log in' : 'Register'}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => {
+                setAuthMode(authMode === 'login' ? 'register' : 'login');
+                setAuthError(null);
+              }}
+              className="mt-4 block text-sm text-neutral-600 underline"
+            >
+              {authMode === 'login'
+                ? "Don't have an account? Register"
+                : 'Already have an account? Log in'}
             </button>
           </form>
         ) : (
           <>
-            <p className="mt-6 text-sm text-neutral-600">
-              Signed in as <span className="font-medium">{email}</span>
-            </p>
+            <div className="mt-6 flex items-center justify-between">
+              <p className="text-sm text-neutral-600">
+                Signed in as <span className="font-medium">{user.email}</span>
+              </p>
+              <button onClick={handleLogout} className="text-sm text-neutral-600 underline">
+                Log out
+              </button>
+            </div>
 
             {!video ? (
               <form

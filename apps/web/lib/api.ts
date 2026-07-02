@@ -40,21 +40,45 @@ async function parseJsonOrThrow<T>(res: Response): Promise<T> {
   return body as T;
 }
 
-export async function resolveUser(email: string): Promise<UserDto> {
-  const res = await fetch(`${API_URL}/users`, {
+// The auth session lives in an httpOnly cookie set by apps/api, so every
+// request needs credentials: 'include' to send/receive it cross-origin.
+function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  return fetch(`${API_URL}${path}`, { ...init, credentials: 'include' });
+}
+
+export async function register(email: string, password: string): Promise<UserDto> {
+  const res = await apiFetch('/auth/register', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email }),
+    body: JSON.stringify({ email, password }),
   });
   return parseJsonOrThrow<UserDto>(res);
 }
 
-export async function uploadVideo(ownerId: string, file: File): Promise<VideoDto> {
+export async function login(email: string, password: string): Promise<UserDto> {
+  const res = await apiFetch('/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password }),
+  });
+  return parseJsonOrThrow<UserDto>(res);
+}
+
+export async function logout(): Promise<void> {
+  await apiFetch('/auth/logout', { method: 'POST' });
+}
+
+export async function me(): Promise<UserDto | null> {
+  const res = await apiFetch('/auth/me');
+  if (res.status === 401) return null;
+  return parseJsonOrThrow<UserDto>(res);
+}
+
+export async function uploadVideo(file: File): Promise<VideoDto> {
   const formData = new FormData();
-  formData.append('ownerId', ownerId);
   formData.append('file', file);
 
-  const res = await fetch(`${API_URL}/videos`, {
+  const res = await apiFetch('/videos', {
     method: 'POST',
     body: formData,
   });
@@ -62,7 +86,7 @@ export async function uploadVideo(ownerId: string, file: File): Promise<VideoDto
 }
 
 export async function getVideo(id: string): Promise<VideoWithClipsDto> {
-  const res = await fetch(`${API_URL}/videos/${id}`);
+  const res = await apiFetch(`/videos/${id}`);
   return parseJsonOrThrow<VideoWithClipsDto>(res);
 }
 
