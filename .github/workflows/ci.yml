@@ -31,6 +31,9 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      - name: Build packages/shared
+        run: pnpm --filter @viral-clip-app/shared build
+
       - name: Typecheck
         run: pnpm typecheck
 
