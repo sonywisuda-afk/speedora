@@ -3,20 +3,8 @@ name: CI (worker)
 on:
   push:
     branches: [master]
-    paths:
-      - 'apps/worker/**'
-      - 'packages/shared/**'
-      - 'packages/database/**'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/ci-worker.yml'
   pull_request:
     branches: [master]
-    paths:
-      - 'apps/worker/**'
-      - 'packages/shared/**'
-      - 'packages/database/**'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/ci-worker.yml'
 
 jobs:
   build:
