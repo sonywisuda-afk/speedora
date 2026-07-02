@@ -1,3 +1,8 @@
+import * as path from 'node:path';
+import { config } from 'dotenv';
+
+config({ path: path.resolve(__dirname, '../../../.env'), quiet: true });
+
 import { createTranscribeWorker } from './workers/transcribe.worker';
 import { createDetectClipsWorker } from './workers/detect-clips.worker';
 import { createRenderClipWorker } from './workers/render-clip.worker';
