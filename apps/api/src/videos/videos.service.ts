@@ -1,7 +1,12 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { Injectable, NotFoundException } from '@nestjs/common';
-import type { Prisma } from '@viral-clip-app/database';
-import { QueueName, type TranscribeJobData } from '@viral-clip-app/shared';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { VideoStatus, type Prisma } from '@viral-clip-app/database';
+import {
+  QueueName,
+  type DetectClipsJobData,
+  type RenderClipJobData,
+  type TranscribeJobData,
+} from '@viral-clip-app/shared';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
@@ -14,6 +19,9 @@ export class VideosService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     @InjectQueue(QueueName.TRANSCRIBE) private readonly transcribeQueue: Queue<TranscribeJobData>,
+    @InjectQueue(QueueName.DETECT_CLIPS)
+    private readonly detectClipsQueue: Queue<DetectClipsJobData>,
+    @InjectQueue(QueueName.RENDER_CLIP) private readonly renderClipQueue: Queue<RenderClipJobData>,
   ) {}
 
   async upload(ownerId: string, file: Express.Multer.File) {
@@ -39,6 +47,84 @@ export class VideosService {
     });
 
     return videos.map((video) => this.mapVideoWithClips(video));
+  }
+
+  // Re-enqueues whichever stage actually failed, inferred from what data
+  // already exists rather than a stored "failed at" marker: no transcript
+  // segments means transcribe never finished, segments-but-no-clips means
+  // detect-clips never finished, and clips-without-outputUrl means one or
+  // more render-clip jobs failed (each clip renders independently, so a
+  // single failed clip doesn't imply the others need retrying too). Safe
+  // because transcribe and detect-clips each persist their output and
+  // advance status in the same step (see transcribe.worker.ts/
+  // detect-clips.worker.ts) - if the job's own catch block ran, that step's
+  // data was never written.
+  async retry(id: string, requesterId: string) {
+    const video = await this.prisma.video.findUnique({
+      where: { id },
+      include: { clips: true, transcriptSegments: true },
+    });
+
+    if (!video || video.ownerId !== requesterId) {
+      throw new NotFoundException(`Video ${id} not found`);
+    }
+    if (video.status !== VideoStatus.FAILED) {
+      throw new BadRequestException('Only a failed video can be retried');
+    }
+
+    if (video.transcriptSegments.length === 0) {
+      await this.prisma.video.update({
+        where: { id },
+        data: { status: VideoStatus.UPLOADED },
+      });
+      await this.transcribeQueue.add(QueueName.TRANSCRIBE, {
+        videoId: id,
+        sourceUrl: video.sourceUrl,
+      });
+    } else if (video.clips.length === 0) {
+      await this.prisma.video.update({
+        where: { id },
+        data: { status: VideoStatus.TRANSCRIBED },
+      });
+      await this.detectClipsQueue.add(QueueName.DETECT_CLIPS, {
+        videoId: id,
+        segments: video.transcriptSegments,
+      });
+    } else {
+      const unrendered = video.clips.filter((clip) => !clip.outputUrl);
+
+      if (unrendered.length === 0) {
+        // Nothing left to redo - every clip already has output. Shouldn't
+        // normally happen (status only becomes FAILED from an active job's
+        // catch block), but self-heal rather than error if it does.
+        await this.prisma.video.update({
+          where: { id },
+          data: { status: VideoStatus.RENDERED },
+        });
+        return this.findOne(id, requesterId);
+      }
+
+      await this.prisma.video.update({
+        where: { id },
+        data: { status: VideoStatus.CLIPS_DETECTED },
+      });
+      await Promise.all(
+        unrendered.map((clip) =>
+          this.renderClipQueue.add(QueueName.RENDER_CLIP, {
+            clipId: clip.id,
+            videoId: id,
+            sourceUrl: video.sourceUrl,
+            startTime: clip.startTime,
+            endTime: clip.endTime,
+            transcript: video.transcriptSegments.filter(
+              (segment) => segment.end > clip.startTime && segment.start < clip.endTime,
+            ),
+          }),
+        ),
+      );
+    }
+
+    return this.findOne(id, requesterId);
   }
 
   async findOne(id: string, requesterId: string) {

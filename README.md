@@ -150,6 +150,7 @@ Endpoint utama di `apps/api`. Semua endpoint kecuali `/auth/register`, `/auth/lo
 | `POST /videos` | Upload video (`multipart/form-data`: `file`), `ownerId` diambil dari sesi — bukan dari body. Enqueue job `transcribe` |
 | `GET /videos` | Semua video milik user yang sedang login (terbaru dulu), masing-masing dengan `clips` |
 | `GET /videos/:id` | Detail video + daftar `clips` (masing-masing dengan `downloadUrl` kalau sudah di-render). 404 kalau video bukan milik user yang sedang login |
+| `POST /videos/:id/retry` | Retry video berstatus `FAILED` — re-enqueue tahap yang belum selesai (disimpulkan dari data yang sudah ada, lihat `CLAUDE.md`). 400 kalau video bukan `FAILED`, 404 kalau bukan milik user yang sedang login |
 | `GET /clips/:id/download` | Stream file klip yang sudah di-render sebagai download. 404 kalau klip bukan milik user yang sedang login |
 | `GET /health` | Health check (tanpa auth) untuk load balancer/orchestrator — `200 {"status":"ok"}` kalau Postgres bisa dijangkau, `503` kalau tidak |
 

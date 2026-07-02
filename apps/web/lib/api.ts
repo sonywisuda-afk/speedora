@@ -90,6 +90,11 @@ export async function getVideo(id: string): Promise<VideoWithClipsDto> {
   return parseJsonOrThrow<VideoWithClipsDto>(res);
 }
 
+export async function retryVideo(id: string): Promise<VideoWithClipsDto> {
+  const res = await apiFetch(`/videos/${id}/retry`, { method: 'POST' });
+  return parseJsonOrThrow<VideoWithClipsDto>(res);
+}
+
 export async function listVideos(): Promise<VideoWithClipsDto[]> {
   const res = await apiFetch('/videos');
   return parseJsonOrThrow<VideoWithClipsDto[]>(res);

@@ -44,4 +44,9 @@ export class VideosController {
   findOne(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.videosService.findOne(id, user.id);
   }
+
+  @Post(':id/retry')
+  retry(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    return this.videosService.retry(id, user.id);
+  }
 }
