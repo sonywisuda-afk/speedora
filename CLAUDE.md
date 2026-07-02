@@ -43,7 +43,7 @@ packages/
 2. **Transcript** — `apps/api` enqueue job `transcribe` ke BullMQ. `apps/worker` menjalankan Whisper, hasil transcript (dengan timestamp) disimpan ke PostgreSQL. Status -> `TRANSCRIBED`.
 3. **Auto-clip** — job `detect-clips` (dienqueue oleh `apps/worker` sendiri begitu `transcribe` sukses, bukan oleh `apps/api`) mengirim transcript ke LLM (GPT) untuk memilih 1-3 momen paling menarik/viral-worthy sebagai kandidat klip (start/end timestamp + virality score 0-100). Menghasilkan daftar kandidat klip. Status -> `CLIPS_DETECTED`.
 4. **Caption** — untuk tiap kandidat klip, `detect-clips` yang sukses langsung enqueue satu job `render-clip` (self-chain, sama seperti `transcribe` -> `detect-clips`). `render-clip` memotong video dengan FFmpeg sesuai timestamp klip, generate file SRT dari transcript (timestamp digeser relatif ke awal klip), lalu burn-in sebagai subtitle ke video hasil potongan. `Clip.outputUrl` di-set setelah render sukses; `Video.status` -> `RENDERED` baru setelah **semua** klip milik video tersebut selesai di-render (bukan begitu klip pertama selesai).
-5. **Download** — `apps/web` polling/menerima notifikasi status, lalu menyediakan link download klip hasil render dari object storage.
+5. **Download** — `apps/web` polling `GET /videos/:id` tiap 2 detik sampai status `RENDERED` atau `FAILED`, lalu menampilkan daftar klip dengan link `GET /clips/:id/download` (apps/api streaming file dari `Clip.outputUrl`, path lokal yang ditulis `apps/worker`).
 
 Setiap tahap adalah job terpisah di BullMQ (bukan satu job monolitik) agar retry granular per-tahap dan agar FFmpeg cluster bisa discale independen dari proses ASR.
 
@@ -59,6 +59,9 @@ Setiap tahap adalah job terpisah di BullMQ (bukan satu job monolitik) agar retry
 - **Worker self-chains job berikutnya dalam pipeline**: `transcribe` job yang sukses langsung enqueue job `detect-clips` sendiri, dan `detect-clips` yang sukses langsung enqueue satu job `render-clip` per kandidat klip (lihat `apps/worker/src/queues.ts`), bukan lewat `apps/api`. Orkestrasi antar-tahap pipeline berada di `apps/worker`, bukan di layer API.
 - **FFmpeg dipanggil langsung via `child_process`** (bukan wrapper library seperti `fluent-ffmpeg`) dari `apps/worker/src/ffmpeg.ts`. Butuh binary FFmpeg tersedia (di `PATH`, atau via `FFMPEG_PATH`) di environment tempat `apps/worker` jalan.
 - **Render output disimpan di local disk juga** (subfolder `renders/` di bawah `UPLOAD_DIR`, lihat `apps/worker/src/storage.ts`), konsisten dengan keputusan storage video asli — `apps/worker` satu-satunya penulis file ini, jadi tidak ada masalah cross-process path resolution seperti pada upload.
+- **`POST /users` (get-or-create by email) sebagai placeholder identitas** sampai ada sistem auth beneran. `apps/web` resolve email -> `userId` sekali, simpan di `localStorage`, pakai untuk semua upload berikutnya. Endpoint ini sengaja tanpa password/verifikasi — jangan dianggap sebagai auth.
+- **`GET /videos/:id` tidak mengembalikan `Clip.outputUrl` mentah** (absolute path filesystem server) ke client; di-map jadi `downloadUrl` (`/clips/:id/download` relatif) supaya detail implementasi storage tidak bocor ke API response.
+- **CORS di `apps/api` di-enable eksplisit** (`WEB_ORIGIN`, default `http://localhost:3000`) supaya `apps/web` (origin beda, port 3000) bisa manggil `apps/api` (port 3001) dari browser.
 
 ## Konvensi Coding
 

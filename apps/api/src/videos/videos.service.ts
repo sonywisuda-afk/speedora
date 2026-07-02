@@ -34,10 +34,23 @@ export class VideosService {
   }
 
   async findOne(id: string) {
-    const video = await this.prisma.video.findUnique({ where: { id } });
+    const video = await this.prisma.video.findUnique({
+      where: { id },
+      include: { clips: { orderBy: { viralityScore: 'desc' } } },
+    });
     if (!video) {
       throw new NotFoundException(`Video ${id} not found`);
     }
-    return video;
+
+    // Don't leak the server's local filesystem path; the client should hit
+    // the download endpoint instead.
+    const { clips, ...rest } = video;
+    return {
+      ...rest,
+      clips: clips.map(({ outputUrl, ...clip }) => ({
+        ...clip,
+        downloadUrl: outputUrl ? `/clips/${clip.id}/download` : null,
+      })),
+    };
   }
 }
