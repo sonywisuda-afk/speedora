@@ -41,5 +41,8 @@ jobs:
       - name: Typecheck
         run: pnpm --filter @viral-clip-app/worker typecheck
 
+      - name: Test
+        run: pnpm --filter @viral-clip-app/worker test
+
       - name: Build
         run: pnpm --filter @viral-clip-app/worker build

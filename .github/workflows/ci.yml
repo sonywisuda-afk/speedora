@@ -44,5 +44,11 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
+      - name: Test packages/shared
+        run: pnpm --filter @viral-clip-app/shared test
+
+      - name: Test packages/storage
+        run: pnpm --filter @viral-clip-app/storage test
+
       - name: Build
         run: pnpm build

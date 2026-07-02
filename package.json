@@ -11,6 +11,7 @@
     "build": "pnpm --filter @viral-clip-app/shared build && pnpm --filter @viral-clip-app/database build && pnpm --filter @viral-clip-app/storage build && pnpm --filter @viral-clip-app/web build && pnpm --filter @viral-clip-app/api build && pnpm --filter @viral-clip-app/worker build",
     "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
+    "test": "pnpm -r --if-present test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "docker:up": "docker compose up -d",
