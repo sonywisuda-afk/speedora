@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { Nav } from '../../components/Nav';
 import { ProgressSteps } from '../../components/ProgressSteps';
-import { clipDownloadUrl, listVideos, type VideoWithClipsDto } from '../../lib/api';
+import { clipDownloadUrl, listVideos, retryVideo, type VideoWithClipsDto } from '../../lib/api';
 import { useAuth } from '../../lib/useAuth';
 
 const POLL_INTERVAL_MS = 2000;
@@ -18,6 +18,8 @@ export default function Dashboard() {
   const { user, checkingAuth, logout } = useAuth();
   const [videos, setVideos] = useState<VideoWithClipsDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
+  const [retryError, setRetryError] = useState<{ videoId: string; message: string } | null>(null);
   // The interval callback below is created once per user (not re-created on
   // every fetch), so it needs a ref rather than the `videos` state directly
   // to see the latest value instead of whatever it was on mount.
@@ -52,6 +54,22 @@ export default function Dashboard() {
       clearInterval(interval);
     };
   }, [user]);
+
+  async function handleRetry(videoId: string) {
+    setRetryError(null);
+    setRetryingId(videoId);
+    try {
+      const updated = await retryVideo(videoId);
+      setVideos((prev) => prev?.map((v) => (v.id === videoId ? updated : v)) ?? prev);
+    } catch (err) {
+      setRetryError({
+        videoId,
+        message: err instanceof Error ? err.message : 'Retry failed',
+      });
+    } finally {
+      setRetryingId(null);
+    }
+  }
 
   return (
     <main className="min-h-screen bg-neutral-50 px-6 py-12 text-neutral-900">
@@ -95,9 +113,21 @@ export default function Dashboard() {
                     </div>
 
                     {video.status === VideoStatus.FAILED && (
-                      <p className="mt-4 text-sm text-red-600">
-                        Something went wrong processing this video.
-                      </p>
+                      <div className="mt-4">
+                        <p className="text-sm text-red-600">
+                          Something went wrong processing this video.
+                        </p>
+                        {retryError && retryError.videoId === video.id && (
+                          <p className="mt-2 text-sm text-red-600">{retryError.message}</p>
+                        )}
+                        <button
+                          onClick={() => handleRetry(video.id)}
+                          disabled={retryingId === video.id}
+                          className="mt-3 rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                        >
+                          {retryingId === video.id ? 'Retrying...' : 'Retry'}
+                        </button>
+                      </div>
                     )}
 
                     {video.status === VideoStatus.RENDERED && (

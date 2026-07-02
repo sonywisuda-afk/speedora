@@ -9,6 +9,7 @@ import {
   getVideo,
   login,
   register,
+  retryVideo,
   uploadVideo,
   type VideoWithClipsDto,
 } from '../lib/api';
@@ -28,6 +29,8 @@ export default function Home() {
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [video, setVideo] = useState<VideoWithClipsDto | null>(null);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -91,6 +94,20 @@ export default function Home() {
     setVideo(null);
     setUploadError(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  async function handleRetry() {
+    if (!video) return;
+    setRetryError(null);
+    setRetrying(true);
+    try {
+      const updated = await retryVideo(video.id);
+      setVideo(updated);
+    } catch (err) {
+      setRetryError(err instanceof Error ? err.message : 'Retry failed');
+    } finally {
+      setRetrying(false);
+    }
   }
 
   return (
@@ -194,9 +211,19 @@ export default function Home() {
                 <ProgressSteps status={video.status} />
 
                 {video.status === VideoStatus.FAILED && (
-                  <p className="mt-4 text-sm text-red-600">
-                    Something went wrong processing this video.
-                  </p>
+                  <div className="mt-4">
+                    <p className="text-sm text-red-600">
+                      Something went wrong processing this video.
+                    </p>
+                    {retryError && <p className="mt-2 text-sm text-red-600">{retryError}</p>}
+                    <button
+                      onClick={handleRetry}
+                      disabled={retrying}
+                      className="mt-3 rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white disabled:opacity-50"
+                    >
+                      {retrying ? 'Retrying...' : 'Retry'}
+                    </button>
+                  </div>
                 )}
 
                 {video.status === VideoStatus.RENDERED && (

@@ -13,6 +13,12 @@ function parseRedisConnection() {
 }
 
 const transcribeQueue = BullModule.registerQueue({ name: QueueName.TRANSCRIBE });
+// apps/api never processes these two - they're only ever consumed by
+// apps/worker's self-chaining pipeline - but it does need to be able to
+// enqueue into them directly to retry a video that failed partway through
+// detect-clips or render-clip (see VideosService.retry).
+const detectClipsQueue = BullModule.registerQueue({ name: QueueName.DETECT_CLIPS });
+const renderClipQueue = BullModule.registerQueue({ name: QueueName.RENDER_CLIP });
 
 @Module({
   imports: [
@@ -24,7 +30,9 @@ const transcribeQueue = BullModule.registerQueue({ name: QueueName.TRANSCRIBE })
       useFactory: () => ({ connection: parseRedisConnection() }),
     }),
     transcribeQueue,
+    detectClipsQueue,
+    renderClipQueue,
   ],
-  exports: [transcribeQueue],
+  exports: [transcribeQueue, detectClipsQueue, renderClipQueue],
 })
 export class QueueModule {}
