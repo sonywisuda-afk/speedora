@@ -1,0 +1,17 @@
+{
+  "name": "@viral-clip-app/shared",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared TypeScript types, DTOs, and utils used across apps/web, apps/api, and apps/worker.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5"
+  }
+}
