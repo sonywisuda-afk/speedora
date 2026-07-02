@@ -31,6 +31,7 @@
     "@nestjs/throttler": "^6.5.0",
     "@viral-clip-app/database": "workspace:*",
     "@viral-clip-app/shared": "workspace:*",
+    "@viral-clip-app/storage": "workspace:^",
     "bcrypt": "^6.0.0",
     "bullmq": "^5.7.8",
     "class-transformer": "^0.5.1",

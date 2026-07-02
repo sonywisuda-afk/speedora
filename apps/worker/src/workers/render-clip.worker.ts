@@ -1,15 +1,19 @@
-import { writeFile } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { readFile, writeFile } from 'node:fs/promises';
+import * as path from 'node:path';
+import { pipeline } from 'node:stream/promises';
 import { VideoStatus } from '@viral-clip-app/database';
 import {
   QueueName,
   type RenderClipJobData,
   type RenderClipJobResult,
 } from '@viral-clip-app/shared';
+import { getObjectStream, uploadObject } from '@viral-clip-app/storage';
 import { Worker, type Job } from 'bullmq';
 import { buildSrt, renderClip } from '../ffmpeg';
 import { prisma } from '../prisma';
 import { createRedisConnection } from '../redis';
-import { cleanupTempFile, reserveClipOutputPath, reserveSrtPath } from '../storage';
+import { cleanupTempFile, reserveScratchPath } from '../storage';
 
 export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJobResult> {
   return new Worker<RenderClipJobData, RenderClipJobResult>(
@@ -20,21 +24,32 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
         `[render-clip] rendering clip ${clipId} for video ${videoId} (${startTime}s - ${endTime}s)`,
       );
 
+      let sourcePath: string | null = null;
       let srtPath: string | null = null;
+      let outputPath: string | null = null;
 
       try {
+        // ffmpeg needs a real local file to seek within - download the
+        // source from object storage into scratch space first.
+        sourcePath = await reserveScratchPath('source', path.extname(sourceUrl) || '.mp4');
+        const sourceStream = await getObjectStream(sourceUrl);
+        await pipeline(sourceStream, createWriteStream(sourcePath));
+
         const srtContent = buildSrt(transcript, startTime, endTime);
         if (srtContent.length > 0) {
-          srtPath = await reserveSrtPath(clipId);
+          srtPath = await reserveScratchPath('captions', '.srt');
           await writeFile(srtPath, srtContent);
         }
 
-        const outputPath = await reserveClipOutputPath(clipId);
-        await renderClip({ sourceUrl, startTime, endTime, srtPath, outputPath });
+        outputPath = await reserveScratchPath('output', '.mp4');
+        await renderClip({ inputPath: sourcePath, startTime, endTime, srtPath, outputPath });
+
+        const outputKey = `renders/${clipId}.mp4`;
+        await uploadObject(outputKey, await readFile(outputPath), 'video/mp4');
 
         await prisma.clip.update({
           where: { id: clipId },
-          data: { outputUrl: outputPath },
+          data: { outputUrl: outputKey },
         });
 
         const siblingClips = await prisma.clip.findMany({ where: { videoId } });
@@ -46,9 +61,9 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           });
         }
 
-        console.log(`[render-clip] clip ${clipId} -> ${outputPath}`);
+        console.log(`[render-clip] clip ${clipId} -> ${outputKey}`);
 
-        return { clipId, outputUrl: outputPath };
+        return { clipId, outputUrl: outputKey };
       } catch (error) {
         console.error(`[render-clip] clip ${clipId} failed:`, error);
         await prisma.video.update({
@@ -57,9 +72,9 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
         });
         throw error;
       } finally {
-        if (srtPath) {
-          await cleanupTempFile(srtPath);
-        }
+        if (sourcePath) await cleanupTempFile(sourcePath);
+        if (srtPath) await cleanupTempFile(srtPath);
+        if (outputPath) await cleanupTempFile(outputPath);
       }
     },
     { connection: createRedisConnection() },

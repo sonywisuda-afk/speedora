@@ -14,6 +14,7 @@ AI video repurposing platform (mirip OpusClip) — upload video panjang, otomati
 - [pnpm](https://pnpm.io/) 9.x (lihat catatan instalasi di bawah kalau `pnpm` belum ada di PATH)
 - [Docker](https://www.docker.com/) (untuk Postgres + Redis lokal)
 - [FFmpeg](https://ffmpeg.org/) di `PATH` (untuk `apps/worker`'s `render-clip` job — potong video & burn-in caption). Kalau tidak di `PATH`, set `FFMPEG_PATH` di `.env` ke path binary-nya.
+- Bucket object storage S3-compatible (mis. [Cloudflare R2](https://developers.cloudflare.com/r2/), AWS S3, atau kompatibel lainnya) — video upload dan hasil render disimpan di sini, bukan local disk. Isi kredensialnya di `STORAGE_*` env var (lihat `.env.example`).
 
 ### Install pnpm
 
@@ -117,6 +118,7 @@ apps/
 packages/
   shared/     # Tipe TypeScript & util yang dipakai lintas apps
   database/   # Prisma schema/client Postgres, dipakai apps/api dan apps/worker
+  storage/    # Klien object storage S3-compatible (upload/download/delete), dipakai apps/api dan apps/worker
 ```
 
 Detail alur pemrosesan video, keputusan arsitektur, dan konvensi coding ada di [`CLAUDE.md`](./CLAUDE.md).
@@ -130,6 +132,7 @@ Lihat [`.env.example`](./.env.example) untuk daftar lengkap. Yang penting:
 - `NEXT_PUBLIC_API_URL` — base URL API yang dipanggil `apps/web`
 - `OPENAI_API_KEY` — dipakai `apps/worker` untuk transcribe job (Whisper via OpenAI's audio API)
 - `FFMPEG_PATH` — path ke binary FFmpeg, dipakai `apps/worker` untuk render-clip job. Default `ffmpeg` (asumsi ada di `PATH`)
+- `STORAGE_ENDPOINT` / `STORAGE_REGION` / `STORAGE_BUCKET` / `STORAGE_ACCESS_KEY_ID` / `STORAGE_SECRET_ACCESS_KEY` / `STORAGE_FORCE_PATH_STYLE` — kredensial & config bucket object storage S3-compatible (dipakai `packages/storage`, oleh `apps/api` untuk upload video dan `apps/worker` untuk baca source + upload hasil render). Nama var generik (bukan `R2_*`) supaya provider bisa diganti tanpa ubah kode; **isi sendiri di `.env` lokal**, jangan commit nilai asli
 - `WEB_ORIGIN` — origin yang diizinkan CORS di `apps/api` untuk request dari `apps/web`
 - `JWT_SECRET` — secret untuk sign JWT auth. **Generate sendiri** (`openssl rand -hex 32`), jangan pakai default di `.env.example`
 - `JWT_EXPIRES_IN` — masa berlaku token auth. Default `7d`

@@ -45,7 +45,9 @@ export function escapeFfmpegFilterPath(filePath: string): string {
 }
 
 export async function renderClip(options: {
-  sourceUrl: string;
+  // Local file path - ffmpeg can't operate on an object storage key
+  // directly, so the caller must download the source first.
+  inputPath: string;
   startTime: number;
   endTime: number;
   // null when the clip has no overlapping transcript text - a valid case
@@ -55,10 +57,10 @@ export async function renderClip(options: {
   srtPath: string | null;
   outputPath: string;
 }): Promise<void> {
-  const { sourceUrl, startTime, endTime, srtPath, outputPath } = options;
+  const { inputPath, startTime, endTime, srtPath, outputPath } = options;
   const duration = endTime - startTime;
 
-  const args = ['-y', '-ss', startTime.toString(), '-i', sourceUrl, '-t', duration.toString()];
+  const args = ['-y', '-ss', startTime.toString(), '-i', inputPath, '-t', duration.toString()];
   if (srtPath) {
     args.push('-vf', `subtitles='${escapeFfmpegFilterPath(srtPath)}'`);
   }
