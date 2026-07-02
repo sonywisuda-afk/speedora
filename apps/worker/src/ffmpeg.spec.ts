@@ -14,7 +14,7 @@ jest.mock('node:child_process', () => ({
   execFile: (...args: unknown[]) => (execFileMock as unknown as (...a: unknown[]) => void)(...args),
 }));
 
-import { buildSrt, escapeFfmpegFilterPath, renderClip } from './ffmpeg';
+import { buildSrt, escapeFfmpegFilterPath, getVideoDimensions, renderClip } from './ffmpeg';
 
 describe('buildSrt', () => {
   const segments: TranscriptSegment[] = [
@@ -65,18 +65,40 @@ describe('escapeFfmpegFilterPath', () => {
   });
 });
 
+describe('getVideoDimensions', () => {
+  beforeEach(() => {
+    execFileMock.mockClear();
+  });
+
+  it('parses width,height from ffprobe csv output', async () => {
+    execFileMock.mockImplementationOnce((_file, _args, callback) => {
+      callback(null, { stdout: '320,240\n', stderr: '' });
+    });
+
+    const result = await getVideoDimensions('/tmp/source.mp4');
+
+    expect(result).toEqual({ width: 320, height: 240 });
+    const [file, args] = execFileMock.mock.calls[0];
+    expect(file).toBe('ffprobe');
+    expect(args).toEqual(
+      expect.arrayContaining(['-select_streams', 'v:0', '-of', 'csv=p=0', '/tmp/source.mp4']),
+    );
+  });
+});
+
 describe('renderClip', () => {
   beforeEach(() => {
     execFileMock.mockClear();
   });
 
-  it('invokes ffmpeg with -ss/-t trimming and no subtitles filter when srtPath is null', async () => {
+  it('invokes ffmpeg with -ss/-t trimming and no -vf when there is no srt and no reframe', async () => {
     await renderClip({
       inputPath: '/tmp/source.mp4',
       startTime: 5,
       endTime: 15,
       srtPath: null,
       outputPath: '/tmp/output.mp4',
+      reframe: null,
     });
 
     expect(execFileMock).toHaveBeenCalledTimes(1);
@@ -94,12 +116,58 @@ describe('renderClip', () => {
       endTime: 15,
       srtPath: '/tmp/captions.srt',
       outputPath: '/tmp/output.mp4',
+      reframe: null,
     });
 
     const [, args] = execFileMock.mock.calls[0];
     const vfIndex = args.indexOf('-vf');
     expect(vfIndex).toBeGreaterThanOrEqual(0);
     expect(args[vfIndex + 1]).toBe("subtitles='/tmp/captions.srt'");
+  });
+
+  it('adds a static crop filter (no sendcmd) when reframe has no sendCmdPath', async () => {
+    await renderClip({
+      inputPath: '/tmp/source.mp4',
+      startTime: 5,
+      endTime: 15,
+      srtPath: null,
+      outputPath: '/tmp/output.mp4',
+      reframe: { width: 136, height: 240, x: 92, y: 0, sendCmdPath: null },
+    });
+
+    const [, args] = execFileMock.mock.calls[0];
+    const vf = args[args.indexOf('-vf') + 1];
+    expect(vf).toBe('crop=w=136:h=240:x=92:y=0');
+  });
+
+  it('adds a sendcmd + tagged crop filter when reframe has a sendCmdPath', async () => {
+    await renderClip({
+      inputPath: '/tmp/source.mp4',
+      startTime: 5,
+      endTime: 15,
+      srtPath: null,
+      outputPath: '/tmp/output.mp4',
+      reframe: { width: 136, height: 240, x: 0, y: 0, sendCmdPath: '/tmp/cmds.txt' },
+    });
+
+    const [, args] = execFileMock.mock.calls[0];
+    const vf = args[args.indexOf('-vf') + 1];
+    expect(vf).toBe('sendcmd=f=/tmp/cmds.txt,crop@reframe=w=136:h=240:x=0:y=0');
+  });
+
+  it('orders crop before subtitles so captions burn onto the reframed picture', async () => {
+    await renderClip({
+      inputPath: '/tmp/source.mp4',
+      startTime: 5,
+      endTime: 15,
+      srtPath: '/tmp/captions.srt',
+      outputPath: '/tmp/output.mp4',
+      reframe: { width: 136, height: 240, x: 92, y: 0, sendCmdPath: null },
+    });
+
+    const [, args] = execFileMock.mock.calls[0];
+    const vf = args[args.indexOf('-vf') + 1];
+    expect(vf).toBe("crop=w=136:h=240:x=92:y=0,subtitles='/tmp/captions.srt'");
   });
 
   it('propagates the error when ffmpeg fails', async () => {
@@ -114,6 +182,7 @@ describe('renderClip', () => {
         endTime: 5,
         srtPath: null,
         outputPath: '/tmp/output.mp4',
+        reframe: null,
       }),
     ).rejects.toThrow('ffmpeg exited with code 1');
   });

@@ -13,7 +13,14 @@ AI video repurposing platform (mirip OpusClip) — upload video panjang, otomati
 - [Node.js](https://nodejs.org/) >= 20
 - [pnpm](https://pnpm.io/) 9.x (lihat catatan instalasi di bawah kalau `pnpm` belum ada di PATH)
 - [Docker](https://www.docker.com/) (untuk Postgres + Redis lokal)
-- [FFmpeg](https://ffmpeg.org/) di `PATH` (untuk `apps/worker`'s `render-clip` job — potong video & burn-in caption). Kalau tidak di `PATH`, set `FFMPEG_PATH` di `.env` ke path binary-nya.
+- [FFmpeg](https://ffmpeg.org/) di `PATH` (untuk `apps/worker`'s `render-clip` job — potong video, crop 9:16, & burn-in caption). Kalau tidak di `PATH`, set `FFMPEG_PATH` (dan `FFPROBE_PATH`) di `.env` ke path binary-nya.
+- Python 3.9+ dengan `pip install mediapipe opencv-python-headless` (untuk smart reframe — deteksi wajah di `apps/worker`'s `render-clip` job, lihat `apps/worker/scripts/detect_faces.py`). Kalau `python3` tidak di `PATH`, set `PYTHON_PATH` di `.env`.
+- Model MediaPipe Face Detector — download sekali ke `apps/worker/models/blaze_face_short_range.tflite` (folder ini gitignored, bukan aset yang di-commit):
+  ```bash
+  mkdir -p apps/worker/models
+  curl -sL -o apps/worker/models/blaze_face_short_range.tflite \
+    https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite
+  ```
 - Bucket object storage S3-compatible (mis. [Cloudflare R2](https://developers.cloudflare.com/r2/), AWS S3, atau kompatibel lainnya) — video upload dan hasil render disimpan di sini, bukan local disk. Isi kredensialnya di `STORAGE_*` env var (lihat `.env.example`).
 
 ### Install pnpm
