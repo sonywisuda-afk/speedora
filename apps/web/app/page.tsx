@@ -2,38 +2,22 @@
 
 import { VideoStatus } from '@viral-clip-app/shared';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Nav } from '../components/Nav';
+import { ProgressSteps } from '../components/ProgressSteps';
 import {
   clipDownloadUrl,
   getVideo,
   login,
-  logout,
-  me,
   register,
   uploadVideo,
-  type UserDto,
   type VideoWithClipsDto,
 } from '../lib/api';
+import { useAuth } from '../lib/useAuth';
 
 const POLL_INTERVAL_MS = 2000;
 
-const STEPS: VideoStatus[] = [
-  VideoStatus.UPLOADED,
-  VideoStatus.TRANSCRIBED,
-  VideoStatus.CLIPS_DETECTED,
-  VideoStatus.RENDERED,
-];
-
-const STEP_LABELS: Record<VideoStatus, string> = {
-  [VideoStatus.UPLOADED]: 'Uploaded',
-  [VideoStatus.TRANSCRIBED]: 'Transcribed',
-  [VideoStatus.CLIPS_DETECTED]: 'Clips detected',
-  [VideoStatus.RENDERED]: 'Rendered',
-  [VideoStatus.FAILED]: 'Failed',
-};
-
 export default function Home() {
-  const [checkingAuth, setCheckingAuth] = useState(true);
-  const [user, setUser] = useState<UserDto | null>(null);
+  const { user, setUser, checkingAuth, logout } = useAuth();
 
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
@@ -45,12 +29,6 @@ export default function Home() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [video, setVideo] = useState<VideoWithClipsDto | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    me()
-      .then(setUser)
-      .finally(() => setCheckingAuth(false));
-  }, []);
 
   useEffect(() => {
     if (!video || video.status === VideoStatus.RENDERED || video.status === VideoStatus.FAILED) {
@@ -87,7 +65,6 @@ export default function Home() {
 
   async function handleLogout() {
     await logout();
-    setUser(null);
     setVideo(null);
     setEmail('');
     setPassword('');
@@ -185,14 +162,7 @@ export default function Home() {
           </form>
         ) : (
           <>
-            <div className="mt-6 flex items-center justify-between">
-              <p className="text-sm text-neutral-600">
-                Signed in as <span className="font-medium">{user.email}</span>
-              </p>
-              <button onClick={handleLogout} className="text-sm text-neutral-600 underline">
-                Log out
-              </button>
-            </div>
+            <Nav user={user} onLogout={handleLogout} />
 
             {!video ? (
               <form
@@ -276,28 +246,5 @@ export default function Home() {
         )}
       </div>
     </main>
-  );
-}
-
-function ProgressSteps({ status }: { status: VideoStatus }) {
-  if (status === VideoStatus.FAILED) {
-    return <p className="text-sm font-medium text-red-600">{STEP_LABELS[VideoStatus.FAILED]}</p>;
-  }
-
-  const currentIndex = STEPS.indexOf(status);
-
-  return (
-    <ol className="flex items-center gap-2 text-sm">
-      {STEPS.map((step, index) => (
-        <li key={step} className="flex items-center gap-2">
-          <span
-            className={index <= currentIndex ? 'font-medium text-neutral-900' : 'text-neutral-400'}
-          >
-            {STEP_LABELS[step]}
-          </span>
-          {index < STEPS.length - 1 && <span className="text-neutral-300">→</span>}
-        </li>
-      ))}
-    </ol>
   );
 }

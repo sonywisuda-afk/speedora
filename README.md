@@ -64,7 +64,7 @@ export PATH="$HOME/.npm-global:$PATH"   # tambahkan ke ~/.bashrc atau profile sh
    pnpm dev
    ```
 
-   - `apps/web` → http://localhost:3000
+   - `apps/web` → http://localhost:3000 (upload video baru) dan `/dashboard` (riwayat video + klip)
    - `apps/api` → http://localhost:3001 (default `API_PORT`, lihat `.env.example`)
    - `apps/worker` → tidak melayani HTTP, hanya konsumsi job dari BullMQ/Redis
 
@@ -145,5 +145,6 @@ Endpoint utama di `apps/api`. Semua endpoint kecuali `/auth/register` dan `/auth
 | `POST /auth/logout` | Hapus cookie sesi |
 | `GET /auth/me` | Info user yang sedang login (401 kalau belum login) |
 | `POST /videos` | Upload video (`multipart/form-data`: `file`), `ownerId` diambil dari sesi — bukan dari body. Enqueue job `transcribe` |
+| `GET /videos` | Semua video milik user yang sedang login (terbaru dulu), masing-masing dengan `clips` |
 | `GET /videos/:id` | Detail video + daftar `clips` (masing-masing dengan `downloadUrl` kalau sudah di-render). 404 kalau video bukan milik user yang sedang login |
 | `GET /clips/:id/download` | Stream file klip yang sudah di-render sebagai download. 404 kalau klip bukan milik user yang sedang login |

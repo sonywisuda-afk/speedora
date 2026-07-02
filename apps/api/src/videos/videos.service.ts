@@ -1,9 +1,12 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Injectable, NotFoundException } from '@nestjs/common';
+import type { Prisma } from '@viral-clip-app/database';
 import { QueueName, type TranscribeJobData } from '@viral-clip-app/shared';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
+
+type VideoWithClips = Prisma.VideoGetPayload<{ include: { clips: true } }>;
 
 @Injectable()
 export class VideosService {
@@ -28,6 +31,16 @@ export class VideosService {
     return video;
   }
 
+  async findAll(ownerId: string) {
+    const videos = await this.prisma.video.findMany({
+      where: { ownerId },
+      orderBy: { createdAt: 'desc' },
+      include: { clips: { orderBy: { viralityScore: 'desc' } } },
+    });
+
+    return videos.map((video) => this.mapVideoWithClips(video));
+  }
+
   async findOne(id: string, requesterId: string) {
     const video = await this.prisma.video.findUnique({
       where: { id },
@@ -40,8 +53,12 @@ export class VideosService {
       throw new NotFoundException(`Video ${id} not found`);
     }
 
-    // Don't leak the server's local filesystem path; the client should hit
-    // the download endpoint instead.
+    return this.mapVideoWithClips(video);
+  }
+
+  // Don't leak the server's local filesystem path; the client should hit
+  // the download endpoint instead.
+  private mapVideoWithClips(video: VideoWithClips) {
     const { clips, ...rest } = video;
     return {
       ...rest,

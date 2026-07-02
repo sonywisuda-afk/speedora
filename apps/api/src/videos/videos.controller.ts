@@ -35,6 +35,11 @@ export class VideosController {
     return this.videosService.upload(user.id, file);
   }
 
+  @Get()
+  findAll(@CurrentUser() user: SafeUser) {
+    return this.videosService.findAll(user.id);
+  }
+
   @Get(':id')
   findOne(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.videosService.findOne(id, user.id);
