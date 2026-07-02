@@ -1,0 +1,77 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// Mirrors VideoStatus in packages/shared/src/types/video.ts
+enum VideoStatus {
+  UPLOADED
+  TRANSCRIBED
+  CLIPS_DETECTED
+  RENDERED
+  FAILED
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  videos Video[]
+}
+
+model Video {
+  id              String      @id @default(cuid())
+  ownerId         String
+  owner           User        @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  sourceUrl       String
+  status          VideoStatus @default(UPLOADED)
+  durationSeconds Float?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  transcriptSegments TranscriptSegment[]
+  clips              Clip[]
+
+  @@index([ownerId])
+}
+
+// One row per timestamped line from the transcribe (Whisper) job.
+// A clip's transcript is derived by querying segments within its time range,
+// rather than duplicating segment data per clip.
+model TranscriptSegment {
+  id        String   @id @default(cuid())
+  videoId   String
+  video     Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  startTime Float
+  endTime   Float
+  text      String
+  speaker   String?
+  createdAt DateTime @default(now())
+
+  @@index([videoId])
+}
+
+// One row per candidate produced by the detect-clips job; outputUrl is set
+// once the render-clip job finishes.
+model Clip {
+  id            String   @id @default(cuid())
+  videoId       String
+  video         Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  startTime     Float
+  endTime       Float
+  viralityScore Float
+  outputUrl     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([videoId])
+}

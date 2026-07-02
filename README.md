@@ -51,7 +51,13 @@ export PATH="$HOME/.npm-global:$PATH"   # tambahkan ke ~/.bashrc atau profile sh
    pnpm docker:up
    ```
 
-4. Jalankan semua service dalam mode dev (build `packages/shared` dalam watch mode, lalu `apps/web`, `apps/api`, `apps/worker` paralel):
+4. Buat schema database (Prisma migration, lihat `apps/api/prisma/schema.prisma`):
+
+   ```bash
+   pnpm --filter @viral-clip-app/api db:migrate:dev
+   ```
+
+5. Jalankan semua service dalam mode dev (build `packages/shared` dalam watch mode, lalu `apps/web`, `apps/api`, `apps/worker` paralel):
 
    ```bash
    pnpm dev
@@ -60,6 +66,8 @@ export PATH="$HOME/.npm-global:$PATH"   # tambahkan ke ~/.bashrc atau profile sh
    - `apps/web` → http://localhost:3000
    - `apps/api` → http://localhost:3001 (default `API_PORT`, lihat `.env.example`)
    - `apps/worker` → tidak melayani HTTP, hanya konsumsi job dari BullMQ/Redis
+
+> Kalau port default Postgres/Redis (`5432`/`6379`) sudah dipakai proses lain di mesin kamu, ubah `POSTGRES_PORT`/`REDIS_PORT` (dan `DATABASE_URL`/`REDIS_URL` yang cocok) di `.env` lokal sebelum `pnpm docker:up`.
 
 ## Scripts
 
@@ -83,6 +91,20 @@ pnpm --filter @viral-clip-app/api start:dev
 pnpm --filter @viral-clip-app/worker dev
 pnpm --filter @viral-clip-app/shared build
 ```
+
+## Database
+
+`apps/api` pakai [Prisma](https://www.prisma.io/) (provider `postgresql`) sebagai ORM & migration tool. Skema ada di `apps/api/prisma/schema.prisma`, client hasil generate masuk ke `apps/api/src/generated/prisma` (gitignored, dibuat otomatis lewat `postinstall` setiap `pnpm install`).
+
+Dijalankan dengan `pnpm --filter @viral-clip-app/api <script>`:
+
+| Script | Keterangan |
+|---|---|
+| `db:generate` | Generate ulang Prisma Client dari schema (otomatis jalan setelah `pnpm install`) |
+| `db:migrate:dev` | Buat & apply migration baru berdasarkan perubahan schema (dev only) |
+| `db:migrate:deploy` | Apply migration yang sudah ada tanpa membuat yang baru (dipakai di CI/production) |
+| `db:push` | Sinkronkan schema ke database tanpa migration file (prototyping cepat, bukan untuk data production) |
+| `db:studio` | Buka Prisma Studio (GUI) untuk lihat/edit data |
 
 ## Struktur Project
 
