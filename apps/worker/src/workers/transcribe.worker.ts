@@ -8,6 +8,7 @@ import {
 import { Worker, type Job } from 'bullmq';
 import { openai } from '../openai';
 import { prisma } from '../prisma';
+import { detectClipsQueue } from '../queues';
 import { createRedisConnection } from '../redis';
 
 export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJobResult> {
@@ -42,6 +43,8 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
         ]);
 
         console.log(`[transcribe] video ${videoId} -> ${segments.length} segments`);
+
+        await detectClipsQueue.add(QueueName.DETECT_CLIPS, { videoId, segments });
 
         return { videoId, segments };
       } catch (error) {

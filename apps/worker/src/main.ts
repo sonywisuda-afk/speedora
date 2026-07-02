@@ -3,6 +3,7 @@ import { config } from 'dotenv';
 
 config({ path: path.resolve(__dirname, '../../../.env'), quiet: true });
 
+import { detectClipsQueue } from './queues';
 import { createTranscribeWorker } from './workers/transcribe.worker';
 import { createDetectClipsWorker } from './workers/detect-clips.worker';
 import { createRenderClipWorker } from './workers/render-clip.worker';
@@ -15,6 +16,7 @@ function main() {
   const shutdown = async () => {
     console.log('shutting down workers...');
     await Promise.all(workers.map((worker) => worker.close()));
+    await detectClipsQueue.close();
     process.exit(0);
   };
 

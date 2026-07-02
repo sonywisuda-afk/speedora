@@ -3,18 +3,8 @@ name: CI (web)
 on:
   push:
     branches: [master]
-    paths:
-      - 'apps/web/**'
-      - 'packages/shared/**'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/ci-web.yml'
   pull_request:
     branches: [master]
-    paths:
-      - 'apps/web/**'
-      - 'packages/shared/**'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/ci-web.yml'
 
 jobs:
   build:
