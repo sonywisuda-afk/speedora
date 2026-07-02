@@ -1,10 +1,11 @@
-import { Controller, Get, Param, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Res, UseGuards } from '@nestjs/common';
 import { getObjectStream } from '@viral-clip-app/storage';
 import type { Response } from 'express';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ClipsService } from './clips.service';
+import { UpdateClipDto } from './dto/update-clip.dto';
 
 @Controller('clips')
 @UseGuards(JwtAuthGuard)
@@ -19,5 +20,18 @@ export class ClipsController {
     res.setHeader('Content-Type', 'video/mp4');
     res.setHeader('Content-Disposition', `attachment; filename="clip-${clip.id}.mp4"`);
     stream.pipe(res);
+  }
+
+  // Manual trim from the timeline editor - does not trigger a re-render.
+  @Patch(':id')
+  update(@CurrentUser() user: SafeUser, @Param('id') id: string, @Body() dto: UpdateClipDto) {
+    return this.clipsService.update(id, user.id, dto);
+  }
+
+  // Explicit re-render action, separate from PATCH so dragging a trim
+  // handle doesn't burn FFmpeg compute on every intermediate value.
+  @Post(':id/render')
+  render(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    return this.clipsService.render(id, user.id);
   }
 }

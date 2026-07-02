@@ -9,10 +9,11 @@ jest.mock('@viral-clip-app/storage', () => ({
 
 describe('ClipsController', () => {
   let controller: ClipsController;
-  let clipsService: { findRenderedOrThrow: jest.Mock };
+  let clipsService: { findRenderedOrThrow: jest.Mock; update: jest.Mock; render: jest.Mock };
+  const user = { id: 'user-1', email: 'a@example.com' };
 
   beforeEach(() => {
-    clipsService = { findRenderedOrThrow: jest.fn() };
+    clipsService = { findRenderedOrThrow: jest.fn(), update: jest.fn(), render: jest.fn() };
     controller = new ClipsController(clipsService as unknown as ClipsService);
     jest.clearAllMocks();
   });
@@ -24,7 +25,7 @@ describe('ClipsController', () => {
     (getObjectStream as jest.Mock).mockResolvedValue(fakeStream);
     const res = { setHeader: jest.fn() } as unknown as Response;
 
-    await controller.download({ id: 'user-1', email: 'a@example.com' }, 'clip-1', res);
+    await controller.download(user, 'clip-1', res);
 
     expect(clipsService.findRenderedOrThrow).toHaveBeenCalledWith('clip-1', 'user-1');
     expect(getObjectStream).toHaveBeenCalledWith('renders/clip-1.mp4');
@@ -34,5 +35,28 @@ describe('ClipsController', () => {
       'attachment; filename="clip-clip-1.mp4"',
     );
     expect(fakeStream.pipe).toHaveBeenCalledWith(res);
+  });
+
+  it('delegates PATCH to ClipsService.update', async () => {
+    const updated = { id: 'clip-1', startTime: 12, endTime: 22 };
+    clipsService.update.mockResolvedValue(updated);
+
+    const result = await controller.update(user, 'clip-1', { startTime: 12, endTime: 22 });
+
+    expect(clipsService.update).toHaveBeenCalledWith('clip-1', 'user-1', {
+      startTime: 12,
+      endTime: 22,
+    });
+    expect(result).toBe(updated);
+  });
+
+  it('delegates POST :id/render to ClipsService.render', async () => {
+    const rendering = { id: 'clip-1', downloadUrl: null };
+    clipsService.render.mockResolvedValue(rendering);
+
+    const result = await controller.render(user, 'clip-1');
+
+    expect(clipsService.render).toHaveBeenCalledWith('clip-1', 'user-1');
+    expect(result).toBe(rendering);
   });
 });

@@ -1,5 +1,6 @@
 import { VideoStatus } from '@viral-clip-app/database';
 import {
+  filterSegmentsForClip,
   QueueName,
   type ClipCandidate,
   type DetectClipsJobData,
@@ -134,13 +135,7 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
           startTime: clip.startTime,
           endTime: clip.endTime,
           viralityScore: clip.viralityScore,
-          // Overlap (not strict containment) - clip.startTime/endTime round-trip
-          // through Postgres float storage, so exact boundary comparisons are
-          // fragile to precision drift. render-clip's buildSrt() clamps/trims
-          // each segment to the clip window anyway.
-          transcript: segments.filter(
-            (segment) => segment.end > clip.startTime && segment.start < clip.endTime,
-          ),
+          transcript: filterSegmentsForClip(segments, clip.startTime, clip.endTime),
         }));
 
         console.log(`[detect-clips] video ${videoId} -> ${candidates.length} candidates`);
