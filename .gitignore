@@ -34,3 +34,6 @@ coverage/
 
 # docker volumes (local dev data)
 .docker-data/
+
+# local file uploads (dev-only storage backend)
+apps/api/uploads/
