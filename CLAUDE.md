@@ -16,7 +16,7 @@ Upload video -> Transcript (ASR) -> Auto-clip (deteksi momen menarik) -> Caption
 |---|---|
 | Frontend | Next.js + TypeScript |
 | Backend API | NestJS |
-| Database | PostgreSQL |
+| Database | PostgreSQL (via Prisma ORM di `apps/api`) |
 | Queue / Cache | Redis + BullMQ |
 | Video processing | FFmpeg cluster (worker nodes terpisah) |
 | ASR (speech-to-text) | Whisper |
@@ -52,6 +52,7 @@ Setiap tahap adalah job terpisah di BullMQ (bukan satu job monolitik) agar retry
 - **Worker dipisah dari API** supaya FFmpeg cluster dan proses ASR yang CPU/GPU-intensive bisa di-scale terpisah dari layer API yang menangani traffic HTTP.
 - **PostgreSQL sebagai source of truth** untuk status job dan metadata video/klip; Redis hanya untuk antrian (BullMQ) dan cache, bukan penyimpanan permanen.
 - **Status video/klip berbentuk state machine linear** (`UPLOADED -> TRANSCRIBED -> CLIPS_DETECTED -> RENDERED`) yang disimpan di PostgreSQL agar frontend bisa polling progres secara konsisten.
+- **Prisma sebagai satu-satunya akses ke PostgreSQL** di `apps/api` (model: `User`, `Video`, `TranscriptSegment`, `Clip` — lihat `apps/api/prisma/schema.prisma`). Transcript segment disimpan per-video (bukan diduplikasi per-klip); transcript sebuah klip didapat dengan query segment dalam rentang `startTime`-`endTime` klip tersebut.
 
 ## Konvensi Coding
 
