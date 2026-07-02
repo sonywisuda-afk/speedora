@@ -14,11 +14,6 @@ export class VideosService {
   ) {}
 
   async upload(ownerId: string, file: Express.Multer.File) {
-    const owner = await this.prisma.user.findUnique({ where: { id: ownerId } });
-    if (!owner) {
-      throw new NotFoundException(`User ${ownerId} not found`);
-    }
-
     const { sourceUrl } = await this.storage.saveVideo(file);
 
     const video = await this.prisma.video.create({
@@ -33,12 +28,15 @@ export class VideosService {
     return video;
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, requesterId: string) {
     const video = await this.prisma.video.findUnique({
       where: { id },
       include: { clips: { orderBy: { viralityScore: 'desc' } } },
     });
-    if (!video) {
+
+    // Same "not found" for a missing video and someone else's video, so a
+    // client can't use this endpoint to probe which video IDs exist.
+    if (!video || video.ownerId !== requesterId) {
       throw new NotFoundException(`Video ${id} not found`);
     }
 

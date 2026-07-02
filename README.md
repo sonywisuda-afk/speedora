@@ -130,15 +130,20 @@ Lihat [`.env.example`](./.env.example) untuk daftar lengkap. Yang penting:
 - `NEXT_PUBLIC_API_URL` — base URL API yang dipanggil `apps/web`
 - `OPENAI_API_KEY` — dipakai `apps/worker` untuk transcribe job (Whisper via OpenAI's audio API)
 - `FFMPEG_PATH` — path ke binary FFmpeg, dipakai `apps/worker` untuk render-clip job. Default `ffmpeg` (asumsi ada di `PATH`)
-- `WEB_ORIGIN` — origin yang diizinkan CORS di `apps/api` untuk request dari `apps/web`. Default `http://localhost:3000`
+- `WEB_ORIGIN` — origin yang diizinkan CORS di `apps/api` untuk request dari `apps/web`
+- `JWT_SECRET` — secret untuk sign JWT auth. **Generate sendiri** (`openssl rand -hex 32`), jangan pakai default di `.env.example`
+- `JWT_EXPIRES_IN` — masa berlaku token auth. Default `7d`
 
 ## API
 
-Endpoint utama di `apps/api` yang dipakai `apps/web`:
+Endpoint utama di `apps/api`. Semua endpoint kecuali `/auth/register` dan `/auth/login` butuh cookie sesi (login dulu):
 
 | Endpoint | Keterangan |
 |---|---|
-| `POST /users` | Get-or-create user dari `email` (belum ada sistem auth beneran — ini placeholder identitas) |
-| `POST /videos` | Upload video (`multipart/form-data`: `ownerId` + `file`), enqueue job `transcribe` |
-| `GET /videos/:id` | Detail video + daftar `clips` (masing-masing dengan `downloadUrl` kalau sudah di-render) |
-| `GET /clips/:id/download` | Stream file klip yang sudah di-render sebagai download |
+| `POST /auth/register` | Buat akun (`email` + `password`, min. 8 karakter), langsung login (set cookie) |
+| `POST /auth/login` | Login, set cookie sesi (`httpOnly`, JWT) |
+| `POST /auth/logout` | Hapus cookie sesi |
+| `GET /auth/me` | Info user yang sedang login (401 kalau belum login) |
+| `POST /videos` | Upload video (`multipart/form-data`: `file`), `ownerId` diambil dari sesi — bukan dari body. Enqueue job `transcribe` |
+| `GET /videos/:id` | Detail video + daftar `clips` (masing-masing dengan `downloadUrl` kalau sudah di-render). 404 kalau video bukan milik user yang sedang login |
+| `GET /clips/:id/download` | Stream file klip yang sudah di-render sebagai download. 404 kalau klip bukan milik user yang sedang login |
