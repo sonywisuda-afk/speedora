@@ -117,6 +117,84 @@ describe('VideosService', () => {
     });
   });
 
+  describe('findSourceOrThrow', () => {
+    it('returns just the sourceUrl when the video belongs to the requester', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        sourceUrl: 'videos/abc.mp4',
+      });
+
+      const result = await service.findSourceOrThrow('video-1', 'user-1');
+
+      expect(result).toEqual({ sourceUrl: 'videos/abc.mp4' });
+    });
+
+    it('throws NotFoundException when the video does not exist', async () => {
+      prisma.video.findUnique.mockResolvedValue(null);
+
+      await expect(service.findSourceOrThrow('missing', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws NotFoundException when the video belongs to a different user', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'someone-else',
+        sourceUrl: 'videos/abc.mp4',
+      });
+
+      await expect(service.findSourceOrThrow('video-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('findTranscriptOrThrow', () => {
+    it('returns segments mapped to the shared TranscriptSegment shape, ordered by start', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        transcriptSegments: [
+          { start: 0, end: 5, text: 'hi', speaker: null },
+          { start: 5, end: 10, text: 'there', speaker: 'A' },
+        ],
+      });
+
+      const result = await service.findTranscriptOrThrow('video-1', 'user-1');
+
+      expect(prisma.video.findUnique).toHaveBeenCalledWith({
+        where: { id: 'video-1' },
+        include: { transcriptSegments: { orderBy: { start: 'asc' } } },
+      });
+      expect(result).toEqual([
+        { start: 0, end: 5, text: 'hi', speaker: undefined },
+        { start: 5, end: 10, text: 'there', speaker: 'A' },
+      ]);
+    });
+
+    it('throws NotFoundException when the video does not exist', async () => {
+      prisma.video.findUnique.mockResolvedValue(null);
+
+      await expect(service.findTranscriptOrThrow('missing', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws NotFoundException when the video belongs to a different user', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'someone-else',
+        transcriptSegments: [],
+      });
+
+      await expect(service.findTranscriptOrThrow('video-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
   describe('retry', () => {
     it('throws NotFoundException when the video does not exist', async () => {
       prisma.video.findUnique.mockResolvedValue(null);

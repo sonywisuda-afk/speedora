@@ -1,4 +1,10 @@
-import { VideoStatus } from '@viral-clip-app/shared';
+import type {
+  Clip,
+  TranscriptSegment,
+  UpdateClipInput,
+  Video,
+  VideoWithClips,
+} from '@viral-clip-app/shared';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -7,28 +13,13 @@ export interface UserDto {
   email: string;
 }
 
-export interface ClipDto {
-  id: string;
-  videoId: string;
-  startTime: number;
-  endTime: number;
-  viralityScore: number;
-  downloadUrl: string | null;
-}
-
-export interface VideoDto {
-  id: string;
-  ownerId: string;
-  sourceUrl: string;
-  status: VideoStatus;
-  durationSeconds: number | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
-export interface VideoWithClipsDto extends VideoDto {
-  clips: ClipDto[];
-}
+// Aliased, not redefined - these are the API/UI-facing DTOs contract-shared
+// with apps/api via packages/shared (see CLAUDE.md's packages/shared
+// convention). Kept under their old local names so the existing pages don't
+// need touching.
+export type ClipDto = Clip;
+export type VideoDto = Video;
+export type VideoWithClipsDto = VideoWithClips;
 
 async function parseJsonOrThrow<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => null);
@@ -95,6 +86,11 @@ export async function retryVideo(id: string): Promise<VideoWithClipsDto> {
   return parseJsonOrThrow<VideoWithClipsDto>(res);
 }
 
+export async function getVideoTranscript(id: string): Promise<TranscriptSegment[]> {
+  const res = await apiFetch(`/videos/${id}/transcript`);
+  return parseJsonOrThrow<TranscriptSegment[]>(res);
+}
+
 export async function listVideos(): Promise<VideoWithClipsDto[]> {
   const res = await apiFetch('/videos');
   return parseJsonOrThrow<VideoWithClipsDto[]>(res);
@@ -102,6 +98,32 @@ export async function listVideos(): Promise<VideoWithClipsDto[]> {
 
 export function clipDownloadUrl(downloadUrl: string): string {
   return `${API_URL}${downloadUrl}`;
+}
+
+// Used directly as a <video src>, not fetched - the browser's own media
+// pipeline issues the (possibly many, while scrubbing) Range requests
+// against this URL. crossOrigin="use-credentials" on the <video> element is
+// what makes the session cookie actually go out cross-origin (api runs on a
+// different port than web).
+export function videoSourceUrl(videoId: string): string {
+  return `${API_URL}/videos/${videoId}/source`;
+}
+
+export async function updateClip(clipId: string, input: UpdateClipInput): Promise<Clip> {
+  const res = await apiFetch(`/clips/${clipId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return parseJsonOrThrow<Clip>(res);
+}
+
+// Enqueues a re-render with the clip's current (server-side) startTime/
+// endTime - callers must updateClip() first if there are unsaved local
+// edits, otherwise the render uses whatever was last saved.
+export async function renderClip(clipId: string): Promise<Clip> {
+  const res = await apiFetch(`/clips/${clipId}/render`, { method: 'POST' });
+  return parseJsonOrThrow<Clip>(res);
 }
 
 export { API_URL };

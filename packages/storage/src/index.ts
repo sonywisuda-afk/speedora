@@ -48,6 +48,40 @@ export async function getObjectStream(key: string): Promise<Readable> {
   return result.Body as Readable;
 }
 
+export interface RangeObjectResult {
+  stream: Readable;
+  contentType?: string;
+  // Total size of the requested range (or the whole object, if no Range
+  // header was sent) - what the caller sets Content-Length to.
+  contentLength?: number;
+  // Only set when `range` was provided and the request was satisfiable -
+  // the caller uses this as the HTTP Content-Range response header and to
+  // decide between a 200 and a 206 status.
+  contentRange?: string;
+}
+
+// Like getObjectStream, but passes through an HTTP Range header (e.g.
+// "bytes=0-1023") so a <video> element can seek within a large file without
+// downloading the whole thing first - see GET /videos/:id/source in
+// apps/api, the only caller that needs this. Kept separate from
+// getObjectStream rather than adding an optional param there, since none of
+// its three existing callers (clip download, worker transcribe/render-clip
+// source reads) need partial-content semantics.
+export async function getObjectStreamRange(
+  key: string,
+  range?: string,
+): Promise<RangeObjectResult> {
+  const result = await getClient().send(
+    new GetObjectCommand({ Bucket: bucket(), Key: key, Range: range }),
+  );
+  return {
+    stream: result.Body as Readable,
+    contentType: result.ContentType,
+    contentLength: result.ContentLength,
+    contentRange: result.ContentRange,
+  };
+}
+
 export async function deleteObject(key: string): Promise<void> {
   await getClient().send(new DeleteObjectCommand({ Bucket: bucket(), Key: key }));
 }

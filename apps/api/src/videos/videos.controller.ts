@@ -1,14 +1,18 @@
 import {
   Controller,
   Get,
+  Headers,
   Param,
   ParseFilePipeBuilder,
   Post,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { getObjectStreamRange } from '@viral-clip-app/storage';
+import type { Response } from 'express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { SafeUser } from '../auth/auth.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -45,8 +49,41 @@ export class VideosController {
     return this.videosService.findOne(id, user.id);
   }
 
+  // Streams the raw source video (not a rendered clip) for the timeline
+  // editor's <video> preview. Needs Range support - unlike the
+  // click-to-download clip endpoint, a <video> element issues many
+  // byte-range requests while the user scrubs/seeks.
+  @Get(':id/source')
+  async source(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Headers('range') range: string | undefined,
+    @Res() res: Response,
+  ) {
+    const { sourceUrl } = await this.videosService.findSourceOrThrow(id, user.id);
+    const result = await getObjectStreamRange(sourceUrl, range);
+
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Content-Type', result.contentType ?? 'video/mp4');
+    if (result.contentLength !== undefined) {
+      res.setHeader('Content-Length', result.contentLength.toString());
+    }
+    if (range && result.contentRange) {
+      res.status(206);
+      res.setHeader('Content-Range', result.contentRange);
+    }
+    result.stream.pipe(res);
+  }
+
   @Post(':id/retry')
   retry(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.videosService.retry(id, user.id);
+  }
+
+  // Separate from findOne() - only the timeline editor needs transcript
+  // text, and findOne() is polled every 2s elsewhere.
+  @Get(':id/transcript')
+  transcript(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    return this.videosService.findTranscriptOrThrow(id, user.id);
   }
 }

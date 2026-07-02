@@ -2,6 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { VideoStatus, type Prisma } from '@viral-clip-app/database';
 import {
+  filterSegmentsForClip,
   QueueName,
   type DetectClipsJobData,
   type RenderClipJobData,
@@ -116,8 +117,10 @@ export class VideosService {
             sourceUrl: video.sourceUrl,
             startTime: clip.startTime,
             endTime: clip.endTime,
-            transcript: video.transcriptSegments.filter(
-              (segment) => segment.end > clip.startTime && segment.start < clip.endTime,
+            transcript: filterSegmentsForClip(
+              video.transcriptSegments,
+              clip.startTime,
+              clip.endTime,
             ),
           }),
         ),
@@ -140,6 +143,41 @@ export class VideosService {
     }
 
     return this.mapVideoWithClips(video);
+  }
+
+  // Used by GET /videos/:id/source (timeline editor's <video> preview) -
+  // only needs the object key, not the full clips/status shape findOne()
+  // returns.
+  async findSourceOrThrow(id: string, requesterId: string): Promise<{ sourceUrl: string }> {
+    const video = await this.prisma.video.findUnique({ where: { id } });
+
+    if (!video || video.ownerId !== requesterId) {
+      throw new NotFoundException(`Video ${id} not found`);
+    }
+
+    return { sourceUrl: video.sourceUrl };
+  }
+
+  // Separate from findOne()/mapVideoWithClips() on purpose - transcript
+  // segments can be a lot of rows for a long video, and findOne() is
+  // polled every 2s by both the upload-progress view and the dashboard,
+  // neither of which needs caption text. Only the timeline editor does.
+  async findTranscriptOrThrow(id: string, requesterId: string) {
+    const video = await this.prisma.video.findUnique({
+      where: { id },
+      include: { transcriptSegments: { orderBy: { start: 'asc' } } },
+    });
+
+    if (!video || video.ownerId !== requesterId) {
+      throw new NotFoundException(`Video ${id} not found`);
+    }
+
+    return video.transcriptSegments.map((segment) => ({
+      start: segment.start,
+      end: segment.end,
+      text: segment.text,
+      speaker: segment.speaker ?? undefined,
+    }));
   }
 
   // Don't leak the server's local filesystem path; the client should hit

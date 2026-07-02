@@ -49,6 +49,19 @@ packages/
 
 Setiap tahap adalah job terpisah di BullMQ (bukan satu job monolitik) agar retry granular per-tahap dan agar FFmpeg cluster bisa discale independen dari proses ASR.
 
+## Timeline Editor (Fase 1 pasca-MVP)
+
+Route `/videos/:id/edit` di `apps/web` — fine-tune hasil auto-clip sebelum download, tanpa perlu re-upload atau menunggu pipeline ulang dari awal.
+
+- **Preview**: `<video>` (stream source asli via `GET /videos/:id/source`, bukan hasil render) + `<canvas>` overlay di atasnya untuk caption, di-redraw tiap `requestAnimationFrame` mengikuti `video.currentTime`. **Approximate, bukan pixel-perfect** terhadap hasil burn-in libass FFmpeg (font/posisi/outline sederhana) — exact match ditunda ke Fase 3 (custom caption styling), yang nanti natural jadi shared style config antara canvas preview dan FFmpeg ASS override sekaligus.
+- **Timeline**: track klip (bar per klip hasil `detect-clips`, drag handle start/end untuk klip yang sedang dipilih) + track caption (transcript segment yang overlap klip terpilih, visual saja, tidak draggable). Dibangun dengan div ber-posisi absolut + persentase (bukan SVG/canvas) untuk timeline-nya sendiri — cuma overlay caption di atas video yang pakai canvas.
+- **State**: Zustand (`apps/web/lib/timelineStore.ts`) — cukup ringan untuk state timeline (klip + draft trim + flag dirty/saving/rendering per klip) tanpa perlu Redux penuh.
+- **Trim manual TIDAK auto re-render**: `PATCH /clips/:id` (`ClipsService.update`) cuma update `startTime`/`endTime` di DB. Render ulang adalah aksi eksplisit terpisah (`POST /clips/:id/render`) supaya geser slider tidak buang compute FFmpeg tiap perubahan kecil.
+- **Re-render reuse job `render-clip` yang sudah ada**, bukan job baru — `render-clip.worker.ts` sudah generik atas start/end dan overwrite key `renders/<clipId>.mp4` yang sama, jadi tidak ada bedanya secara teknis antara render pertama (dari `detect-clips`) dan re-render manual (dari editor). `ClipsService.render` men-clear `Clip.outputUrl` ke `null` **sebelum** enqueue — bukan cuma dibiarkan stale — supaya dua hal yang sudah ada otomatis benar tanpa ubah kode lain: tampilan "Rendering..." di dashboard (sudah ada untuk `downloadUrl: null`) langsung kepakai, dan kalau render-clip job ini gagal, `VideosService.retry`'s pengecekan "klip tanpa `outputUrl` perlu di-render lagi" tetap akurat (bukannya mengira klip ini masih fine karena `outputUrl` lama belum dihapus).
+- **`GET /videos/:id/source`** streaming source video (bukan hasil render) dengan dukungan HTTP Range (`packages/storage`'s `getObjectStreamRange`) supaya `<video>` bisa scrub/seek tanpa download seluruh file dulu — `<video crossOrigin="use-credentials">` di frontend supaya cookie sesi ikut terkirim cross-origin (api beda port dari web). Proxy lewat `apps/api` (bukan presigned URL langsung ke R2), konsisten dengan keputusan storage yang sudah ada: client tidak pernah akses bucket langsung.
+- **`GET /videos/:id/transcript`** endpoint terpisah dari `findOne()`/`GET /videos/:id` — sengaja tidak digabung supaya endpoint yang di-polling tiap 2 detik (upload progress, dashboard) tidak ikut membawa payload transcript (bisa banyak baris untuk video panjang) padahal cuma editor yang butuh teksnya.
+- **`filterSegmentsForClip`** (overlap-filter transcript-untuk-rentang-klip) diekstrak ke `packages/shared/src/utils/transcript.ts` — sebelumnya duplikat identik di `detect-clips.worker.ts` dan `VideosService.retry`; ClipsService.render jadi pemakai ketiga, titik di mana duplikasi lebih dari cukup untuk diekstrak jadi util bersama.
+
 ## Keputusan Arsitektur
 
 - **BullMQ dipakai untuk semua kerja berat/async** (transcribe, detect-clips, render-clip). API layer tidak pernah menjalankan Whisper atau FFmpeg secara sinkron di request-response cycle.
@@ -81,4 +94,15 @@ Setiap tahap adalah job terpisah di BullMQ (bukan satu job monolitik) agar retry
 
 ## Status
 
-Dokumen ini adalah ringkasan arsitektur awal untuk fase MVP. Update bagian ini seiring keputusan baru diambil (mis. strategi storage, provider hosting FFmpeg cluster, algoritma deteksi klip yang dipakai).
+MVP (upload -> transcript -> auto-clip -> caption -> download, plus retry, object storage di Cloudflare R2, dan Docker/deploy readiness) selesai dan sudah di-merge ke master.
+
+Roadmap pasca-MVP (satu fase per PR):
+
+1. ✅ **Timeline Editor interaktif** (`apps/web`) — selesai. Lihat bagian "Timeline Editor (Fase 1 pasca-MVP)" di atas.
+2. ⏳ Smart reframe — auto-track wajah untuk crop 9:16 (`apps/worker`)
+3. ⏳ Caption styling custom — karaoke/bold-highlight (`apps/worker` + `apps/web`)
+4. ⏳ Observability dasar — Sentry error tracking (`apps/api` + `apps/worker`)
+5. ⏳ Hook generator + auto hashtag AI (`apps/worker`, extend LLM pipeline yang sudah ada)
+6. ⏳ Publish scheduler multi-platform + analytics dashboard (fase besar, dipecah lagi nanti)
+
+Update bagian ini setelah tiap fase selesai, dan tetap catat keputusan arsitektur baru (mis. strategi storage, provider hosting FFmpeg cluster, algoritma deteksi klip yang dipakai) di bagian yang relevan di atas.

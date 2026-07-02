@@ -73,6 +73,53 @@ describe('packages/storage', () => {
     expect(command.input).toEqual({ Bucket: 'test-bucket', Key: 'renders/clip.mp4' });
   });
 
+  it('getObjectStreamRange sends a GetObjectCommand with no Range when none is given', async () => {
+    const fakeStream = { fake: 'stream' };
+    sendMock.mockResolvedValue({
+      Body: fakeStream,
+      ContentType: 'video/mp4',
+      ContentLength: 1000,
+    });
+    const { getObjectStreamRange } = await import('./index');
+
+    const result = await getObjectStreamRange('videos/abc.mp4');
+
+    expect(result).toEqual({
+      stream: fakeStream,
+      contentType: 'video/mp4',
+      contentLength: 1000,
+      contentRange: undefined,
+    });
+    const command = sendMock.mock.calls[0][0];
+    expect(command.input).toEqual({
+      Bucket: 'test-bucket',
+      Key: 'videos/abc.mp4',
+      Range: undefined,
+    });
+  });
+
+  it('getObjectStreamRange passes the Range header through and surfaces Content-Range', async () => {
+    const fakeStream = { fake: 'stream' };
+    sendMock.mockResolvedValue({
+      Body: fakeStream,
+      ContentType: 'video/mp4',
+      ContentLength: 500,
+      ContentRange: 'bytes 0-499/1000',
+    });
+    const { getObjectStreamRange } = await import('./index');
+
+    const result = await getObjectStreamRange('videos/abc.mp4', 'bytes=0-499');
+
+    expect(result.contentRange).toBe('bytes 0-499/1000');
+    expect(result.contentLength).toBe(500);
+    const command = sendMock.mock.calls[0][0];
+    expect(command.input).toEqual({
+      Bucket: 'test-bucket',
+      Key: 'videos/abc.mp4',
+      Range: 'bytes=0-499',
+    });
+  });
+
   it('deleteObject sends a DeleteObjectCommand for the given key', async () => {
     sendMock.mockResolvedValue({});
     const { deleteObject } = await import('./index');

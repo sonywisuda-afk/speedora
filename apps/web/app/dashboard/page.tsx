@@ -112,6 +112,15 @@ export default function Dashboard() {
                       <ProgressSteps status={video.status} />
                     </div>
 
+                    {video.clips.length > 0 && (
+                      <Link
+                        href={`/videos/${video.id}/edit`}
+                        className="mt-2 inline-block text-sm font-medium text-neutral-900 underline"
+                      >
+                        Edit timeline
+                      </Link>
+                    )}
+
                     {video.status === VideoStatus.FAILED && (
                       <div className="mt-4">
                         <p className="text-sm text-red-600">
