@@ -13,6 +13,7 @@
     "test": "jest"
   },
   "dependencies": {
+    "@sentry/node": "^10.63.0",
     "@viral-clip-app/database": "workspace:^",
     "@viral-clip-app/shared": "workspace:*",
     "@viral-clip-app/storage": "workspace:^",

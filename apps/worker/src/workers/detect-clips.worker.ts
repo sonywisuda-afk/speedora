@@ -1,3 +1,4 @@
+import * as Sentry from '@sentry/node';
 import { VideoStatus } from '@viral-clip-app/database';
 import {
   filterSegmentsForClip,
@@ -164,6 +165,8 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
         return { videoId, candidates };
       } catch (error) {
         console.error(`[detect-clips] video ${videoId} failed:`, error);
+        // Tags only - never the transcript text or OPENAI_API_KEY.
+        Sentry.captureException(error, { tags: { videoId } });
         await prisma.video.update({
           where: { id: videoId },
           data: { status: VideoStatus.FAILED },

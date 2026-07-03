@@ -5,6 +5,11 @@ import { Worker } from 'bullmq';
 jest.mock('bullmq', () => ({ Worker: jest.fn() }));
 jest.mock('../redis', () => ({ createRedisConnection: jest.fn() }));
 
+const captureExceptionMock = jest.fn();
+jest.mock('@sentry/node', () => ({
+  captureException: (...args: unknown[]) => captureExceptionMock(...args),
+}));
+
 const renderClipQueueAdd = jest.fn();
 jest.mock('../queues', () => ({
   detectClipsQueue: { add: jest.fn() },
@@ -146,5 +151,20 @@ describe('detect-clips worker', () => {
       data: { status: VideoStatus.FAILED },
     });
     expect(renderClipQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it('reports the failure to Sentry tagged with videoId only (no transcript content)', async () => {
+    const error = new Error('openai is down');
+    chatCompletionsCreateMock.mockRejectedValue(error);
+
+    const processor = getProcessor();
+
+    await expect(
+      processor({
+        data: { videoId: 'video-1', segments: [{ start: 0, end: 5, text: 'hi' }] },
+      }),
+    ).rejects.toThrow('openai is down');
+
+    expect(captureExceptionMock).toHaveBeenCalledWith(error, { tags: { videoId: 'video-1' } });
   });
 });

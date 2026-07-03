@@ -3,6 +3,14 @@ import { config } from 'dotenv';
 
 config({ path: path.resolve(__dirname, '../../../.env'), quiet: true });
 
+import { initSentry } from './sentry';
+
+// Before validateEnv() (which can itself throw) and everything else below,
+// so as much of startup and every job as possible runs inside Sentry's
+// instrumentation - including its default uncaughtException/
+// unhandledRejection handlers.
+initSentry();
+
 import { validateEnv } from './env';
 
 // Runs before ./queues/./workers are imported below, so a missing

@@ -5,6 +5,11 @@ import { Worker } from 'bullmq';
 jest.mock('bullmq', () => ({ Worker: jest.fn() }));
 jest.mock('../redis', () => ({ createRedisConnection: jest.fn() }));
 
+const captureExceptionMock = jest.fn();
+jest.mock('@sentry/node', () => ({
+  captureException: (...args: unknown[]) => captureExceptionMock(...args),
+}));
+
 jest.mock('node:fs', () => ({
   createWriteStream: jest.fn().mockReturnValue({ fake: 'writable' }),
 }));
@@ -307,5 +312,18 @@ describe('render-clip worker', () => {
     // source + captions + output were all reserved before renderClip threw
     // (no reframe-cmds this run - no face detected).
     expect(cleanupTempFileMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('reports the failure to Sentry tagged with videoId and clipId only (no transcript content)', async () => {
+    const error = new Error('ffmpeg exploded');
+    renderClipMock.mockRejectedValue(error);
+
+    const processor = getProcessor();
+
+    await expect(processor({ data: baseJobData })).rejects.toThrow('ffmpeg exploded');
+
+    expect(captureExceptionMock).toHaveBeenCalledWith(error, {
+      tags: { videoId: 'video-1', clipId: 'clip-1' },
+    });
   });
 });
