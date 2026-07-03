@@ -8,6 +8,18 @@
 
 AI video repurposing platform (mirip OpusClip) — upload video panjang, otomatis dipotong jadi klip pendek dengan caption. Lihat [`CLAUDE.md`](./CLAUDE.md) untuk ringkasan arsitektur dan keputusan desain.
 
+## Fitur
+
+**Pipeline inti**: upload video panjang → transkrip otomatis (Whisper) → deteksi klip viral-worthy (LLM) → crop 9:16 + burn-in caption (FFmpeg) → download, dengan retry per-tahap kalau ada yang gagal.
+
+- **Timeline editor** — trim start/end klip manual, preview video+caption di browser, render ulang eksplisit tanpa upload ulang.
+- **Smart reframe** — crop 9:16 mengikuti wajah paling menonjol di frame (deteksi wajah via MediaPipe), fallback ke center-crop kalau tidak ada wajah terdeteksi.
+- **Caption styling** — tiga preset burn-in caption: default, karaoke (highlight kata per-kata sinkron audio), dan bold-highlight (angka/ALL-CAPS/kutipan ditebalkan otomatis).
+- **Observability** — error tracking terpusat (Sentry) untuk kegagalan job worker maupun exception API.
+- **Hook & hashtag generator** — LLM yang sama yang mendeteksi klip juga menghasilkan saran hook text pembuka dan hashtag per klip, bisa diedit manual.
+- **Publish Center** — connect akun YouTube, TikTok, dan Instagram (OAuth, token terenkripsi at-rest), lalu publish klip langsung atau dijadwalkan ke waktu tertentu (dengan cancel/reschedule) dari dashboard yang sama.
+- **Analytics dasar** — views/likes/comments klip yang sudah dipublish disinkronkan otomatis tiap beberapa jam dan ditampilkan inline di dashboard.
+
 ## Prerequisites
 
 - [Node.js](https://nodejs.org/) >= 20
@@ -121,11 +133,12 @@ Dijalankan dengan `pnpm --filter @viral-clip-app/database <script>`:
 apps/
   web/        # Next.js 14 (App Router, TypeScript, Tailwind) — frontend
   api/        # NestJS — REST API, auth, job orchestration
-  worker/     # Konsumer BullMQ — transcribe (Whisper), detect-clips, render-clip (FFmpeg)
+  worker/     # Konsumer BullMQ — transcribe (Whisper), detect-clips, render-clip (FFmpeg), publish-clip, schedule-publish-clip, sync-publish-stats
 packages/
   shared/     # Tipe TypeScript & util yang dipakai lintas apps
   database/   # Prisma schema/client Postgres, dipakai apps/api dan apps/worker
   storage/    # Klien object storage S3-compatible (upload/download/delete), dipakai apps/api dan apps/worker
+  social/     # OAuth client, enkripsi token, upload & stats klien per-platform (YouTube, TikTok, Instagram), dipakai apps/api dan apps/worker
 ```
 
 Detail alur pemrosesan video, keputusan arsitektur, dan konvensi coding ada di [`CLAUDE.md`](./CLAUDE.md).
@@ -144,8 +157,10 @@ Lihat [`.env.example`](./.env.example) untuk daftar lengkap. Yang penting:
 - `JWT_SECRET` — secret untuk sign JWT auth. **Generate sendiri** (`openssl rand -hex 32`), jangan pakai default di `.env.example`
 - `JWT_EXPIRES_IN` — masa berlaku token auth. Default `7d`
 - `SENTRY_DSN` — dipakai `apps/api` dan `apps/worker` untuk error tracking (Sentry). **Opsional** — boleh kosong di dev lokal, `Sentry.init()` otomatis no-op tanpa DSN
-- `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` — kredensial OAuth client dari [Google Cloud Console](https://console.cloud.google.com/apis/credentials) untuk fitur "Connect YouTube account" (Fase 6a). **Opsional** — tanpa ini `apps/api` tetap jalan normal, cuma `GET /social/youtube/connect` yang gagal (503) sampai diisi. Butuh YouTube Data API v3 aktif di project Google Cloud-nya, dan `$API_BASE_URL/social/youtube/callback` terdaftar sebagai authorized redirect URI
-- `API_BASE_URL` — base URL `apps/api` sendiri (dilihat dari browser), dipakai membangun OAuth `redirect_uri`. Default `http://localhost:$API_PORT`
+- `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` — kredensial OAuth client dari [Google Cloud Console](https://console.cloud.google.com/apis/credentials) untuk fitur "Connect YouTube account" (Fase 6a) dan publish klip ke YouTube (Fase 6b). **Opsional** — tanpa ini `apps/api` tetap jalan normal, cuma `GET /social/youtube/connect` yang gagal (503) sampai diisi. Butuh YouTube Data API v3 aktif di project Google Cloud-nya, dan `$API_BASE_URL/social/youtube/callback` terdaftar sebagai authorized redirect URI
+- `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET` — kredensial dari [TikTok Developer Portal](https://developers.tiktok.com/apps) untuk "Connect TikTok account" dan publish (mode "Upload to Inbox", Fase 6d). **Opsional**, sama perlakuannya seperti var Google di atas. Redirect URI-nya `$API_BASE_URL/social/tiktok/callback`
+- `FACEBOOK_APP_ID` / `FACEBOOK_APP_SECRET` — kredensial dari [Meta for Developers](https://developers.facebook.com/apps) (produk Facebook Login + Instagram Graph API) untuk "Connect Instagram account" dan publish Reels (Fase 6d follow-up). **Opsional**, sama perlakuannya seperti var di atas. Butuh akun Instagram Business/Creator yang ditautkan ke Facebook Page. Redirect URI-nya `$API_BASE_URL/social/instagram/callback`
+- `API_BASE_URL` — base URL `apps/api` sendiri (dilihat dari browser), dipakai membangun OAuth `redirect_uri` untuk ketiga platform di atas. Default `http://localhost:$API_PORT`
 - `TOKEN_ENCRYPTION_KEY` — key AES-256-GCM untuk enkripsi access/refresh token `SocialAccount` sebelum disimpan. **Generate sendiri** (`openssl rand -hex 32`) — beda dari var opsional lain di atas, tidak ada fallback aman untuk sebuah encryption key, jadi kosongkan ini bikin connect account gagal loud (bukan diam-diam simpan token tanpa enkripsi)
 
 ## API
@@ -165,8 +180,15 @@ Endpoint utama di `apps/api`. Semua endpoint kecuali `/auth/register`, `/auth/lo
 | `GET /videos/:id/transcript` | Transcript segment video (dipakai timeline editor untuk caption overlay) — endpoint terpisah dari `GET /videos/:id` supaya endpoint yang di-polling tidak ikut membawa payload transcript |
 | `POST /videos/:id/retry` | Retry video berstatus `FAILED` — re-enqueue tahap yang belum selesai (disimpulkan dari data yang sudah ada, lihat `CLAUDE.md`). 400 kalau video bukan `FAILED`, 404 kalau bukan milik user yang sedang login |
 | `GET /clips/:id/download` | Stream file klip yang sudah di-render sebagai download. 404 kalau klip bukan milik user yang sedang login |
-| `PATCH /clips/:id` | Trim manual dari timeline editor — update `startTime`/`endTime` klip. Tidak men-trigger render ulang otomatis |
+| `PATCH /clips/:id` | Trim manual dari timeline editor — update `startTime`/`endTime`, `captionStyle`, `hookText`, atau `hashtags` klip. Tidak men-trigger render ulang otomatis |
 | `POST /clips/:id/render` | Render ulang satu klip secara eksplisit (reuse job `render-clip` yang sama dengan render pertama) — dipakai setelah trim manual disimpan |
+| `POST /clips/:id/publish` | Publish klip ke akun sosmed yang sudah di-connect. `scheduledAt` (ISO 8601) opsional — kalau diisi (waktu masa depan), dijadwalkan alih-alih langsung publish |
+| `PATCH /clips/:id/publish/:recordId` | Reschedule `PublishRecord` yang masih `SCHEDULED` ke `scheduledAt` baru. 404 kalau sudah di-klaim poller (bukan `SCHEDULED` lagi) |
+| `DELETE /clips/:id/publish/:recordId` | Batalkan `PublishRecord` yang masih `SCHEDULED`. 404 kalau sudah di-klaim poller |
+| `GET /social/accounts` | Daftar akun sosmed (YouTube/TikTok/Instagram) yang sudah di-connect user yang sedang login |
+| `DELETE /social/accounts/:id` | Disconnect akun sosmed (revoke token di platform, best-effort, lalu hapus record lokal) |
+| `GET /social/youtube/connect` \| `GET /social/tiktok/connect` \| `GET /social/instagram/connect` | Mulai OAuth flow connect akun (navigasi browser top-level, bukan `fetch()`) — 503 kalau kredensial OAuth platform terkait belum diisi di env |
+| `GET /social/youtube/callback` \| `GET /social/tiktok/callback` \| `GET /social/instagram/callback` | OAuth callback dari masing-masing platform, tidak butuh cookie sesi (identitas user diambil dari `state` yang ditandatangani) |
 | `GET /health` | Health check (tanpa auth) untuk load balancer/orchestrator — `200 {"status":"ok"}` kalau Postgres bisa dijangkau, `503` kalau tidak |
 
 `apps/api` juga fail-fast saat boot kalau env var wajib (`DATABASE_URL`, `REDIS_URL`, `JWT_SECRET`, `STORAGE_*`) kosong/hilang, dan mengirim security response headers via `helmet()`. `apps/worker` melakukan validasi env var serupa saat start (`DATABASE_URL`, `REDIS_URL`, `OPENAI_API_KEY`, `STORAGE_*`).
