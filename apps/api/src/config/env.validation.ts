@@ -45,6 +45,28 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   SENTRY_DSN?: string;
+
+  // Optional on purpose, same as SENTRY_DSN above - the rest of the app
+  // has to keep working for everyone who hasn't set up a Google Cloud
+  // OAuth client yet. Missing config only becomes a real (503) error at
+  // the point someone actually tries to connect a YouTube account - see
+  // social/youtube-oauth.client.ts's requireOAuth2Client().
+  @IsOptional()
+  @IsString()
+  GOOGLE_OAUTH_CLIENT_ID?: string;
+
+  @IsOptional()
+  @IsString()
+  GOOGLE_OAUTH_CLIENT_SECRET?: string;
+
+  // Optional on purpose, same reasoning - unlike the two above, there's no
+  // safe default at all (it's an encryption key), so a missing value fails
+  // loudly at the point a token is actually encrypted/decrypted rather
+  // than silently falling back to a hardcoded key - see
+  // social/token-encryption.util.ts's getKey().
+  @IsOptional()
+  @IsString()
+  TOKEN_ENCRYPTION_KEY?: string;
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {

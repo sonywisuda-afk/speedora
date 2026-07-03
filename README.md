@@ -144,6 +144,9 @@ Lihat [`.env.example`](./.env.example) untuk daftar lengkap. Yang penting:
 - `JWT_SECRET` — secret untuk sign JWT auth. **Generate sendiri** (`openssl rand -hex 32`), jangan pakai default di `.env.example`
 - `JWT_EXPIRES_IN` — masa berlaku token auth. Default `7d`
 - `SENTRY_DSN` — dipakai `apps/api` dan `apps/worker` untuk error tracking (Sentry). **Opsional** — boleh kosong di dev lokal, `Sentry.init()` otomatis no-op tanpa DSN
+- `GOOGLE_OAUTH_CLIENT_ID` / `GOOGLE_OAUTH_CLIENT_SECRET` — kredensial OAuth client dari [Google Cloud Console](https://console.cloud.google.com/apis/credentials) untuk fitur "Connect YouTube account" (Fase 6a). **Opsional** — tanpa ini `apps/api` tetap jalan normal, cuma `GET /social/youtube/connect` yang gagal (503) sampai diisi. Butuh YouTube Data API v3 aktif di project Google Cloud-nya, dan `$API_BASE_URL/social/youtube/callback` terdaftar sebagai authorized redirect URI
+- `API_BASE_URL` — base URL `apps/api` sendiri (dilihat dari browser), dipakai membangun OAuth `redirect_uri`. Default `http://localhost:$API_PORT`
+- `TOKEN_ENCRYPTION_KEY` — key AES-256-GCM untuk enkripsi access/refresh token `SocialAccount` sebelum disimpan. **Generate sendiri** (`openssl rand -hex 32`) — beda dari var opsional lain di atas, tidak ada fallback aman untuk sebuah encryption key, jadi kosongkan ini bikin connect account gagal loud (bukan diam-diam simpan token tanpa enkripsi)
 
 ## API
 

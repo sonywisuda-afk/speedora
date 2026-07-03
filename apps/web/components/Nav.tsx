@@ -13,6 +13,9 @@ export function Nav({ user, onLogout }: { user: UserDto; onLogout: () => void })
         <Link href="/dashboard" className="underline">
           Dashboard
         </Link>
+        <Link href="/accounts" className="underline">
+          Accounts
+        </Link>
       </nav>
       <div className="flex items-center gap-4">
         <p className="text-sm text-neutral-600">

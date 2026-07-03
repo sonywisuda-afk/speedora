@@ -1,5 +1,6 @@
 import type {
   Clip,
+  SocialAccount,
   TranscriptSegment,
   UpdateClipInput,
   Video,
@@ -124,6 +125,23 @@ export async function updateClip(clipId: string, input: UpdateClipInput): Promis
 export async function renderClip(clipId: string): Promise<Clip> {
   const res = await apiFetch(`/clips/${clipId}/render`, { method: 'POST' });
   return parseJsonOrThrow<Clip>(res);
+}
+
+export async function listSocialAccounts(): Promise<SocialAccount[]> {
+  const res = await apiFetch('/social/accounts');
+  return parseJsonOrThrow<SocialAccount[]>(res);
+}
+
+export async function disconnectSocialAccount(id: string): Promise<void> {
+  await apiFetch(`/social/accounts/${id}`, { method: 'DELETE' });
+}
+
+// Not fetched - used directly as an <a href> so the browser does a real
+// top-level navigation (OAuth needs an actual redirect to Google, which a
+// fetch() can't do). The session cookie still goes out on this kind of
+// navigation - see CLAUDE.md's "Publish Center" section.
+export function connectYouTubeUrl(): string {
+  return `${API_URL}/social/youtube/connect`;
 }
 
 export { API_URL };

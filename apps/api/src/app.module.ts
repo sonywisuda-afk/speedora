@@ -7,6 +7,7 @@ import { ClipsModule } from './clips/clips.module';
 import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { SocialModule } from './social/social.module';
 import { VideosModule } from './videos/videos.module';
 
 @Module({
@@ -24,6 +25,7 @@ import { VideosModule } from './videos/videos.module';
     AuthModule,
     VideosModule,
     ClipsModule,
+    SocialModule,
     HealthModule,
   ],
   controllers: [AppController],

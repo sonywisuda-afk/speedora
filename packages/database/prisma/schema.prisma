@@ -26,6 +26,14 @@ enum CaptionStyle {
   BOLD_HIGHLIGHT
 }
 
+// Mirrors SocialPlatform in packages/shared/src/types/social.ts. Only
+// YOUTUBE for Fase 6a - see CLAUDE.md's "Publish Center" section for why
+// YouTube was picked first (lowest-friction OAuth, no app-review gate for
+// basic upload scope, unlike TikTok/Instagram).
+enum SocialPlatform {
+  YOUTUBE
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
@@ -34,7 +42,8 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  videos Video[]
+  videos         Video[]
+  socialAccounts SocialAccount[]
 }
 
 model Video {
@@ -100,4 +109,34 @@ model Clip {
   updatedAt     DateTime     @updatedAt
 
   @@index([videoId])
+}
+
+// A connected social platform account for publishing (Fase 6a - connect
+// only, no publish action yet; see CLAUDE.md's "Publish Center" section).
+// One user can connect multiple accounts, including multiple accounts on
+// the same platform (e.g. two different YouTube channels).
+model SocialAccount {
+  id       String         @id @default(cuid())
+  userId   String
+  user     User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform SocialPlatform
+  // The platform's own account/channel id - e.g. a YouTube channel id.
+  // Used together with the unique constraint below to detect "already
+  // connected" and upsert instead of creating a duplicate row when a user
+  // reconnects the same account.
+  platformAccountId String
+  // Human-readable label for the "Connect account" UI - e.g. the YouTube
+  // channel title. Refreshed from the platform on every (re)connect.
+  displayName String
+  // AES-256-GCM encrypted (apps/api/src/social/token-encryption.util.ts) -
+  // never plaintext at rest. Stored as "<iv>:<authTag>:<ciphertext>", all
+  // hex-encoded.
+  accessToken    String
+  refreshToken   String
+  tokenExpiresAt DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([userId, platform, platformAccountId])
+  @@index([userId])
 }
