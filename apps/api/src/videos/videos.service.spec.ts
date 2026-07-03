@@ -66,8 +66,13 @@ describe('VideosService', () => {
           id: 'video-1',
           ownerId: 'user-1',
           clips: [
-            { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', viralityScore: 90 },
-            { id: 'clip-2', outputUrl: null, viralityScore: 40 },
+            {
+              id: 'clip-1',
+              outputUrl: 'renders/clip-1.mp4',
+              viralityScore: 90,
+              publishRecords: [],
+            },
+            { id: 'clip-2', outputUrl: null, viralityScore: 40, publishRecords: [] },
           ],
         },
       ]);
@@ -77,11 +82,21 @@ describe('VideosService', () => {
       expect(prisma.video.findMany).toHaveBeenCalledWith({
         where: { ownerId: 'user-1' },
         orderBy: { createdAt: 'desc' },
-        include: { clips: { orderBy: { viralityScore: 'desc' } } },
+        include: {
+          clips: {
+            orderBy: { viralityScore: 'desc' },
+            include: { publishRecords: { include: { socialAccount: true } } },
+          },
+        },
       });
       expect(result[0].clips).toEqual([
-        { id: 'clip-1', viralityScore: 90, downloadUrl: '/clips/clip-1/download' },
-        { id: 'clip-2', viralityScore: 40, downloadUrl: null },
+        {
+          id: 'clip-1',
+          viralityScore: 90,
+          downloadUrl: '/clips/clip-1/download',
+          publishRecords: [],
+        },
+        { id: 'clip-2', viralityScore: 40, downloadUrl: null, publishRecords: [] },
       ]);
       expect(result[0].clips[0]).not.toHaveProperty('outputUrl');
     });
@@ -287,13 +302,21 @@ describe('VideosService', () => {
         status: VideoStatus.FAILED,
         transcriptSegments: segments,
         clips: [
-          { id: 'clip-1', startTime: 10, endTime: 20, outputUrl: null, captionStyle: 'DEFAULT' },
+          {
+            id: 'clip-1',
+            startTime: 10,
+            endTime: 20,
+            outputUrl: null,
+            captionStyle: 'DEFAULT',
+            publishRecords: [],
+          },
           {
             id: 'clip-2',
             startTime: 30,
             endTime: 40,
             outputUrl: 'renders/clip-2.mp4',
             captionStyle: 'KARAOKE',
+            publishRecords: [],
           },
         ],
       });
@@ -325,7 +348,15 @@ describe('VideosService', () => {
         sourceUrl: 'videos/abc.mp4',
         status: VideoStatus.FAILED,
         transcriptSegments: [{ start: 0, end: 5, text: 'hi' }],
-        clips: [{ id: 'clip-1', startTime: 0, endTime: 5, outputUrl: 'renders/clip-1.mp4' }],
+        clips: [
+          {
+            id: 'clip-1',
+            startTime: 0,
+            endTime: 5,
+            outputUrl: 'renders/clip-1.mp4',
+            publishRecords: [],
+          },
+        ],
       });
 
       await service.retry('video-1', 'user-1');

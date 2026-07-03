@@ -1,14 +1,32 @@
 'use client';
 
-import { VideoStatus } from '@viral-clip-app/shared';
+import { PublishStatus, VideoStatus, type SocialAccount } from '@viral-clip-app/shared';
 import Link from 'next/link';
 import { useEffect, useRef, useState } from 'react';
 import { Nav } from '../../components/Nav';
 import { ProgressSteps } from '../../components/ProgressSteps';
-import { clipDownloadUrl, listVideos, retryVideo, type VideoWithClipsDto } from '../../lib/api';
+import {
+  clipDownloadUrl,
+  listSocialAccounts,
+  listVideos,
+  publishClip,
+  retryVideo,
+  type VideoWithClipsDto,
+} from '../../lib/api';
 import { useAuth } from '../../lib/useAuth';
 
 const POLL_INTERVAL_MS = 2000;
+
+const PLATFORM_LABELS: Record<string, string> = {
+  YOUTUBE: 'YouTube',
+};
+
+const PUBLISH_STATUS_LABELS: Record<PublishStatus, string> = {
+  [PublishStatus.QUEUED]: 'Queued to publish...',
+  [PublishStatus.PUBLISHING]: 'Publishing...',
+  [PublishStatus.PUBLISHED]: 'Published',
+  [PublishStatus.FAILED]: 'Publish failed',
+};
 
 function isTerminal(status: VideoStatus): boolean {
   return status === VideoStatus.RENDERED || status === VideoStatus.FAILED;
@@ -20,6 +38,12 @@ export default function Dashboard() {
   const [error, setError] = useState<string | null>(null);
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [retryError, setRetryError] = useState<{ videoId: string; message: string } | null>(null);
+  const [accounts, setAccounts] = useState<SocialAccount[] | null>(null);
+  const [selectedAccountId, setSelectedAccountId] = useState<Record<string, string>>({});
+  const [publishingClipId, setPublishingClipId] = useState<string | null>(null);
+  const [publishError, setPublishError] = useState<{ clipId: string; message: string } | null>(
+    null,
+  );
   // The interval callback below is created once per user (not re-created on
   // every fetch), so it needs a ref rather than the `videos` state directly
   // to see the latest value instead of whatever it was on mount.
@@ -54,6 +78,51 @@ export default function Dashboard() {
       clearInterval(interval);
     };
   }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    let cancelled = false;
+    listSocialAccounts()
+      .then((fetched) => {
+        if (!cancelled) setAccounts(fetched);
+      })
+      .catch(() => {
+        // Not connecting an account is a normal state (Fase 6a is opt-in) -
+        // silently leave accounts null/empty rather than surfacing an error
+        // for something that isn't blocking the rest of the dashboard.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
+
+  async function handlePublish(clipId: string, socialAccountId: string) {
+    setPublishError(null);
+    setPublishingClipId(clipId);
+    try {
+      const record = await publishClip(clipId, socialAccountId);
+      setVideos(
+        (prev) =>
+          prev?.map((video) => ({
+            ...video,
+            clips: video.clips.map((clip) =>
+              clip.id === clipId
+                ? { ...clip, publishRecords: [...clip.publishRecords, record] }
+                : clip,
+            ),
+          })) ?? prev,
+      );
+    } catch (err) {
+      setPublishError({
+        clipId,
+        message: err instanceof Error ? err.message : 'Publish failed',
+      });
+    } finally {
+      setPublishingClipId(null);
+    }
+  }
 
   async function handleRetry(videoId: string) {
     setRetryError(null);
@@ -179,6 +248,92 @@ export default function Dashboard() {
                                   <p className="mt-1 text-neutral-500">
                                     {clip.hashtags.map((tag) => `#${tag}`).join(' ')}
                                   </p>
+                                )}
+
+                                {clip.downloadUrl &&
+                                  (() => {
+                                    if (!accounts || accounts.length === 0) {
+                                      return (
+                                        <p className="mt-2 text-xs text-neutral-400">
+                                          <Link href="/accounts" className="underline">
+                                            Connect an account
+                                          </Link>{' '}
+                                          to publish this clip.
+                                        </p>
+                                      );
+                                    }
+                                    const selectedId = selectedAccountId[clip.id] ?? accounts[0].id;
+                                    const selectedAccount =
+                                      accounts.find((a) => a.id === selectedId) ?? accounts[0];
+                                    return (
+                                      <div className="mt-2 flex items-center gap-2">
+                                        {accounts.length > 1 && (
+                                          <select
+                                            value={selectedId}
+                                            onChange={(e) =>
+                                              setSelectedAccountId((prev) => ({
+                                                ...prev,
+                                                [clip.id]: e.target.value,
+                                              }))
+                                            }
+                                            className="rounded-md border border-neutral-300 px-2 py-1 text-xs"
+                                          >
+                                            {accounts.map((account) => (
+                                              <option key={account.id} value={account.id}>
+                                                {PLATFORM_LABELS[account.platform] ??
+                                                  account.platform}{' '}
+                                                — {account.displayName}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        )}
+                                        <button
+                                          onClick={() => handlePublish(clip.id, selectedId)}
+                                          disabled={publishingClipId === clip.id}
+                                          className="rounded-md border border-neutral-300 px-3 py-1 text-xs font-medium disabled:opacity-50"
+                                        >
+                                          {publishingClipId === clip.id
+                                            ? 'Publishing...'
+                                            : `Publish to ${
+                                                PLATFORM_LABELS[selectedAccount.platform] ??
+                                                selectedAccount.platform
+                                              }`}
+                                        </button>
+                                      </div>
+                                    );
+                                  })()}
+                                {publishError && publishError.clipId === clip.id && (
+                                  <p className="mt-2 text-xs text-red-600">
+                                    {publishError.message}
+                                  </p>
+                                )}
+                                {clip.publishRecords.length > 0 && (
+                                  <ul className="mt-2 space-y-1">
+                                    {clip.publishRecords.map((record) => (
+                                      <li key={record.id} className="text-xs text-neutral-500">
+                                        {PLATFORM_LABELS[record.platform] ?? record.platform}:{' '}
+                                        {record.status === PublishStatus.PUBLISHED &&
+                                        record.platformPostId ? (
+                                          <a
+                                            href={`https://youtu.be/${record.platformPostId}`}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                            className="underline"
+                                          >
+                                            {PUBLISH_STATUS_LABELS[record.status]}
+                                          </a>
+                                        ) : (
+                                          <span>
+                                            {PUBLISH_STATUS_LABELS[record.status]}
+                                            {record.status === PublishStatus.FAILED &&
+                                            record.errorMessage
+                                              ? ` - ${record.errorMessage}`
+                                              : ''}
+                                          </span>
+                                        )}
+                                      </li>
+                                    ))}
+                                  </ul>
                                 )}
                               </li>
                             ))}

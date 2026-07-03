@@ -1,7 +1,8 @@
+import { ServiceUnavailableException } from '@nestjs/common';
+import { OAuthNotConfiguredError, type YouTubeOAuthClient } from '@viral-clip-app/social';
 import type { Response } from 'express';
 import { SocialController } from './social.controller';
 import type { SocialAccountsService } from './social.service';
-import type { YouTubeOAuthClient } from './youtube-oauth.client';
 
 describe('SocialController', () => {
   let controller: SocialController;
@@ -60,6 +61,16 @@ describe('SocialController', () => {
       expect(jwt.sign).toHaveBeenCalledWith({ sub: 'user-1' }, { expiresIn: '10m' });
       expect(youtube.buildAuthorizeUrl).toHaveBeenCalledWith('signed-state');
       expect(res.redirect).toHaveBeenCalledWith('https://accounts.google.com/authorize?...');
+    });
+
+    it('translates OAuthNotConfiguredError into a 503 rather than crashing', () => {
+      jwt.sign.mockReturnValue('signed-state');
+      youtube.buildAuthorizeUrl.mockImplementation(() => {
+        throw new OAuthNotConfiguredError();
+      });
+      const res = fakeResponse();
+
+      expect(() => controller.connect(user, res)).toThrow(ServiceUnavailableException);
     });
   });
 

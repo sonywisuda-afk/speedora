@@ -1,5 +1,6 @@
 import type {
   Clip,
+  PublishRecord,
   SocialAccount,
   TranscriptSegment,
   UpdateClipInput,
@@ -134,6 +135,19 @@ export async function listSocialAccounts(): Promise<SocialAccount[]> {
 
 export async function disconnectSocialAccount(id: string): Promise<void> {
   await apiFetch(`/social/accounts/${id}`, { method: 'DELETE' });
+}
+
+// Manual "publish now" (Fase 6b) - kicks off the publish-clip job for one
+// already-connected account. Returns the created PublishRecord immediately
+// (status QUEUED); the caller polls getVideo()/listVideos() same as
+// render/transcribe status to see it move to PUBLISHING/PUBLISHED/FAILED.
+export async function publishClip(clipId: string, socialAccountId: string): Promise<PublishRecord> {
+  const res = await apiFetch(`/clips/${clipId}/publish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ socialAccountId }),
+  });
+  return parseJsonOrThrow<PublishRecord>(res);
 }
 
 // Not fetched - used directly as an <a href> so the browser does a real

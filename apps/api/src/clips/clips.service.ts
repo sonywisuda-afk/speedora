@@ -5,18 +5,36 @@ import {
   filterSegmentsForClip,
   QueueName,
   sanitizeHashtags,
+  type PublishClipJobData,
+  type PublishRecord,
   type RenderClipJobData,
 } from '@viral-clip-app/shared';
 import type { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
+import { toSharedPublishRecord } from '../social/publish-record.util';
+import { SocialAccountsService } from '../social/social.service';
 import { toSharedCaptionStyle, toSharedTranscriptSegment } from '../videos/transcript-segment.util';
+import type { PublishClipDto } from './dto/publish-clip.dto';
 import type { UpdateClipDto } from './dto/update-clip.dto';
+
+// A transient failure calling out to a social platform's API (rate limit,
+// a temporary 5xx) shouldn't need a human to notice and manually retry -
+// unlike every other job in this codebase (transcribe/detect-clips/
+// render-clip all fail once and wait for an explicit user Retry), so this
+// is the first job configured with BullMQ's own automatic retry.
+const PUBLISH_RETRY_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 30_000 },
+};
 
 @Injectable()
 export class ClipsService {
   constructor(
     private readonly prisma: PrismaService,
+    private readonly socialAccounts: SocialAccountsService,
     @InjectQueue(QueueName.RENDER_CLIP) private readonly renderClipQueue: Queue<RenderClipJobData>,
+    @InjectQueue(QueueName.PUBLISH_CLIP)
+    private readonly publishClipQueue: Queue<PublishClipJobData>,
   ) {}
 
   // Same "not found" for a missing clip and someone else's clip, so a
@@ -61,6 +79,7 @@ export class ClipsService {
     const updated = await this.prisma.clip.update({
       where: { id },
       data: { startTime, endTime, captionStyle, hookText, hashtags },
+      include: { publishRecords: { include: { socialAccount: true } } },
     });
 
     return this.toDto(updated);
@@ -88,6 +107,7 @@ export class ClipsService {
     const cleared = await this.prisma.clip.update({
       where: { id },
       data: { outputUrl: null },
+      include: { publishRecords: { include: { socialAccount: true } } },
     });
 
     await this.renderClipQueue.add(QueueName.RENDER_CLIP, {
@@ -107,6 +127,31 @@ export class ClipsService {
     return this.toDto(cleared);
   }
 
+  // Manual "publish now" (Fase 6b) - creates the PublishRecord row
+  // synchronously (so it exists immediately for the UI to show/poll, same
+  // reasoning as render()'s eager outputUrl clear) before enqueueing the
+  // job that does the actual upload. Purely additive to the clip - unlike
+  // render(), does not touch/clear anything on the Clip row itself.
+  async publish(id: string, requesterId: string, input: PublishClipDto) {
+    const clip = await this.findRenderedOrThrow(id, requesterId);
+    // Throws NotFoundException if the account doesn't exist or belongs to
+    // someone else - same ownership check pattern as findOwnedOrThrow.
+    await this.socialAccounts.findOwnedOrThrow(input.socialAccountId, requesterId);
+
+    const record = await this.prisma.publishRecord.create({
+      data: { clipId: clip.id, socialAccountId: input.socialAccountId },
+      include: { socialAccount: true },
+    });
+
+    await this.publishClipQueue.add(
+      QueueName.PUBLISH_CLIP,
+      { publishRecordId: record.id },
+      PUBLISH_RETRY_OPTIONS,
+    );
+
+    return toSharedPublishRecord(record);
+  }
+
   private toDto(clip: {
     id: string;
     videoId: string;
@@ -117,6 +162,7 @@ export class ClipsService {
     captionStyle: CaptionStyle;
     hookText: string | null;
     hashtags: string[];
+    publishRecords: Parameters<typeof toSharedPublishRecord>[0][];
     updatedAt: Date;
   }) {
     return {
@@ -129,6 +175,7 @@ export class ClipsService {
       captionStyle: clip.captionStyle,
       hookText: clip.hookText,
       hashtags: clip.hashtags,
+      publishRecords: clip.publishRecords.map(toSharedPublishRecord) satisfies PublishRecord[],
       updatedAt: clip.updatedAt,
     };
   }

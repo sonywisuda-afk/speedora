@@ -41,6 +41,9 @@ jobs:
       - name: Build packages/storage
         run: pnpm --filter @viral-clip-app/storage build
 
+      - name: Build packages/social
+        run: pnpm --filter @viral-clip-app/social build
+
       - name: Typecheck
         run: pnpm typecheck
 
@@ -49,6 +52,9 @@ jobs:
 
       - name: Test packages/storage
         run: pnpm --filter @viral-clip-app/storage test
+
+      - name: Test packages/social
+        run: pnpm --filter @viral-clip-app/social test
 
       - name: Build
         run: pnpm build

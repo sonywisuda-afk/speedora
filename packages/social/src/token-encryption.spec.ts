@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
-import { decryptToken, encryptToken } from './token-encryption.util';
+import { decryptToken, encryptToken } from './token-encryption';
 
-describe('token-encryption.util', () => {
+describe('token-encryption', () => {
   const originalEnv = process.env;
 
   beforeEach(() => {

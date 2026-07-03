@@ -34,6 +34,14 @@ enum SocialPlatform {
   YOUTUBE
 }
 
+// Mirrors PublishStatus in packages/shared/src/types/social.ts.
+enum PublishStatus {
+  QUEUED
+  PUBLISHING
+  PUBLISHED
+  FAILED
+}
+
 model User {
   id        String   @id @default(cuid())
   email     String   @unique
@@ -108,6 +116,8 @@ model Clip {
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
+  publishRecords PublishRecord[]
+
   @@index([videoId])
 }
 
@@ -128,15 +138,41 @@ model SocialAccount {
   // Human-readable label for the "Connect account" UI - e.g. the YouTube
   // channel title. Refreshed from the platform on every (re)connect.
   displayName String
-  // AES-256-GCM encrypted (apps/api/src/social/token-encryption.util.ts) -
-  // never plaintext at rest. Stored as "<iv>:<authTag>:<ciphertext>", all
-  // hex-encoded.
+  // AES-256-GCM encrypted (packages/social's token-encryption.ts, shared
+  // with apps/worker's publish-clip job - see Fase 6b) - never plaintext at
+  // rest. Stored as "<iv>:<authTag>:<ciphertext>", all hex-encoded.
   accessToken    String
   refreshToken   String
   tokenExpiresAt DateTime
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
+  publishRecords PublishRecord[]
+
   @@unique([userId, platform, platformAccountId])
   @@index([userId])
+}
+
+// One row per publish attempt of a clip to a connected social account
+// (Fase 6b - manual "publish now" only; scheduledAt stays null until Fase
+// 6c wires up scheduling, kept here now so that sub-phase doesn't need a
+// separate migration for it).
+model PublishRecord {
+  id              String         @id @default(cuid())
+  clipId          String
+  clip            Clip           @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  socialAccountId String
+  socialAccount   SocialAccount  @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  status          PublishStatus  @default(QUEUED)
+  scheduledAt     DateTime?
+  publishedAt     DateTime?
+  // The platform's own id for the published content (e.g. a YouTube video
+  // id) - used to link back to it once published.
+  platformPostId String?
+  errorMessage   String?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@index([clipId])
+  @@index([socialAccountId])
 }

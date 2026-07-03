@@ -1,10 +1,10 @@
-import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { OAuth2Client } from 'google-auth-library';
+import { OAuthNotConfiguredError } from './errors';
 
-// youtube.upload is what a later fase (publish-clip) will actually need;
-// requesting it now avoids making users re-consent when that fase ships.
-// youtube.readonly is just for fetching the channel title/id to show in
-// the "Connect account" UI.
+// youtube.upload is what the publish-clip job (Fase 6b) actually needs;
+// requesting it since Fase 6a's connect flow avoids making users
+// re-consent now that it's used. youtube.readonly is just for fetching
+// the channel title/id to show in the "Connect account" UI.
 const SCOPES = [
   'https://www.googleapis.com/auth/youtube.upload',
   'https://www.googleapis.com/auth/youtube.readonly',
@@ -21,29 +21,32 @@ export interface YouTubeChannel {
   title: string;
 }
 
-// GOOGLE_OAUTH_CLIENT_ID/SECRET are optional at boot (see
-// config/env.validation.ts) - the rest of the app has to keep working for
-// everyone who hasn't set up a Google Cloud OAuth client yet. Missing
-// config is only a real error at the point someone actually tries to
-// connect a YouTube account, hence the 503 here rather than failing app
-// startup.
+// GOOGLE_OAUTH_CLIENT_ID/SECRET are optional at boot in both apps/api and
+// apps/worker - neither app has to stop working for everyone who hasn't
+// set up a Google Cloud OAuth client yet. Missing config is only a real
+// error at the point someone actually tries to connect/publish a YouTube
+// account - callers translate OAuthNotConfiguredError into whatever's
+// appropriate for their context (apps/api: a 503 response; apps/worker:
+// just let the job fail and get reported to Sentry like any other error).
 function requireOAuth2Client(): OAuth2Client {
   const clientId = process.env.GOOGLE_OAUTH_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_OAUTH_CLIENT_SECRET;
   if (!clientId || !clientSecret) {
-    throw new ServiceUnavailableException('YouTube integration is not configured');
+    throw new OAuthNotConfiguredError();
   }
   const apiBaseUrl = process.env.API_BASE_URL ?? `http://localhost:${process.env.API_PORT ?? 3001}`;
   return new OAuth2Client({
     clientId,
     clientSecret,
     // Must exactly match a redirect URI registered on the Google Cloud
-    // OAuth client, including scheme/host/port/path.
+    // OAuth client, including scheme/host/port/path. Only actually used by
+    // the connect/callback dance (buildAuthorizeUrl/exchangeCode) - refresh/
+    // revoke/API calls don't redirect anywhere, but OAuth2Client always
+    // wants one at construction time.
     redirectUri: `${apiBaseUrl}/social/youtube/callback`,
   });
 }
 
-@Injectable()
 export class YouTubeOAuthClient {
   buildAuthorizeUrl(state: string): string {
     const client = requireOAuth2Client();

@@ -3,17 +3,18 @@ import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 const ALGORITHM = 'aes-256-gcm';
 const IV_LENGTH_BYTES = 12; // recommended IV length for GCM
 
-// TOKEN_ENCRYPTION_KEY is optional at boot (see config/env.validation.ts) -
-// this app has to keep running for everyone who hasn't set up Fase 6a's
-// Google OAuth credentials yet. It's read (and validated) lazily here, at
-// the point a token actually needs encrypting/decrypting, rather than
-// silently falling back to some hardcoded key - there is no safe default
-// for an encryption key.
+// TOKEN_ENCRYPTION_KEY is optional at boot in both apps/api and
+// apps/worker (see each app's env validation/docs) - neither app has to
+// stop working for everyone who hasn't set up Fase 6a's Google OAuth
+// credentials yet. It's read (and validated) lazily here, at the point a
+// token actually needs encrypting/decrypting, rather than silently
+// falling back to some hardcoded key - there is no safe default for an
+// encryption key.
 function getKey(): Buffer {
   const hex = process.env.TOKEN_ENCRYPTION_KEY;
   if (!hex) {
     throw new Error(
-      'TOKEN_ENCRYPTION_KEY is not configured - required to connect a social account. ' +
+      'TOKEN_ENCRYPTION_KEY is not configured - required to connect or publish to a social account. ' +
         'Generate one with: openssl rand -hex 32',
     );
   }

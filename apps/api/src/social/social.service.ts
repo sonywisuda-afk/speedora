@@ -1,15 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { SocialPlatform, type SocialAccount as SocialAccountRow } from '@viral-clip-app/database';
+import {
+  encryptToken,
+  decryptToken,
+  resolveAccessToken,
+  YouTubeOAuthClient,
+  type YouTubeChannel,
+  type YouTubeTokens,
+} from '@viral-clip-app/social';
 import type { SocialAccount, SocialPlatform as SharedSocialPlatform } from '@viral-clip-app/shared';
 import { PrismaService } from '../prisma/prisma.service';
-import { decryptToken, encryptToken } from './token-encryption.util';
-import type { YouTubeChannel, YouTubeTokens } from './youtube-oauth.client';
-import { YouTubeOAuthClient } from './youtube-oauth.client';
-
-// A token is refreshed slightly before it actually expires so a
-// getValidAccessToken() caller never hands back something that's about to
-// lapse mid-request.
-const REFRESH_BUFFER_MS = 60_000;
 
 @Injectable()
 export class SocialAccountsService {
@@ -84,27 +84,20 @@ export class SocialAccountsService {
     await this.prisma.socialAccount.delete({ where: { id } });
   }
 
-  // Proves the refresh half of the connect/refresh/disconnect lifecycle
-  // (Fase 6a's stated goal) - not wired to any HTTP endpoint yet since
-  // there's no publish action that needs a live token. A later fase's
-  // publish-clip job is what will actually call this for real.
+  // Not wired to any HTTP endpoint - apps/worker's publish-clip job (Fase
+  // 6b) is the actual caller that needs a live token, via its own copy of
+  // this same resolveAccessToken() logic from @viral-clip-app/social (see
+  // CLAUDE.md's Fase 6b section for why that's a shared package rather
+  // than duplicated). Kept here, tested, for apps/api's own future
+  // API-surface needs (e.g. a "verify this account still works" check).
   async getValidAccessToken(id: string, userId: string): Promise<string> {
     const account = await this.findOwnedOrThrow(id, userId);
+    const resolved = await resolveAccessToken(account, this.youtube);
 
-    if (account.tokenExpiresAt.getTime() - Date.now() > REFRESH_BUFFER_MS) {
-      return decryptToken(account.accessToken);
+    if (resolved.refreshed && resolved.updated) {
+      await this.prisma.socialAccount.update({ where: { id }, data: resolved.updated });
     }
-
-    const refreshed = await this.youtube.refreshAccessToken(decryptToken(account.refreshToken));
-    await this.prisma.socialAccount.update({
-      where: { id },
-      data: {
-        accessToken: encryptToken(refreshed.accessToken),
-        refreshToken: encryptToken(refreshed.refreshToken),
-        tokenExpiresAt: refreshed.expiresAt,
-      },
-    });
-    return refreshed.accessToken;
+    return resolved.accessToken;
   }
 }
 

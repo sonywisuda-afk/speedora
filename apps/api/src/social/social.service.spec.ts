@@ -1,10 +1,9 @@
 import { randomBytes } from 'node:crypto';
 import { NotFoundException } from '@nestjs/common';
 import { SocialPlatform } from '@viral-clip-app/database';
+import { decryptToken, encryptToken, type YouTubeOAuthClient } from '@viral-clip-app/social';
 import type { PrismaService } from '../prisma/prisma.service';
-import { decryptToken, encryptToken } from './token-encryption.util';
 import { SocialAccountsService } from './social.service';
-import type { YouTubeOAuthClient } from './youtube-oauth.client';
 
 describe('SocialAccountsService', () => {
   const originalEnv = process.env;

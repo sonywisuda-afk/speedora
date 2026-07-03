@@ -35,6 +35,9 @@ jobs:
       - name: Build packages/storage
         run: pnpm --filter @viral-clip-app/storage build
 
+      - name: Build packages/social
+        run: pnpm --filter @viral-clip-app/social build
+
       - name: Lint
         run: pnpm --filter @viral-clip-app/api lint
 

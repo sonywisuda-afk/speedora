@@ -23,9 +23,15 @@ import { detectClipsQueue, renderClipQueue } from './queues';
 import { createTranscribeWorker } from './workers/transcribe.worker';
 import { createDetectClipsWorker } from './workers/detect-clips.worker';
 import { createRenderClipWorker } from './workers/render-clip.worker';
+import { createPublishClipWorker } from './workers/publish-clip.worker';
 
 function main() {
-  const workers = [createTranscribeWorker(), createDetectClipsWorker(), createRenderClipWorker()];
+  const workers = [
+    createTranscribeWorker(),
+    createDetectClipsWorker(),
+    createRenderClipWorker(),
+    createPublishClipWorker(),
+  ];
 
   console.log(`worker started, listening on ${workers.length} queues`);
 

@@ -1,11 +1,20 @@
-import { Controller, Delete, Get, Param, Query, Res, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Query,
+  Res,
+  ServiceUnavailableException,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { OAuthNotConfiguredError, YouTubeOAuthClient } from '@viral-clip-app/social';
 import type { Response } from 'express';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SocialAccountsService } from './social.service';
-import { YouTubeOAuthClient } from './youtube-oauth.client';
 
 interface OAuthState {
   sub: string;
@@ -43,7 +52,14 @@ export class SocialController {
   @UseGuards(JwtAuthGuard)
   connect(@CurrentUser() user: SafeUser, @Res() res: Response) {
     const state = this.jwt.sign({ sub: user.id } satisfies OAuthState, { expiresIn: '10m' });
-    res.redirect(this.youtube.buildAuthorizeUrl(state));
+    try {
+      res.redirect(this.youtube.buildAuthorizeUrl(state));
+    } catch (error) {
+      if (error instanceof OAuthNotConfiguredError) {
+        throw new ServiceUnavailableException(error.message);
+      }
+      throw error;
+    }
   }
 
   // Deliberately NOT behind JwtAuthGuard - Google's redirect back here is a

@@ -1,3 +1,5 @@
+import type { PublishRecord } from './social';
+
 export enum VideoStatus {
   UPLOADED = 'UPLOADED',
   TRANSCRIBED = 'TRANSCRIBED',
@@ -80,6 +82,11 @@ export interface Clip {
   captionStyle: CaptionStyle;
   hookText: string | null;
   hashtags: string[];
+  // Publish attempts to connected social accounts (Fase 6b) - empty until
+  // the user hits "Publish now" at least once. Small array in practice (at
+  // most one per connected platform account), so returned inline rather
+  // than via a separate endpoint.
+  publishRecords: PublishRecord[];
   updatedAt: string;
 }
 

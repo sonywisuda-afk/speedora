@@ -5,6 +5,7 @@ import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ClipsService } from './clips.service';
+import { PublishClipDto } from './dto/publish-clip.dto';
 import { UpdateClipDto } from './dto/update-clip.dto';
 
 @Controller('clips')
@@ -33,5 +34,12 @@ export class ClipsController {
   @Post(':id/render')
   render(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.clipsService.render(id, user.id);
+  }
+
+  // Manual "publish now" (Fase 6b) - one clip to one already-connected
+  // social account. No scheduling yet (Fase 6c).
+  @Post(':id/publish')
+  publish(@CurrentUser() user: SafeUser, @Param('id') id: string, @Body() dto: PublishClipDto) {
+    return this.clipsService.publish(id, user.id, dto);
   }
 }

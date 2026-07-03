@@ -10,10 +10,18 @@ import {
 } from '@viral-clip-app/shared';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
+import { toSharedPublishRecord } from '../social/publish-record.util';
 import { StorageService } from '../storage/storage.service';
 import { toSharedCaptionStyle, toSharedTranscriptSegment } from './transcript-segment.util';
 
-type VideoWithClips = Prisma.VideoGetPayload<{ include: { clips: true } }>;
+const CLIPS_WITH_PUBLISH_RECORDS = {
+  orderBy: { viralityScore: 'desc' },
+  include: { publishRecords: { include: { socialAccount: true } } },
+} as const;
+
+type VideoWithClips = Prisma.VideoGetPayload<{
+  include: { clips: typeof CLIPS_WITH_PUBLISH_RECORDS };
+}>;
 
 @Injectable()
 export class VideosService {
@@ -45,7 +53,7 @@ export class VideosService {
     const videos = await this.prisma.video.findMany({
       where: { ownerId },
       orderBy: { createdAt: 'desc' },
-      include: { clips: { orderBy: { viralityScore: 'desc' } } },
+      include: { clips: CLIPS_WITH_PUBLISH_RECORDS },
     });
 
     return videos.map((video) => this.mapVideoWithClips(video));
@@ -135,7 +143,7 @@ export class VideosService {
   async findOne(id: string, requesterId: string) {
     const video = await this.prisma.video.findUnique({
       where: { id },
-      include: { clips: { orderBy: { viralityScore: 'desc' } } },
+      include: { clips: CLIPS_WITH_PUBLISH_RECORDS },
     });
 
     // Same "not found" for a missing video and someone else's video, so a
@@ -188,9 +196,10 @@ export class VideosService {
     const { clips, ...rest } = video;
     return {
       ...rest,
-      clips: clips.map(({ outputUrl, ...clip }) => ({
+      clips: clips.map(({ outputUrl, publishRecords, ...clip }) => ({
         ...clip,
         downloadUrl: outputUrl ? `/clips/${clip.id}/download` : null,
+        publishRecords: publishRecords.map(toSharedPublishRecord),
       })),
     };
   }

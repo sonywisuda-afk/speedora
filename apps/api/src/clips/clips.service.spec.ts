@@ -3,25 +3,38 @@ import { CaptionStyle } from '@viral-clip-app/database';
 import { QueueName } from '@viral-clip-app/shared';
 import type { Queue } from 'bullmq';
 import type { PrismaService } from '../prisma/prisma.service';
+import type { SocialAccountsService } from '../social/social.service';
 import { ClipsService } from './clips.service';
+
+const PUBLISH_RECORDS_INCLUDE = {
+  include: { publishRecords: { include: { socialAccount: true } } },
+};
 
 describe('ClipsService', () => {
   let service: ClipsService;
   let prisma: {
     clip: { findUnique: jest.Mock; update: jest.Mock };
     transcriptSegment: { findMany: jest.Mock };
+    publishRecord: { create: jest.Mock };
   };
+  let socialAccounts: { findOwnedOrThrow: jest.Mock };
   let renderClipQueue: { add: jest.Mock };
+  let publishClipQueue: { add: jest.Mock };
 
   beforeEach(() => {
     prisma = {
       clip: { findUnique: jest.fn(), update: jest.fn() },
       transcriptSegment: { findMany: jest.fn() },
+      publishRecord: { create: jest.fn() },
     };
+    socialAccounts = { findOwnedOrThrow: jest.fn() };
     renderClipQueue = { add: jest.fn() };
+    publishClipQueue = { add: jest.fn() };
     service = new ClipsService(
       prisma as unknown as PrismaService,
+      socialAccounts as unknown as SocialAccountsService,
       renderClipQueue as unknown as Queue,
+      publishClipQueue as unknown as Queue,
     );
   });
 
@@ -83,6 +96,7 @@ describe('ClipsService', () => {
       captionStyle: 'DEFAULT',
       hookText: 'Wait for it...',
       hashtags: ['viral', 'fyp'],
+      publishRecords: [],
       updatedAt: new Date('2026-01-01'),
       video: { ownerId: 'user-1' },
     };
@@ -102,6 +116,7 @@ describe('ClipsService', () => {
           hookText: 'Wait for it...',
           hashtags: ['viral', 'fyp'],
         },
+        ...PUBLISH_RECORDS_INCLUDE,
       });
       expect(result).toEqual({
         id: 'clip-1',
@@ -113,6 +128,7 @@ describe('ClipsService', () => {
         captionStyle: 'DEFAULT',
         hookText: 'Wait for it...',
         hashtags: ['viral', 'fyp'],
+        publishRecords: [],
         updatedAt: existingClip.updatedAt,
       });
     });
@@ -132,6 +148,7 @@ describe('ClipsService', () => {
           hookText: 'Wait for it...',
           hashtags: ['viral', 'fyp'],
         },
+        ...PUBLISH_RECORDS_INCLUDE,
       });
     });
 
@@ -150,6 +167,7 @@ describe('ClipsService', () => {
           hookText: 'Wait for it...',
           hashtags: ['viral', 'fyp'],
         },
+        ...PUBLISH_RECORDS_INCLUDE,
       });
     });
 
@@ -172,6 +190,7 @@ describe('ClipsService', () => {
           hookText: 'New hook',
           hashtags: ['newtag'],
         },
+        ...PUBLISH_RECORDS_INCLUDE,
       });
     });
 
@@ -184,6 +203,7 @@ describe('ClipsService', () => {
       expect(prisma.clip.update).toHaveBeenCalledWith({
         where: { id: 'clip-1' },
         data: expect.objectContaining({ hashtags: ['viral', 'fyp', 'foryou'] }),
+        ...PUBLISH_RECORDS_INCLUDE,
       });
     });
 
@@ -219,6 +239,7 @@ describe('ClipsService', () => {
       captionStyle: CaptionStyle.KARAOKE,
       hookText: 'Wait for it...',
       hashtags: ['viral', 'fyp'],
+      publishRecords: [],
       updatedAt: new Date('2026-01-01'),
       video: { ownerId: 'user-1', sourceUrl: 'videos/abc.mp4' },
     };
@@ -238,6 +259,7 @@ describe('ClipsService', () => {
       expect(prisma.clip.update).toHaveBeenCalledWith({
         where: { id: 'clip-1' },
         data: { outputUrl: null },
+        ...PUBLISH_RECORDS_INCLUDE,
       });
       expect(renderClipQueue.add).toHaveBeenCalledWith(QueueName.RENDER_CLIP, {
         clipId: 'clip-1',
@@ -265,6 +287,7 @@ describe('ClipsService', () => {
         captionStyle: CaptionStyle.KARAOKE,
         hookText: 'Wait for it...',
         hashtags: ['viral', 'fyp'],
+        publishRecords: [],
         updatedAt: cleared.updatedAt,
       });
     });
@@ -277,6 +300,79 @@ describe('ClipsService', () => {
 
       await expect(service.render('clip-1', 'user-1')).rejects.toThrow(NotFoundException);
       expect(renderClipQueue.add).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('publish', () => {
+    const renderedClip = {
+      id: 'clip-1',
+      outputUrl: 'renders/clip-1.mp4',
+      video: { ownerId: 'user-1' },
+    };
+    const account = { id: 'account-1', userId: 'user-1' };
+    const createdRecord = {
+      id: 'record-1',
+      clipId: 'clip-1',
+      socialAccountId: 'account-1',
+      status: 'QUEUED',
+      platformPostId: null,
+      errorMessage: null,
+      publishedAt: null,
+      createdAt: new Date('2026-01-01'),
+      socialAccount: { platform: 'YOUTUBE' },
+    };
+
+    it('creates a PublishRecord, enqueues publish-clip with retry options, and returns the shared dto', async () => {
+      prisma.clip.findUnique.mockResolvedValue(renderedClip);
+      socialAccounts.findOwnedOrThrow.mockResolvedValue(account);
+      prisma.publishRecord.create.mockResolvedValue(createdRecord);
+
+      const result = await service.publish('clip-1', 'user-1', { socialAccountId: 'account-1' });
+
+      expect(socialAccounts.findOwnedOrThrow).toHaveBeenCalledWith('account-1', 'user-1');
+      expect(prisma.publishRecord.create).toHaveBeenCalledWith({
+        data: { clipId: 'clip-1', socialAccountId: 'account-1' },
+        include: { socialAccount: true },
+      });
+      expect(publishClipQueue.add).toHaveBeenCalledWith(
+        QueueName.PUBLISH_CLIP,
+        { publishRecordId: 'record-1' },
+        { attempts: 3, backoff: { type: 'exponential', delay: 30_000 } },
+      );
+      expect(result).toEqual({
+        id: 'record-1',
+        clipId: 'clip-1',
+        socialAccountId: 'account-1',
+        platform: 'YOUTUBE',
+        status: 'QUEUED',
+        platformPostId: null,
+        errorMessage: null,
+        publishedAt: null,
+        createdAt: createdRecord.createdAt.toISOString(),
+      });
+    });
+
+    it('throws NotFoundException when the clip has not finished rendering yet', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...renderedClip, outputUrl: null });
+
+      await expect(
+        service.publish('clip-1', 'user-1', { socialAccountId: 'account-1' }),
+      ).rejects.toThrow(NotFoundException);
+      expect(socialAccounts.findOwnedOrThrow).not.toHaveBeenCalled();
+      expect(publishClipQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('propagates NotFoundException when the social account is not owned by the requester', async () => {
+      prisma.clip.findUnique.mockResolvedValue(renderedClip);
+      socialAccounts.findOwnedOrThrow.mockRejectedValue(
+        new NotFoundException('Social account account-1 not found'),
+      );
+
+      await expect(
+        service.publish('clip-1', 'user-1', { socialAccountId: 'account-1' }),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.publishRecord.create).not.toHaveBeenCalled();
+      expect(publishClipQueue.add).not.toHaveBeenCalled();
     });
   });
 });

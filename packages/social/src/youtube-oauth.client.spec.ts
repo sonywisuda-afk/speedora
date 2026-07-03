@@ -1,5 +1,3 @@
-import { ServiceUnavailableException } from '@nestjs/common';
-
 const generateAuthUrlMock = jest.fn();
 const getTokenMock = jest.fn();
 const setCredentialsMock = jest.fn();
@@ -16,6 +14,7 @@ jest.mock('google-auth-library', () => ({
   })),
 }));
 
+import { OAuthNotConfiguredError } from './errors';
 import { YouTubeOAuthClient } from './youtube-oauth.client';
 
 describe('YouTubeOAuthClient', () => {
@@ -38,10 +37,10 @@ describe('YouTubeOAuthClient', () => {
   });
 
   describe('when GOOGLE_OAUTH_CLIENT_ID/SECRET are not configured', () => {
-    it('throws ServiceUnavailableException rather than the app failing to boot', () => {
+    it('throws OAuthNotConfiguredError rather than the app failing to boot', () => {
       delete process.env.GOOGLE_OAUTH_CLIENT_ID;
 
-      expect(() => client.buildAuthorizeUrl('state')).toThrow(ServiceUnavailableException);
+      expect(() => client.buildAuthorizeUrl('state')).toThrow(OAuthNotConfiguredError);
     });
   });
 

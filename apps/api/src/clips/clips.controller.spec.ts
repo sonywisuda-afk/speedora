@@ -9,11 +9,21 @@ jest.mock('@viral-clip-app/storage', () => ({
 
 describe('ClipsController', () => {
   let controller: ClipsController;
-  let clipsService: { findRenderedOrThrow: jest.Mock; update: jest.Mock; render: jest.Mock };
+  let clipsService: {
+    findRenderedOrThrow: jest.Mock;
+    update: jest.Mock;
+    render: jest.Mock;
+    publish: jest.Mock;
+  };
   const user = { id: 'user-1', email: 'a@example.com' };
 
   beforeEach(() => {
-    clipsService = { findRenderedOrThrow: jest.fn(), update: jest.fn(), render: jest.fn() };
+    clipsService = {
+      findRenderedOrThrow: jest.fn(),
+      update: jest.fn(),
+      render: jest.fn(),
+      publish: jest.fn(),
+    };
     controller = new ClipsController(clipsService as unknown as ClipsService);
     jest.clearAllMocks();
   });
@@ -58,5 +68,17 @@ describe('ClipsController', () => {
 
     expect(clipsService.render).toHaveBeenCalledWith('clip-1', 'user-1');
     expect(result).toBe(rendering);
+  });
+
+  it('delegates POST :id/publish to ClipsService.publish', async () => {
+    const record = { id: 'record-1', status: 'QUEUED' };
+    clipsService.publish.mockResolvedValue(record);
+
+    const result = await controller.publish(user, 'clip-1', { socialAccountId: 'account-1' });
+
+    expect(clipsService.publish).toHaveBeenCalledWith('clip-1', 'user-1', {
+      socialAccountId: 'account-1',
+    });
+    expect(result).toBe(record);
   });
 });
