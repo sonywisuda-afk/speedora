@@ -34,8 +34,13 @@ enum SocialPlatform {
   YOUTUBE
 }
 
-// Mirrors PublishStatus in packages/shared/src/types/social.ts.
+// Mirrors PublishStatus in packages/shared/src/types/social.ts. SCHEDULED
+// (Fase 6c) is a row waiting for its scheduledAt to arrive - the
+// schedule-publish-clip poller (apps/worker) claims it (-> QUEUED) and
+// enqueues the actual publish-clip job at that point, same as an immediate
+// "publish now" skips SCHEDULED entirely and starts at QUEUED.
 enum PublishStatus {
+  SCHEDULED
   QUEUED
   PUBLISHING
   PUBLISHED
@@ -153,10 +158,10 @@ model SocialAccount {
   @@index([userId])
 }
 
-// One row per publish attempt of a clip to a connected social account
-// (Fase 6b - manual "publish now" only; scheduledAt stays null until Fase
-// 6c wires up scheduling, kept here now so that sub-phase doesn't need a
-// separate migration for it).
+// One row per publish attempt of a clip to a connected social account.
+// scheduledAt is null for an immediate "publish now" (Fase 6b, status starts
+// at QUEUED) and set for a future scheduled publish (Fase 6c, status starts
+// at SCHEDULED until the schedule-publish-clip poller claims it).
 model PublishRecord {
   id              String         @id @default(cuid())
   clipId          String
@@ -164,6 +169,7 @@ model PublishRecord {
   socialAccountId String
   socialAccount   SocialAccount  @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
   status          PublishStatus  @default(QUEUED)
+  // Set only for a scheduled publish (Fase 6c) - null means "publish now".
   scheduledAt     DateTime?
   publishedAt     DateTime?
   // The platform's own id for the published content (e.g. a YouTube video

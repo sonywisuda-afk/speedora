@@ -137,15 +137,42 @@ export async function disconnectSocialAccount(id: string): Promise<void> {
   await apiFetch(`/social/accounts/${id}`, { method: 'DELETE' });
 }
 
-// Manual "publish now" (Fase 6b) - kicks off the publish-clip job for one
-// already-connected account. Returns the created PublishRecord immediately
-// (status QUEUED); the caller polls getVideo()/listVideos() same as
-// render/transcribe status to see it move to PUBLISHING/PUBLISHED/FAILED.
-export async function publishClip(clipId: string, socialAccountId: string): Promise<PublishRecord> {
+// Manual "publish now" (Fase 6b), or a scheduled future publish (Fase 6c)
+// when scheduledAt (ISO 8601) is passed - kicks off (or schedules) the
+// publish-clip job for one already-connected account. Returns the created
+// PublishRecord immediately (status QUEUED, or SCHEDULED if scheduledAt was
+// given); the caller polls getVideo()/listVideos() same as render/
+// transcribe status to see it move through PUBLISHING/PUBLISHED/FAILED.
+export async function publishClip(
+  clipId: string,
+  socialAccountId: string,
+  scheduledAt?: string,
+): Promise<PublishRecord> {
   const res = await apiFetch(`/clips/${clipId}/publish`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ socialAccountId }),
+    body: JSON.stringify({ socialAccountId, scheduledAt }),
+  });
+  return parseJsonOrThrow<PublishRecord>(res);
+}
+
+// Cancel a publish that hasn't fired yet (Fase 6c) - only works while the
+// record is still SCHEDULED.
+export async function cancelScheduledPublish(clipId: string, recordId: string): Promise<void> {
+  await apiFetch(`/clips/${clipId}/publish/${recordId}`, { method: 'DELETE' });
+}
+
+// Move a scheduled publish's time (Fase 6c) - only works while the record
+// is still SCHEDULED.
+export async function reschedulePublish(
+  clipId: string,
+  recordId: string,
+  scheduledAt: string,
+): Promise<PublishRecord> {
+  const res = await apiFetch(`/clips/${clipId}/publish/${recordId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ scheduledAt }),
   });
   return parseJsonOrThrow<PublishRecord>(res);
 }

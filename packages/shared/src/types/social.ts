@@ -16,8 +16,11 @@ export interface SocialAccount {
   createdAt: string;
 }
 
-// Mirrors PublishStatus in packages/database's Prisma schema.
+// Mirrors PublishStatus in packages/database's Prisma schema. SCHEDULED
+// (Fase 6c) is a row waiting for scheduledAt to arrive - the
+// schedule-publish-clip poller (apps/worker) claims it into QUEUED once due.
 export enum PublishStatus {
+  SCHEDULED = 'SCHEDULED',
   QUEUED = 'QUEUED',
   PUBLISHING = 'PUBLISHING',
   PUBLISHED = 'PUBLISHED',
@@ -33,6 +36,9 @@ export interface PublishRecord {
   socialAccountId: string;
   platform: SocialPlatform;
   status: PublishStatus;
+  // Non-null only for a scheduled publish (Fase 6c) that hasn't fired yet -
+  // null means either "publish now" or already past SCHEDULED.
+  scheduledAt: string | null;
   // Non-null only once status is PUBLISHED - the platform's own id/URL for
   // the published content.
   platformPostId: string | null;

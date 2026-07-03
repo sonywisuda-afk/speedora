@@ -20,6 +20,7 @@ export function toSharedPublishRecord(
     socialAccountId: record.socialAccountId,
     platform: record.socialAccount.platform as unknown as SocialPlatform,
     status: record.status as unknown as PublishStatus,
+    scheduledAt: record.scheduledAt?.toISOString() ?? null,
     platformPostId: record.platformPostId,
     errorMessage: record.errorMessage,
     publishedAt: record.publishedAt?.toISOString() ?? null,

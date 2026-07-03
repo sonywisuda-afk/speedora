@@ -14,6 +14,8 @@ describe('ClipsController', () => {
     update: jest.Mock;
     render: jest.Mock;
     publish: jest.Mock;
+    cancelScheduledPublish: jest.Mock;
+    reschedulePublish: jest.Mock;
   };
   const user = { id: 'user-1', email: 'a@example.com' };
 
@@ -23,6 +25,8 @@ describe('ClipsController', () => {
       update: jest.fn(),
       render: jest.fn(),
       publish: jest.fn(),
+      cancelScheduledPublish: jest.fn(),
+      reschedulePublish: jest.fn(),
     };
     controller = new ClipsController(clipsService as unknown as ClipsService);
     jest.clearAllMocks();
@@ -80,5 +84,38 @@ describe('ClipsController', () => {
       socialAccountId: 'account-1',
     });
     expect(result).toBe(record);
+  });
+
+  it('delegates DELETE :id/publish/:recordId to ClipsService.cancelScheduledPublish', async () => {
+    clipsService.cancelScheduledPublish.mockResolvedValue(undefined);
+
+    await controller.cancelPublish(user, 'clip-1', 'record-1');
+
+    expect(clipsService.cancelScheduledPublish).toHaveBeenCalledWith(
+      'clip-1',
+      'record-1',
+      'user-1',
+    );
+  });
+
+  it('delegates PATCH :id/publish/:recordId to ClipsService.reschedulePublish', async () => {
+    const rescheduled = {
+      id: 'record-1',
+      status: 'SCHEDULED',
+      scheduledAt: '2026-08-01T00:00:00.000Z',
+    };
+    clipsService.reschedulePublish.mockResolvedValue(rescheduled);
+
+    const result = await controller.reschedulePublish(user, 'clip-1', 'record-1', {
+      scheduledAt: '2026-08-01T00:00:00.000Z',
+    });
+
+    expect(clipsService.reschedulePublish).toHaveBeenCalledWith(
+      'clip-1',
+      'record-1',
+      'user-1',
+      '2026-08-01T00:00:00.000Z',
+    );
+    expect(result).toBe(rescheduled);
   });
 });

@@ -1,8 +1,9 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import type { CaptionStyle } from '@viral-clip-app/database';
+import { PublishStatus, type CaptionStyle } from '@viral-clip-app/database';
 import {
   filterSegmentsForClip,
+  PUBLISH_RETRY_OPTIONS,
   QueueName,
   sanitizeHashtags,
   type PublishClipJobData,
@@ -16,16 +17,6 @@ import { SocialAccountsService } from '../social/social.service';
 import { toSharedCaptionStyle, toSharedTranscriptSegment } from '../videos/transcript-segment.util';
 import type { PublishClipDto } from './dto/publish-clip.dto';
 import type { UpdateClipDto } from './dto/update-clip.dto';
-
-// A transient failure calling out to a social platform's API (rate limit,
-// a temporary 5xx) shouldn't need a human to notice and manually retry -
-// unlike every other job in this codebase (transcribe/detect-clips/
-// render-clip all fail once and wait for an explicit user Retry), so this
-// is the first job configured with BullMQ's own automatic retry.
-const PUBLISH_RETRY_OPTIONS = {
-  attempts: 3,
-  backoff: { type: 'exponential' as const, delay: 30_000 },
-};
 
 @Injectable()
 export class ClipsService {
@@ -127,28 +118,92 @@ export class ClipsService {
     return this.toDto(cleared);
   }
 
-  // Manual "publish now" (Fase 6b) - creates the PublishRecord row
+  // Manual "publish now" (Fase 6b), or a scheduled future publish (Fase 6c)
+  // when input.scheduledAt is set - either way creates the PublishRecord row
   // synchronously (so it exists immediately for the UI to show/poll, same
-  // reasoning as render()'s eager outputUrl clear) before enqueueing the
-  // job that does the actual upload. Purely additive to the clip - unlike
-  // render(), does not touch/clear anything on the Clip row itself.
+  // reasoning as render()'s eager outputUrl clear). Purely additive to the
+  // clip - unlike render(), does not touch/clear anything on the Clip row
+  // itself. A scheduled record is NOT enqueued here - it starts at
+  // SCHEDULED and apps/worker's schedule-publish-clip poller enqueues it
+  // (moving it to QUEUED) once scheduledAt arrives.
   async publish(id: string, requesterId: string, input: PublishClipDto) {
     const clip = await this.findRenderedOrThrow(id, requesterId);
     // Throws NotFoundException if the account doesn't exist or belongs to
     // someone else - same ownership check pattern as findOwnedOrThrow.
     await this.socialAccounts.findOwnedOrThrow(input.socialAccountId, requesterId);
 
+    const scheduledAt = input.scheduledAt ? new Date(input.scheduledAt) : null;
+    if (scheduledAt && scheduledAt.getTime() <= Date.now()) {
+      throw new BadRequestException('scheduledAt must be in the future');
+    }
+
     const record = await this.prisma.publishRecord.create({
-      data: { clipId: clip.id, socialAccountId: input.socialAccountId },
+      data: {
+        clipId: clip.id,
+        socialAccountId: input.socialAccountId,
+        status: scheduledAt ? PublishStatus.SCHEDULED : PublishStatus.QUEUED,
+        scheduledAt,
+      },
       include: { socialAccount: true },
     });
 
-    await this.publishClipQueue.add(
-      QueueName.PUBLISH_CLIP,
-      { publishRecordId: record.id },
-      PUBLISH_RETRY_OPTIONS,
-    );
+    if (!scheduledAt) {
+      await this.publishClipQueue.add(
+        QueueName.PUBLISH_CLIP,
+        { publishRecordId: record.id },
+        PUBLISH_RETRY_OPTIONS,
+      );
+    }
 
+    return toSharedPublishRecord(record);
+  }
+
+  // Cancel a publish that hasn't fired yet (Fase 6c). Scoped to id+clipId+
+  // SCHEDULED in one atomic deleteMany - a record that's already QUEUED/
+  // PUBLISHING/PUBLISHED/FAILED has either already been handed to the
+  // worker or finished, and canceling it here wouldn't stop/undo an
+  // in-flight or completed upload, so it's deliberately not cancellable
+  // past SCHEDULED.
+  async cancelScheduledPublish(id: string, recordId: string, requesterId: string): Promise<void> {
+    await this.findOwnedOrThrow(id, requesterId);
+
+    const { count } = await this.prisma.publishRecord.deleteMany({
+      where: { id: recordId, clipId: id, status: PublishStatus.SCHEDULED },
+    });
+    if (count === 0) {
+      throw new NotFoundException(`Scheduled publish ${recordId} not found`);
+    }
+  }
+
+  // Reschedule a publish that hasn't fired yet (Fase 6c) to a new future
+  // time. Same SCHEDULED-only scoping as cancelScheduledPublish, for the
+  // same reason - once claimed by the poller it's no longer just a plan,
+  // it's an in-flight (or finished) job.
+  async reschedulePublish(
+    id: string,
+    recordId: string,
+    requesterId: string,
+    newScheduledAt: string,
+  ) {
+    await this.findOwnedOrThrow(id, requesterId);
+
+    const parsed = new Date(newScheduledAt);
+    if (parsed.getTime() <= Date.now()) {
+      throw new BadRequestException('scheduledAt must be in the future');
+    }
+
+    const { count } = await this.prisma.publishRecord.updateMany({
+      where: { id: recordId, clipId: id, status: PublishStatus.SCHEDULED },
+      data: { scheduledAt: parsed },
+    });
+    if (count === 0) {
+      throw new NotFoundException(`Scheduled publish ${recordId} not found`);
+    }
+
+    const record = await this.prisma.publishRecord.findUniqueOrThrow({
+      where: { id: recordId },
+      include: { socialAccount: true },
+    });
     return toSharedPublishRecord(record);
   }
 

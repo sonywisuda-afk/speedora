@@ -19,18 +19,33 @@ import { validateEnv } from './env';
 // PrismaClient, or the OpenAI client actually tries to use it.
 validateEnv();
 
-import { detectClipsQueue, renderClipQueue } from './queues';
+import {
+  detectClipsQueue,
+  publishClipQueue,
+  renderClipQueue,
+  schedulePublishClipQueue,
+} from './queues';
 import { createTranscribeWorker } from './workers/transcribe.worker';
 import { createDetectClipsWorker } from './workers/detect-clips.worker';
 import { createRenderClipWorker } from './workers/render-clip.worker';
 import { createPublishClipWorker } from './workers/publish-clip.worker';
+import {
+  createSchedulePublishClipWorker,
+  scheduleRepeatingTrigger,
+} from './workers/schedule-publish-clip.worker';
 
-function main() {
+async function main() {
+  // Registers (or re-confirms) the repeatable trigger before the worker
+  // that consumes it starts, so there's no window where the queue could
+  // fire before anything is listening.
+  await scheduleRepeatingTrigger();
+
   const workers = [
     createTranscribeWorker(),
     createDetectClipsWorker(),
     createRenderClipWorker(),
     createPublishClipWorker(),
+    createSchedulePublishClipWorker(),
   ];
 
   console.log(`worker started, listening on ${workers.length} queues`);
@@ -38,7 +53,12 @@ function main() {
   const shutdown = async () => {
     console.log('shutting down workers...');
     await Promise.all(workers.map((worker) => worker.close()));
-    await Promise.all([detectClipsQueue.close(), renderClipQueue.close()]);
+    await Promise.all([
+      detectClipsQueue.close(),
+      renderClipQueue.close(),
+      publishClipQueue.close(),
+      schedulePublishClipQueue.close(),
+    ]);
     process.exit(0);
   };
 
@@ -46,4 +66,7 @@ function main() {
   process.on('SIGTERM', shutdown);
 }
 
-main();
+main().catch((error) => {
+  console.error('[worker] failed to start:', error);
+  process.exit(1);
+});

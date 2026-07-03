@@ -15,7 +15,12 @@ describe('ClipsService', () => {
   let prisma: {
     clip: { findUnique: jest.Mock; update: jest.Mock };
     transcriptSegment: { findMany: jest.Mock };
-    publishRecord: { create: jest.Mock };
+    publishRecord: {
+      create: jest.Mock;
+      deleteMany: jest.Mock;
+      updateMany: jest.Mock;
+      findUniqueOrThrow: jest.Mock;
+    };
   };
   let socialAccounts: { findOwnedOrThrow: jest.Mock };
   let renderClipQueue: { add: jest.Mock };
@@ -25,7 +30,12 @@ describe('ClipsService', () => {
     prisma = {
       clip: { findUnique: jest.fn(), update: jest.fn() },
       transcriptSegment: { findMany: jest.fn() },
-      publishRecord: { create: jest.fn() },
+      publishRecord: {
+        create: jest.fn(),
+        deleteMany: jest.fn(),
+        updateMany: jest.fn(),
+        findUniqueOrThrow: jest.fn(),
+      },
     };
     socialAccounts = { findOwnedOrThrow: jest.fn() };
     renderClipQueue = { add: jest.fn() };
@@ -315,6 +325,7 @@ describe('ClipsService', () => {
       clipId: 'clip-1',
       socialAccountId: 'account-1',
       status: 'QUEUED',
+      scheduledAt: null,
       platformPostId: null,
       errorMessage: null,
       publishedAt: null,
@@ -331,7 +342,12 @@ describe('ClipsService', () => {
 
       expect(socialAccounts.findOwnedOrThrow).toHaveBeenCalledWith('account-1', 'user-1');
       expect(prisma.publishRecord.create).toHaveBeenCalledWith({
-        data: { clipId: 'clip-1', socialAccountId: 'account-1' },
+        data: {
+          clipId: 'clip-1',
+          socialAccountId: 'account-1',
+          status: 'QUEUED',
+          scheduledAt: null,
+        },
         include: { socialAccount: true },
       });
       expect(publishClipQueue.add).toHaveBeenCalledWith(
@@ -345,6 +361,7 @@ describe('ClipsService', () => {
         socialAccountId: 'account-1',
         platform: 'YOUTUBE',
         status: 'QUEUED',
+        scheduledAt: null,
         platformPostId: null,
         errorMessage: null,
         publishedAt: null,
@@ -373,6 +390,146 @@ describe('ClipsService', () => {
       ).rejects.toThrow(NotFoundException);
       expect(prisma.publishRecord.create).not.toHaveBeenCalled();
       expect(publishClipQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('creates a SCHEDULED PublishRecord and does not enqueue when scheduledAt is a future time', async () => {
+      const futureIso = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      prisma.clip.findUnique.mockResolvedValue(renderedClip);
+      socialAccounts.findOwnedOrThrow.mockResolvedValue(account);
+      prisma.publishRecord.create.mockResolvedValue({
+        ...createdRecord,
+        status: 'SCHEDULED',
+        scheduledAt: new Date(futureIso),
+      });
+
+      const result = await service.publish('clip-1', 'user-1', {
+        socialAccountId: 'account-1',
+        scheduledAt: futureIso,
+      });
+
+      expect(prisma.publishRecord.create).toHaveBeenCalledWith({
+        data: {
+          clipId: 'clip-1',
+          socialAccountId: 'account-1',
+          status: 'SCHEDULED',
+          scheduledAt: new Date(futureIso),
+        },
+        include: { socialAccount: true },
+      });
+      expect(publishClipQueue.add).not.toHaveBeenCalled();
+      expect(result.status).toBe('SCHEDULED');
+    });
+
+    it('throws BadRequestException when scheduledAt is not in the future', async () => {
+      prisma.clip.findUnique.mockResolvedValue(renderedClip);
+      socialAccounts.findOwnedOrThrow.mockResolvedValue(account);
+      const pastIso = new Date(Date.now() - 60_000).toISOString();
+
+      await expect(
+        service.publish('clip-1', 'user-1', {
+          socialAccountId: 'account-1',
+          scheduledAt: pastIso,
+        }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.publishRecord.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('cancelScheduledPublish', () => {
+    const ownedClip = {
+      id: 'clip-1',
+      outputUrl: 'renders/clip-1.mp4',
+      video: { ownerId: 'user-1' },
+    };
+
+    it('deletes the record when it is still SCHEDULED and belongs to the clip', async () => {
+      prisma.clip.findUnique.mockResolvedValue(ownedClip);
+      prisma.publishRecord.deleteMany.mockResolvedValue({ count: 1 });
+
+      await service.cancelScheduledPublish('clip-1', 'record-1', 'user-1');
+
+      expect(prisma.publishRecord.deleteMany).toHaveBeenCalledWith({
+        where: { id: 'record-1', clipId: 'clip-1', status: 'SCHEDULED' },
+      });
+    });
+
+    it('throws NotFoundException when no matching SCHEDULED record exists', async () => {
+      prisma.clip.findUnique.mockResolvedValue(ownedClip);
+      prisma.publishRecord.deleteMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.cancelScheduledPublish('clip-1', 'record-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws NotFoundException when the clip belongs to a different user', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        ...ownedClip,
+        video: { ownerId: 'someone-else' },
+      });
+
+      await expect(service.cancelScheduledPublish('clip-1', 'record-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.publishRecord.deleteMany).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('reschedulePublish', () => {
+    const ownedClip = {
+      id: 'clip-1',
+      outputUrl: 'renders/clip-1.mp4',
+      video: { ownerId: 'user-1' },
+    };
+    const rescheduled = {
+      id: 'record-1',
+      clipId: 'clip-1',
+      socialAccountId: 'account-1',
+      status: 'SCHEDULED',
+      scheduledAt: null as Date | null,
+      platformPostId: null,
+      errorMessage: null,
+      publishedAt: null,
+      createdAt: new Date('2026-01-01'),
+      socialAccount: { platform: 'YOUTUBE' },
+    };
+
+    it('updates scheduledAt when the record is still SCHEDULED and belongs to the clip', async () => {
+      const futureIso = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      prisma.clip.findUnique.mockResolvedValue(ownedClip);
+      prisma.publishRecord.updateMany.mockResolvedValue({ count: 1 });
+      prisma.publishRecord.findUniqueOrThrow.mockResolvedValue({
+        ...rescheduled,
+        scheduledAt: new Date(futureIso),
+      });
+
+      const result = await service.reschedulePublish('clip-1', 'record-1', 'user-1', futureIso);
+
+      expect(prisma.publishRecord.updateMany).toHaveBeenCalledWith({
+        where: { id: 'record-1', clipId: 'clip-1', status: 'SCHEDULED' },
+        data: { scheduledAt: new Date(futureIso) },
+      });
+      expect(result.scheduledAt).toBe(new Date(futureIso).toISOString());
+    });
+
+    it('throws BadRequestException when the new scheduledAt is not in the future', async () => {
+      prisma.clip.findUnique.mockResolvedValue(ownedClip);
+      const pastIso = new Date(Date.now() - 60_000).toISOString();
+
+      await expect(
+        service.reschedulePublish('clip-1', 'record-1', 'user-1', pastIso),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.publishRecord.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when no matching SCHEDULED record exists', async () => {
+      const futureIso = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      prisma.clip.findUnique.mockResolvedValue(ownedClip);
+      prisma.publishRecord.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(
+        service.reschedulePublish('clip-1', 'record-1', 'user-1', futureIso),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });
