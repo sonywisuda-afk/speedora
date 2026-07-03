@@ -1,8 +1,10 @@
 // Mirrors SocialPlatform in packages/database's Prisma schema. YOUTUBE
-// (Fase 6a), TIKTOK (Fase 6d) - see CLAUDE.md's "Publish Center" section.
+// (Fase 6a), TIKTOK (Fase 6d), INSTAGRAM (Fase 6d follow-up) - see
+// CLAUDE.md's "Publish Center" section.
 export enum SocialPlatform {
   YOUTUBE = 'YOUTUBE',
   TIKTOK = 'TIKTOK',
+  INSTAGRAM = 'INSTAGRAM',
 }
 
 // API/UI-facing DTO for a connected account - deliberately never includes

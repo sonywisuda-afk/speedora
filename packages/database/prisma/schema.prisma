@@ -28,10 +28,12 @@ enum CaptionStyle {
 
 // Mirrors SocialPlatform in packages/shared/src/types/social.ts. YOUTUBE
 // (Fase 6a) picked first for lowest-friction OAuth; TIKTOK (Fase 6d) added
-// second - see CLAUDE.md's "Publish Center" section for both.
+// second; INSTAGRAM added third - see CLAUDE.md's "Publish Center" section
+// for all three.
 enum SocialPlatform {
   YOUTUBE
   TIKTOK
+  INSTAGRAM
 }
 
 // Mirrors PublishStatus in packages/shared/src/types/social.ts. SCHEDULED

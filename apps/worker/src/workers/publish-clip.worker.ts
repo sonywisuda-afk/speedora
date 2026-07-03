@@ -7,23 +7,33 @@ import {
 } from '@viral-clip-app/shared';
 import {
   resolveAccessToken,
+  InstagramOAuthClient,
   TikTokOAuthClient,
+  uploadInstagramReel,
   uploadTikTokVideo,
   uploadYouTubeVideo,
   YouTubeOAuthClient,
   type OAuthRefreshClient,
 } from '@viral-clip-app/social';
-import { getObjectStream } from '@viral-clip-app/storage';
+import { getObjectStream, getPresignedDownloadUrl } from '@viral-clip-app/storage';
 import { Worker, type Job } from 'bullmq';
 import { prisma } from '../prisma';
 import { createRedisConnection } from '../redis';
 
-// No constructor deps for either client (both read their credentials from
-// process.env directly, same as apps/api's instances) - one shared instance
-// of each is enough, same pattern as apps/api's SocialModule providing a
-// single instance per platform.
+// No constructor deps for any of the three clients (all read their
+// credentials from process.env directly, same as apps/api's instances) -
+// one shared instance of each is enough, same pattern as apps/api's
+// SocialModule providing a single instance per platform.
 const youtubeOAuth = new YouTubeOAuthClient();
 const tiktokOAuth = new TikTokOAuthClient();
+const instagramOAuth = new InstagramOAuthClient();
+
+// How long the presigned URL handed to Meta's servers (Instagram Reels
+// only - see CLAUDE.md's Fase 6d "Instagram" section) stays valid. Meta
+// fetches the video shortly after the container-create call returns, so
+// this just needs comfortable margin over that, not over the container's
+// own (separately polled, up to 5 minutes) processing time.
+const INSTAGRAM_PRESIGNED_URL_TTL_SECONDS = 15 * 60;
 
 function oauthClientFor(platform: SocialPlatform): OAuthRefreshClient {
   switch (platform) {
@@ -31,11 +41,23 @@ function oauthClientFor(platform: SocialPlatform): OAuthRefreshClient {
       return youtubeOAuth;
     case SocialPlatform.TIKTOK:
       return tiktokOAuth;
+    case SocialPlatform.INSTAGRAM:
+      return instagramOAuth;
   }
 }
 
 function buildDescription(hashtags: string[]): string {
   return hashtags.map((tag) => `#${tag}`).join(' ');
+}
+
+// Instagram Reels only has a single caption field (no separate title), so
+// hookText and hashtags are combined here rather than split like YouTube's
+// title/description.
+function buildCaption(hookText: string | null, hashtags: string[]): string {
+  const hashtagLine = buildDescription(hashtags);
+  return [hookText, hashtagLine || null]
+    .filter((part): part is string => Boolean(part))
+    .join('\n\n');
 }
 
 export function createPublishClipWorker(): Worker<PublishClipJobData, PublishClipJobResult> {
@@ -73,7 +95,6 @@ export function createPublishClipWorker(): Worker<PublishClipJobData, PublishCli
           });
         }
 
-        const videoStream = await getObjectStream(record.clip.outputUrl);
         let platformPostId: string;
         let logDetail: string;
         if (platform === SocialPlatform.TIKTOK) {
@@ -84,13 +105,32 @@ export function createPublishClipWorker(): Worker<PublishClipJobData, PublishCli
           // themselves. There's no title/caption field to set here either
           // (only Direct Post's API accepts one); hookText/hashtags are
           // simply unused for a TikTok publish.
+          const videoStream = await getObjectStream(record.clip.outputUrl);
           const upload = await uploadTikTokVideo({
             accessToken: resolved.accessToken,
             videoStream,
           });
           platformPostId = upload.publishId;
           logDetail = `sent to TikTok inbox, publish_id ${upload.publishId}`;
+        } else if (platform === SocialPlatform.INSTAGRAM) {
+          // Instagram's Content Publishing API has no direct byte-upload
+          // option - it fetches the video itself from a public HTTPS URL
+          // (see CLAUDE.md's Fase 6d "Instagram" section), so a short-lived
+          // presigned URL is generated instead of opening a stream here.
+          const videoUrl = await getPresignedDownloadUrl(
+            record.clip.outputUrl,
+            INSTAGRAM_PRESIGNED_URL_TTL_SECONDS,
+          );
+          const upload = await uploadInstagramReel({
+            accessToken: resolved.accessToken,
+            igUserId: record.socialAccount.platformAccountId,
+            videoUrl,
+            caption: buildCaption(record.clip.hookText, record.clip.hashtags),
+          });
+          platformPostId = upload.mediaId;
+          logDetail = `published as Instagram Reel, media id ${upload.mediaId}`;
         } else {
+          const videoStream = await getObjectStream(record.clip.outputUrl);
           const upload = await uploadYouTubeVideo({
             accessToken: resolved.accessToken,
             title: record.clip.hookText || `Clip ${record.clip.id}`,

@@ -12,6 +12,11 @@ jest.mock('@aws-sdk/client-s3', () => {
   };
 });
 
+const getSignedUrlMock = jest.fn();
+jest.mock('@aws-sdk/s3-request-presigner', () => ({
+  getSignedUrl: (...args: unknown[]) => getSignedUrlMock(...args),
+}));
+
 const ENV_KEYS = [
   'STORAGE_REGION',
   'STORAGE_ENDPOINT',
@@ -38,6 +43,7 @@ describe('packages/storage', () => {
   beforeEach(() => {
     jest.resetModules();
     sendMock.mockReset();
+    getSignedUrlMock.mockReset();
     for (const key of ENV_KEYS) delete process.env[key];
     process.env.STORAGE_BUCKET = 'test-bucket';
     process.env.STORAGE_ACCESS_KEY_ID = 'test-key-id';
@@ -138,6 +144,20 @@ describe('packages/storage', () => {
       'STORAGE_BUCKET is not set',
     );
     expect(sendMock).not.toHaveBeenCalled();
+  });
+
+  it('getPresignedDownloadUrl signs a GetObjectCommand for the given key and TTL', async () => {
+    getSignedUrlMock.mockResolvedValue(
+      'https://bucket.example.com/renders/clip.mp4?X-Amz-Signature=...',
+    );
+    const { getPresignedDownloadUrl } = await import('./index');
+
+    const url = await getPresignedDownloadUrl('renders/clip.mp4', 900);
+
+    expect(url).toBe('https://bucket.example.com/renders/clip.mp4?X-Amz-Signature=...');
+    const [, command, options] = getSignedUrlMock.mock.calls[0];
+    expect(command.input).toEqual({ Bucket: 'test-bucket', Key: 'renders/clip.mp4' });
+    expect(options).toEqual({ expiresIn: 900 });
   });
 
   it('reuses the same S3Client instance across multiple calls (lazy singleton)', async () => {

@@ -12,19 +12,25 @@ jest.mock('@sentry/node', () => ({
 const resolveAccessTokenMock = jest.fn();
 const uploadYouTubeVideoMock = jest.fn();
 const uploadTikTokVideoMock = jest.fn();
+const uploadInstagramReelMock = jest.fn();
 class FakeYouTubeOAuthClient {}
 class FakeTikTokOAuthClient {}
+class FakeInstagramOAuthClient {}
 jest.mock('@viral-clip-app/social', () => ({
   resolveAccessToken: (...args: unknown[]) => resolveAccessTokenMock(...args),
   uploadYouTubeVideo: (...args: unknown[]) => uploadYouTubeVideoMock(...args),
   uploadTikTokVideo: (...args: unknown[]) => uploadTikTokVideoMock(...args),
+  uploadInstagramReel: (...args: unknown[]) => uploadInstagramReelMock(...args),
   YouTubeOAuthClient: FakeYouTubeOAuthClient,
   TikTokOAuthClient: FakeTikTokOAuthClient,
+  InstagramOAuthClient: FakeInstagramOAuthClient,
 }));
 
 const getObjectStreamMock = jest.fn();
+const getPresignedDownloadUrlMock = jest.fn();
 jest.mock('@viral-clip-app/storage', () => ({
   getObjectStream: (...args: unknown[]) => getObjectStreamMock(...args),
+  getPresignedDownloadUrl: (...args: unknown[]) => getPresignedDownloadUrlMock(...args),
 }));
 
 const publishRecordFindUniqueOrThrowMock = jest.fn();
@@ -98,6 +104,10 @@ describe('publish-clip worker', () => {
       url: 'https://youtu.be/yt-video-1',
     });
     uploadTikTokVideoMock.mockResolvedValue({ publishId: 'tiktok-publish-1' });
+    getPresignedDownloadUrlMock.mockResolvedValue(
+      'https://bucket.example.com/renders/clip-1.mp4?signed=1',
+    );
+    uploadInstagramReelMock.mockResolvedValue({ mediaId: 'ig-media-1' });
   });
 
   it('uploads the rendered clip to YouTube unlisted and marks the record PUBLISHED', async () => {
@@ -267,6 +277,70 @@ describe('publish-clip worker', () => {
       expect(resolveAccessTokenMock).toHaveBeenCalledWith(
         tiktokRecord.socialAccount,
         expect.any(FakeTikTokOAuthClient),
+      );
+    });
+  });
+
+  describe('Instagram accounts', () => {
+    const instagramRecord = {
+      ...baseRecord,
+      socialAccount: {
+        ...baseRecord.socialAccount,
+        platform: SocialPlatform.INSTAGRAM,
+        platformAccountId: 'ig-user-1',
+      },
+    };
+
+    it('generates a presigned URL, publishes as a Reel (not YouTube/TikTok), and marks PUBLISHED with the media id', async () => {
+      publishRecordFindUniqueOrThrowMock.mockResolvedValue(instagramRecord);
+
+      const processor = getProcessor();
+      const result = await processor(baseJob());
+
+      expect(getPresignedDownloadUrlMock).toHaveBeenCalledWith('renders/clip-1.mp4', 15 * 60);
+      expect(uploadInstagramReelMock).toHaveBeenCalledWith({
+        accessToken: 'plaintext-access',
+        igUserId: 'ig-user-1',
+        videoUrl: 'https://bucket.example.com/renders/clip-1.mp4?signed=1',
+        caption: 'Wait for it\n\n#viral #fyp',
+      });
+      expect(getObjectStreamMock).not.toHaveBeenCalled();
+      expect(uploadYouTubeVideoMock).not.toHaveBeenCalled();
+      expect(uploadTikTokVideoMock).not.toHaveBeenCalled();
+      expect(publishRecordUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'record-1' },
+        data: {
+          status: PublishStatus.PUBLISHED,
+          platformPostId: 'ig-media-1',
+          publishedAt: expect.any(Date),
+        },
+      });
+      expect(result).toEqual({ publishRecordId: 'record-1', platformPostId: 'ig-media-1' });
+    });
+
+    it('builds the caption from just hookText when there are no hashtags', async () => {
+      publishRecordFindUniqueOrThrowMock.mockResolvedValue({
+        ...instagramRecord,
+        clip: { ...instagramRecord.clip, hashtags: [] },
+      });
+
+      const processor = getProcessor();
+      await processor(baseJob());
+
+      expect(uploadInstagramReelMock).toHaveBeenCalledWith(
+        expect.objectContaining({ caption: 'Wait for it' }),
+      );
+    });
+
+    it('resolves the access token via the Instagram client, not YouTube/TikTok', async () => {
+      publishRecordFindUniqueOrThrowMock.mockResolvedValue(instagramRecord);
+
+      const processor = getProcessor();
+      await processor(baseJob());
+
+      expect(resolveAccessTokenMock).toHaveBeenCalledWith(
+        instagramRecord.socialAccount,
+        expect.any(FakeInstagramOAuthClient),
       );
     });
   });

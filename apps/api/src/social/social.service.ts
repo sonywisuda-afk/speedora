@@ -4,8 +4,11 @@ import {
   encryptToken,
   decryptToken,
   resolveAccessToken,
+  InstagramOAuthClient,
   TikTokOAuthClient,
   YouTubeOAuthClient,
+  type InstagramAccount,
+  type InstagramTokens,
   type TikTokTokens,
   type TikTokUser,
   type YouTubeChannel,
@@ -20,18 +23,23 @@ export class SocialAccountsService {
     private readonly prisma: PrismaService,
     private readonly youtube: YouTubeOAuthClient,
     private readonly tiktok: TikTokOAuthClient,
+    private readonly instagram: InstagramOAuthClient,
   ) {}
 
   // Both revokeToken() and resolveAccessToken() (via OAuthRefreshClient)
   // only need the platform's client, not the whole SocialAccountsService -
   // this is the one place that maps a stored SocialAccount.platform back to
   // the concrete OAuth client that owns it.
-  private clientFor(platform: SocialPlatform): YouTubeOAuthClient | TikTokOAuthClient {
+  private clientFor(
+    platform: SocialPlatform,
+  ): YouTubeOAuthClient | TikTokOAuthClient | InstagramOAuthClient {
     switch (platform) {
       case SocialPlatform.YOUTUBE:
         return this.youtube;
       case SocialPlatform.TIKTOK:
         return this.tiktok;
+      case SocialPlatform.INSTAGRAM:
+        return this.instagram;
     }
   }
 
@@ -121,6 +129,47 @@ export class SocialAccountsService {
       },
     });
     return toDto(account);
+  }
+
+  // Upserts on (userId, platform, platformAccountId), keyed on the
+  // Instagram Business Account id. Unlike YouTube/TikTok, the two
+  // parameters here don't map 1:1 to accessToken/refreshToken the way
+  // Instagram's own OAuth model works (see instagram-oauth.client.ts):
+  // `account.pageAccessToken` (not `tokens.accessToken`) is the token
+  // actually used for Content Publishing API calls, and the long-lived
+  // USER token (`tokens.accessToken`) is stored as `refreshToken` because
+  // it's what refreshAccessToken() needs later to re-derive a fresh Page
+  // token - Meta has no separate distinct "refresh token" concept here.
+  async connectInstagram(
+    userId: string,
+    tokens: InstagramTokens,
+    account: InstagramAccount,
+  ): Promise<SocialAccount> {
+    const row = await this.prisma.socialAccount.upsert({
+      where: {
+        userId_platform_platformAccountId: {
+          userId,
+          platform: SocialPlatform.INSTAGRAM,
+          platformAccountId: account.igUserId,
+        },
+      },
+      create: {
+        userId,
+        platform: SocialPlatform.INSTAGRAM,
+        platformAccountId: account.igUserId,
+        displayName: account.username,
+        accessToken: encryptToken(account.pageAccessToken),
+        refreshToken: encryptToken(tokens.accessToken),
+        tokenExpiresAt: tokens.expiresAt,
+      },
+      update: {
+        displayName: account.username,
+        accessToken: encryptToken(account.pageAccessToken),
+        refreshToken: encryptToken(tokens.accessToken),
+        tokenExpiresAt: tokens.expiresAt,
+      },
+    });
+    return toDto(row);
   }
 
   async disconnect(id: string, userId: string): Promise<void> {

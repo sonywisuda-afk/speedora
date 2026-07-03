@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { Nav } from '../../components/Nav';
 import {
+  connectInstagramUrl,
   connectTikTokUrl,
   connectYouTubeUrl,
   disconnectSocialAccount,
@@ -15,6 +16,7 @@ import { useAuth } from '../../lib/useAuth';
 const PLATFORM_LABELS: Record<string, string> = {
   YOUTUBE: 'YouTube',
   TIKTOK: 'TikTok',
+  INSTAGRAM: 'Instagram',
 };
 
 // Read directly off window.location rather than next/navigation's
@@ -117,6 +119,12 @@ export default function AccountsPage() {
                 className="inline-block rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white"
               >
                 Connect TikTok
+              </a>
+              <a
+                href={connectInstagramUrl()}
+                className="inline-block rounded-md bg-neutral-900 px-4 py-2 text-sm font-medium text-white"
+              >
+                Connect Instagram
               </a>
             </div>
 

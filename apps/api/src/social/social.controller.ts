@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import {
+  InstagramOAuthClient,
   OAuthNotConfiguredError,
   TikTokOAuthClient,
   YouTubeOAuthClient,
@@ -30,6 +31,7 @@ export class SocialController {
     private readonly socialAccounts: SocialAccountsService,
     private readonly youtube: YouTubeOAuthClient,
     private readonly tiktok: TikTokOAuthClient,
+    private readonly instagram: InstagramOAuthClient,
     // Separate JwtModule instance from AuthModule's (see social.module.ts) -
     // same JWT_SECRET, unrelated purpose (signing the OAuth `state` param,
     // not session auth), short-lived (10m) so a state token can't be
@@ -153,6 +155,58 @@ export class SocialController {
       res.redirect(`${webOrigin}/accounts?connected=tiktok`);
     } catch (err) {
       console.error('[social] TikTok OAuth callback failed:', err);
+      res.redirect(`${webOrigin}/accounts?error=connect_failed`);
+    }
+  }
+
+  // Same reasoning as the YouTube connect route above - a plain top-level
+  // navigation, not a fetch. This is a Facebook Login dialog (see
+  // CLAUDE.md's Fase 6d "Instagram" section for why), not an Instagram one.
+  @Get('instagram/connect')
+  @UseGuards(JwtAuthGuard)
+  connectInstagram(@CurrentUser() user: SafeUser, @Res() res: Response) {
+    const state = this.jwt.sign({ sub: user.id } satisfies OAuthState, { expiresIn: '10m' });
+    try {
+      res.redirect(this.instagram.buildAuthorizeUrl(state));
+    } catch (error) {
+      if (error instanceof OAuthNotConfiguredError) {
+        throw new ServiceUnavailableException(error.message);
+      }
+      throw error;
+    }
+  }
+
+  // Same reasoning as the YouTube callback route above - deliberately NOT
+  // behind JwtAuthGuard, identity comes from the signed `state` param.
+  @Get('instagram/callback')
+  async instagramCallback(
+    @Query('code') code: string | undefined,
+    @Query('state') state: string | undefined,
+    @Query('error') error: string | undefined,
+    @Res() res: Response,
+  ) {
+    const webOrigin = process.env.WEB_ORIGIN ?? 'http://localhost:3000';
+
+    if (error || !code || !state) {
+      res.redirect(`${webOrigin}/accounts?error=${encodeURIComponent(error ?? 'missing_code')}`);
+      return;
+    }
+
+    let userId: string;
+    try {
+      userId = this.jwt.verify<OAuthState>(state).sub;
+    } catch {
+      res.redirect(`${webOrigin}/accounts?error=invalid_state`);
+      return;
+    }
+
+    try {
+      const tokens = await this.instagram.exchangeCode(code);
+      const account = await this.instagram.fetchAccountInfo(tokens.accessToken);
+      await this.socialAccounts.connectInstagram(userId, tokens, account);
+      res.redirect(`${webOrigin}/accounts?connected=instagram`);
+    } catch (err) {
+      console.error('[social] Instagram OAuth callback failed:', err);
       res.redirect(`${webOrigin}/accounts?error=connect_failed`);
     }
   }

@@ -190,4 +190,11 @@ export function connectTikTokUrl(): string {
   return `${API_URL}/social/tiktok/connect`;
 }
 
+// Same reasoning as connectYouTubeUrl() above, for Instagram (Fase 6d
+// follow-up) - this is a Facebook Login dialog, not an Instagram one, see
+// CLAUDE.md's Fase 6d "Instagram" section.
+export function connectInstagramUrl(): string {
+  return `${API_URL}/social/instagram/connect`;
+}
+
 export { API_URL };

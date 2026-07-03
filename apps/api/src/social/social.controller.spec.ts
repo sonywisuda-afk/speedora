@@ -1,6 +1,7 @@
 import { ServiceUnavailableException } from '@nestjs/common';
 import {
   OAuthNotConfiguredError,
+  type InstagramOAuthClient,
   type TikTokOAuthClient,
   type YouTubeOAuthClient,
 } from '@viral-clip-app/social';
@@ -15,6 +16,7 @@ describe('SocialController', () => {
     disconnect: jest.Mock;
     connectYouTube: jest.Mock;
     connectTikTok: jest.Mock;
+    connectInstagram: jest.Mock;
   };
   let youtube: {
     buildAuthorizeUrl: jest.Mock;
@@ -25,6 +27,11 @@ describe('SocialController', () => {
     buildAuthorizeUrl: jest.Mock;
     exchangeCode: jest.Mock;
     fetchUserInfo: jest.Mock;
+  };
+  let instagram: {
+    buildAuthorizeUrl: jest.Mock;
+    exchangeCode: jest.Mock;
+    fetchAccountInfo: jest.Mock;
   };
   let jwt: { sign: jest.Mock; verify: jest.Mock };
   const user = { id: 'user-1', email: 'a@example.com' };
@@ -39,6 +46,7 @@ describe('SocialController', () => {
       disconnect: jest.fn(),
       connectYouTube: jest.fn(),
       connectTikTok: jest.fn(),
+      connectInstagram: jest.fn(),
     };
     youtube = {
       buildAuthorizeUrl: jest.fn(),
@@ -50,11 +58,17 @@ describe('SocialController', () => {
       exchangeCode: jest.fn(),
       fetchUserInfo: jest.fn(),
     };
+    instagram = {
+      buildAuthorizeUrl: jest.fn(),
+      exchangeCode: jest.fn(),
+      fetchAccountInfo: jest.fn(),
+    };
     jwt = { sign: jest.fn(), verify: jest.fn() };
     controller = new SocialController(
       socialAccounts as unknown as SocialAccountsService,
       youtube as unknown as YouTubeOAuthClient,
       tiktok as unknown as TikTokOAuthClient,
+      instagram as unknown as InstagramOAuthClient,
       jwt as never,
     );
     process.env.WEB_ORIGIN = 'http://localhost:3000';
@@ -227,6 +241,82 @@ describe('SocialController', () => {
       const res = fakeResponse();
 
       await controller.tiktokCallback(undefined, undefined, 'access_denied', res);
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        'http://localhost:3000/accounts?error=access_denied',
+      );
+      expect(jwt.verify).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('connectInstagram', () => {
+    it('signs a short-lived state JWT and redirects to the built authorize URL', () => {
+      jwt.sign.mockReturnValue('signed-state');
+      instagram.buildAuthorizeUrl.mockReturnValue(
+        'https://www.facebook.com/v21.0/dialog/oauth?...',
+      );
+      const res = fakeResponse();
+
+      controller.connectInstagram(user, res);
+
+      expect(jwt.sign).toHaveBeenCalledWith({ sub: 'user-1' }, { expiresIn: '10m' });
+      expect(instagram.buildAuthorizeUrl).toHaveBeenCalledWith('signed-state');
+      expect(res.redirect).toHaveBeenCalledWith('https://www.facebook.com/v21.0/dialog/oauth?...');
+    });
+
+    it('translates OAuthNotConfiguredError into a 503 rather than crashing', () => {
+      jwt.sign.mockReturnValue('signed-state');
+      instagram.buildAuthorizeUrl.mockImplementation(() => {
+        throw new OAuthNotConfiguredError();
+      });
+      const res = fakeResponse();
+
+      expect(() => controller.connectInstagram(user, res)).toThrow(ServiceUnavailableException);
+    });
+  });
+
+  describe('instagramCallback', () => {
+    it('exchanges the code, fetches account info, connects the account, and redirects on success', async () => {
+      jwt.verify.mockReturnValue({ sub: 'user-1' });
+      instagram.exchangeCode.mockResolvedValue({ accessToken: 'long-lived-user-token' });
+      instagram.fetchAccountInfo.mockResolvedValue({
+        igUserId: 'ig-user-1',
+        username: 'my_reels',
+        pageAccessToken: 'page-token',
+      });
+      const res = fakeResponse();
+
+      await controller.instagramCallback('the-code', 'signed-state', undefined, res);
+
+      expect(instagram.exchangeCode).toHaveBeenCalledWith('the-code');
+      expect(instagram.fetchAccountInfo).toHaveBeenCalledWith('long-lived-user-token');
+      expect(socialAccounts.connectInstagram).toHaveBeenCalledWith(
+        'user-1',
+        { accessToken: 'long-lived-user-token' },
+        { igUserId: 'ig-user-1', username: 'my_reels', pageAccessToken: 'page-token' },
+      );
+      expect(res.redirect).toHaveBeenCalledWith(
+        'http://localhost:3000/accounts?connected=instagram',
+      );
+    });
+
+    it('redirects with connect_failed rather than throwing when the exchange/upsert fails', async () => {
+      jwt.verify.mockReturnValue({ sub: 'user-1' });
+      instagram.exchangeCode.mockRejectedValue(new Error('token exchange failed'));
+      jest.spyOn(console, 'error').mockImplementation(() => undefined);
+      const res = fakeResponse();
+
+      await controller.instagramCallback('the-code', 'signed-state', undefined, res);
+
+      expect(res.redirect).toHaveBeenCalledWith(
+        'http://localhost:3000/accounts?error=connect_failed',
+      );
+    });
+
+    it('redirects with the error code when Meta reports one (e.g. user denied consent)', async () => {
+      const res = fakeResponse();
+
+      await controller.instagramCallback(undefined, undefined, 'access_denied', res);
 
       expect(res.redirect).toHaveBeenCalledWith(
         'http://localhost:3000/accounts?error=access_denied',

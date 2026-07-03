@@ -4,6 +4,7 @@ import { SocialPlatform } from '@viral-clip-app/database';
 import {
   decryptToken,
   encryptToken,
+  type InstagramOAuthClient,
   type TikTokOAuthClient,
   type YouTubeOAuthClient,
 } from '@viral-clip-app/social';
@@ -24,6 +25,7 @@ describe('SocialAccountsService', () => {
   };
   let youtube: { revokeToken: jest.Mock; refreshAccessToken: jest.Mock };
   let tiktok: { revokeToken: jest.Mock; refreshAccessToken: jest.Mock };
+  let instagram: { revokeToken: jest.Mock; refreshAccessToken: jest.Mock };
 
   beforeEach(() => {
     process.env = { ...originalEnv, TOKEN_ENCRYPTION_KEY: randomBytes(32).toString('hex') };
@@ -38,10 +40,12 @@ describe('SocialAccountsService', () => {
     };
     youtube = { revokeToken: jest.fn(), refreshAccessToken: jest.fn() };
     tiktok = { revokeToken: jest.fn(), refreshAccessToken: jest.fn() };
+    instagram = { revokeToken: jest.fn(), refreshAccessToken: jest.fn() };
     service = new SocialAccountsService(
       prisma as unknown as PrismaService,
       youtube as unknown as YouTubeOAuthClient,
       tiktok as unknown as TikTokOAuthClient,
+      instagram as unknown as InstagramOAuthClient,
     );
   });
 
@@ -196,6 +200,17 @@ describe('SocialAccountsService', () => {
       expect(tiktok.revokeToken).toHaveBeenCalledWith('plain-access');
       expect(youtube.revokeToken).not.toHaveBeenCalled();
     });
+
+    it('dispatches to the Instagram client (not YouTube/TikTok) for an Instagram account', async () => {
+      prisma.socialAccount.findUnique.mockResolvedValue(account(SocialPlatform.INSTAGRAM));
+      instagram.revokeToken.mockResolvedValue(undefined);
+
+      await service.disconnect('acc-1', 'user-1');
+
+      expect(instagram.revokeToken).toHaveBeenCalledWith('plain-access');
+      expect(youtube.revokeToken).not.toHaveBeenCalled();
+      expect(tiktok.revokeToken).not.toHaveBeenCalled();
+    });
   });
 
   describe('getValidAccessToken', () => {
@@ -257,6 +272,24 @@ describe('SocialAccountsService', () => {
       expect(youtube.refreshAccessToken).not.toHaveBeenCalled();
       expect(token).toBe('new-access');
     });
+
+    it('dispatches to the Instagram client (not YouTube/TikTok) for an Instagram account', async () => {
+      prisma.socialAccount.findUnique.mockResolvedValue(
+        accountWithExpiry(new Date(Date.now() + 10_000), SocialPlatform.INSTAGRAM),
+      );
+      instagram.refreshAccessToken.mockResolvedValue({
+        accessToken: 'new-access',
+        refreshToken: 'new-refresh',
+        expiresAt: new Date(Date.now() + 60 * 60 * 1000),
+      });
+
+      const token = await service.getValidAccessToken('acc-1', 'user-1');
+
+      expect(instagram.refreshAccessToken).toHaveBeenCalledWith('current-refresh');
+      expect(youtube.refreshAccessToken).not.toHaveBeenCalled();
+      expect(tiktok.refreshAccessToken).not.toHaveBeenCalled();
+      expect(token).toBe('new-access');
+    });
   });
 
   describe('connectTikTok', () => {
@@ -293,6 +326,42 @@ describe('SocialAccountsService', () => {
       expect(call.create.displayName).toBe('My TikTok');
       expect(result.id).toBe('acc-1');
       expect(result.displayName).toBe('My TikTok');
+    });
+  });
+
+  describe('connectInstagram', () => {
+    it('upserts on (userId, platform, igUserId), storing the Page token as accessToken and the long-lived user token as refreshToken', async () => {
+      prisma.socialAccount.upsert.mockImplementation(({ create }) =>
+        Promise.resolve({
+          id: 'acc-1',
+          ...create,
+          tokenExpiresAt: create.tokenExpiresAt,
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      );
+
+      const result = await service.connectInstagram(
+        'user-1',
+        {
+          accessToken: 'plain-long-lived-user-token',
+          expiresAt: new Date('2026-03-01T00:00:00.000Z'),
+        },
+        { igUserId: 'ig-user-1', username: 'my_reels', pageAccessToken: 'plain-page-token' },
+      );
+
+      const call = prisma.socialAccount.upsert.mock.calls[0][0];
+      expect(call.where).toEqual({
+        userId_platform_platformAccountId: {
+          userId: 'user-1',
+          platform: SocialPlatform.INSTAGRAM,
+          platformAccountId: 'ig-user-1',
+        },
+      });
+      expect(decryptToken(call.create.accessToken)).toBe('plain-page-token');
+      expect(decryptToken(call.create.refreshToken)).toBe('plain-long-lived-user-token');
+      expect(call.create.displayName).toBe('my_reels');
+      expect(result.id).toBe('acc-1');
+      expect(result.displayName).toBe('my_reels');
     });
   });
 });

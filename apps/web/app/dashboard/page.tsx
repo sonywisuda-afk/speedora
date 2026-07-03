@@ -27,6 +27,7 @@ const POLL_INTERVAL_MS = 2000;
 const PLATFORM_LABELS: Record<string, string> = {
   YOUTUBE: 'YouTube',
   TIKTOK: 'TikTok',
+  INSTAGRAM: 'Instagram',
 };
 
 const PUBLISH_STATUS_LABELS: Record<PublishStatus, string> = {

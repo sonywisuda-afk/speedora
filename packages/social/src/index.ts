@@ -1,4 +1,6 @@
 export * from './errors';
+export * from './instagram-oauth.client';
+export * from './instagram-upload.client';
 export * from './resolve-access-token';
 export * from './tiktok-oauth.client';
 export * from './tiktok-upload.client';

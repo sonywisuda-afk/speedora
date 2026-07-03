@@ -4,6 +4,7 @@ import {
   PutObjectCommand,
   S3Client,
 } from '@aws-sdk/client-s3';
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { Readable } from 'node:stream';
 
 let client: S3Client | null = null;
@@ -84,4 +85,21 @@ export async function getObjectStreamRange(
 
 export async function deleteObject(key: string): Promise<void> {
   await getClient().send(new DeleteObjectCommand({ Bucket: bucket(), Key: key }));
+}
+
+// The one caller (apps/worker's publish-clip job, for an Instagram Reels
+// publish - see CLAUDE.md's Fase 6d "Instagram" section) needs to hand a
+// clip to Meta's servers, and Instagram's Content Publishing API can only
+// ingest video via a public HTTPS URL it fetches itself - unlike YouTube/
+// TikTok, there's no direct byte-upload option. This is the first time this
+// project exposes anything resembling a direct link to the bucket (every
+// other read path goes through an authenticated apps/api endpoint) - kept
+// short-lived and scoped to exactly one object/one call, generated
+// server-side and never returned to a browser client.
+export async function getPresignedDownloadUrl(
+  key: string,
+  expiresInSeconds: number,
+): Promise<string> {
+  const command = new GetObjectCommand({ Bucket: bucket(), Key: key });
+  return getSignedUrl(getClient(), command, { expiresIn: expiresInSeconds });
 }
