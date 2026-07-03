@@ -1,7 +1,12 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import type { CaptionStyle } from '@viral-clip-app/database';
-import { filterSegmentsForClip, QueueName, type RenderClipJobData } from '@viral-clip-app/shared';
+import {
+  filterSegmentsForClip,
+  QueueName,
+  sanitizeHashtags,
+  type RenderClipJobData,
+} from '@viral-clip-app/shared';
 import type { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { toSharedCaptionStyle, toSharedTranscriptSegment } from '../videos/transcript-segment.util';
@@ -46,6 +51,8 @@ export class ClipsService {
     const startTime = input.startTime ?? clip.startTime;
     const endTime = input.endTime ?? clip.endTime;
     const captionStyle = input.captionStyle ?? clip.captionStyle;
+    const hookText = input.hookText ?? clip.hookText;
+    const hashtags = input.hashtags ? sanitizeHashtags(input.hashtags) : clip.hashtags;
 
     if (startTime >= endTime) {
       throw new BadRequestException('startTime must be before endTime');
@@ -53,7 +60,7 @@ export class ClipsService {
 
     const updated = await this.prisma.clip.update({
       where: { id },
-      data: { startTime, endTime, captionStyle },
+      data: { startTime, endTime, captionStyle, hookText, hashtags },
     });
 
     return this.toDto(updated);
@@ -108,6 +115,8 @@ export class ClipsService {
     viralityScore: number;
     outputUrl: string | null;
     captionStyle: CaptionStyle;
+    hookText: string | null;
+    hashtags: string[];
     updatedAt: Date;
   }) {
     return {
@@ -118,6 +127,8 @@ export class ClipsService {
       viralityScore: clip.viralityScore,
       downloadUrl: clip.outputUrl ? `/clips/${clip.id}/download` : null,
       captionStyle: clip.captionStyle,
+      hookText: clip.hookText,
+      hashtags: clip.hashtags,
       updatedAt: clip.updatedAt,
     };
   }

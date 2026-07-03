@@ -23,6 +23,16 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+// Free-text "one input, space/comma separated" editing for hashtags, rather
+// than a chip/tag-picker widget - simplest UI that still round-trips
+// cleanly with the plain string[] the API stores.
+function parseHashtagsInput(value: string): string[] {
+  return value
+    .split(/[\s,]+/)
+    .map((tag) => tag.trim().replace(/^#+/, ''))
+    .filter((tag) => tag.length > 0);
+}
+
 export function TimelineEditor({ videoId }: { videoId: string }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -38,6 +48,8 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
   const selectClip = useTimelineStore((s) => s.selectClip);
   const setClipRange = useTimelineStore((s) => s.setClipRange);
   const setCaptionStyle = useTimelineStore((s) => s.setCaptionStyle);
+  const setHookText = useTimelineStore((s) => s.setHookText);
+  const setHashtags = useTimelineStore((s) => s.setHashtags);
   const saveClip = useTimelineStore((s) => s.saveClip);
   const renderClip = useTimelineStore((s) => s.renderClip);
 
@@ -244,6 +256,32 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
                 </option>
               ))}
             </select>
+          </label>
+          <label className="mt-2 block text-sm text-neutral-700">
+            Hook (first ~3s opener):
+            <input
+              type="text"
+              value={selectedClip.hookText ?? ''}
+              onChange={(e) => setHookText(selectedClip.id, e.target.value)}
+              placeholder="e.g. You won't believe what happened next..."
+              className="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1 text-sm"
+            />
+          </label>
+          <label className="mt-2 block text-sm text-neutral-700">
+            Hashtags (space or comma separated):
+            <input
+              // Uncontrolled + remounted per clip (key), committing the
+              // parsed array only on blur - a controlled input here would
+              // re-derive its value from hashtags.join(' ') on every
+              // keystroke, stripping the trailing space/comma the user just
+              // typed and making it impossible to start a second word.
+              key={selectedClip.id}
+              type="text"
+              defaultValue={selectedClip.hashtags.join(' ')}
+              onBlur={(e) => setHashtags(selectedClip.id, parseHashtagsInput(e.target.value))}
+              placeholder="e.g. fyp viral fashion"
+              className="mt-1 w-full rounded-md border border-neutral-300 px-2 py-1 text-sm"
+            />
           </label>
           {selectedClip.saveError && (
             <p className="mt-1 text-sm text-red-600">{selectedClip.saveError}</p>

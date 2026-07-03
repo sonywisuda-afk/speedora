@@ -87,6 +87,15 @@ model Clip {
   viralityScore Float
   outputUrl     String?
   captionStyle  CaptionStyle @default(DEFAULT)
+  // Suggested 3-second-opener hook line and social hashtags (without a
+  // leading '#') from the same detect-clips LLM call that scores virality -
+  // not baked into the rendered video, purely metadata for the
+  // gallery/editor. hookText is nullable (the LLM call can fail/return
+  // nothing without failing the whole job - see detectCandidates() in
+  // detect-clips.worker.ts); hashtags defaults to an empty array rather
+  // than nullable so callers never have to null-check it.
+  hookText      String?
+  hashtags      String[]     @default([])
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 

@@ -85,12 +85,12 @@ describe('detect-clips worker', () => {
     ];
     chatCompletionsCreateMock.mockResolvedValue(
       completionWith([
-        { startTime: 10, endTime: 20, viralityScore: 150 }, // clamped to 100
-        { startTime: 20, endTime: 30, viralityScore: 40 },
-        { startTime: 30, endTime: 25, viralityScore: 90 }, // invalid: end <= start, dropped
-        { startTime: -5, endTime: 5, viralityScore: 80 }, // out of range, dropped
-        { startTime: 35, endTime: 45, viralityScore: 70 },
-        { startTime: 45, endTime: 55, viralityScore: 60 }, // 4th valid candidate, should be cut by MAX_CANDIDATES
+        { startTime: 10, endTime: 20, viralityScore: 150, hookText: 'a', hashtags: [] }, // clamped to 100
+        { startTime: 20, endTime: 30, viralityScore: 40, hookText: 'b', hashtags: [] },
+        { startTime: 30, endTime: 25, viralityScore: 90, hookText: 'c', hashtags: [] }, // invalid: end <= start, dropped
+        { startTime: -5, endTime: 5, viralityScore: 80, hookText: 'd', hashtags: [] }, // out of range, dropped
+        { startTime: 35, endTime: 45, viralityScore: 70, hookText: 'e', hashtags: [] },
+        { startTime: 45, endTime: 55, viralityScore: 60, hookText: 'f', hashtags: [] }, // 4th valid candidate, should be cut by MAX_CANDIDATES
       ]),
     );
     videoFindUniqueOrThrowMock.mockResolvedValue({ id: 'video-1', sourceUrl: 'videos/abc.mp4' });
@@ -116,7 +116,9 @@ describe('detect-clips worker', () => {
       { start: 25, end: 30, text: 'after clip' },
     ];
     chatCompletionsCreateMock.mockResolvedValue(
-      completionWith([{ startTime: 8, endTime: 20, viralityScore: 90 }]),
+      completionWith([
+        { startTime: 8, endTime: 20, viralityScore: 90, hookText: 'hook', hashtags: ['tag'] },
+      ]),
     );
     videoFindUniqueOrThrowMock.mockResolvedValue({ id: 'video-1', sourceUrl: 'videos/abc.mp4' });
 
@@ -133,6 +135,36 @@ describe('detect-clips worker', () => {
         transcript: [{ start: 10, end: 15, text: 'inside clip' }],
       }),
     );
+  });
+
+  it('trims hookText and sanitizes hashtags (stray "#" and blanks) before persisting', async () => {
+    const segments: TranscriptSegment[] = [{ start: 0, end: 10, text: 'hi' }];
+    chatCompletionsCreateMock.mockResolvedValue(
+      completionWith([
+        {
+          startTime: 0,
+          endTime: 5,
+          viralityScore: 80,
+          hookText: '  You wont believe this  ',
+          hashtags: ['#viral', ' fyp ', '#foryou', '', '  '],
+        },
+      ]),
+    );
+    videoFindUniqueOrThrowMock.mockResolvedValue({ id: 'video-1', sourceUrl: 'videos/abc.mp4' });
+
+    const processor = getProcessor();
+    const result = (await processor({ data: { videoId: 'video-1', segments } })) as {
+      candidates: Array<{ hookText: string; hashtags: string[] }>;
+    };
+
+    expect(clipCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        hookText: 'You wont believe this',
+        hashtags: ['viral', 'fyp', 'foryou'],
+      }),
+    });
+    expect(result.candidates[0].hookText).toBe('You wont believe this');
+    expect(result.candidates[0].hashtags).toEqual(['viral', 'fyp', 'foryou']);
   });
 
   it('marks the video FAILED and rethrows when the LLM call fails', async () => {

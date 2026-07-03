@@ -3,6 +3,7 @@ import { VideoStatus } from '@viral-clip-app/database';
 import {
   filterSegmentsForClip,
   QueueName,
+  sanitizeHashtags,
   type ClipCandidate,
   type DetectClipsJobData,
   type DetectClipsJobResult,
@@ -20,6 +21,8 @@ interface RawCandidate {
   startTime: number;
   endTime: number;
   viralityScore: number;
+  hookText: string;
+  hashtags: string[];
 }
 
 const RESPONSE_FORMAT = {
@@ -38,8 +41,10 @@ const RESPONSE_FORMAT = {
               startTime: { type: 'number' },
               endTime: { type: 'number' },
               viralityScore: { type: 'number' },
+              hookText: { type: 'string' },
+              hashtags: { type: 'array', items: { type: 'string' } },
             },
-            required: ['startTime', 'endTime', 'viralityScore'],
+            required: ['startTime', 'endTime', 'viralityScore', 'hookText', 'hashtags'],
             additionalProperties: false,
           },
         },
@@ -70,7 +75,12 @@ async function detectCandidates(segments: TranscriptSegment[]): Promise<RawCandi
           'You select the most engaging, shareable moments from a video transcript for ' +
           'short-form vertical clips (TikTok/Reels/Shorts). Pick 1-3 non-overlapping clips, ' +
           `each between 5 and 60 seconds long, using only timestamps within ${videoStart.toFixed(1)}-${videoEnd.toFixed(1)} ` +
-          'seconds. Score each clip 0-100 for how likely it is to go viral.',
+          'seconds. Score each clip 0-100 for how likely it is to go viral. For each clip, also ' +
+          'write hookText: a short opening line (spoken in the first ~3 seconds) rewritten to ' +
+          "hook a scrolling viewer - it doesn't have to be an exact transcript quote. Also give " +
+          'hashtags: 3-8 relevant social hashtags as plain lowercase words, no leading "#" and no ' +
+          'spaces within a word. Write both hookText and hashtags in the same language as the ' +
+          'transcript.',
       },
       {
         role: 'user',
@@ -97,6 +107,11 @@ async function detectCandidates(segments: TranscriptSegment[]): Promise<RawCandi
     .map((candidate) => ({
       ...candidate,
       viralityScore: Math.max(0, Math.min(100, candidate.viralityScore)),
+      hookText: candidate.hookText.trim(),
+      // Belt-and-suspenders, not trusting the schema/prompt alone: strip a
+      // leading '#' and blank entries in case the model ignores the "no #"
+      // instruction anyway.
+      hashtags: sanitizeHashtags(candidate.hashtags),
     }))
     .sort((a, b) => b.viralityScore - a.viralityScore)
     .slice(0, MAX_CANDIDATES);
@@ -120,6 +135,8 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
                 startTime: candidate.startTime,
                 endTime: candidate.endTime,
                 viralityScore: candidate.viralityScore,
+                hookText: candidate.hookText,
+                hashtags: candidate.hashtags,
               },
             }),
           ),
@@ -137,6 +154,8 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
           endTime: clip.endTime,
           viralityScore: clip.viralityScore,
           transcript: filterSegmentsForClip(segments, clip.startTime, clip.endTime),
+          hookText: clip.hookText,
+          hashtags: clip.hashtags,
         }));
 
         console.log(`[detect-clips] video ${videoId} -> ${candidates.length} candidates`);

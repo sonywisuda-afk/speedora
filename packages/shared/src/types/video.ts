@@ -44,6 +44,13 @@ export interface ClipCandidate {
   endTime: number;
   viralityScore: number;
   transcript: TranscriptSegment[];
+  // Suggested 3-second-opener hook line and social hashtags (without a
+  // leading '#') from the same detect-clips LLM call that scores virality -
+  // see CLAUDE.md's Fase 5 section. hookText is null if the LLM call
+  // failed/returned nothing for this candidate - that's not an error, just
+  // missing metadata the user can fill in manually.
+  hookText: string | null;
+  hashtags: string[];
 }
 
 export interface Video {
@@ -71,6 +78,8 @@ export interface Clip {
   viralityScore: number;
   downloadUrl: string | null;
   captionStyle: CaptionStyle;
+  hookText: string | null;
+  hashtags: string[];
   updatedAt: string;
 }
 
@@ -84,4 +93,6 @@ export interface UpdateClipInput {
   startTime?: number;
   endTime?: number;
   captionStyle?: CaptionStyle;
+  hookText?: string;
+  hashtags?: string[];
 }

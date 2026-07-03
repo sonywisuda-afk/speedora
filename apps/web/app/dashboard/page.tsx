@@ -150,21 +150,35 @@ export default function Dashboard() {
                             {video.clips.map((clip) => (
                               <li
                                 key={clip.id}
-                                className="flex items-center justify-between rounded-md border border-neutral-200 px-3 py-2 text-sm"
+                                className="rounded-md border border-neutral-200 px-3 py-2 text-sm"
                               >
-                                <span>
-                                  {clip.startTime.toFixed(1)}s - {clip.endTime.toFixed(1)}s ·{' '}
-                                  {Math.round(clip.viralityScore)}/100
-                                </span>
-                                {clip.downloadUrl ? (
-                                  <a
-                                    href={clipDownloadUrl(clip.downloadUrl)}
-                                    className="font-medium text-neutral-900 underline"
-                                  >
-                                    Download
-                                  </a>
-                                ) : (
-                                  <span className="text-neutral-400">Rendering...</span>
+                                <div className="flex items-center justify-between">
+                                  <span>
+                                    {clip.startTime.toFixed(1)}s - {clip.endTime.toFixed(1)}s ·{' '}
+                                    {Math.round(clip.viralityScore)}/100
+                                  </span>
+                                  {clip.downloadUrl ? (
+                                    <a
+                                      href={clipDownloadUrl(clip.downloadUrl)}
+                                      className="font-medium text-neutral-900 underline"
+                                    >
+                                      Download
+                                    </a>
+                                  ) : (
+                                    <span className="text-neutral-400">Rendering...</span>
+                                  )}
+                                </div>
+                                {/* Suggested hook/hashtags from detect-clips' LLM call - read-only
+                                    here, editable via the timeline editor's "Edit timeline" link. */}
+                                {clip.hookText && (
+                                  <p className="mt-1 italic text-neutral-600">
+                                    &quot;{clip.hookText}&quot;
+                                  </p>
+                                )}
+                                {clip.hashtags.length > 0 && (
+                                  <p className="mt-1 text-neutral-500">
+                                    {clip.hashtags.map((tag) => `#${tag}`).join(' ')}
+                                  </p>
                                 )}
                               </li>
                             ))}

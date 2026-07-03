@@ -81,6 +81,8 @@ describe('ClipsService', () => {
       viralityScore: 80,
       outputUrl: 'renders/clip-1.mp4',
       captionStyle: 'DEFAULT',
+      hookText: 'Wait for it...',
+      hashtags: ['viral', 'fyp'],
       updatedAt: new Date('2026-01-01'),
       video: { ownerId: 'user-1' },
     };
@@ -93,7 +95,13 @@ describe('ClipsService', () => {
 
       expect(prisma.clip.update).toHaveBeenCalledWith({
         where: { id: 'clip-1' },
-        data: { startTime: 12, endTime: 22, captionStyle: 'DEFAULT' },
+        data: {
+          startTime: 12,
+          endTime: 22,
+          captionStyle: 'DEFAULT',
+          hookText: 'Wait for it...',
+          hashtags: ['viral', 'fyp'],
+        },
       });
       expect(result).toEqual({
         id: 'clip-1',
@@ -103,6 +111,8 @@ describe('ClipsService', () => {
         viralityScore: 80,
         downloadUrl: '/clips/clip-1/download',
         captionStyle: 'DEFAULT',
+        hookText: 'Wait for it...',
+        hashtags: ['viral', 'fyp'],
         updatedAt: existingClip.updatedAt,
       });
     });
@@ -115,7 +125,13 @@ describe('ClipsService', () => {
 
       expect(prisma.clip.update).toHaveBeenCalledWith({
         where: { id: 'clip-1' },
-        data: { startTime: 10, endTime: 25, captionStyle: 'DEFAULT' },
+        data: {
+          startTime: 10,
+          endTime: 25,
+          captionStyle: 'DEFAULT',
+          hookText: 'Wait for it...',
+          hashtags: ['viral', 'fyp'],
+        },
       });
     });
 
@@ -127,7 +143,47 @@ describe('ClipsService', () => {
 
       expect(prisma.clip.update).toHaveBeenCalledWith({
         where: { id: 'clip-1' },
-        data: { startTime: 10, endTime: 20, captionStyle: 'KARAOKE' },
+        data: {
+          startTime: 10,
+          endTime: 20,
+          captionStyle: 'KARAOKE',
+          hookText: 'Wait for it...',
+          hashtags: ['viral', 'fyp'],
+        },
+      });
+    });
+
+    it('updates hookText and hashtags independently of startTime/endTime/captionStyle', async () => {
+      prisma.clip.findUnique.mockResolvedValue(existingClip);
+      prisma.clip.update.mockResolvedValue({
+        ...existingClip,
+        hookText: 'New hook',
+        hashtags: ['newtag'],
+      });
+
+      await service.update('clip-1', 'user-1', { hookText: 'New hook', hashtags: ['newtag'] });
+
+      expect(prisma.clip.update).toHaveBeenCalledWith({
+        where: { id: 'clip-1' },
+        data: {
+          startTime: 10,
+          endTime: 20,
+          captionStyle: 'DEFAULT',
+          hookText: 'New hook',
+          hashtags: ['newtag'],
+        },
+      });
+    });
+
+    it('sanitizes hashtags (strips leading "#" and blanks) on manual edit, same as detect-clips', async () => {
+      prisma.clip.findUnique.mockResolvedValue(existingClip);
+      prisma.clip.update.mockResolvedValue(existingClip);
+
+      await service.update('clip-1', 'user-1', { hashtags: ['#viral', ' fyp ', '', '#foryou'] });
+
+      expect(prisma.clip.update).toHaveBeenCalledWith({
+        where: { id: 'clip-1' },
+        data: expect.objectContaining({ hashtags: ['viral', 'fyp', 'foryou'] }),
       });
     });
 
@@ -161,6 +217,8 @@ describe('ClipsService', () => {
       viralityScore: 80,
       outputUrl: 'renders/clip-1.mp4',
       captionStyle: CaptionStyle.KARAOKE,
+      hookText: 'Wait for it...',
+      hashtags: ['viral', 'fyp'],
       updatedAt: new Date('2026-01-01'),
       video: { ownerId: 'user-1', sourceUrl: 'videos/abc.mp4' },
     };
@@ -205,6 +263,8 @@ describe('ClipsService', () => {
         viralityScore: 80,
         downloadUrl: null,
         captionStyle: CaptionStyle.KARAOKE,
+        hookText: 'Wait for it...',
+        hashtags: ['viral', 'fyp'],
         updatedAt: cleared.updatedAt,
       });
     });

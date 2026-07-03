@@ -1,5 +1,5 @@
 import { CaptionStyle } from '@viral-clip-app/database';
-import { IsEnum, IsNumber, IsOptional, Min } from 'class-validator';
+import { IsArray, IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class UpdateClipDto {
   @IsOptional()
@@ -15,4 +15,16 @@ export class UpdateClipDto {
   @IsOptional()
   @IsEnum(CaptionStyle)
   captionStyle?: CaptionStyle;
+
+  // Suggested opener line/hashtags from the detect-clips LLM call - purely
+  // metadata (not baked into the rendered video), user-editable same as
+  // everything else on this DTO.
+  @IsOptional()
+  @IsString()
+  hookText?: string;
+
+  @IsOptional()
+  @IsArray()
+  @IsString({ each: true })
+  hashtags?: string[];
 }

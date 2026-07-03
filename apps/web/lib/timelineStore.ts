@@ -13,6 +13,11 @@ export interface TimelineClip {
   viralityScore: number;
   downloadUrl: string | null;
   captionStyle: CaptionStyle;
+  // Suggested opener line/hashtags from the detect-clips LLM call - purely
+  // metadata (not baked into the rendered video), editable same as
+  // captionStyle below.
+  hookText: string | null;
+  hashtags: string[];
   updatedAt: string;
   // Local trim/style change in progress, not yet persisted via
   // PATCH /clips/:id.
@@ -37,6 +42,8 @@ interface TimelineState {
   selectClip(id: string): void;
   setClipRange(id: string, startTime: number, endTime: number): void;
   setCaptionStyle(id: string, captionStyle: CaptionStyle): void;
+  setHookText(id: string, hookText: string): void;
+  setHashtags(id: string, hashtags: string[]): void;
   saveClip(id: string): Promise<void>;
   renderClip(id: string): Promise<void>;
 }
@@ -50,6 +57,8 @@ function toTimelineClip(clip: Clip): TimelineClip {
     viralityScore: clip.viralityScore,
     downloadUrl: clip.downloadUrl,
     captionStyle: clip.captionStyle,
+    hookText: clip.hookText,
+    hashtags: clip.hashtags,
     updatedAt: clip.updatedAt,
     dirty: false,
     saving: false,
@@ -106,6 +115,22 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     }));
   },
 
+  setHookText(id, hookText) {
+    set((state) => ({
+      clips: state.clips.map((clip) =>
+        clip.id === id ? { ...clip, hookText, dirty: true, saveError: null } : clip,
+      ),
+    }));
+  },
+
+  setHashtags(id, hashtags) {
+    set((state) => ({
+      clips: state.clips.map((clip) =>
+        clip.id === id ? { ...clip, hashtags, dirty: true, saveError: null } : clip,
+      ),
+    }));
+  },
+
   async saveClip(id) {
     const clip = get().clips.find((c) => c.id === id);
     if (!clip) return;
@@ -119,6 +144,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         startTime: clip.startTime,
         endTime: clip.endTime,
         captionStyle: clip.captionStyle,
+        hookText: clip.hookText ?? undefined,
+        hashtags: clip.hashtags,
       });
       set((state) => ({
         clips: state.clips.map((c) =>
@@ -128,6 +155,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
                 startTime: updated.startTime,
                 endTime: updated.endTime,
                 captionStyle: updated.captionStyle,
+                hookText: updated.hookText,
+                hashtags: updated.hashtags,
                 updatedAt: updated.updatedAt,
                 dirty: false,
                 saving: false,
