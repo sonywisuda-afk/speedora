@@ -1,5 +1,5 @@
 import { plainToInstance } from 'class-transformer';
-import { IsNotEmpty, IsString, validateSync } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, validateSync } from 'class-validator';
 
 // Only variables with no safe fallback are required here - things like
 // WEB_ORIGIN/API_PORT/JWT_EXPIRES_IN already default sensibly in the code
@@ -39,6 +39,12 @@ class EnvironmentVariables {
   @IsString()
   @IsNotEmpty()
   STORAGE_SECRET_ACCESS_KEY!: string;
+
+  // Optional on purpose - fine to leave unset in local dev (see
+  // sentry.ts's initSentry(), which no-ops without a dsn).
+  @IsOptional()
+  @IsString()
+  SENTRY_DSN?: string;
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {

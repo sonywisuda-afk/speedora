@@ -35,4 +35,14 @@ describe('validateEnv', () => {
       /DATABASE_URL.*REDIS_URL.*JWT_SECRET.*STORAGE_ENDPOINT.*STORAGE_REGION.*STORAGE_BUCKET.*STORAGE_ACCESS_KEY_ID.*STORAGE_SECRET_ACCESS_KEY/s,
     );
   });
+
+  it('does not require SENTRY_DSN', () => {
+    expect(() => validateEnv(VALID_ENV)).not.toThrow();
+  });
+
+  it('accepts SENTRY_DSN when present', () => {
+    expect(() =>
+      validateEnv({ ...VALID_ENV, SENTRY_DSN: 'https://key@o0.ingest.sentry.io/0' }),
+    ).not.toThrow();
+  });
 });

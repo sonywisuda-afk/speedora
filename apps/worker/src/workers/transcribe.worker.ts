@@ -1,4 +1,5 @@
 import * as path from 'node:path';
+import * as Sentry from '@sentry/node';
 import { VideoStatus } from '@viral-clip-app/database';
 import {
   QueueName,
@@ -65,6 +66,8 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
         return { videoId, segments };
       } catch (error) {
         console.error(`[transcribe] video ${videoId} failed:`, error);
+        // Tags only - never the transcript text/audio or OPENAI_API_KEY.
+        Sentry.captureException(error, { tags: { videoId } });
         await prisma.video.update({
           where: { id: videoId },
           data: { status: VideoStatus.FAILED },

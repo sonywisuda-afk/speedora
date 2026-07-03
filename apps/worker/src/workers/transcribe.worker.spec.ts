@@ -5,6 +5,11 @@ import { Worker } from 'bullmq';
 jest.mock('bullmq', () => ({ Worker: jest.fn() }));
 jest.mock('../redis', () => ({ createRedisConnection: jest.fn() }));
 
+const captureExceptionMock = jest.fn();
+jest.mock('@sentry/node', () => ({
+  captureException: (...args: unknown[]) => captureExceptionMock(...args),
+}));
+
 const detectClipsQueueAdd = jest.fn();
 jest.mock('../queues', () => ({
   detectClipsQueue: { add: (...args: unknown[]) => detectClipsQueueAdd(...args) },
@@ -160,5 +165,20 @@ describe('transcribe worker', () => {
       data: { status: VideoStatus.FAILED },
     });
     expect(detectClipsQueueAdd).not.toHaveBeenCalled();
+  });
+
+  it('reports the failure to Sentry tagged with videoId only (no transcript content)', async () => {
+    getObjectStreamMock.mockResolvedValue({});
+    toFileMock.mockResolvedValue({});
+    const error = new Error('whisper is down');
+    transcriptionsCreateMock.mockRejectedValue(error);
+
+    const processor = getProcessor();
+
+    await expect(
+      processor({ data: { videoId: 'video-1', sourceUrl: 'videos/abc.mp4' } }),
+    ).rejects.toThrow('whisper is down');
+
+    expect(captureExceptionMock).toHaveBeenCalledWith(error, { tags: { videoId: 'video-1' } });
   });
 });

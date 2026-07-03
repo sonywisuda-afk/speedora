@@ -143,6 +143,7 @@ Lihat [`.env.example`](./.env.example) untuk daftar lengkap. Yang penting:
 - `WEB_ORIGIN` — origin yang diizinkan CORS di `apps/api` untuk request dari `apps/web`
 - `JWT_SECRET` — secret untuk sign JWT auth. **Generate sendiri** (`openssl rand -hex 32`), jangan pakai default di `.env.example`
 - `JWT_EXPIRES_IN` — masa berlaku token auth. Default `7d`
+- `SENTRY_DSN` — dipakai `apps/api` dan `apps/worker` untuk error tracking (Sentry). **Opsional** — boleh kosong di dev lokal, `Sentry.init()` otomatis no-op tanpa DSN
 
 ## API
 

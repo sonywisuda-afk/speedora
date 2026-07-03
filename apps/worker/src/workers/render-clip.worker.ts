@@ -2,6 +2,7 @@ import { createWriteStream } from 'node:fs';
 import { readFile, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
+import * as Sentry from '@sentry/node';
 import { VideoStatus } from '@viral-clip-app/database';
 import {
   QueueName,
@@ -133,6 +134,8 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
         return { clipId, outputUrl: outputKey };
       } catch (error) {
         console.error(`[render-clip] clip ${clipId} failed:`, error);
+        // Tags only - never the transcript text or the source video itself.
+        Sentry.captureException(error, { tags: { videoId, clipId } });
         await prisma.video.update({
           where: { id: videoId },
           data: { status: VideoStatus.FAILED },
