@@ -6,6 +6,7 @@ import { AuthModule } from './auth/auth.module';
 import { ClipsModule } from './clips/clips.module';
 import { validateEnv } from './config/env.validation';
 import { HealthModule } from './health/health.module';
+import { PaymentsModule } from './payments/payments.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { SocialModule } from './social/social.module';
 import { VideosModule } from './videos/videos.module';
@@ -23,6 +24,7 @@ import { VideosModule } from './videos/videos.module';
     }),
     PrismaModule,
     AuthModule,
+    PaymentsModule,
     VideosModule,
     ClipsModule,
     SocialModule,

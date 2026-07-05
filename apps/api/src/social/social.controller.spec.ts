@@ -4,7 +4,7 @@ import {
   type InstagramOAuthClient,
   type TikTokOAuthClient,
   type YouTubeOAuthClient,
-} from '@viral-clip-app/social';
+} from '@speedora/social';
 import type { Response } from 'express';
 import { SocialController } from './social.controller';
 import type { SocialAccountsService } from './social.service';
@@ -119,9 +119,7 @@ describe('SocialController', () => {
 
       await controller.callback(undefined, undefined, 'access_denied', res);
 
-      expect(res.redirect).toHaveBeenCalledWith(
-        'http://localhost:3000/accounts?error=access_denied',
-      );
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/social?error=access_denied');
       expect(jwt.verify).not.toHaveBeenCalled();
     });
 
@@ -130,9 +128,7 @@ describe('SocialController', () => {
 
       await controller.callback(undefined, 'some-state', undefined, res);
 
-      expect(res.redirect).toHaveBeenCalledWith(
-        'http://localhost:3000/accounts?error=missing_code',
-      );
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/social?error=missing_code');
     });
 
     it('redirects with invalid_state when the state JWT fails to verify', async () => {
@@ -143,9 +139,7 @@ describe('SocialController', () => {
 
       await controller.callback('the-code', 'bad-state', undefined, res);
 
-      expect(res.redirect).toHaveBeenCalledWith(
-        'http://localhost:3000/accounts?error=invalid_state',
-      );
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/social?error=invalid_state');
       expect(youtube.exchangeCode).not.toHaveBeenCalled();
     });
 
@@ -164,7 +158,7 @@ describe('SocialController', () => {
         { accessToken: 'access-1' },
         { channelId: 'channel-1', title: 'My Channel' },
       );
-      expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/accounts?connected=youtube');
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/social?connected=youtube');
     });
 
     it('redirects with connect_failed rather than throwing when the exchange/upsert fails', async () => {
@@ -176,7 +170,7 @@ describe('SocialController', () => {
       await controller.callback('the-code', 'signed-state', undefined, res);
 
       expect(res.redirect).toHaveBeenCalledWith(
-        'http://localhost:3000/accounts?error=connect_failed',
+        'http://localhost:3000/social?error=connect_failed',
       );
     });
   });
@@ -221,7 +215,7 @@ describe('SocialController', () => {
         { accessToken: 'access-1' },
         { openId: 'open-1', displayName: 'My TikTok' },
       );
-      expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/accounts?connected=tiktok');
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/social?connected=tiktok');
     });
 
     it('redirects with connect_failed rather than throwing when the exchange/upsert fails', async () => {
@@ -233,7 +227,7 @@ describe('SocialController', () => {
       await controller.tiktokCallback('the-code', 'signed-state', undefined, res);
 
       expect(res.redirect).toHaveBeenCalledWith(
-        'http://localhost:3000/accounts?error=connect_failed',
+        'http://localhost:3000/social?error=connect_failed',
       );
     });
 
@@ -242,9 +236,7 @@ describe('SocialController', () => {
 
       await controller.tiktokCallback(undefined, undefined, 'access_denied', res);
 
-      expect(res.redirect).toHaveBeenCalledWith(
-        'http://localhost:3000/accounts?error=access_denied',
-      );
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/social?error=access_denied');
       expect(jwt.verify).not.toHaveBeenCalled();
     });
   });
@@ -295,9 +287,7 @@ describe('SocialController', () => {
         { accessToken: 'long-lived-user-token' },
         { igUserId: 'ig-user-1', username: 'my_reels', pageAccessToken: 'page-token' },
       );
-      expect(res.redirect).toHaveBeenCalledWith(
-        'http://localhost:3000/accounts?connected=instagram',
-      );
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/social?connected=instagram');
     });
 
     it('redirects with connect_failed rather than throwing when the exchange/upsert fails', async () => {
@@ -309,7 +299,7 @@ describe('SocialController', () => {
       await controller.instagramCallback('the-code', 'signed-state', undefined, res);
 
       expect(res.redirect).toHaveBeenCalledWith(
-        'http://localhost:3000/accounts?error=connect_failed',
+        'http://localhost:3000/social?error=connect_failed',
       );
     });
 
@@ -318,9 +308,7 @@ describe('SocialController', () => {
 
       await controller.instagramCallback(undefined, undefined, 'access_denied', res);
 
-      expect(res.redirect).toHaveBeenCalledWith(
-        'http://localhost:3000/accounts?error=access_denied',
-      );
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/social?error=access_denied');
       expect(jwt.verify).not.toHaveBeenCalled();
     });
   });

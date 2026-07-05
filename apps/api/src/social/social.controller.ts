@@ -14,7 +14,7 @@ import {
   OAuthNotConfiguredError,
   TikTokOAuthClient,
   YouTubeOAuthClient,
-} from '@viral-clip-app/social';
+} from '@speedora/social';
 import type { Response } from 'express';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -85,7 +85,7 @@ export class SocialController {
     const webOrigin = process.env.WEB_ORIGIN ?? 'http://localhost:3000';
 
     if (error || !code || !state) {
-      res.redirect(`${webOrigin}/accounts?error=${encodeURIComponent(error ?? 'missing_code')}`);
+      res.redirect(`${webOrigin}/social?error=${encodeURIComponent(error ?? 'missing_code')}`);
       return;
     }
 
@@ -93,7 +93,7 @@ export class SocialController {
     try {
       userId = this.jwt.verify<OAuthState>(state).sub;
     } catch {
-      res.redirect(`${webOrigin}/accounts?error=invalid_state`);
+      res.redirect(`${webOrigin}/social?error=invalid_state`);
       return;
     }
 
@@ -101,10 +101,10 @@ export class SocialController {
       const tokens = await this.youtube.exchangeCode(code);
       const channel = await this.youtube.fetchChannelInfo(tokens.accessToken);
       await this.socialAccounts.connectYouTube(userId, tokens, channel);
-      res.redirect(`${webOrigin}/accounts?connected=youtube`);
+      res.redirect(`${webOrigin}/social?connected=youtube`);
     } catch (err) {
       console.error('[social] YouTube OAuth callback failed:', err);
-      res.redirect(`${webOrigin}/accounts?error=connect_failed`);
+      res.redirect(`${webOrigin}/social?error=connect_failed`);
     }
   }
 
@@ -136,7 +136,7 @@ export class SocialController {
     const webOrigin = process.env.WEB_ORIGIN ?? 'http://localhost:3000';
 
     if (error || !code || !state) {
-      res.redirect(`${webOrigin}/accounts?error=${encodeURIComponent(error ?? 'missing_code')}`);
+      res.redirect(`${webOrigin}/social?error=${encodeURIComponent(error ?? 'missing_code')}`);
       return;
     }
 
@@ -144,7 +144,7 @@ export class SocialController {
     try {
       userId = this.jwt.verify<OAuthState>(state).sub;
     } catch {
-      res.redirect(`${webOrigin}/accounts?error=invalid_state`);
+      res.redirect(`${webOrigin}/social?error=invalid_state`);
       return;
     }
 
@@ -152,10 +152,10 @@ export class SocialController {
       const tokens = await this.tiktok.exchangeCode(code);
       const user = await this.tiktok.fetchUserInfo(tokens.accessToken);
       await this.socialAccounts.connectTikTok(userId, tokens, user);
-      res.redirect(`${webOrigin}/accounts?connected=tiktok`);
+      res.redirect(`${webOrigin}/social?connected=tiktok`);
     } catch (err) {
       console.error('[social] TikTok OAuth callback failed:', err);
-      res.redirect(`${webOrigin}/accounts?error=connect_failed`);
+      res.redirect(`${webOrigin}/social?error=connect_failed`);
     }
   }
 
@@ -188,7 +188,7 @@ export class SocialController {
     const webOrigin = process.env.WEB_ORIGIN ?? 'http://localhost:3000';
 
     if (error || !code || !state) {
-      res.redirect(`${webOrigin}/accounts?error=${encodeURIComponent(error ?? 'missing_code')}`);
+      res.redirect(`${webOrigin}/social?error=${encodeURIComponent(error ?? 'missing_code')}`);
       return;
     }
 
@@ -196,7 +196,7 @@ export class SocialController {
     try {
       userId = this.jwt.verify<OAuthState>(state).sub;
     } catch {
-      res.redirect(`${webOrigin}/accounts?error=invalid_state`);
+      res.redirect(`${webOrigin}/social?error=invalid_state`);
       return;
     }
 
@@ -204,10 +204,10 @@ export class SocialController {
       const tokens = await this.instagram.exchangeCode(code);
       const account = await this.instagram.fetchAccountInfo(tokens.accessToken);
       await this.socialAccounts.connectInstagram(userId, tokens, account);
-      res.redirect(`${webOrigin}/accounts?connected=instagram`);
+      res.redirect(`${webOrigin}/social?connected=instagram`);
     } catch (err) {
       console.error('[social] Instagram OAuth callback failed:', err);
-      res.redirect(`${webOrigin}/accounts?error=connect_failed`);
+      res.redirect(`${webOrigin}/social?error=connect_failed`);
     }
   }
 }

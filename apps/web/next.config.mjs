@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ['@viral-clip-app/shared'],
+  transpilePackages: ['@speedora/shared'],
   // Traces the minimal set of files/deps a production server actually needs
   // into .next/standalone, instead of shipping the whole node_modules tree -
   // see apps/web/Dockerfile, which sets DOCKER_BUILD=1 before running

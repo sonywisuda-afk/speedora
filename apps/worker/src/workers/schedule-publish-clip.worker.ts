@@ -1,5 +1,5 @@
-import { PublishStatus } from '@viral-clip-app/database';
-import { PUBLISH_RETRY_OPTIONS, QueueName } from '@viral-clip-app/shared';
+import { PublishStatus } from '@speedora/database';
+import { PUBLISH_RETRY_OPTIONS, QueueName } from '@speedora/shared';
 import { Worker } from 'bullmq';
 import { prisma } from '../prisma';
 import { publishClipQueue, schedulePublishClipQueue } from '../queues';

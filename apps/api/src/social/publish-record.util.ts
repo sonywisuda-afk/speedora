@@ -1,8 +1,8 @@
 import type {
   PublishRecord as PublishRecordRow,
   SocialPlatform as DbSocialPlatform,
-} from '@viral-clip-app/database';
-import type { PublishRecord, PublishStatus, SocialPlatform } from '@viral-clip-app/shared';
+} from '@speedora/database';
+import type { PublishRecord, PublishStatus, SocialPlatform } from '@speedora/shared';
 
 // Prisma's generated PublishStatus/SocialPlatform and packages/shared's are
 // separately-declared TS enums with identical string members (same

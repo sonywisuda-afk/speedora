@@ -1,6 +1,6 @@
 import { BullModule } from '@nestjs/bullmq';
 import { Module } from '@nestjs/common';
-import { QueueName } from '@viral-clip-app/shared';
+import { QueueName } from '@speedora/shared';
 
 function parseRedisConnection() {
   const url = new URL(process.env.REDIS_URL ?? 'redis://localhost:6379');
@@ -12,6 +12,10 @@ function parseRedisConnection() {
   };
 }
 
+// apps/api is the only enqueuer of this one (POST /videos/import-youtube) -
+// apps/worker's import-youtube job consumes it and self-chains into
+// transcribeQueue below, same shape as every other stage in this pipeline.
+const importYoutubeQueue = BullModule.registerQueue({ name: QueueName.IMPORT_YOUTUBE });
 const transcribeQueue = BullModule.registerQueue({ name: QueueName.TRANSCRIBE });
 // apps/api never processes these three - they're only ever consumed by
 // apps/worker - but it does need to be able to enqueue into detectClips/
@@ -31,11 +35,18 @@ const publishClipQueue = BullModule.registerQueue({ name: QueueName.PUBLISH_CLIP
     BullModule.forRootAsync({
       useFactory: () => ({ connection: parseRedisConnection() }),
     }),
+    importYoutubeQueue,
     transcribeQueue,
     detectClipsQueue,
     renderClipQueue,
     publishClipQueue,
   ],
-  exports: [transcribeQueue, detectClipsQueue, renderClipQueue, publishClipQueue],
+  exports: [
+    importYoutubeQueue,
+    transcribeQueue,
+    detectClipsQueue,
+    renderClipQueue,
+    publishClipQueue,
+  ],
 })
 export class QueueModule {}

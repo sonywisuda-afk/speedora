@@ -1,13 +1,13 @@
 import { randomBytes } from 'node:crypto';
 import { NotFoundException } from '@nestjs/common';
-import { SocialPlatform } from '@viral-clip-app/database';
+import { SocialPlatform } from '@speedora/database';
 import {
   decryptToken,
   encryptToken,
   type InstagramOAuthClient,
   type TikTokOAuthClient,
   type YouTubeOAuthClient,
-} from '@viral-clip-app/social';
+} from '@speedora/social';
 import type { PrismaService } from '../prisma/prisma.service';
 import { SocialAccountsService } from './social.service';
 

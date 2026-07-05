@@ -2,12 +2,16 @@ import { JwtModule } from '@nestjs/jwt';
 import { Module } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
 import { ThrottlerModule } from '@nestjs/throttler';
+import { MailModule } from '../mail/mail.module';
+import { StorageModule } from '../storage/storage.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
 @Module({
   imports: [
+    MailModule,
+    StorageModule,
     PassportModule,
     // useFactory defers reading JWT_SECRET/JWT_EXPIRES_IN until DI
     // instantiation time, after ConfigModule.forRoot() has loaded the root

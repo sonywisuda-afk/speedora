@@ -1,7 +1,10 @@
 import {
+  Body,
   Controller,
+  Delete,
   Get,
   Headers,
+  HttpCode,
   Param,
   ParseFilePipeBuilder,
   Post,
@@ -11,11 +14,14 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { getObjectStreamRange } from '@viral-clip-app/storage';
+import { TranscriptionProvider } from '@speedora/shared';
+import { getObjectStreamRange } from '@speedora/storage';
 import type { Response } from 'express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { SafeUser } from '../auth/auth.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { ImportYoutubeDto } from './dto/import-youtube.dto';
+import { UploadVideoDto } from './dto/upload-video.dto';
 import { VideosService } from './videos.service';
 
 const MAX_UPLOAD_SIZE_BYTES = 2 * 1024 * 1024 * 1024; // 2GB
@@ -35,8 +41,27 @@ export class VideosController {
         .build({ fileIsRequired: true }),
     )
     file: Express.Multer.File,
+    @Body() dto: UploadVideoDto,
   ) {
-    return this.videosService.upload(user.id, file);
+    return this.videosService.upload(
+      user.id,
+      file,
+      dto.transcriptionProvider ?? TranscriptionProvider.GROQ,
+    );
+  }
+
+  // Alternate to POST / (direct file upload) - the actual download happens
+  // in apps/worker's import-youtube job, not here (see CLAUDE.md's
+  // "API layer never runs heavy work synchronously" principle). Returns the
+  // Video immediately with status IMPORTING, same "poll GET /videos/:id"
+  // contract the frontend already uses for every other stage.
+  @Post('import-youtube')
+  importYoutube(@CurrentUser() user: SafeUser, @Body() dto: ImportYoutubeDto) {
+    return this.videosService.importFromYoutube(
+      user.id,
+      dto.url,
+      dto.transcriptionProvider ?? TranscriptionProvider.GROQ,
+    );
   }
 
   @Get()
@@ -47,6 +72,12 @@ export class VideosController {
   @Get(':id')
   findOne(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.videosService.findOne(id, user.id);
+  }
+
+  @Delete(':id')
+  @HttpCode(204)
+  async remove(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    await this.videosService.remove(id, user.id);
   }
 
   // Streams the raw source video (not a rendered clip) for the timeline

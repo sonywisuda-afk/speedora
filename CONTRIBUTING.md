@@ -4,7 +4,7 @@ This is a private, proprietary project (see [`LICENSE`](./LICENSE)). Contributio
 
 ## Getting started
 
-Follow [`README.md`](./README.md) to install dependencies, set up `.env`, and start the local Postgres/Redis + dev servers. Read [`CLAUDE.md`](./CLAUDE.md) for the architecture overview and design decisions before making structural changes.
+Follow [`README.md`](./README.md) to install dependencies, set up `.env`, and start the local Postgres/Redis + dev servers. Read [`CLAUDE.md`](./CLAUDE.md) for the architecture overview and design decisions before making structural changes. If you're adding a new analysis/calculation module (scoring, detection, transforms), read [`ARCHITECTURE.md`](./ARCHITECTURE.md) first — it documents the DB-backed-orchestration + JSON-contract-module pattern and the checklist for adding one.
 
 ## Branching & commits
 

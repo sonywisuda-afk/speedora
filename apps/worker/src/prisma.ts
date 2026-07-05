@@ -1,3 +1,3 @@
-import { createPrismaClient } from '@viral-clip-app/database';
+import { createPrismaClient } from '@speedora/database';
 
 export const prisma = createPrismaClient();

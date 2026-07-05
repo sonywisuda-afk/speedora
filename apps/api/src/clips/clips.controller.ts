@@ -1,5 +1,16 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Res, UseGuards } from '@nestjs/common';
-import { getObjectStream } from '@viral-clip-app/storage';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
+import { getObjectStream } from '@speedora/storage';
 import type { Response } from 'express';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -35,6 +46,14 @@ export class ClipsController {
   @Post(':id/render')
   render(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.clipsService.render(id, user.id);
+  }
+
+  // Permanently deletes one clip - not the parent video or its sibling
+  // clips. Same ownership-based 404 as every other per-clip endpoint.
+  @Delete(':id')
+  @HttpCode(204)
+  async remove(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    await this.clipsService.remove(id, user.id);
   }
 
   // Manual "publish now" (Fase 6b), or a scheduled future publish (Fase 6c)

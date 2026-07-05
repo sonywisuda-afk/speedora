@@ -1,21 +1,77 @@
-import { getObjectStreamRange } from '@viral-clip-app/storage';
+import { TranscriptionProvider } from '@speedora/shared';
+import { getObjectStreamRange } from '@speedora/storage';
 import type { Response } from 'express';
 import type { VideosService } from './videos.service';
 import { VideosController } from './videos.controller';
 
-jest.mock('@viral-clip-app/storage', () => ({
+jest.mock('@speedora/storage', () => ({
   getObjectStreamRange: jest.fn(),
 }));
 
 describe('VideosController', () => {
   let controller: VideosController;
-  let videosService: { findSourceOrThrow: jest.Mock };
+  let videosService: {
+    findSourceOrThrow: jest.Mock;
+    upload: jest.Mock;
+    importFromYoutube: jest.Mock;
+  };
   const user = { id: 'user-1', email: 'a@example.com' };
 
   beforeEach(() => {
-    videosService = { findSourceOrThrow: jest.fn() };
+    videosService = {
+      findSourceOrThrow: jest.fn(),
+      upload: jest.fn(),
+      importFromYoutube: jest.fn(),
+    };
     controller = new VideosController(videosService as unknown as VideosService);
     jest.clearAllMocks();
+  });
+
+  describe('upload', () => {
+    it('defaults to GROQ when the client sends no transcriptionProvider', async () => {
+      const file = { buffer: Buffer.from('x') } as Express.Multer.File;
+
+      await controller.upload(user, file, {});
+
+      expect(videosService.upload).toHaveBeenCalledWith('user-1', file, TranscriptionProvider.GROQ);
+    });
+
+    it('forwards an explicit transcriptionProvider choice (OPENAI) unchanged', async () => {
+      const file = { buffer: Buffer.from('x') } as Express.Multer.File;
+
+      await controller.upload(user, file, { transcriptionProvider: TranscriptionProvider.OPENAI });
+
+      expect(videosService.upload).toHaveBeenCalledWith(
+        'user-1',
+        file,
+        TranscriptionProvider.OPENAI,
+      );
+    });
+  });
+
+  describe('importYoutube', () => {
+    it('defaults to GROQ when the client sends no transcriptionProvider', () => {
+      controller.importYoutube(user, { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' });
+
+      expect(videosService.importFromYoutube).toHaveBeenCalledWith(
+        'user-1',
+        'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        TranscriptionProvider.GROQ,
+      );
+    });
+
+    it('forwards an explicit transcriptionProvider choice (OPENAI) unchanged', () => {
+      controller.importYoutube(user, {
+        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        transcriptionProvider: TranscriptionProvider.OPENAI,
+      });
+
+      expect(videosService.importFromYoutube).toHaveBeenCalledWith(
+        'user-1',
+        'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        TranscriptionProvider.OPENAI,
+      );
+    });
   });
 
   describe('source', () => {

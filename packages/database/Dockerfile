@@ -11,4 +11,4 @@ RUN corepack enable
 WORKDIR /repo
 COPY . .
 RUN pnpm install --frozen-lockfile
-CMD ["pnpm", "--filter", "@viral-clip-app/database", "db:migrate:deploy"]
+CMD ["pnpm", "--filter", "@speedora/database", "db:migrate:deploy"]

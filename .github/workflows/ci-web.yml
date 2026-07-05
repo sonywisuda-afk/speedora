@@ -27,13 +27,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build packages/shared
-        run: pnpm --filter @viral-clip-app/shared build
+        run: pnpm --filter @speedora/shared build
 
       - name: Lint
-        run: pnpm --filter @viral-clip-app/web lint
+        run: pnpm --filter @speedora/web lint
 
       - name: Typecheck
-        run: pnpm --filter @viral-clip-app/web typecheck
+        run: pnpm --filter @speedora/web typecheck
 
       - name: Build
-        run: pnpm --filter @viral-clip-app/web build
+        run: pnpm --filter @speedora/web build

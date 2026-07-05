@@ -10,10 +10,10 @@ WORKDIR /repo
 FROM base AS build
 COPY . .
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @viral-clip-app/shared build \
-    && pnpm --filter @viral-clip-app/database build \
-    && pnpm --filter @viral-clip-app/storage build \
-    && pnpm --filter @viral-clip-app/api build
+RUN pnpm --filter @speedora/shared build \
+    && pnpm --filter @speedora/database build \
+    && pnpm --filter @speedora/storage build \
+    && pnpm --filter @speedora/api build
 # Bundles apps/api's dist output with only its production dependencies
 # (workspace deps included as real copies, not symlinks) into a
 # self-contained directory - see https://pnpm.io/cli/deploy. --ignore-scripts
@@ -21,7 +21,7 @@ RUN pnpm --filter @viral-clip-app/shared build \
 # and the prod-only install here has already stripped out the `prisma` CLI
 # (a devDependency) - the generated client from the build step above is
 # already sitting in packages/database/dist and gets copied over as-is.
-RUN pnpm --filter @viral-clip-app/api deploy --prod --ignore-scripts /out
+RUN pnpm --filter @speedora/api deploy --prod --ignore-scripts /out
 
 FROM node:20-alpine AS runtime
 ENV NODE_ENV=production

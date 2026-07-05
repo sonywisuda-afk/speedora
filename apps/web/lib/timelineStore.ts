@@ -1,4 +1,4 @@
-import type { CaptionStyle, Clip, TranscriptSegment } from '@viral-clip-app/shared';
+import type { CaptionStyle, Clip, ClipScores, TranscriptSegment } from '@speedora/shared';
 import { create } from 'zustand';
 import { getVideo, renderClip as renderClipApi, updateClip as updateClipApi } from './api';
 
@@ -18,6 +18,15 @@ export interface TimelineClip {
   // captionStyle below.
   hookText: string | null;
   hashtags: string[];
+  // Fase 8 (Content Intelligence) - read-only, from the same detect-clips
+  // LLM call as viralityScore/hookText/hashtags above. Not user-editable in
+  // this phase (unlike the fields above), so there's no setter for these.
+  scores: ClipScores | null;
+  reason: string | null;
+  topics: string[];
+  keywords: string[];
+  intent: string | null;
+  ctaText: string | null;
   updatedAt: string;
   // Local trim/style change in progress, not yet persisted via
   // PATCH /clips/:id.
@@ -59,6 +68,12 @@ function toTimelineClip(clip: Clip): TimelineClip {
     captionStyle: clip.captionStyle,
     hookText: clip.hookText,
     hashtags: clip.hashtags,
+    scores: clip.scores,
+    reason: clip.reason,
+    topics: clip.topics,
+    keywords: clip.keywords,
+    intent: clip.intent,
+    ctaText: clip.ctaText,
     updatedAt: clip.updatedAt,
     dirty: false,
     saving: false,

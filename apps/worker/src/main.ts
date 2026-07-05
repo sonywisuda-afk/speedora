@@ -19,27 +19,43 @@ import { validateEnv } from './env';
 // PrismaClient, or the OpenAI client actually tries to use it.
 validateEnv();
 
-import {
-  detectClipsQueue,
-  publishClipQueue,
-  renderClipQueue,
-  schedulePublishClipQueue,
-  syncPublishStatsQueue,
-} from './queues';
-import { createTranscribeWorker } from './workers/transcribe.worker';
-import { createDetectClipsWorker } from './workers/detect-clips.worker';
-import { createRenderClipWorker } from './workers/render-clip.worker';
-import { createPublishClipWorker } from './workers/publish-clip.worker';
-import {
-  createSchedulePublishClipWorker,
-  scheduleRepeatingTrigger as scheduleSchedulePublishClipTrigger,
-} from './workers/schedule-publish-clip.worker';
-import {
-  createSyncPublishStatsWorker,
-  scheduleRepeatingTrigger as scheduleSyncPublishStatsTrigger,
-} from './workers/sync-publish-stats.worker';
-
 async function main() {
+  // Dynamic imports, not static ones, for everything below - and this is
+  // load-bearing, not stylistic. `tsx watch` (this package's "dev" script)
+  // runs .ts files as native ESM, where static `import` declarations are
+  // hoisted to the top of the module and evaluated before any other code in
+  // the file regardless of where they're textually written - unlike
+  // `node dist/main.js` (the production path, and what `npx tsx` runs
+  // without `watch`), which compiles/behaves as CommonJS and evaluates
+  // `require()` calls in the order they actually appear. A static import
+  // here would load ../openai.ts - which constructs `new OpenAI(...)` at
+  // module scope, not inside a function - before config()/validateEnv()
+  // above ever ran, throwing "Missing credentials" even with a perfectly
+  // valid .env. Dynamic import() is never hoisted in either mode, so this
+  // is the one construct that's guaranteed to run after the env is loaded
+  // no matter how this file is executed.
+  const {
+    detectClipsQueue,
+    publishClipQueue,
+    renderClipQueue,
+    schedulePublishClipQueue,
+    syncPublishStatsQueue,
+    transcribeQueue,
+  } = await import('./queues');
+  const { createImportYoutubeWorker } = await import('./workers/import-youtube.worker');
+  const { createTranscribeWorker } = await import('./workers/transcribe.worker');
+  const { createDetectClipsWorker } = await import('./workers/detect-clips.worker');
+  const { createRenderClipWorker } = await import('./workers/render-clip.worker');
+  const { createPublishClipWorker } = await import('./workers/publish-clip.worker');
+  const {
+    createSchedulePublishClipWorker,
+    scheduleRepeatingTrigger: scheduleSchedulePublishClipTrigger,
+  } = await import('./workers/schedule-publish-clip.worker');
+  const {
+    createSyncPublishStatsWorker,
+    scheduleRepeatingTrigger: scheduleSyncPublishStatsTrigger,
+  } = await import('./workers/sync-publish-stats.worker');
+
   // Registers (or re-confirms) each repeatable trigger before the worker
   // that consumes it starts, so there's no window where a queue could fire
   // before anything is listening.
@@ -47,6 +63,7 @@ async function main() {
   await scheduleSyncPublishStatsTrigger();
 
   const workers = [
+    createImportYoutubeWorker(),
     createTranscribeWorker(),
     createDetectClipsWorker(),
     createRenderClipWorker(),
@@ -61,6 +78,7 @@ async function main() {
     console.log('shutting down workers...');
     await Promise.all(workers.map((worker) => worker.close()));
     await Promise.all([
+      transcribeQueue.close(),
       detectClipsQueue.close(),
       renderClipQueue.close(),
       publishClipQueue.close(),

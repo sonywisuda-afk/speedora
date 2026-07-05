@@ -1,5 +1,5 @@
 {
-  "name": "@viral-clip-app/social",
+  "name": "@speedora/social",
   "version": "0.1.0",
   "private": true,
   "description": "Token encryption + YouTube OAuth/upload client shared by apps/api (connect/disconnect) and apps/worker (publish-clip job) - see CLAUDE.md's Publish Center section for why this is a separate package rather than duplicated in each app.",

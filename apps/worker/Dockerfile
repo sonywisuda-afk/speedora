@@ -10,10 +10,10 @@ WORKDIR /repo
 FROM base AS build
 COPY . .
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @viral-clip-app/shared build \
-    && pnpm --filter @viral-clip-app/database build \
-    && pnpm --filter @viral-clip-app/storage build \
-    && pnpm --filter @viral-clip-app/worker build
+RUN pnpm --filter @speedora/shared build \
+    && pnpm --filter @speedora/database build \
+    && pnpm --filter @speedora/storage build \
+    && pnpm --filter @speedora/worker build
 # Bundles apps/worker's dist output with only its production dependencies
 # (workspace deps included as real copies, not symlinks) into a
 # self-contained directory - see https://pnpm.io/cli/deploy. --ignore-scripts
@@ -21,7 +21,7 @@ RUN pnpm --filter @viral-clip-app/shared build \
 # and the prod-only install here has already stripped out the `prisma` CLI
 # (a devDependency) - the generated client from the build step above is
 # already sitting in packages/database/dist and gets copied over as-is.
-RUN pnpm --filter @viral-clip-app/worker deploy --prod --ignore-scripts /out
+RUN pnpm --filter @speedora/worker deploy --prod --ignore-scripts /out
 
 FROM node:20-slim AS runtime
 ENV NODE_ENV=production
@@ -53,7 +53,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # --break-system-packages: Debian 12's system Python enforces PEP 668
 # (no unmanaged global pip installs) - fine to override in a single-purpose
 # container that only ever runs this one script.
-RUN pip install --no-cache-dir --break-system-packages mediapipe opencv-python-headless
+# yt-dlp alongside mediapipe/opencv here (not a separate RUN layer) - same
+# pip, same --break-system-packages override, no reason to split it out.
+# import-youtube.worker.ts (Fase 7) shells out to the yt-dlp binary this
+# installs, then hands the downloaded file to this image's existing ffmpeg
+# install (--merge-output-format mp4) exactly like render-clip already does
+# for its own ffmpeg calls.
+RUN pip install --no-cache-dir --break-system-packages mediapipe opencv-python-headless yt-dlp
 # MediaPipe's Tasks API (mediapipe.tasks.python.vision.FaceDetector) needs
 # this model file locally - it isn't bundled in the pip package, and isn't
 # committed to the repo either (see .gitignore) since it's a binary asset

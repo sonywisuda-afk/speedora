@@ -1,5 +1,5 @@
-import { CaptionStyle } from '@viral-clip-app/database';
-import type { TranscriptSegment, TranscriptWord } from '@viral-clip-app/shared';
+import { CaptionStyle } from '@speedora/database';
+import type { TranscriptSegment, TranscriptWord } from '@speedora/shared';
 
 // ASS colours are &HAABBGGRR (alpha, then blue/green/red), 00 alpha = opaque.
 const BASE_COLOR = '&H00FFFFFF'; // opaque white - unhighlighted text

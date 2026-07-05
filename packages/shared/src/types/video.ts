@@ -1,6 +1,11 @@
 import type { PublishRecord } from './social';
 
 export enum VideoStatus {
+  // Only reachable via POST /videos/import-youtube - a direct file upload
+  // (POST /videos) goes straight to UPLOADED since the file is already in
+  // hand. IMPORTING covers the time apps/worker's import-youtube job spends
+  // downloading the source video before it has a real sourceUrl to store.
+  IMPORTING = 'IMPORTING',
   UPLOADED = 'UPLOADED',
   TRANSCRIBED = 'TRANSCRIBED',
   CLIPS_DETECTED = 'CLIPS_DETECTED',
@@ -19,6 +24,12 @@ export interface TranscriptSegment {
   end: number;
   text: string;
   speaker?: string;
+  // Top-1 label from a vocal (audio-based) emotion classifier - one of
+  // "neu"/"hap"/"ang"/"sad" (see CLAUDE.md's "Vocal Emotion Detection"
+  // section). Undefined for segments too short to classify, or when
+  // detection wasn't run/failed for this video - same optional-signal
+  // treatment as speaker above.
+  emotion?: string;
   // Word-level timestamps from Whisper - undefined for segments transcribed
   // before this field existed (Fase 3 pasca-MVP, not backfilled). Only the
   // karaoke caption preset needs this; render-clip falls back to plain text
@@ -39,6 +50,31 @@ export const CAPTION_STYLES: CaptionStyle[] = [
   CaptionStyle.BOLD_HIGHLIGHT,
 ];
 
+// Mirrors TranscriptionProvider in packages/database's Prisma schema. Chosen
+// once per video at upload/import time (see CLAUDE.md's Premium
+// Transcription section) - GROQ (Whisper large-v3-turbo) is the free
+// default; OPENAI (Whisper-1) is the paid "premium" tier, gated by a
+// PremiumCredit (see payment.ts).
+export enum TranscriptionProvider {
+  GROQ = 'GROQ',
+  OPENAI = 'OPENAI',
+}
+
+// Multi-metric breakdown behind the single viralityScore, from the same
+// detect-clips LLM call (see CLAUDE.md's Fase 8 "Content Intelligence"
+// section) - each 0-100. Explicitly a heuristic LLM estimate, not a
+// statistically trained/calibrated prediction - there is no engagement
+// dataset behind these numbers.
+export interface ClipScores {
+  hookStrength: number;
+  educationalValue: number;
+  curiosity: number;
+  emotion: number;
+  storytelling: number;
+  novelty: number;
+  trustAuthority: number;
+}
+
 export interface ClipCandidate {
   id: string;
   videoId: string;
@@ -53,6 +89,16 @@ export interface ClipCandidate {
   // missing metadata the user can fill in manually.
   hookText: string | null;
   hashtags: string[];
+  // Fase 8 (Content Intelligence) - see ClipScores above and
+  // schema.prisma's comments on Clip.scores/.reason/etc. All null/empty
+  // for the same reason hookText can be null: the LLM call's per-candidate
+  // metadata is best-effort, not something that can fail the whole job.
+  scores: ClipScores | null;
+  reason: string | null;
+  topics: string[];
+  keywords: string[];
+  intent: string | null;
+  ctaText: string | null;
 }
 
 export interface Video {
@@ -63,6 +109,13 @@ export interface Video {
   // Prisma's `durationSeconds Float?` serializes as `null`, not `undefined`,
   // once it round-trips through JSON.
   durationSeconds: number | null;
+  // 0-100, real progress reported by transcribe.worker.ts (see
+  // schema.prisma's comment on this column) - null before a transcribe
+  // attempt has started or once status has moved past UPLOADED. Only
+  // meaningful while status === UPLOADED (the Transcribe stage); the
+  // frontend's per-stage progress bar ignores it otherwise.
+  transcribeProgress: number | null;
+  transcriptionProvider: TranscriptionProvider;
   createdAt: string;
   updatedAt: string;
 }
@@ -82,6 +135,13 @@ export interface Clip {
   captionStyle: CaptionStyle;
   hookText: string | null;
   hashtags: string[];
+  // Fase 8 (Content Intelligence) - see ClipCandidate/ClipScores above.
+  scores: ClipScores | null;
+  reason: string | null;
+  topics: string[];
+  keywords: string[];
+  intent: string | null;
+  ctaText: string | null;
   // Publish attempts to connected social accounts (Fase 6b) - empty until
   // the user hits "Publish now" at least once. Small array in practice (at
   // most one per connected platform account), so returned inline rather

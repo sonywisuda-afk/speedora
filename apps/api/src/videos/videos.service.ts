@@ -1,18 +1,29 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { VideoStatus, type Prisma } from '@viral-clip-app/database';
+import { VideoStatus, type Prisma } from '@speedora/database';
 import {
   filterSegmentsForClip,
   QueueName,
+  TranscriptionProvider,
   type DetectClipsJobData,
+  type ImportYoutubeJobData,
   type RenderClipJobData,
   type TranscribeJobData,
-} from '@viral-clip-app/shared';
+} from '@speedora/shared';
 import { Queue } from 'bullmq';
+import { PaymentsService } from '../payments/payments.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { toSharedPublishRecord } from '../social/publish-record.util';
 import { StorageService } from '../storage/storage.service';
-import { toSharedCaptionStyle, toSharedTranscriptSegment } from './transcript-segment.util';
+import {
+  toSharedCaptionStyle,
+  toSharedClipScores,
+  toSharedTranscriptionProvider,
+  toSharedTranscriptSegment,
+} from './transcript-segment.util';
+
+const NO_PREMIUM_CREDIT_MESSAGE =
+  'No premium (OpenAI Whisper) credit available - complete payment before uploading with this provider';
 
 const CLIPS_WITH_PUBLISH_RECORDS = {
   orderBy: { viralityScore: 'desc' },
@@ -28,25 +39,103 @@ export class VideosService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
+    private readonly payments: PaymentsService,
+    @InjectQueue(QueueName.IMPORT_YOUTUBE)
+    private readonly importYoutubeQueue: Queue<ImportYoutubeJobData>,
     @InjectQueue(QueueName.TRANSCRIBE) private readonly transcribeQueue: Queue<TranscribeJobData>,
     @InjectQueue(QueueName.DETECT_CLIPS)
     private readonly detectClipsQueue: Queue<DetectClipsJobData>,
     @InjectQueue(QueueName.RENDER_CLIP) private readonly renderClipQueue: Queue<RenderClipJobData>,
   ) {}
 
-  async upload(ownerId: string, file: Express.Multer.File) {
+  async upload(ownerId: string, file: Express.Multer.File, provider: TranscriptionProvider) {
+    // Cheap check before ever touching storage - fails fast rather than
+    // wasting a (potentially large) upload on a request that's going to be
+    // rejected anyway. The real, race-safe guarantee is consumeCredit()'s
+    // atomic claim below; this is purely an optimization.
+    if (provider === TranscriptionProvider.OPENAI) {
+      const { available } = await this.payments.getAvailability(ownerId);
+      if (!available) {
+        throw new BadRequestException(NO_PREMIUM_CREDIT_MESSAGE);
+      }
+    }
+
     const { sourceUrl } = await this.storage.saveVideo(file);
 
     const video = await this.prisma.video.create({
-      data: { ownerId, sourceUrl },
+      data: { ownerId, sourceUrl, transcriptionProvider: provider },
     });
+
+    if (provider === TranscriptionProvider.OPENAI) {
+      await this.claimCreditOrRollback(ownerId, video.id, async () => {
+        await this.storage.deleteObjects([sourceUrl]);
+      });
+    }
 
     await this.transcribeQueue.add(QueueName.TRANSCRIBE, {
       videoId: video.id,
       sourceUrl: video.sourceUrl,
+      provider,
     });
 
     return video;
+  }
+
+  // url is already validated as a youtube.com/youtu.be link by
+  // ImportYoutubeDto - actually downloading it is apps/worker's job
+  // (import-youtube.worker.ts), same "API layer never does heavy work
+  // synchronously" split as every other stage (see CLAUDE.md's Keputusan
+  // Arsitektur). sourceUrl starts as '' (see schema.prisma's comment on
+  // Video.sourceUrl) since there's no object storage key yet.
+  async importFromYoutube(ownerId: string, url: string, provider: TranscriptionProvider) {
+    if (provider === TranscriptionProvider.OPENAI) {
+      const { available } = await this.payments.getAvailability(ownerId);
+      if (!available) {
+        throw new BadRequestException(NO_PREMIUM_CREDIT_MESSAGE);
+      }
+    }
+
+    const video = await this.prisma.video.create({
+      data: {
+        ownerId,
+        sourceUrl: '',
+        importSourceUrl: url,
+        status: VideoStatus.IMPORTING,
+        transcriptionProvider: provider,
+      },
+    });
+
+    if (provider === TranscriptionProvider.OPENAI) {
+      await this.claimCreditOrRollback(ownerId, video.id);
+    }
+
+    await this.importYoutubeQueue.add(QueueName.IMPORT_YOUTUBE, {
+      videoId: video.id,
+      url,
+      provider,
+    });
+
+    return video;
+  }
+
+  // Atomically claims one paid, unspent PremiumCredit for videoId - the
+  // video row must already exist first (PremiumCredit.videoId is a real FK).
+  // A race lost against a concurrent request (the pre-check above passed,
+  // but the credit was claimed by someone else before this ran) is handled
+  // by deleting the just-created video (plus any storage object already
+  // written for it) rather than leaving an orphaned, permanently-stuck
+  // OPENAI-provider video with no credit behind it.
+  private async claimCreditOrRollback(
+    ownerId: string,
+    videoId: string,
+    cleanupStorage?: () => Promise<void>,
+  ): Promise<void> {
+    const claimed = await this.payments.consumeCredit(ownerId, videoId);
+    if (claimed) return;
+
+    await this.prisma.video.delete({ where: { id: videoId } });
+    if (cleanupStorage) await cleanupStorage();
+    throw new BadRequestException(NO_PREMIUM_CREDIT_MESSAGE);
   }
 
   async findAll(ownerId: string) {
@@ -82,14 +171,34 @@ export class VideosService {
       throw new BadRequestException('Only a failed video can be retried');
     }
 
-    if (video.transcriptSegments.length === 0) {
+    // A video created via import-youtube that failed before the download
+    // ever finished still has sourceUrl === '' (see schema.prisma's comment
+    // on Video.sourceUrl) - re-running transcribe against that would just
+    // fail again trying to read an empty object key. Re-run the import
+    // instead, using the YouTube URL saved at creation time.
+    if (video.importSourceUrl && video.sourceUrl === '') {
       await this.prisma.video.update({
         where: { id },
-        data: { status: VideoStatus.UPLOADED },
+        data: { status: VideoStatus.IMPORTING },
+      });
+      await this.importYoutubeQueue.add(QueueName.IMPORT_YOUTUBE, {
+        videoId: id,
+        url: video.importSourceUrl,
+        provider: toSharedTranscriptionProvider(video.transcriptionProvider),
+      });
+    } else if (video.transcriptSegments.length === 0) {
+      await this.prisma.video.update({
+        where: { id },
+        // transcribeProgress reset immediately (not left to wait for the
+        // job itself to reset it) so a retry click doesn't briefly show a
+        // stale progress value from the failed attempt before the worker
+        // picks the job up.
+        data: { status: VideoStatus.UPLOADED, transcribeProgress: 0 },
       });
       await this.transcribeQueue.add(QueueName.TRANSCRIBE, {
         videoId: id,
         sourceUrl: video.sourceUrl,
+        provider: toSharedTranscriptionProvider(video.transcriptionProvider),
       });
     } else if (video.clips.length === 0) {
       await this.prisma.video.update({
@@ -132,6 +241,7 @@ export class VideosService {
               clip.endTime,
             ),
             captionStyle: toSharedCaptionStyle(clip.captionStyle),
+            keywords: clip.keywords,
           }),
         ),
       );
@@ -168,6 +278,32 @@ export class VideosService {
     return { sourceUrl: video.sourceUrl };
   }
 
+  // Permanently deletes a video, its clips/transcript/publish records (all
+  // via onDelete: Cascade in the schema), and the objects they own in
+  // storage (the source plus every rendered clip). Same ownership-based 404
+  // as every other per-video endpoint so it can't be used to probe or delete
+  // someone else's video. Storage cleanup is best-effort (see
+  // StorageService.deleteObjects) - the DB row going away is what actually
+  // makes the video "gone" from the user's perspective.
+  async remove(id: string, requesterId: string): Promise<void> {
+    const video = await this.prisma.video.findUnique({
+      where: { id },
+      include: { clips: { select: { outputUrl: true } } },
+    });
+
+    if (!video || video.ownerId !== requesterId) {
+      throw new NotFoundException(`Video ${id} not found`);
+    }
+
+    const storageKeys = [
+      video.sourceUrl,
+      ...video.clips.map((clip) => clip.outputUrl ?? ''),
+    ].filter((key): key is string => key.length > 0);
+
+    await this.prisma.video.delete({ where: { id } });
+    await this.storage.deleteObjects(storageKeys);
+  }
+
   // Separate from findOne()/mapVideoWithClips() on purpose - transcript
   // segments can be a lot of rows for a long video, and findOne() is
   // polled every 2s by both the upload-progress view and the dashboard,
@@ -187,6 +323,7 @@ export class VideosService {
       end: segment.end,
       text: segment.text,
       speaker: segment.speaker ?? undefined,
+      emotion: segment.emotion ?? undefined,
     }));
   }
 
@@ -196,9 +333,15 @@ export class VideosService {
     const { clips, ...rest } = video;
     return {
       ...rest,
-      clips: clips.map(({ outputUrl, publishRecords, ...clip }) => ({
+      clips: clips.map(({ outputUrl, publishRecords, scores, ...clip }) => ({
         ...clip,
         downloadUrl: outputUrl ? `/clips/${clip.id}/download` : null,
+        // Narrowed explicitly (not left as Prisma's opaque JsonValue) - an
+        // un-narrowed Json field pulls Prisma's internal (unnameable)
+        // runtime type into this method's inferred return type, which then
+        // breaks declaration emit for every caller up the chain (VideosController's
+        // findAll/findOne/retry).
+        scores: toSharedClipScores(scores),
         publishRecords: publishRecords.map(toSharedPublishRecord),
       })),
     };

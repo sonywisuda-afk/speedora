@@ -1,6 +1,15 @@
-import { QueueName } from '@viral-clip-app/shared';
+import { QueueName } from '@speedora/shared';
 import { Queue } from 'bullmq';
 import { createRedisConnection } from './redis';
+
+// import-youtube.worker.ts self-chains into this on success, same pattern
+// as every other producer below - apps/api also enqueues directly into it
+// for a normal upload (VideosService.upload()/retry()), so this is apps/worker's
+// first time needing to be a *producer* for transcribe rather than just its
+// consumer (transcribe.worker.ts).
+export const transcribeQueue = new Queue(QueueName.TRANSCRIBE, {
+  connection: createRedisConnection(),
+});
 
 export const detectClipsQueue = new Queue(QueueName.DETECT_CLIPS, {
   connection: createRedisConnection(),

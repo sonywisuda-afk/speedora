@@ -7,18 +7,18 @@
 #
 #   docker compose -f docker-compose.prod.yml up --build
 #
-# Secrets (JWT_SECRET, STORAGE_*, OPENAI_API_KEY) come from .env via
-# env_file. DATABASE_URL/REDIS_URL/FFMPEG_PATH are overridden below to point
-# at the compose network's service names/the container's own ffmpeg instead
-# of whatever apps/api and apps/worker's own .env values are for local dev
-# (localhost, and a host-specific FFMPEG_PATH).
+# Secrets (JWT_SECRET, STORAGE_*, GROQ_API_KEY, OPENAI_API_KEY, MIDTRANS_*)
+# come from .env via env_file. DATABASE_URL/REDIS_URL/FFMPEG_PATH are
+# overridden below to point at the compose network's service names/the
+# container's own ffmpeg instead of whatever apps/api and apps/worker's own
+# .env values are for local dev (localhost, and a host-specific FFMPEG_PATH).
 #
 # Explicit project name - without it, compose derives the project name from
 # the directory (same as docker-compose.yml's default), and since both files
 # use the service names `postgres`/`redis`, running this alongside the dev
 # stack would make compose treat them as the same containers and `down`
 # this file would tear down your dev Postgres/Redis too.
-name: viral-clip-app-prod
+name: speedora-prod
 
 services:
   postgres:
@@ -109,6 +109,8 @@ services:
       dockerfile: apps/web/Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+        NEXT_PUBLIC_MIDTRANS_CLIENT_KEY: ${NEXT_PUBLIC_MIDTRANS_CLIENT_KEY:-}
+        NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION: ${NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION:-false}
     restart: unless-stopped
     depends_on:
       - api

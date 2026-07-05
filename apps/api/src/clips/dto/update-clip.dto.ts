@@ -1,4 +1,4 @@
-import { CaptionStyle } from '@viral-clip-app/database';
+import { CaptionStyle } from '@speedora/database';
 import { IsArray, IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class UpdateClipDto {

@@ -67,6 +67,55 @@ class EnvironmentVariables {
   @IsOptional()
   @IsString()
   TOKEN_ENCRYPTION_KEY?: string;
+
+  // Optional on purpose, same posture as the OAuth vars above - see
+  // MailService.sendPasswordResetEmail(), which logs the reset link
+  // instead of sending when SMTP_HOST is unset rather than failing boot.
+  @IsOptional()
+  @IsString()
+  SMTP_HOST?: string;
+
+  @IsOptional()
+  @IsString()
+  SMTP_PORT?: string;
+
+  @IsOptional()
+  @IsString()
+  SMTP_SECURE?: string;
+
+  @IsOptional()
+  @IsString()
+  SMTP_USER?: string;
+
+  @IsOptional()
+  @IsString()
+  SMTP_PASSWORD?: string;
+
+  @IsOptional()
+  @IsString()
+  SMTP_FROM?: string;
+
+  // Optional on purpose, same posture as the OAuth vars above - the rest of
+  // the app (including the free Groq transcription path) has to keep
+  // working for everyone who hasn't set up a Midtrans account yet. Missing
+  // config only becomes a real (503) error at the point someone actually
+  // tries to check out premium (OpenAI Whisper) transcription - see
+  // payments/payments.service.ts's requireSnapClient().
+  @IsOptional()
+  @IsString()
+  MIDTRANS_SERVER_KEY?: string;
+
+  @IsOptional()
+  @IsString()
+  MIDTRANS_CLIENT_KEY?: string;
+
+  // 'true' selects Midtrans's production API host instead of sandbox - read
+  // as a plain string (not boolean) like every other env var here, parsed
+  // where it's used (see payments.service.ts). Absent/anything else
+  // defaults to sandbox, the safer default.
+  @IsOptional()
+  @IsString()
+  MIDTRANS_IS_PRODUCTION?: string;
 }
 
 export function validateEnv(config: Record<string, unknown>): EnvironmentVariables {

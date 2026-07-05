@@ -7,8 +7,8 @@ import * as path from 'node:path';
 // seek within, and there's no way around downloading the source and
 // writing the output locally first. This is not persisted storage; every
 // file written here is deleted once the job finishes (success or not).
-// The actual persisted files live in object storage (@viral-clip-app/storage).
-const scratchDir = path.join(os.tmpdir(), 'viral-clip-app');
+// The actual persisted files live in object storage (@speedora/storage).
+const scratchDir = path.join(os.tmpdir(), 'speedora');
 
 export async function reserveScratchPath(prefix: string, ext: string): Promise<string> {
   await mkdir(scratchDir, { recursive: true });

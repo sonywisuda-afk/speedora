@@ -1,5 +1,5 @@
-import { PublishStatus, SocialPlatform } from '@viral-clip-app/database';
-import { QueueName } from '@viral-clip-app/shared';
+import { PublishStatus, SocialPlatform } from '@speedora/database';
+import { QueueName } from '@speedora/shared';
 import { Worker } from 'bullmq';
 
 jest.mock('bullmq', () => ({ Worker: jest.fn() }));
@@ -18,7 +18,7 @@ const fetchTikTokVideoStatsMock = jest.fn();
 class FakeYouTubeOAuthClient {}
 class FakeInstagramOAuthClient {}
 class FakeTikTokOAuthClient {}
-jest.mock('@viral-clip-app/social', () => ({
+jest.mock('@speedora/social', () => ({
   resolveAccessToken: (...args: unknown[]) => resolveAccessTokenMock(...args),
   fetchYouTubeVideoStats: (...args: unknown[]) => fetchYouTubeVideoStatsMock(...args),
   fetchInstagramMediaStats: (...args: unknown[]) => fetchInstagramMediaStatsMock(...args),

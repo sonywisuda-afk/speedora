@@ -1,6 +1,6 @@
 import * as Sentry from '@sentry/node';
-import { PublishStatus, SocialPlatform } from '@viral-clip-app/database';
-import { QueueName } from '@viral-clip-app/shared';
+import { PublishStatus, SocialPlatform } from '@speedora/database';
+import { QueueName } from '@speedora/shared';
 import {
   fetchInstagramMediaStats,
   fetchTikTokPublishStatus,
@@ -11,7 +11,7 @@ import {
   TikTokOAuthClient,
   YouTubeOAuthClient,
   type OAuthRefreshClient,
-} from '@viral-clip-app/social';
+} from '@speedora/social';
 import { Worker } from 'bullmq';
 import { prisma } from '../prisma';
 import { syncPublishStatsQueue } from '../queues';

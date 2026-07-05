@@ -25,6 +25,21 @@ function getClient(): S3Client {
         accessKeyId: process.env.STORAGE_ACCESS_KEY_ID ?? '',
         secretAccessKey: process.env.STORAGE_SECRET_ACCESS_KEY ?? '',
       },
+      // The SDK's default request timeout is 0 (disabled) - a keep-alive
+      // connection from this client's pool that goes stale (observed
+      // against R2: reused successfully once, then a later call on the
+      // exact same client hangs forever with no error) would otherwise
+      // block the caller indefinitely instead of failing. connectionTimeout
+      // bounds establishing a new connection; requestTimeout bounds the
+      // whole request/response, generous enough for a large legitimate
+      // video upload/download over a slow link. throwOnRequestTimeout is
+      // required - without it a request-timeout breach is only logged as a
+      // warning, not thrown (see @smithy/types's NodeHttpHandlerOptions).
+      requestHandler: {
+        connectionTimeout: 10_000,
+        requestTimeout: 5 * 60 * 1000,
+        throwOnRequestTimeout: true,
+      },
     });
   }
   return client;

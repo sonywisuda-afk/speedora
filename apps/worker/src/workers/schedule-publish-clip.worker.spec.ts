@@ -1,5 +1,5 @@
-import { PublishStatus } from '@viral-clip-app/database';
-import { QueueName } from '@viral-clip-app/shared';
+import { PublishStatus } from '@speedora/database';
+import { QueueName } from '@speedora/shared';
 import { Worker } from 'bullmq';
 
 jest.mock('bullmq', () => ({ Worker: jest.fn() }));

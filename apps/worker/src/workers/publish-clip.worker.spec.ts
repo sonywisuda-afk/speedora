@@ -1,4 +1,4 @@
-import { PublishStatus, SocialPlatform } from '@viral-clip-app/database';
+import { PublishStatus, SocialPlatform } from '@speedora/database';
 import { Worker } from 'bullmq';
 
 jest.mock('bullmq', () => ({ Worker: jest.fn() }));
@@ -16,7 +16,7 @@ const uploadInstagramReelMock = jest.fn();
 class FakeYouTubeOAuthClient {}
 class FakeTikTokOAuthClient {}
 class FakeInstagramOAuthClient {}
-jest.mock('@viral-clip-app/social', () => ({
+jest.mock('@speedora/social', () => ({
   resolveAccessToken: (...args: unknown[]) => resolveAccessTokenMock(...args),
   uploadYouTubeVideo: (...args: unknown[]) => uploadYouTubeVideoMock(...args),
   uploadTikTokVideo: (...args: unknown[]) => uploadTikTokVideoMock(...args),
@@ -28,7 +28,7 @@ jest.mock('@viral-clip-app/social', () => ({
 
 const getObjectStreamMock = jest.fn();
 const getPresignedDownloadUrlMock = jest.fn();
-jest.mock('@viral-clip-app/storage', () => ({
+jest.mock('@speedora/storage', () => ({
   getObjectStream: (...args: unknown[]) => getObjectStreamMock(...args),
   getPresignedDownloadUrl: (...args: unknown[]) => getPresignedDownloadUrlMock(...args),
 }));

@@ -1,9 +1,9 @@
-import { getObjectStream } from '@viral-clip-app/storage';
+import { getObjectStream } from '@speedora/storage';
 import type { Response } from 'express';
 import type { ClipsService } from './clips.service';
 import { ClipsController } from './clips.controller';
 
-jest.mock('@viral-clip-app/storage', () => ({
+jest.mock('@speedora/storage', () => ({
   getObjectStream: jest.fn(),
 }));
 
@@ -13,6 +13,7 @@ describe('ClipsController', () => {
     findRenderedOrThrow: jest.Mock;
     update: jest.Mock;
     render: jest.Mock;
+    remove: jest.Mock;
     publish: jest.Mock;
     cancelScheduledPublish: jest.Mock;
     reschedulePublish: jest.Mock;
@@ -24,6 +25,7 @@ describe('ClipsController', () => {
       findRenderedOrThrow: jest.fn(),
       update: jest.fn(),
       render: jest.fn(),
+      remove: jest.fn().mockResolvedValue(undefined),
       publish: jest.fn(),
       cancelScheduledPublish: jest.fn(),
       reschedulePublish: jest.fn(),
@@ -72,6 +74,12 @@ describe('ClipsController', () => {
 
     expect(clipsService.render).toHaveBeenCalledWith('clip-1', 'user-1');
     expect(result).toBe(rendering);
+  });
+
+  it('delegates DELETE :id to ClipsService.remove', async () => {
+    await controller.remove(user, 'clip-1');
+
+    expect(clipsService.remove).toHaveBeenCalledWith('clip-1', 'user-1');
   });
 
   it('delegates POST :id/publish to ClipsService.publish', async () => {

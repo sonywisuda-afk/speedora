@@ -2,22 +2,59 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Design tokens (HSL triplets, no hsl() wrapper — shadcn/tailwind convention
+ * so utilities like bg-primary/50 can apply opacity).  Source-of-truth hex:
+ *   Bay Black    #0B0E14  -> 220 29% 6%
+ *   Slate Panel  #151922  -> 222 24% 11%
+ *   Chrome       #A8B0BE  -> 218 14% 70%
+ *   Signal Pink  #FF3B7F  -> 339 100% 62%
+ *   Signal Cyan  #22E6D6  -> 175 80% 52%
+ *   Paper White  #EDEFF2  -> 216 16% 94%
+ * Single dark theme by design (no light-mode toggle) — inverted sections
+ * apply bg-paper-white/text-bay-black directly rather than switching themes.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
+  --background: 220 29% 6%; /* Bay Black */
+  --foreground: 216 16% 94%; /* Paper White */
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --card: 222 24% 11%; /* Slate Panel */
+  --card-foreground: 216 16% 94%; /* Paper White */
+
+  --popover: 222 24% 11%; /* Slate Panel */
+  --popover-foreground: 216 16% 94%; /* Paper White */
+
+  --primary: 339 100% 62%; /* Signal Pink */
+  --primary-foreground: 216 16% 94%; /* Paper White */
+
+  --secondary: 175 80% 52%; /* Signal Cyan */
+  --secondary-foreground: 220 29% 6%; /* Bay Black */
+
+  --muted: 222 24% 11%; /* Slate Panel */
+  --muted-foreground: 218 14% 70%; /* Chrome */
+
+  --accent: 222 24% 16%; /* Slate Panel, lifted a step for hover states */
+  --accent-foreground: 216 16% 94%; /* Paper White */
+
+  /* Not one of the 6 named tokens — form/destructive states need a red the
+     brief doesn't specify. Flagging for confirmation; easy to swap later
+     since every component reads --destructive, not a hardcoded hex. */
+  --destructive: 355 85% 62%;
+  --destructive-foreground: 216 16% 94%;
+
+  /* Hairline border/input tone — also not one of the 6 tokens, tuned as a
+     step above Slate Panel so 1px borders read against card surfaces. */
+  --border: 222 18% 20%;
+  --input: 222 18% 20%;
+  --ring: 339 100% 62%; /* Signal Pink focus ring */
+
+  --radius: 0.25rem; /* precision-instrument feel, not shadcn's default soft 0.5rem */
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  font-family: var(--font-body);
 }
 
 @layer utilities {

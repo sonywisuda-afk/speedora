@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { SocialPlatform, type SocialAccount as SocialAccountRow } from '@viral-clip-app/database';
+import { SocialPlatform, type SocialAccount as SocialAccountRow } from '@speedora/database';
 import {
   encryptToken,
   decryptToken,
@@ -13,8 +13,8 @@ import {
   type TikTokUser,
   type YouTubeChannel,
   type YouTubeTokens,
-} from '@viral-clip-app/social';
-import type { SocialAccount, SocialPlatform as SharedSocialPlatform } from '@viral-clip-app/shared';
+} from '@speedora/social';
+import type { SocialAccount, SocialPlatform as SharedSocialPlatform } from '@speedora/shared';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -187,7 +187,7 @@ export class SocialAccountsService {
 
   // Not wired to any HTTP endpoint - apps/worker's publish-clip job (Fase
   // 6b) is the actual caller that needs a live token, via its own copy of
-  // this same resolveAccessToken() logic from @viral-clip-app/social (see
+  // this same resolveAccessToken() logic from @speedora/social (see
   // CLAUDE.md's Fase 6b section for why that's a shared package rather
   // than duplicated). Kept here, tested, for apps/api's own future
   // API-surface needs (e.g. a "verify this account still works" check).

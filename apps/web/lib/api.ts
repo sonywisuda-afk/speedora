@@ -1,12 +1,15 @@
 import type {
   Clip,
+  PremiumCheckoutResult,
+  PremiumCreditAvailability,
   PublishRecord,
   SocialAccount,
+  TranscriptionProvider,
   TranscriptSegment,
   UpdateClipInput,
   Video,
   VideoWithClips,
-} from '@viral-clip-app/shared';
+} from '@speedora/shared';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 
@@ -61,19 +64,109 @@ export async function logout(): Promise<void> {
   await apiFetch('/auth/logout', { method: 'POST' });
 }
 
+export async function forgotPassword(email: string): Promise<{ message: string }> {
+  const res = await apiFetch('/auth/forgot-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+  return parseJsonOrThrow<{ message: string }>(res);
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<UserDto> {
+  const res = await apiFetch('/auth/reset-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token, newPassword }),
+  });
+  return parseJsonOrThrow<UserDto>(res);
+}
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  const res = await apiFetch('/auth/change-password', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+  await parseJsonOrThrow<{ success: boolean }>(res);
+}
+
+// Permanently deletes the logged-in user's account and everything it owns.
+// 204 No Content on success; the session cookie is cleared server-side.
+export async function deleteAccount(): Promise<void> {
+  const res = await apiFetch('/auth/me', { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message =
+      body && typeof body === 'object' && 'message' in body ? body.message : res.statusText;
+    throw new Error(typeof message === 'string' ? message : 'Gagal menghapus akun');
+  }
+}
+
 export async function me(): Promise<UserDto | null> {
   const res = await apiFetch('/auth/me');
   if (res.status === 401) return null;
   return parseJsonOrThrow<UserDto>(res);
 }
 
-export async function uploadVideo(file: File): Promise<VideoDto> {
+// XHR instead of fetch() - fetch has no cross-browser way to observe
+// upload (request body) progress, only download progress. The upload flow
+// needs real byte-level percentage for its progress bar, not a fake timer.
+export function uploadVideo(
+  file: File,
+  provider: TranscriptionProvider,
+  options?: { onProgress?: (percent: number) => void; signal?: AbortSignal },
+): Promise<VideoDto> {
   const formData = new FormData();
   formData.append('file', file);
+  formData.append('transcriptionProvider', provider);
 
-  const res = await apiFetch('/videos', {
+  return new Promise<VideoDto>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${API_URL}/videos`);
+    xhr.withCredentials = true;
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) options?.onProgress?.((e.loaded / e.total) * 100);
+    };
+
+    xhr.onload = () => {
+      let body: unknown = null;
+      try {
+        body = JSON.parse(xhr.responseText);
+      } catch {
+        // non-JSON response - message extraction below falls back to statusText
+      }
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve(body as VideoDto);
+        return;
+      }
+      const message =
+        body && typeof body === 'object' && 'message' in body ? body.message : xhr.statusText;
+      reject(new Error(typeof message === 'string' ? message : 'Upload gagal. Coba lagi.'));
+    };
+
+    xhr.onerror = () => reject(new Error('Upload terhenti karena masalah koneksi. Coba lagi.'));
+    xhr.onabort = () => reject(new DOMException('Upload aborted', 'AbortError'));
+
+    options?.signal?.addEventListener('abort', () => xhr.abort());
+
+    xhr.send(formData);
+  });
+}
+
+// Alternate to uploadVideo() - the actual download happens in apps/worker
+// (import-youtube job), so this returns almost immediately with status
+// IMPORTING. Same polling contract as every other stage: the caller just
+// starts hitting getVideo(id) the same way it would after uploadVideo().
+export async function importYoutubeVideo(
+  url: string,
+  provider: TranscriptionProvider,
+): Promise<VideoDto> {
+  const res = await apiFetch('/videos/import-youtube', {
     method: 'POST',
-    body: formData,
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ url, transcriptionProvider: provider }),
   });
   return parseJsonOrThrow<VideoDto>(res);
 }
@@ -86,6 +179,19 @@ export async function getVideo(id: string): Promise<VideoWithClipsDto> {
 export async function retryVideo(id: string): Promise<VideoWithClipsDto> {
   const res = await apiFetch(`/videos/${id}/retry`, { method: 'POST' });
   return parseJsonOrThrow<VideoWithClipsDto>(res);
+}
+
+// Permanently deletes a video, its clips, and their files. 204 No Content on
+// success - nothing to parse, but a non-2xx (e.g. 404 for someone else's
+// video) still needs to surface as an error.
+export async function deleteVideo(id: string): Promise<void> {
+  const res = await apiFetch(`/videos/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message =
+      body && typeof body === 'object' && 'message' in body ? body.message : res.statusText;
+    throw new Error(typeof message === 'string' ? message : 'Gagal menghapus video');
+  }
 }
 
 export async function getVideoTranscript(id: string): Promise<TranscriptSegment[]> {
@@ -126,6 +232,18 @@ export async function updateClip(clipId: string, input: UpdateClipInput): Promis
 export async function renderClip(clipId: string): Promise<Clip> {
   const res = await apiFetch(`/clips/${clipId}/render`, { method: 'POST' });
   return parseJsonOrThrow<Clip>(res);
+}
+
+// Permanently deletes one clip (not the parent video or its sibling clips).
+// 204 No Content on success.
+export async function deleteClip(clipId: string): Promise<void> {
+  const res = await apiFetch(`/clips/${clipId}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message =
+      body && typeof body === 'object' && 'message' in body ? body.message : res.statusText;
+    throw new Error(typeof message === 'string' ? message : 'Gagal menghapus klip');
+  }
 }
 
 export async function listSocialAccounts(): Promise<SocialAccount[]> {
@@ -195,6 +313,26 @@ export function connectTikTokUrl(): string {
 // CLAUDE.md's Fase 6d "Instagram" section.
 export function connectInstagramUrl(): string {
   return `${API_URL}/social/instagram/connect`;
+}
+
+// Starts a Midtrans Snap transaction for one premium (OpenAI Whisper)
+// transcription credit - returns a token for the client-side Snap.js popup
+// (see lib/midtransSnap.ts), not a redirect. 503 if MIDTRANS_* isn't
+// configured server-side yet (surfaces as a thrown Error via
+// parseJsonOrThrow, same as every other "integration not configured" case).
+export async function createPremiumCheckout(): Promise<PremiumCheckoutResult> {
+  const res = await apiFetch('/payments/premium-transcription/checkout', { method: 'POST' });
+  return parseJsonOrThrow<PremiumCheckoutResult>(res);
+}
+
+// Whether the user currently has a paid, unspent premium credit - polled
+// after a Snap checkout to wait for apps/api's Midtrans webhook (the actual
+// source of truth) to confirm payment, since Snap's own onSuccess/onPending
+// callbacks fire from the browser and don't by themselves mean the credit
+// is usable yet.
+export async function getPremiumTranscriptionStatus(): Promise<PremiumCreditAvailability> {
+  const res = await apiFetch('/payments/premium-transcription/status');
+  return parseJsonOrThrow<PremiumCreditAvailability>(res);
 }
 
 export { API_URL };

@@ -1,6 +1,9 @@
-import type { CaptionStyle, ClipCandidate, TranscriptSegment } from './video';
+import type { CaptionStyle, ClipCandidate, TranscriptSegment, TranscriptionProvider } from './video';
 
 export enum QueueName {
+  // Only enqueued by apps/api's POST /videos/import-youtube - self-chains
+  // into TRANSCRIBE on success, same as every other stage in this pipeline.
+  IMPORT_YOUTUBE = 'import-youtube',
   TRANSCRIBE = 'transcribe',
   DETECT_CLIPS = 'detect-clips',
   RENDER_CLIP = 'render-clip',
@@ -15,9 +18,32 @@ export enum QueueName {
   SYNC_PUBLISH_STATS = 'sync-publish-stats',
 }
 
+// videoId is created (status IMPORTING, placeholder sourceUrl) by
+// VideosService.importFromYoutube() before this is enqueued, same pattern
+// as every other job in this pipeline - the job re-fetches/updates that
+// row rather than carrying a snapshot of it.
+export interface ImportYoutubeJobData {
+  videoId: string;
+  url: string;
+  // Set once at video creation (see Video.transcriptionProvider) and
+  // forwarded to the transcribe job this one self-chains into on success -
+  // this job never calls Whisper itself, but it's the thing that must carry
+  // the choice across the handoff.
+  provider: TranscriptionProvider;
+}
+
+export interface ImportYoutubeJobResult {
+  videoId: string;
+  sourceUrl: string;
+}
+
 export interface TranscribeJobData {
   videoId: string;
   sourceUrl: string;
+  // Set once at video creation (see Video.transcriptionProvider) and passed
+  // straight through here, same as sourceUrl above - fixed for the video's
+  // whole lifetime, so there's no risk of it drifting from a fresh re-fetch.
+  provider: TranscriptionProvider;
 }
 
 export interface TranscribeJobResult {
@@ -43,6 +69,11 @@ export interface RenderClipJobData {
   endTime: number;
   transcript: TranscriptSegment[];
   captionStyle: CaptionStyle;
+  // Fase 15 (Auto B-roll) - the clip's own Fase 8 keywords, used to search
+  // for matching stock footage moments (see broll.ts's findBRollMoments).
+  // Empty for a clip whose Content Intelligence LLM call never ran/found
+  // none - B-roll is simply skipped for it, not an error.
+  keywords: string[];
 }
 
 export interface RenderClipJobResult {

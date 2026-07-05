@@ -1,10 +1,6 @@
 import * as Sentry from '@sentry/node';
-import { PublishStatus, SocialPlatform } from '@viral-clip-app/database';
-import {
-  QueueName,
-  type PublishClipJobData,
-  type PublishClipJobResult,
-} from '@viral-clip-app/shared';
+import { PublishStatus, SocialPlatform } from '@speedora/database';
+import { QueueName, type PublishClipJobData, type PublishClipJobResult } from '@speedora/shared';
 import {
   resolveAccessToken,
   InstagramOAuthClient,
@@ -14,8 +10,8 @@ import {
   uploadYouTubeVideo,
   YouTubeOAuthClient,
   type OAuthRefreshClient,
-} from '@viral-clip-app/social';
-import { getObjectStream, getPresignedDownloadUrl } from '@viral-clip-app/storage';
+} from '@speedora/social';
+import { getObjectStream, getPresignedDownloadUrl } from '@speedora/storage';
 import { Worker, type Job } from 'bullmq';
 import { prisma } from '../prisma';
 import { createRedisConnection } from '../redis';

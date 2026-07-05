@@ -16,10 +16,10 @@ describe('reserveScratchPath', () => {
     mkdirMock.mockReset().mockResolvedValue(undefined);
   });
 
-  it('returns a path under os.tmpdir()/viral-clip-app with the given prefix and extension', async () => {
+  it('returns a path under os.tmpdir()/speedora with the given prefix and extension', async () => {
     const result = await reserveScratchPath('source', '.mp4');
 
-    const expectedDir = path.join(os.tmpdir(), 'viral-clip-app');
+    const expectedDir = path.join(os.tmpdir(), 'speedora');
     expect(result.startsWith(expectedDir)).toBe(true);
     expect(path.basename(result)).toMatch(/^source-[0-9a-f-]{36}\.mp4$/);
   });
@@ -27,7 +27,7 @@ describe('reserveScratchPath', () => {
   it('ensures the scratch directory exists before returning', async () => {
     await reserveScratchPath('captions', '.srt');
 
-    expect(mkdirMock).toHaveBeenCalledWith(path.join(os.tmpdir(), 'viral-clip-app'), {
+    expect(mkdirMock).toHaveBeenCalledWith(path.join(os.tmpdir(), 'speedora'), {
       recursive: true,
     });
   });
@@ -44,14 +44,14 @@ describe('cleanupTempFile', () => {
   it('unlinks the given path', async () => {
     unlinkMock.mockResolvedValue(undefined);
 
-    await cleanupTempFile('/tmp/viral-clip-app/source-abc.mp4');
+    await cleanupTempFile('/tmp/speedora/source-abc.mp4');
 
-    expect(unlinkMock).toHaveBeenCalledWith('/tmp/viral-clip-app/source-abc.mp4');
+    expect(unlinkMock).toHaveBeenCalledWith('/tmp/speedora/source-abc.mp4');
   });
 
   it('swallows errors (e.g. file already gone) instead of throwing', async () => {
     unlinkMock.mockRejectedValue(new Error('ENOENT'));
 
-    await expect(cleanupTempFile('/tmp/viral-clip-app/missing.mp4')).resolves.toBeUndefined();
+    await expect(cleanupTempFile('/tmp/speedora/missing.mp4')).resolves.toBeUndefined();
   });
 });

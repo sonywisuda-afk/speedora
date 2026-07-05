@@ -1,7 +1,7 @@
-import { uploadObject } from '@viral-clip-app/storage';
+import { uploadObject } from '@speedora/storage';
 import { StorageService } from './storage.service';
 
-jest.mock('@viral-clip-app/storage', () => ({
+jest.mock('@speedora/storage', () => ({
   uploadObject: jest.fn(),
 }));
 

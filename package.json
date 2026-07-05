@@ -1,5 +1,5 @@
 {
-  "name": "viral-clip-app",
+  "name": "speedora",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -7,8 +7,8 @@
   },
   "packageManager": "pnpm@9.15.9",
   "scripts": {
-    "dev": "concurrently -n shared,database,storage,social,web,api,worker -c blue,cyan,white,gray,green,magenta,yellow \"pnpm --filter @viral-clip-app/shared dev\" \"pnpm --filter @viral-clip-app/database dev\" \"pnpm --filter @viral-clip-app/storage dev\" \"pnpm --filter @viral-clip-app/social dev\" \"pnpm --filter @viral-clip-app/web dev\" \"pnpm --filter @viral-clip-app/api start:dev\" \"pnpm --filter @viral-clip-app/worker dev\"",
-    "build": "pnpm --filter @viral-clip-app/shared build && pnpm --filter @viral-clip-app/database build && pnpm --filter @viral-clip-app/storage build && pnpm --filter @viral-clip-app/social build && pnpm --filter @viral-clip-app/web build && pnpm --filter @viral-clip-app/api build && pnpm --filter @viral-clip-app/worker build",
+    "dev": "concurrently -n shared,contracts,clip-scoring,database,storage,social,web,api,worker -c blue,cyan,white,gray,green,magenta,yellow,red,blackBright \"pnpm --filter @speedora/shared dev\" \"pnpm --filter @speedora/contracts dev\" \"pnpm --filter @speedora/clip-scoring dev\" \"pnpm --filter @speedora/database dev\" \"pnpm --filter @speedora/storage dev\" \"pnpm --filter @speedora/social dev\" \"pnpm --filter @speedora/web dev\" \"pnpm --filter @speedora/api start:dev\" \"pnpm --filter @speedora/worker dev\"",
+    "build": "pnpm --filter @speedora/shared build && pnpm --filter @speedora/contracts build && pnpm --filter @speedora/clip-scoring build && pnpm --filter @speedora/database build && pnpm --filter @speedora/storage build && pnpm --filter @speedora/social build && pnpm --filter @speedora/web build && pnpm --filter @speedora/api build && pnpm --filter @speedora/worker build",
     "lint": "pnpm -r --if-present lint",
     "typecheck": "pnpm -r --if-present typecheck",
     "test": "pnpm -r --if-present test",

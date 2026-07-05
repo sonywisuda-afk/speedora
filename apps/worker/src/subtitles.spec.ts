@@ -1,5 +1,5 @@
-import { CaptionStyle } from '@viral-clip-app/database';
-import type { TranscriptSegment } from '@viral-clip-app/shared';
+import { CaptionStyle } from '@speedora/database';
+import type { TranscriptSegment } from '@speedora/shared';
 import { buildAss } from './subtitles';
 
 const baseOptions = {

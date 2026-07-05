@@ -33,28 +33,28 @@ jobs:
         run: pnpm lint
 
       - name: Build packages/shared
-        run: pnpm --filter @viral-clip-app/shared build
+        run: pnpm --filter @speedora/shared build
 
       - name: Build packages/database
-        run: pnpm --filter @viral-clip-app/database build
+        run: pnpm --filter @speedora/database build
 
       - name: Build packages/storage
-        run: pnpm --filter @viral-clip-app/storage build
+        run: pnpm --filter @speedora/storage build
 
       - name: Build packages/social
-        run: pnpm --filter @viral-clip-app/social build
+        run: pnpm --filter @speedora/social build
 
       - name: Typecheck
         run: pnpm typecheck
 
       - name: Test packages/shared
-        run: pnpm --filter @viral-clip-app/shared test
+        run: pnpm --filter @speedora/shared test
 
       - name: Test packages/storage
-        run: pnpm --filter @viral-clip-app/storage test
+        run: pnpm --filter @speedora/storage test
 
       - name: Test packages/social
-        run: pnpm --filter @viral-clip-app/social test
+        run: pnpm --filter @speedora/social test
 
       - name: Build
         run: pnpm build

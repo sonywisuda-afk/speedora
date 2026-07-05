@@ -1,6 +1,6 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PublishStatus, type CaptionStyle } from '@viral-clip-app/database';
+import { PublishStatus, type CaptionStyle, type Prisma } from '@speedora/database';
 import {
   filterSegmentsForClip,
   PUBLISH_RETRY_OPTIONS,
@@ -9,12 +9,17 @@ import {
   type PublishClipJobData,
   type PublishRecord,
   type RenderClipJobData,
-} from '@viral-clip-app/shared';
+} from '@speedora/shared';
 import type { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { toSharedPublishRecord } from '../social/publish-record.util';
 import { SocialAccountsService } from '../social/social.service';
-import { toSharedCaptionStyle, toSharedTranscriptSegment } from '../videos/transcript-segment.util';
+import { StorageService } from '../storage/storage.service';
+import {
+  toSharedCaptionStyle,
+  toSharedClipScores,
+  toSharedTranscriptSegment,
+} from '../videos/transcript-segment.util';
 import type { PublishClipDto } from './dto/publish-clip.dto';
 import type { UpdateClipDto } from './dto/update-clip.dto';
 
@@ -23,17 +28,28 @@ export class ClipsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly socialAccounts: SocialAccountsService,
+    private readonly storage: StorageService,
     @InjectQueue(QueueName.RENDER_CLIP) private readonly renderClipQueue: Queue<RenderClipJobData>,
     @InjectQueue(QueueName.PUBLISH_CLIP)
     private readonly publishClipQueue: Queue<PublishClipJobData>,
   ) {}
 
+  // Explicit return type (rather than inferred) - a Clip row now includes
+  // the Json `scores` column (Fase 8), and an un-annotated inferred type
+  // that includes a Json field can't be named without referencing Prisma's
+  // internal runtime module, which breaks declaration emit (TS2742) for
+  // every caller up the chain.
+  private static readonly CLIP_WITH_VIDEO = { include: { video: true } } as const;
+
   // Same "not found" for a missing clip and someone else's clip, so a
   // client can't use this endpoint to probe which clip IDs exist.
-  async findOwnedOrThrow(id: string, requesterId: string) {
+  async findOwnedOrThrow(
+    id: string,
+    requesterId: string,
+  ): Promise<Prisma.ClipGetPayload<typeof ClipsService.CLIP_WITH_VIDEO>> {
     const clip = await this.prisma.clip.findUnique({
       where: { id },
-      include: { video: true },
+      ...ClipsService.CLIP_WITH_VIDEO,
     });
 
     if (!clip || clip.video.ownerId !== requesterId) {
@@ -42,12 +58,30 @@ export class ClipsService {
     return clip;
   }
 
-  async findRenderedOrThrow(id: string, requesterId: string) {
+  async findRenderedOrThrow(
+    id: string,
+    requesterId: string,
+  ): Promise<Prisma.ClipGetPayload<typeof ClipsService.CLIP_WITH_VIDEO>> {
     const clip = await this.findOwnedOrThrow(id, requesterId);
     if (!clip.outputUrl) {
       throw new NotFoundException(`Clip ${id} has not finished rendering yet`);
     }
     return clip;
+  }
+
+  // Permanently deletes one clip (its publish records cascade via the
+  // schema) and best-effort cleans up its rendered output in storage - not
+  // the parent video or any sibling clip. Video.status is left untouched:
+  // it only ever moves forward through the pipeline (see CLAUDE.md's state
+  // machine) and is never recomputed from the current clip count, so
+  // removing one clip here has no bearing on it.
+  async remove(id: string, requesterId: string): Promise<void> {
+    const clip = await this.findOwnedOrThrow(id, requesterId);
+
+    await this.prisma.clip.delete({ where: { id } });
+    if (clip.outputUrl) {
+      await this.storage.deleteObjects([clip.outputUrl]);
+    }
   }
 
   // Manual trim/style change from the timeline editor. Deliberately does not
@@ -113,6 +147,7 @@ export class ClipsService {
         clip.endTime,
       ),
       captionStyle: toSharedCaptionStyle(clip.captionStyle),
+      keywords: clip.keywords,
     });
 
     return this.toDto(cleared);
@@ -217,6 +252,12 @@ export class ClipsService {
     captionStyle: CaptionStyle;
     hookText: string | null;
     hashtags: string[];
+    scores: unknown;
+    reason: string | null;
+    topics: string[];
+    keywords: string[];
+    intent: string | null;
+    ctaText: string | null;
     publishRecords: Parameters<typeof toSharedPublishRecord>[0][];
     updatedAt: Date;
   }) {
@@ -230,6 +271,12 @@ export class ClipsService {
       captionStyle: clip.captionStyle,
       hookText: clip.hookText,
       hashtags: clip.hashtags,
+      scores: toSharedClipScores(clip.scores),
+      reason: clip.reason,
+      topics: clip.topics,
+      keywords: clip.keywords,
+      intent: clip.intent,
+      ctaText: clip.ctaText,
       publishRecords: clip.publishRecords.map(toSharedPublishRecord) satisfies PublishRecord[],
       updatedAt: clip.updatedAt,
     };

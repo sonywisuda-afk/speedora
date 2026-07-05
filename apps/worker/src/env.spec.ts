@@ -3,7 +3,7 @@ import { validateEnv } from './env';
 const VALID_ENV = {
   DATABASE_URL: 'postgresql://user:pw@localhost:5432/db',
   REDIS_URL: 'redis://localhost:6379',
-  OPENAI_API_KEY: 'sk-test',
+  GROQ_API_KEY: 'gsk-test',
   STORAGE_ENDPOINT: 'https://account.r2.cloudflarestorage.com',
   STORAGE_REGION: 'auto',
   STORAGE_BUCKET: 'my-bucket',
@@ -25,8 +25,12 @@ describe('validateEnv', () => {
 
   it('lists every missing variable in a single error when several are absent', () => {
     expect(() => validateEnv({} as NodeJS.ProcessEnv)).toThrow(
-      /DATABASE_URL.*REDIS_URL.*OPENAI_API_KEY.*STORAGE_ENDPOINT.*STORAGE_REGION.*STORAGE_BUCKET.*STORAGE_ACCESS_KEY_ID.*STORAGE_SECRET_ACCESS_KEY/,
+      /DATABASE_URL.*REDIS_URL.*GROQ_API_KEY.*STORAGE_ENDPOINT.*STORAGE_REGION.*STORAGE_BUCKET.*STORAGE_ACCESS_KEY_ID.*STORAGE_SECRET_ACCESS_KEY/,
     );
+  });
+
+  it('does not require OPENAI_API_KEY (only the paid premium tier needs it)', () => {
+    expect(() => validateEnv(VALID_ENV)).not.toThrow(/OPENAI_API_KEY/);
   });
 
   it('does not require FFMPEG_PATH (it has its own default elsewhere)', () => {

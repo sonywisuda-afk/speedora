@@ -1,10 +1,6 @@
 import { JwtModule } from '@nestjs/jwt';
 import { Module } from '@nestjs/common';
-import {
-  InstagramOAuthClient,
-  TikTokOAuthClient,
-  YouTubeOAuthClient,
-} from '@viral-clip-app/social';
+import { InstagramOAuthClient, TikTokOAuthClient, YouTubeOAuthClient } from '@speedora/social';
 import { SocialController } from './social.controller';
 import { SocialAccountsService } from './social.service';
 

@@ -1,9 +1,10 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { CaptionStyle } from '@viral-clip-app/database';
-import { QueueName } from '@viral-clip-app/shared';
+import { CaptionStyle } from '@speedora/database';
+import { QueueName } from '@speedora/shared';
 import type { Queue } from 'bullmq';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { SocialAccountsService } from '../social/social.service';
+import type { StorageService } from '../storage/storage.service';
 import { ClipsService } from './clips.service';
 
 const PUBLISH_RECORDS_INCLUDE = {
@@ -13,7 +14,7 @@ const PUBLISH_RECORDS_INCLUDE = {
 describe('ClipsService', () => {
   let service: ClipsService;
   let prisma: {
-    clip: { findUnique: jest.Mock; update: jest.Mock };
+    clip: { findUnique: jest.Mock; update: jest.Mock; delete: jest.Mock };
     transcriptSegment: { findMany: jest.Mock };
     publishRecord: {
       create: jest.Mock;
@@ -23,12 +24,13 @@ describe('ClipsService', () => {
     };
   };
   let socialAccounts: { findOwnedOrThrow: jest.Mock };
+  let storage: { deleteObjects: jest.Mock };
   let renderClipQueue: { add: jest.Mock };
   let publishClipQueue: { add: jest.Mock };
 
   beforeEach(() => {
     prisma = {
-      clip: { findUnique: jest.fn(), update: jest.fn() },
+      clip: { findUnique: jest.fn(), update: jest.fn(), delete: jest.fn().mockResolvedValue({}) },
       transcriptSegment: { findMany: jest.fn() },
       publishRecord: {
         create: jest.fn(),
@@ -38,11 +40,13 @@ describe('ClipsService', () => {
       },
     };
     socialAccounts = { findOwnedOrThrow: jest.fn() };
+    storage = { deleteObjects: jest.fn().mockResolvedValue(undefined) };
     renderClipQueue = { add: jest.fn() };
     publishClipQueue = { add: jest.fn() };
     service = new ClipsService(
       prisma as unknown as PrismaService,
       socialAccounts as unknown as SocialAccountsService,
+      storage as unknown as StorageService,
       renderClipQueue as unknown as Queue,
       publishClipQueue as unknown as Queue,
     );
@@ -106,6 +110,12 @@ describe('ClipsService', () => {
       captionStyle: 'DEFAULT',
       hookText: 'Wait for it...',
       hashtags: ['viral', 'fyp'],
+      scores: null,
+      reason: null,
+      topics: [],
+      keywords: [],
+      intent: null,
+      ctaText: null,
       publishRecords: [],
       updatedAt: new Date('2026-01-01'),
       video: { ownerId: 'user-1' },
@@ -138,6 +148,12 @@ describe('ClipsService', () => {
         captionStyle: 'DEFAULT',
         hookText: 'Wait for it...',
         hashtags: ['viral', 'fyp'],
+        scores: null,
+        reason: null,
+        topics: [],
+        keywords: [],
+        intent: null,
+        ctaText: null,
         publishRecords: [],
         updatedAt: existingClip.updatedAt,
       });
@@ -249,6 +265,12 @@ describe('ClipsService', () => {
       captionStyle: CaptionStyle.KARAOKE,
       hookText: 'Wait for it...',
       hashtags: ['viral', 'fyp'],
+      scores: null,
+      reason: null,
+      topics: [],
+      keywords: [],
+      intent: null,
+      ctaText: null,
       publishRecords: [],
       updatedAt: new Date('2026-01-01'),
       video: { ownerId: 'user-1', sourceUrl: 'videos/abc.mp4' },
@@ -286,6 +308,7 @@ describe('ClipsService', () => {
           },
         ],
         captionStyle: CaptionStyle.KARAOKE,
+        keywords: [],
       });
       expect(result).toEqual({
         id: 'clip-1',
@@ -297,6 +320,12 @@ describe('ClipsService', () => {
         captionStyle: CaptionStyle.KARAOKE,
         hookText: 'Wait for it...',
         hashtags: ['viral', 'fyp'],
+        scores: null,
+        reason: null,
+        topics: [],
+        keywords: [],
+        intent: null,
+        ctaText: null,
         publishRecords: [],
         updatedAt: cleared.updatedAt,
       });
@@ -538,6 +567,54 @@ describe('ClipsService', () => {
       await expect(
         service.reschedulePublish('clip-1', 'record-1', 'user-1', futureIso),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('remove', () => {
+    it('deletes the clip row and cleans up its rendered output object', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        id: 'clip-1',
+        outputUrl: 'renders/clip-1.mp4',
+        video: { ownerId: 'user-1' },
+      });
+
+      await service.remove('clip-1', 'user-1');
+
+      expect(prisma.clip.delete).toHaveBeenCalledWith({ where: { id: 'clip-1' } });
+      expect(storage.deleteObjects).toHaveBeenCalledWith(['renders/clip-1.mp4']);
+    });
+
+    it('skips storage cleanup for a clip that never finished rendering', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        id: 'clip-1',
+        outputUrl: null,
+        video: { ownerId: 'user-1' },
+      });
+
+      await service.remove('clip-1', 'user-1');
+
+      expect(prisma.clip.delete).toHaveBeenCalledWith({ where: { id: 'clip-1' } });
+      expect(storage.deleteObjects).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException and deletes nothing for a missing clip', async () => {
+      prisma.clip.findUnique.mockResolvedValue(null);
+
+      await expect(service.remove('missing', 'user-1')).rejects.toThrow(NotFoundException);
+      expect(prisma.clip.delete).not.toHaveBeenCalled();
+      expect(storage.deleteObjects).not.toHaveBeenCalled();
+    });
+
+    it("throws NotFoundException for another user's clip (no delete, no enumeration)", async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        id: 'clip-1',
+        outputUrl: 'renders/clip-1.mp4',
+        video: { ownerId: 'someone-else' },
+      });
+
+      await expect(service.remove('clip-1', 'user-1')).rejects.toThrow(NotFoundException);
+      expect(prisma.clip.delete).not.toHaveBeenCalled();
+      expect(storage.deleteObjects).not.toHaveBeenCalled();
     });
   });
 });

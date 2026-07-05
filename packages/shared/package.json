@@ -1,5 +1,5 @@
 {
-  "name": "@viral-clip-app/shared",
+  "name": "@speedora/shared",
   "version": "0.1.0",
   "private": true,
   "description": "Shared TypeScript types, DTOs, and utils used across apps/web, apps/api, and apps/worker.",
