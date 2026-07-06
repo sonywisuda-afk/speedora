@@ -15,11 +15,13 @@ function fakeOpenAI(candidates: unknown[]): OpenAI {
 const FULL_SCORES = {
   hookStrength: 70,
   educationalValue: 60,
+  practicalValue: 65,
   curiosity: 65,
   emotion: 55,
   storytelling: 75,
   novelty: 50,
   trustAuthority: 80,
+  ctaStrength: 40,
 };
 
 // Every field the module's response schema requires, with sensible defaults -
@@ -152,11 +154,13 @@ describe('scoreClipCandidates', () => {
         scores: {
           hookStrength: 150, // clamped to 100
           educationalValue: -20, // clamped to 0
+          practicalValue: 65,
           curiosity: 65,
           emotion: 55,
           storytelling: 75,
           novelty: 50,
           trustAuthority: 80,
+          ctaStrength: 40,
         },
         reason: '  Explains a clear before/after transformation.  ',
         topics: [' productivity ', '', 'habits'],

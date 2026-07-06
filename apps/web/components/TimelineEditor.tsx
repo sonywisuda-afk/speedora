@@ -29,11 +29,13 @@ const CAPTION_STYLE_LABELS: Record<CaptionStyle, string> = {
 const SCORE_LABELS: Record<keyof ClipScores, string> = {
   hookStrength: 'Hook Strength',
   educationalValue: 'Educational Value',
+  practicalValue: 'Practical Value',
   curiosity: 'Curiosity',
   emotion: 'Emotion',
   storytelling: 'Storytelling',
   novelty: 'Novelty',
   trustAuthority: 'Trust/Authority',
+  ctaStrength: 'CTA Strength',
 };
 
 // Matches detect-clips.worker.ts's INTENTS - a plain lookup with an 'other'

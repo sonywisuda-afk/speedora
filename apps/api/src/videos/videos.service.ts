@@ -21,8 +21,19 @@ import { PrismaService } from '../prisma/prisma.service';
 import { toSharedPublishRecord } from '../social/publish-record.util';
 import { StorageService } from '../storage/storage.service';
 import {
+  toSharedAudioFeatures,
   toSharedCaptionStyle,
   toSharedClipScores,
+  toSharedFacialEmotions,
+  toSharedFacialFeatures,
+  toSharedGestureFeatures,
+  toSharedGestures,
+  toSharedHighlightBreakdown,
+  toSharedHighlightExplainability,
+  toSharedHighlightPrediction,
+  toSharedHighlightRecommendation,
+  toSharedLlmFeatures,
+  toSharedSceneFeatures,
   toSharedTranscriptionProvider,
   toSharedTranscriptSegment,
 } from './transcript-segment.util';
@@ -246,6 +257,7 @@ export class VideosService {
             ),
             captionStyle: toSharedCaptionStyle(clip.captionStyle),
             keywords: clip.keywords,
+            scores: toSharedClipScores(clip.scores),
           }),
         ),
       );
@@ -337,17 +349,46 @@ export class VideosService {
     const { clips, ...rest } = video;
     return {
       ...rest,
-      clips: clips.map(({ outputUrl, publishRecords, scores, ...clip }) => ({
-        ...clip,
-        downloadUrl: outputUrl ? `/clips/${clip.id}/download` : null,
-        // Narrowed explicitly (not left as Prisma's opaque JsonValue) - an
-        // un-narrowed Json field pulls Prisma's internal (unnameable)
-        // runtime type into this method's inferred return type, which then
-        // breaks declaration emit for every caller up the chain (VideosController's
-        // findAll/findOne/retry).
-        scores: toSharedClipScores(scores),
-        publishRecords: publishRecords.map(toSharedPublishRecord),
-      })),
+      clips: clips.map(
+        ({
+          outputUrl,
+          publishRecords,
+          scores,
+          facialEmotions,
+          gestures,
+          audioFeatures,
+          sceneFeatures,
+          facialFeatures,
+          gestureFeatures,
+          highlightBreakdown,
+          highlightExplainability,
+          llmFeatures,
+          highlightPrediction,
+          highlightRecommendation,
+          ...clip
+        }) => ({
+          ...clip,
+          downloadUrl: outputUrl ? `/clips/${clip.id}/download` : null,
+          // Narrowed explicitly (not left as Prisma's opaque JsonValue) - an
+          // un-narrowed Json field pulls Prisma's internal (unnameable)
+          // runtime type into this method's inferred return type, which then
+          // breaks declaration emit for every caller up the chain (VideosController's
+          // findAll/findOne/retry).
+          scores: toSharedClipScores(scores),
+          facialEmotions: toSharedFacialEmotions(facialEmotions),
+          gestures: toSharedGestures(gestures),
+          audioFeatures: toSharedAudioFeatures(audioFeatures),
+          sceneFeatures: toSharedSceneFeatures(sceneFeatures),
+          facialFeatures: toSharedFacialFeatures(facialFeatures),
+          gestureFeatures: toSharedGestureFeatures(gestureFeatures),
+          highlightBreakdown: toSharedHighlightBreakdown(highlightBreakdown),
+          highlightExplainability: toSharedHighlightExplainability(highlightExplainability),
+          llmFeatures: toSharedLlmFeatures(llmFeatures),
+          highlightPrediction: toSharedHighlightPrediction(highlightPrediction),
+          highlightRecommendation: toSharedHighlightRecommendation(highlightRecommendation),
+          publishRecords: publishRecords.map(toSharedPublishRecord),
+        }),
+      ),
     };
   }
 }

@@ -52,6 +52,16 @@ jest.mock('../vocalEmotion', () => ({
   detectVocalEmotions: (...args: unknown[]) => detectVocalEmotionsMock(...args),
 }));
 
+// Only analyzeAudioLoudness (the ffmpeg-subprocess half) is mocked -
+// computeSpeakingRate is pure/deterministic and runs for real, same
+// precedent as render-clip.worker.spec.ts leaving @speedora/cutlist's pure
+// functions unmocked to verify real integration math.
+const analyzeAudioLoudnessMock = jest.fn();
+jest.mock('@speedora/audio-intelligence', () => ({
+  ...jest.requireActual('@speedora/audio-intelligence'),
+  analyzeAudioLoudness: (...args: unknown[]) => analyzeAudioLoudnessMock(...args),
+}));
+
 const createReadStreamMock = jest.fn((p: string) => ({ readStreamFor: p }));
 jest.mock('node:fs', () => ({
   createReadStream: (...args: [string]) => createReadStreamMock(...args),
@@ -133,6 +143,11 @@ describe('transcribe worker', () => {
     // No emotion labels by default - individual tests override this to
     // exercise the emotion-detection-succeeds path.
     detectVocalEmotionsMock.mockResolvedValue([]);
+    // No loudness readings by default (empty array -> every segment's
+    // rmsDb/peakDb end up undefined via the adapter's `?? undefined`) -
+    // individual tests can override this to exercise the analysis-succeeds
+    // path.
+    analyzeAudioLoudnessMock.mockResolvedValue({ segments: [] });
   });
 
   it('extracts audio from the source video and enqueues detect-clips on success (GROQ, the default provider)', async () => {
@@ -190,8 +205,20 @@ describe('transcribe worker', () => {
     expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/diarize-audio-2.mp3');
 
     const segments = [
-      { start: 0, end: 2, text: 'hi', words: [{ start: 0, end: 0.8, word: 'hi' }] },
-      { start: 2, end: 4, text: 'there', words: [{ start: 2, end: 2.5, word: 'there' }] },
+      {
+        start: 0,
+        end: 2,
+        text: 'hi',
+        words: [{ start: 0, end: 0.8, word: 'hi' }],
+        speakingRateWordsPerSecond: 0.5,
+      },
+      {
+        start: 2,
+        end: 4,
+        text: 'there',
+        words: [{ start: 2, end: 2.5, word: 'there' }],
+        speakingRateWordsPerSecond: 0.5,
+      },
     ];
     expect(transcriptSegmentCreateManyMock).toHaveBeenCalledWith({
       data: segments.map((s) => ({ videoId: 'video-1', ...s })),
@@ -309,8 +336,16 @@ describe('transcribe worker', () => {
             { start: 0, end: 0.4, word: 'hi' },
             { start: 0.5, end: 0.9, word: 'there' },
           ],
+          speakingRateWordsPerSecond: 1,
         },
-        { videoId: 'video-1', start: 5, end: 7, text: 'unrelated', words: [] },
+        {
+          videoId: 'video-1',
+          start: 5,
+          end: 7,
+          text: 'unrelated',
+          words: [],
+          speakingRateWordsPerSecond: 0,
+        },
       ],
     });
   });
@@ -476,6 +511,7 @@ describe('transcribe worker', () => {
           end: 2,
           text: 'a',
           words: [{ start: 0, end: 1, word: 'a' }],
+          speakingRateWordsPerSecond: 0.5,
         },
         {
           videoId: 'video-1',
@@ -483,6 +519,7 @@ describe('transcribe worker', () => {
           end: 3003,
           text: 'b',
           words: [{ start: 3001, end: 3002, word: 'b' }],
+          speakingRateWordsPerSecond: 0.5,
         },
         {
           videoId: 'video-1',
@@ -490,6 +527,7 @@ describe('transcribe worker', () => {
           end: 6001,
           text: 'c',
           words: [{ start: 6000, end: 6000.5, word: 'c' }],
+          speakingRateWordsPerSecond: 1,
         },
       ],
     });
@@ -604,6 +642,7 @@ describe('transcribe worker', () => {
             text: 'hi',
             speaker: 'Speaker A',
             words: [{ start: 0, end: 0.8, word: 'hi' }],
+            speakingRateWordsPerSecond: 0.5,
           },
           {
             videoId: 'video-1',
@@ -612,6 +651,7 @@ describe('transcribe worker', () => {
             text: 'there',
             speaker: 'Speaker B',
             words: [{ start: 2, end: 2.5, word: 'there' }],
+            speakingRateWordsPerSecond: 0.5,
           },
         ],
       });
@@ -643,7 +683,15 @@ describe('transcribe worker', () => {
       );
       expect(result).toEqual({
         videoId: 'video-1',
-        segments: [{ start: 0, end: 2, text: 'hi', words: [{ start: 0, end: 0.8, word: 'hi' }] }],
+        segments: [
+          {
+            start: 0,
+            end: 2,
+            text: 'hi',
+            words: [{ start: 0, end: 0.8, word: 'hi' }],
+            speakingRateWordsPerSecond: 0.5,
+          },
+        ],
       });
     });
   });
@@ -687,6 +735,7 @@ describe('transcribe worker', () => {
             text: 'hi',
             emotion: 'hap',
             words: [{ start: 0, end: 0.8, word: 'hi' }],
+            speakingRateWordsPerSecond: 0.5,
           },
           {
             videoId: 'video-1',
@@ -695,6 +744,7 @@ describe('transcribe worker', () => {
             text: 'there',
             emotion: undefined,
             words: [{ start: 2, end: 2.5, word: 'there' }],
+            speakingRateWordsPerSecond: 0.5,
           },
         ],
       });
@@ -722,7 +772,99 @@ describe('transcribe worker', () => {
       );
       expect(result).toEqual({
         videoId: 'video-1',
-        segments: [{ start: 0, end: 2, text: 'hi', words: [{ start: 0, end: 0.8, word: 'hi' }] }],
+        segments: [
+          {
+            start: 0,
+            end: 2,
+            text: 'hi',
+            words: [{ start: 0, end: 0.8, word: 'hi' }],
+            speakingRateWordsPerSecond: 0.5,
+          },
+        ],
+      });
+    });
+  });
+
+  describe('Audio Intelligence (Fase 25)', () => {
+    it("analyzes loudness reusing the SAME diarize-audio file, and persists each segment's reading", async () => {
+      getObjectStreamMock.mockResolvedValue({});
+      groqTranscriptionsCreateMock.mockResolvedValue({
+        segments: [
+          { start: 0, end: 2, text: 'hi' },
+          { start: 2, end: 4, text: 'there' },
+        ],
+        words: [
+          { start: 0, end: 0.8, word: 'hi' },
+          { start: 2, end: 2.5, word: 'there' },
+        ],
+      });
+      analyzeAudioLoudnessMock.mockResolvedValue({
+        segments: [
+          { rmsDb: -20, peakDb: -3 },
+          { rmsDb: -14.5, peakDb: -1.2 },
+        ],
+      });
+
+      const processor = getProcessor();
+      await processor({
+        data: {
+          videoId: 'video-1',
+          sourceUrl: 'videos/abc.mp4',
+          provider: TranscriptionProvider.GROQ,
+        },
+      });
+
+      // Same diarize-audio-2.mp3 file diarization/emotion detection already
+      // use - no third full-track extraction just for loudness.
+      expect(analyzeAudioLoudnessMock).toHaveBeenCalledWith(
+        {
+          audioPath: '/scratch/diarize-audio-2.mp3',
+          segments: [
+            { start: 0, end: 2, text: 'hi' },
+            { start: 2, end: 4, text: 'there' },
+          ],
+        },
+        expect.objectContaining({ ffmpegPath: expect.any(String) }),
+      );
+      expect(transcriptSegmentCreateManyMock).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({ rmsDb: -20, peakDb: -3 }),
+          expect.objectContaining({ rmsDb: -14.5, peakDb: -1.2 }),
+        ],
+      });
+    });
+
+    it('continues without loudness data (does not fail the job) when analysis throws', async () => {
+      getObjectStreamMock.mockResolvedValue({});
+      groqTranscriptionsCreateMock.mockResolvedValue({
+        segments: [{ start: 0, end: 2, text: 'hi' }],
+        words: [{ start: 0, end: 0.8, word: 'hi' }],
+      });
+      analyzeAudioLoudnessMock.mockRejectedValue(new Error('ffmpeg not found'));
+
+      const processor = getProcessor();
+      const result = await processor({
+        data: {
+          videoId: 'video-1',
+          sourceUrl: 'videos/abc.mp4',
+          provider: TranscriptionProvider.GROQ,
+        },
+      });
+
+      expect(videoUpdateMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: VideoStatus.FAILED } }),
+      );
+      expect(result).toEqual({
+        videoId: 'video-1',
+        segments: [
+          {
+            start: 0,
+            end: 2,
+            text: 'hi',
+            words: [{ start: 0, end: 0.8, word: 'hi' }],
+            speakingRateWordsPerSecond: 0.5,
+          },
+        ],
       });
     });
   });

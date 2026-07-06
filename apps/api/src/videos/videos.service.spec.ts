@@ -270,9 +270,37 @@ describe('VideosService', () => {
           viralityScore: 90,
           downloadUrl: '/clips/clip-1/download',
           scores: null,
+          facialEmotions: null,
+          audioFeatures: null,
+          sceneFeatures: null,
+          facialFeatures: null,
+          gestures: null,
+          gestureFeatures: null,
+          highlightBreakdown: [],
+          highlightExplainability: { topFactors: [] },
+          llmFeatures: null,
+          highlightPrediction: null,
+          highlightRecommendation: null,
           publishRecords: [],
         },
-        { id: 'clip-2', viralityScore: 40, downloadUrl: null, scores: null, publishRecords: [] },
+        {
+          id: 'clip-2',
+          viralityScore: 40,
+          downloadUrl: null,
+          scores: null,
+          facialEmotions: null,
+          audioFeatures: null,
+          sceneFeatures: null,
+          facialFeatures: null,
+          gestures: null,
+          gestureFeatures: null,
+          highlightBreakdown: [],
+          highlightExplainability: { topFactors: [] },
+          llmFeatures: null,
+          highlightPrediction: null,
+          highlightRecommendation: null,
+          publishRecords: [],
+        },
       ]);
       expect(result[0].clips[0]).not.toHaveProperty('outputUrl');
     });
@@ -549,6 +577,7 @@ describe('VideosService', () => {
         transcript: [{ start: 12, end: 18, text: 'inside' }],
         captionStyle: 'DEFAULT',
         keywords: ['sunset', 'beach'],
+        scores: null,
       });
       expect(transcribeQueue.add).not.toHaveBeenCalled();
       expect(detectClipsQueue.add).not.toHaveBeenCalled();

@@ -13,11 +13,13 @@ const VALID_CANDIDATE = {
   scores: {
     hookStrength: 70,
     educationalValue: 60,
+    practicalValue: 65,
     curiosity: 65,
     emotion: 55,
     storytelling: 75,
     novelty: 50,
     trustAuthority: 80,
+    ctaStrength: 40,
   },
   reason: 'Strong hook and a complete story arc.',
   topics: ['productivity'],

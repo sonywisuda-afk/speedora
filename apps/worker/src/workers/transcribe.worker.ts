@@ -2,6 +2,7 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import * as Sentry from '@sentry/node';
+import { analyzeAudioLoudness, computeSpeakingRate } from '@speedora/audio-intelligence';
 import { updateVideoStatus, VideoStatus } from '@speedora/database';
 import {
   QueueName,
@@ -12,6 +13,7 @@ import {
 import { getObjectStream } from '@speedora/storage';
 import { Worker, type Job } from 'bullmq';
 import type OpenAI from 'openai';
+import { audioIntelligenceDeps } from '../audioIntelligenceDeps';
 import { assignSpeakerLabels, diarizeSpeakers, type SpeakerTurn } from '../diarization';
 import { type AudioWindow, extractAudio, getMediaDurationSeconds } from '../ffmpeg';
 import { groq, GROQ_WHISPER_MODEL } from '../groq';
@@ -286,20 +288,51 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
           );
         }
 
+        // Audio Intelligence (Fase 25, Phase A of the AI Fusion roadmap) -
+        // per-segment loudness, reusing the SAME full-track audio file
+        // diarization/vocal-emotion already extracted above. Never fails
+        // the job, same "optional signal" pattern as diarization/emotion -
+        // a failed analysis just leaves every segment's rmsDb/peakDb unset.
+        let loudnessResults: Array<{ rmsDb: number | null; peakDb: number | null }> = [];
+        try {
+          const { segments: loudness } = await analyzeAudioLoudness(
+            { audioPath: diarizeAudioPath, segments: mergedSegments },
+            audioIntelligenceDeps,
+          );
+          loudnessResults = loudness;
+        } catch (error) {
+          console.warn(
+            `[transcribe] audio loudness analysis failed for video ${videoId}, continuing ` +
+              'without loudness data:',
+            error,
+          );
+        }
+
         // Whisper returns words as one flat, per-chunk array rather than
         // nested per segment - bucket each word into the segment whose
         // [start, end) it falls in so render-clip's karaoke caption preset
         // can access a segment's words alongside its text.
-        const segments = mergedSegments.map((segment, i) => ({
-          start: segment.start,
-          end: segment.end,
-          text: segment.text.trim(),
-          speaker: speakerLabels[i],
-          emotion: emotionResults[i]?.emotion,
-          words: mergedWords
+        const segments = mergedSegments.map((segment, i) => {
+          const words = mergedWords
             .filter((word) => word.start >= segment.start && word.start < segment.end)
-            .map((word) => ({ word: word.word, start: word.start, end: word.end })),
-        }));
+            .map((word) => ({ word: word.word, start: word.start, end: word.end }));
+
+          return {
+            start: segment.start,
+            end: segment.end,
+            text: segment.text.trim(),
+            speaker: speakerLabels[i],
+            emotion: emotionResults[i]?.emotion,
+            words,
+            rmsDb: loudnessResults[i]?.rmsDb ?? undefined,
+            peakDb: loudnessResults[i]?.peakDb ?? undefined,
+            speakingRateWordsPerSecond: computeSpeakingRate({
+              segmentStart: segment.start,
+              segmentEnd: segment.end,
+              wordCount: words.length,
+            }).wordsPerSecond,
+          };
+        });
 
         // The status-event write is inlined here (rather than calling
         // updateVideoStatus()) so it joins the SAME $transaction as the

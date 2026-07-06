@@ -35,6 +35,18 @@ export interface TranscriptSegment {
   // karaoke caption preset needs this; render-clip falls back to plain text
   // for a segment that lacks it rather than failing.
   words?: TranscriptWord[];
+  // Fase 25 (Audio Intelligence, AI Fusion roadmap Phase A) - this
+  // segment's own mean RMS/peak level in dB (see
+  // @speedora/audio-intelligence). Undefined for segments transcribed
+  // before this field existed, or when analysis wasn't run/failed - same
+  // optional-signal treatment as emotion above. Not calibrated/comparable
+  // across different source recordings, only relative within one video.
+  rmsDb?: number;
+  peakDb?: number;
+  // Words per second within this segment - pure math from start/end/word
+  // count, always present once a segment has word-level data (undefined
+  // only alongside a missing `words`).
+  speakingRateWordsPerSecond?: number;
 }
 
 // Mirrors CaptionStyle in packages/database's Prisma schema.
@@ -62,17 +74,129 @@ export enum TranscriptionProvider {
 
 // Multi-metric breakdown behind the single viralityScore, from the same
 // detect-clips LLM call (see CLAUDE.md's Fase 8 "Content Intelligence"
-// section) - each 0-100. Explicitly a heuristic LLM estimate, not a
-// statistically trained/calibrated prediction - there is no engagement
-// dataset behind these numbers.
+// section, extended Fase 32) - each 0-100. Explicitly a heuristic LLM
+// estimate, not a statistically trained/calibrated prediction - there is
+// no engagement dataset behind these numbers. Grouped into four domains
+// (see @speedora/contracts' SCORE_DOMAINS) - Engagement: hookStrength/
+// curiosity/emotion/storytelling; Knowledge: educationalValue/
+// practicalValue/novelty/trustAuthority; Conversion: ctaStrength.
 export interface ClipScores {
   hookStrength: number;
   educationalValue: number;
+  // Fase 32 - how much a viewer could immediately apply this clip's
+  // information with minimal additional knowledge (see
+  // @speedora/clip-scoring's prompt for the full scoring criteria).
+  practicalValue: number;
   curiosity: number;
   emotion: number;
   storytelling: number;
   novelty: number;
   trustAuthority: number;
+  // Fase 32 - how persuasive the clip's call-to-action is, 0 if none.
+  ctaStrength: number;
+}
+
+// Fase 27 (Facial Intelligence, AI Fusion roadmap Phase C) - one sampled
+// frame's classified facial expression, clip-relative seconds. Mirrors
+// @speedora/contracts' FacialEmotionSample shape rather than importing it -
+// same duplication precedent as ClipScores above (packages/shared doesn't
+// take a dependency on @speedora/contracts just for one small type). null
+// emotion/score means no face was found in that sampled frame, not an
+// error - see @speedora/facial-intelligence's own module comment.
+export interface FacialEmotionSample {
+  t: number;
+  emotion: string | null;
+  score: number | null;
+}
+
+// Fase 30 (Gesture Intelligence, AI Fusion roadmap Checkpoint 2) - one
+// sampled frame's classified hand gesture, clip-relative seconds. Mirrors
+// @speedora/contracts' GestureSample shape rather than importing it - same
+// duplication precedent as FacialEmotionSample above. null gesture/
+// confidence means no hand was detected at all (distinct from "none", a
+// hand detected but no recognized gesture) - see
+// @speedora/gesture-intelligence's own module comment.
+export interface GestureSample {
+  t: number;
+  gesture: string | null;
+  confidence: number | null;
+}
+
+// Fase 28 (Mini Fusion Engine v1 prep, AI Fusion roadmap Checkpoint 1) -
+// dense derived summaries the Fusion Engine consumes, one per signal
+// module (see packages/contracts/src/intelligence-signal.ts's raw/features
+// convention and packages/contracts/src/fusion.ts's input contract).
+// Mirrors each module's own contracts/ Features shape rather than
+// importing it - same duplication precedent as ClipScores/
+// FacialEmotionSample above.
+export interface AudioFeatures {
+  averageRmsDb: number | null;
+  peakDb: number | null;
+  averageSpeakingRateWordsPerSecond: number | null;
+  speakingRateStdDev: number | null;
+}
+
+export interface SceneFeatures {
+  cutCount: number;
+  cutsPerMinute: number | null;
+  averageSegmentSeconds: number | null;
+}
+
+export interface FacialEmotionFeatures {
+  dominantEmotion: string | null;
+  emotionTransitions: number;
+  peakConfidence: number | null;
+  stability: number | null;
+}
+
+export interface GestureFeatures {
+  dominantGesture: string | null;
+  gestureTransitions: number;
+  peakConfidence: number | null;
+  stability: number | null;
+}
+
+// Fase 29/31 (Mini Fusion Engine v1 -> v2) - @speedora/fusion-engine's
+// feature-level breakdown: one entry per extracted+normalized+weighted
+// named feature (not one opaque sub-score per signal) - see
+// packages/contracts/src/fusion.ts's fusionContributionSchema.
+export interface FusionContribution {
+  signal: string;
+  feature: string;
+  rawValue: number | null;
+  normalizedValue: number;
+  weight: number;
+  weightedContribution: number;
+}
+
+export type FusionBreakdown = FusionContribution[];
+
+export interface FusionFactor {
+  signal: string;
+  feature: string;
+  weightedContribution: number;
+  description: string;
+}
+
+export interface FusionExplainability {
+  topFactors: FusionFactor[];
+}
+
+// Fase 32 (Mini Fusion Engine v2 - Prediction & Recommendation stages) -
+// @speedora/fusion-engine's deterministic, non-ML-trained bucket + human-
+// readable action derived purely from highlightScore/confidence/
+// contributions already computed above - same "heuristic, not a trained
+// model" honesty as the rest of the Fusion Engine.
+export type PredictionBucket = 'likely_high_performer' | 'uncertain' | 'likely_low_performer';
+
+export interface FusionPrediction {
+  bucket: PredictionBucket;
+  rationale: string;
+}
+
+export interface FusionRecommendation {
+  action: string;
+  message: string;
 }
 
 export interface ClipCandidate {
@@ -149,6 +273,60 @@ export interface Clip {
   ctaText: string | null;
   // Fase 23 (DB+JSON-contract roadmap) - see ClipCandidate above.
   emojiSuggestions: string[];
+  // Fase 27 (Facial Intelligence, AI Fusion roadmap Phase C) - null when the
+  // analysis wasn't run or failed entirely for this clip (distinct from an
+  // empty array, which would mean "ran successfully and found nothing") -
+  // same nullability convention as `scores` above. Computed at render-clip
+  // time (not detect-clips time, unlike scores/topics/etc.), so it isn't on
+  // ClipCandidate.
+  facialEmotions: FacialEmotionSample[] | null;
+  // Fase 30 (Gesture Intelligence, AI Fusion roadmap Checkpoint 2) - same
+  // null-vs-empty-array convention as facialEmotions above.
+  gestures: GestureSample[] | null;
+  // Fase 28/30 (Mini Fusion Engine v1 prep, AI Fusion roadmap Checkpoint
+  // 1/2) - dense derived summaries computed from sceneCuts/facialEmotions/
+  // gestures/this clip's own transcript segments (see AudioFeatures/
+  // SceneFeatures/FacialEmotionFeatures/GestureFeatures above) - what the
+  // Fusion Engine actually consumes, not the raw timelines. sceneCuts/
+  // audioFeatures/sceneFeatures are always computed (their raw inputs are
+  // always arrays, even if empty); facialFeatures/gestureFeatures are null
+  // exactly when facialEmotions/gestures are null.
+  audioFeatures: AudioFeatures | null;
+  sceneFeatures: SceneFeatures | null;
+  facialFeatures: FacialEmotionFeatures | null;
+  gestureFeatures: GestureFeatures | null;
+  // Fase 32 - the same Fase 8 ClipScores this clip's `scores` field already
+  // carries, echoed back here as what the Fusion Engine's `llm` signal
+  // actually consumed at render time (threaded through the render-clip job
+  // payload - see RenderClipJobData.scores) - null for a clip whose
+  // detect-clips LLM call never ran/produced no scores.
+  llmFeatures: ClipScores | null;
+  // Fase 29/31 (Mini Fusion Engine v1 -> v2) - @speedora/fusion-engine's
+  // computeHighlightScore() output, combining whichever of
+  // audioFeatures/sceneFeatures/facialFeatures/gestureFeatures were
+  // available (weighted per-signal, see @speedora/fusion-engine's
+  // weights.ts - gesture currently has weight 0, so its data can be
+  // present here without moving highlightScore). highlightScore null means
+  // the sum of weighted contributions was zero (not a fabricated 0/50);
+  // highlightBreakdown/highlightExplainability/highlightReason are always
+  // populated once computeHighlightScore runs, even when highlightScore
+  // itself ends up null. highlightConfidence is a heuristic coverage+
+  // quality estimate, NOT a calibrated probability.
+  highlightScore: number | null;
+  highlightBreakdown: FusionBreakdown;
+  highlightExplainability: FusionExplainability;
+  highlightConfidence: number | null;
+  highlightReason: string | null;
+  // Fase 32 (Mini Fusion Engine v2 - Prediction & Recommendation stages) -
+  // always populated once computeHighlightScore runs (same as
+  // highlightBreakdown/highlightExplainability above), even when
+  // highlightScore itself ends up null.
+  highlightPrediction: FusionPrediction | null;
+  highlightRecommendation: FusionRecommendation | null;
+  // Rank among sibling clips of the same video by highlightScore - null
+  // until every clip in the video has finished rendering (see
+  // render-clip.worker.ts's rankClips() call).
+  highlightRank: number | null;
   // Publish attempts to connected social accounts (Fase 6b) - empty until
   // the user hits "Publish now" at least once. Small array in practice (at
   // most one per connected platform account), so returned inline rather

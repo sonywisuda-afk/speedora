@@ -1,4 +1,10 @@
-import type { CaptionStyle, ClipCandidate, TranscriptSegment, TranscriptionProvider } from './video';
+import type {
+  CaptionStyle,
+  ClipCandidate,
+  ClipScores,
+  TranscriptSegment,
+  TranscriptionProvider,
+} from './video';
 
 export enum QueueName {
   // Only enqueued by apps/api's POST /videos/import-youtube - self-chains
@@ -74,6 +80,13 @@ export interface RenderClipJobData {
   // Empty for a clip whose Content Intelligence LLM call never ran/found
   // none - B-roll is simply skipped for it, not an error.
   keywords: string[];
+  // Fase 32 (Mini Fusion Engine v2's 'llm' signal) - the clip's own Fase 8
+  // Content Intelligence scores, threaded through so render-clip can feed
+  // them into computeHighlightScore alongside the audio/scene/facial/
+  // gesture signals it already computes itself. Null for a clip whose
+  // detect-clips LLM call never ran/produced no scores - the llm signal is
+  // simply skipped for it, not an error, same convention as keywords above.
+  scores: ClipScores | null;
 }
 
 export interface RenderClipJobResult {

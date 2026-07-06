@@ -11,13 +11,25 @@ import {
   totalCutSeconds,
   type CutRange,
 } from '@speedora/cutlist';
-import { updateVideoStatus, VideoStatus } from '@speedora/database';
+import { deriveAudioFeatures } from '@speedora/audio-intelligence';
+import { Prisma, updateVideoStatus, VideoStatus } from '@speedora/database';
+import { computeHighlightScore, rankClips } from '@speedora/fusion-engine';
 import {
   QueueName,
   type RenderClipJobData,
   type RenderClipJobResult,
   type TranscriptWord,
 } from '@speedora/shared';
+import {
+  deriveFacialEmotionFeatures,
+  detectFacialEmotion,
+  type FacialEmotionSample,
+} from '@speedora/facial-intelligence';
+import {
+  deriveGestureFeatures,
+  detectGestures,
+  type GestureSample,
+} from '@speedora/gesture-intelligence';
 import {
   buildCropPath,
   buildSendCmdScript,
@@ -26,6 +38,7 @@ import {
   findEmphasisWords,
   type FaceSample,
 } from '@speedora/reframe';
+import { deriveSceneFeatures, detectSceneCuts } from '@speedora/scene-intelligence';
 import { getObjectStream, uploadObject } from '@speedora/storage';
 import { buildAss } from '@speedora/subtitles';
 import { Worker, type Job } from 'bullmq';
@@ -37,6 +50,7 @@ import {
   findBRollMoments,
 } from '../broll';
 import { faceDetectionDeps } from '../faceDetectionDeps';
+import { facialIntelligenceDeps } from '../facialIntelligenceDeps';
 import {
   fadeOutBRoll,
   getVideoDimensions,
@@ -46,8 +60,10 @@ import {
   type BRollOverlay,
   type ReframeOptions,
 } from '../ffmpeg';
+import { gestureIntelligenceDeps } from '../gestureIntelligenceDeps';
 import { prisma } from '../prisma';
 import { createRedisConnection } from '../redis';
+import { sceneIntelligenceDeps } from '../sceneIntelligenceDeps';
 import { cleanupTempFile, reserveScratchPath } from '../storage';
 
 // Re-anchors a clip's transcript words onto the clip's own timeline (0 =
@@ -234,8 +250,17 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
   return new Worker<RenderClipJobData, RenderClipJobResult>(
     QueueName.RENDER_CLIP,
     async (job: Job<RenderClipJobData>) => {
-      const { clipId, videoId, sourceUrl, startTime, endTime, transcript, captionStyle, keywords } =
-        job.data;
+      const {
+        clipId,
+        videoId,
+        sourceUrl,
+        startTime,
+        endTime,
+        transcript,
+        captionStyle,
+        keywords,
+        scores,
+      } = job.data;
       console.log(
         `[render-clip] rendering clip ${clipId} for video ${videoId} (${startTime}s - ${endTime}s)`,
       );
@@ -259,6 +284,103 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
         // correctly.
         const reframe = await buildReframePlan(sourcePath, startTime, endTime, transcript);
         sendCmdPath = reframe.sendCmdPath;
+
+        // Scene Intelligence (Fase 26, Phase B of the AI Fusion roadmap) -
+        // hard shot/scene cuts within this clip's own time range. Never
+        // fails the job, same "optional signal" pattern as face detection
+        // above - a failed/empty analysis just leaves sceneCuts as [].
+        let sceneCuts: number[] = [];
+        try {
+          const result = await detectSceneCuts(
+            { videoPath: sourcePath, startTime, endTime },
+            sceneIntelligenceDeps,
+          );
+          sceneCuts = result.cuts;
+        } catch (error) {
+          console.warn(
+            `[render-clip] scene cut detection failed for clip ${clipId}, continuing without ` +
+              'scene data:',
+            error,
+          );
+        }
+
+        // Facial Intelligence (Fase 27, Phase C of the AI Fusion roadmap) -
+        // per-sampled-frame facial expression within this clip's own time
+        // range. Never fails the job, same "optional signal" pattern as
+        // face detection/scene cuts above - a failed analysis just leaves
+        // facialEmotions as null (distinct from an empty array, which would
+        // mean "ran successfully and found nothing").
+        let facialEmotions: FacialEmotionSample[] | null = null;
+        try {
+          facialEmotions = await detectFacialEmotion(
+            { sourcePath, startTime, endTime },
+            facialIntelligenceDeps,
+          );
+        } catch (error) {
+          console.warn(
+            `[render-clip] facial emotion detection failed for clip ${clipId}, continuing ` +
+              'without facial emotion data:',
+            error,
+          );
+        }
+
+        // Gesture Intelligence (Fase 30, Phase D / Checkpoint 2 of the AI
+        // Fusion roadmap) - same "never fails the job" pattern as facial
+        // emotion above.
+        let gestures: GestureSample[] | null = null;
+        try {
+          gestures = await detectGestures(
+            { sourcePath, startTime, endTime },
+            gestureIntelligenceDeps,
+          );
+        } catch (error) {
+          console.warn(
+            `[render-clip] gesture detection failed for clip ${clipId}, continuing without ` +
+              'gesture data:',
+            error,
+          );
+        }
+
+        // Mini Fusion Engine v1/v2 prep (Fase 28/30, Checkpoint 1/2 of the
+        // AI Fusion roadmap) - dense derived summaries computed from the
+        // raw signals above (see packages/contracts/src/intelligence-
+        // signal.ts's raw/features convention). sceneFeatures/
+        // audioFeatures are always computed (their raw inputs are always
+        // arrays, even if empty); facialFeatures/gestureFeatures are null
+        // exactly when facialEmotions/gestures are null (total analysis
+        // failure), matching those fields' own null-vs-empty-array
+        // distinction rather than fabricating a summary from nothing.
+        const sceneFeatures = deriveSceneFeatures(sceneCuts, endTime - startTime);
+        const facialFeatures = facialEmotions ? deriveFacialEmotionFeatures(facialEmotions) : null;
+        const gestureFeatures = gestures ? deriveGestureFeatures(gestures) : null;
+        const audioFeatures = deriveAudioFeatures(
+          transcript.map((segment) => ({
+            rmsDb: segment.rmsDb ?? null,
+            peakDb: segment.peakDb ?? null,
+            speakingRateWordsPerSecond: segment.speakingRateWordsPerSecond ?? null,
+          })),
+        );
+
+        // Mini Fusion Engine v2 (Fase 29/31) - combines whichever of the
+        // features above are actually available into one explainable,
+        // weighted, confidence-scored 0-100 highlightScore (see
+        // @speedora/fusion-engine). Pure/synchronous, no try/catch needed
+        // here - it never throws for missing signals (see
+        // fusionInputSchema's .optional() fields), only for a malformed
+        // input shape, which can't happen given the values constructed
+        // just above.
+        const highlight = computeHighlightScore({
+          clipId,
+          audio: audioFeatures,
+          scene: sceneFeatures,
+          facial: facialFeatures ?? undefined,
+          gesture: gestureFeatures ?? undefined,
+          // Fase 32 - the clip's own Fase 8 Content Intelligence scores,
+          // threaded through the job payload (see RenderClipJobData) rather
+          // than re-queried here, same "payload carries what the adapter
+          // already computed" convention as keywords/transcript above.
+          llm: scores ?? undefined,
+        });
 
         const { overlays: broll, finalPaths } = await buildBRollOverlays(
           keywords,
@@ -323,13 +445,71 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
 
         await prisma.clip.update({
           where: { id: clipId },
-          data: { outputUrl: outputKey },
+          data: {
+            outputUrl: outputKey,
+            sceneCuts,
+            // Prisma.JsonNull, not plain `null` - a nullable Json column
+            // needs this sentinel to write an actual SQL NULL rather than
+            // being ambiguous with "field not provided" (same reasoning
+            // Prisma applies to every other Json? column in this schema).
+            facialEmotions: facialEmotions ?? Prisma.JsonNull,
+            gestures: gestures ?? Prisma.JsonNull,
+            audioFeatures,
+            sceneFeatures,
+            facialFeatures: facialFeatures ?? Prisma.JsonNull,
+            gestureFeatures: gestureFeatures ?? Prisma.JsonNull,
+            // ClipScores is a closed interface (no index signature), which
+            // Prisma's Json input type requires - same reasoning as
+            // detect-clips.worker.ts's own scores write.
+            llmFeatures: (scores as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
+            highlightScore: highlight.highlightScore,
+            highlightBreakdown: highlight.contributions,
+            highlightExplainability: highlight.explainability,
+            highlightConfidence: highlight.confidence,
+            highlightReason: highlight.reason,
+            highlightPrediction: highlight.prediction,
+            highlightRecommendation: highlight.recommendation,
+          },
         });
 
         const siblingClips = await prisma.clip.findMany({ where: { videoId } });
         const allRendered = siblingClips.every((clip) => clip.outputUrl !== null);
         if (allRendered) {
           await updateVideoStatus(prisma, videoId, VideoStatus.RENDERED);
+
+          // Ranking (Fase 31) - only meaningful once every clip in the
+          // video has a highlightScore to compare against its siblings.
+          // Never fails the render job itself: ranking is a pure/
+          // synchronous helper over data that's already just been written,
+          // and a failure here would be surprising, but is still wrapped
+          // defensively since it runs after the clip's own render is
+          // already a done deal.
+          try {
+            const scoredSiblings = await prisma.clip.findMany({
+              where: { videoId },
+              select: { id: true, highlightScore: true },
+            });
+            const ranked = rankClips(
+              scoredSiblings.map((clip) => ({
+                clipId: clip.id,
+                highlightScore: clip.highlightScore,
+              })),
+            );
+            await Promise.all(
+              ranked.map((clip) =>
+                prisma.clip.update({
+                  where: { id: clip.clipId },
+                  data: { highlightRank: clip.rank },
+                }),
+              ),
+            );
+          } catch (error) {
+            console.warn(
+              `[render-clip] ranking sibling clips of video ${videoId} failed, continuing ` +
+                'without highlightRank:',
+              error,
+            );
+          }
         }
 
         console.log(`[render-clip] clip ${clipId} -> ${outputKey}`);

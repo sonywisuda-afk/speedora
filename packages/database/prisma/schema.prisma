@@ -214,6 +214,23 @@ model TranscriptSegment {
   // karaoke caption preset can't sync to this segment - render-clip falls
   // back to plain text for it rather than failing.
   words     Json?
+  // Fase 25 (Audio Intelligence, Phase A of the AI Fusion roadmap) - mean
+  // RMS/peak level in dB over this segment's own audio slice (see
+  // @speedora/audio-intelligence's analyzeAudioLoudness), computed via
+  // ffmpeg's astats filter on the same full-track audio file diarization/
+  // vocal-emotion already extract. Null for the same reasons emotion can be
+  // null: detection wasn't run/failed for this video, or the slice was too
+  // short/silent for ffmpeg to report a meaningful reading. Absolute dB
+  // values are NOT calibrated/comparable across different source
+  // recordings - only meaningful relative to other segments of the SAME
+  // video.
+  rmsDb     Float?
+  peakDb    Float?
+  // Words per second within this segment - pure math from Whisper's own
+  // segment boundaries + word count, no audio analysis involved at all
+  // (see @speedora/audio-intelligence's computeSpeakingRate). Null only
+  // when this segment has no word-level data (see `words` above).
+  speakingRateWordsPerSecond Float?
   createdAt DateTime @default(now())
 
   @@index([videoId])
@@ -270,6 +287,85 @@ model Clip {
   // never burned into the rendered video - defaults to an empty array
   // rather than nullable so callers never have to null-check it.
   emojiSuggestions String[] @default([])
+  // Fase 26 (Scene Intelligence, AI Fusion roadmap Phase B) - clip-relative
+  // (0 = clip start) timestamps of detected hard shot/scene cuts within
+  // this clip, from @speedora/scene-intelligence's ffmpeg-based detector.
+  // Empty array (not null) when analysis found no cuts or failed to run -
+  // same "always an array" convention as topics/keywords/emojiSuggestions.
+  sceneCuts     Float[]      @default([])
+  // Fase 27 (Facial Intelligence, AI Fusion roadmap Phase C) - one JSON
+  // array of @speedora/facial-intelligence's per-sample output ({t, emotion,
+  // score}[], clip-relative seconds), same "one JSON blob, not a column per
+  // field" reasoning as `scores` above - always read/written as a unit.
+  // Null (not an empty array) when the analysis wasn't run or failed
+  // entirely for the clip - distinct from a sample within the array having
+  // emotion/score null (no face found in that one sampled frame).
+  facialEmotions Json?
+  // Fase 28 (Mini Fusion Engine v1 prep, AI Fusion roadmap Checkpoint 1) -
+  // dense derived summaries per signal (see packages/contracts/src/
+  // intelligence-signal.ts's raw/features convention and each module's own
+  // deriveXFeatures()), separate from the raw timelines above
+  // (sceneCuts/facialEmotions) and from TranscriptSegment's raw
+  // rmsDb/peakDb/speakingRateWordsPerSecond columns (Fase 25) - the Fusion
+  // Engine reads only these three columns, never the raw data directly.
+  // Null when the underlying raw signal itself is empty/unavailable for
+  // this clip (nothing to derive a summary from), not a fabricated
+  // all-zero object.
+  audioFeatures  Json?
+  sceneFeatures  Json?
+  facialFeatures Json?
+  // Fase 29/31 (Mini Fusion Engine v1 -> v2, AI Fusion roadmap - extends
+  // Checkpoint 1/2) - @speedora/fusion-engine's computeHighlightScore()
+  // output, computed from whichever of audioFeatures/sceneFeatures/
+  // facialFeatures/gestureFeatures below are available for this clip.
+  // `highlightScore` null means the sum of WEIGHTED signal contributions
+  // was zero (not a fabricated 0/50) - a signal can be present in
+  // `highlightBreakdown` with real data yet still not move this number if
+  // its configured weight is 0 (e.g. gesture currently - see
+  // @speedora/fusion-engine's weights.ts). `highlightBreakdown` (Json) now
+  // holds FusionOutput's full per-FEATURE `contributions` array (v2:
+  // feature-level, not one opaque sub-score per signal - see
+  // packages/contracts/src/fusion.ts), `highlightExplainability` (Json)
+  // holds the structured `topFactors`, `highlightConfidence` (0-1) is a
+  // heuristic coverage+quality estimate (NOT a calibrated probability), and
+  // `highlightReason` stays the human-readable sentence - same
+  // "explainable AI" requirement as Fase 8's `reason`. All four are always
+  // populated once computeHighlightScore runs, even when highlightScore
+  // itself ends up null.
+  highlightScore         Float?
+  highlightBreakdown     Json?
+  highlightExplainability Json?
+  highlightConfidence    Float?
+  highlightReason        String?
+  // Rank among sibling clips of the same video by highlightScore, computed
+  // once by @speedora/fusion-engine's rankClips() after every clip in the
+  // video has finished rendering (see render-clip.worker.ts) - null until
+  // then, and for videos with only one clip this is still populated (rank
+  // 1) once that one clip is done, for consistency.
+  highlightRank          Int?
+  // Fase 30 (Gesture Intelligence, AI Fusion roadmap Checkpoint 2) - same
+  // raw/features split as Scene/Facial Intelligence (Fase 26/28):
+  // @speedora/gesture-intelligence's per-sample output ({t, gesture,
+  // confidence}[], clip-relative seconds) and its derived summary
+  // ({dominantGesture, gestureTransitions, peakConfidence, stability}).
+  // gestures null (not []) when the whole analysis failed to run;
+  // gestureFeatures null exactly when gestures is null.
+  gestures        Json?
+  gestureFeatures Json?
+  // Fase 32 (Mini Fusion Engine v2's 'llm' signal + Prediction/
+  // Recommendation stages) - llmFeatures is the SAME object as `scores`
+  // above (Fase 8's ClipScores), just snapshotted at render-clip time as
+  // what was actually fed into computeHighlightScore - no separate
+  // derivation step, unlike audio/scene/facial/gesture's *Features
+  // columns, since ClipScores is already a per-clip Features-shaped object
+  // (see @speedora/fusion-engine's feature-pipeline.ts). Null when the
+  // clip had no scores at all (detect-clips' LLM call never ran/failed).
+  // highlightPrediction/highlightRecommendation are computeHighlightScore's
+  // own Prediction/Recommendation stage output - always populated once it
+  // runs, same as highlightBreakdown/highlightExplainability/highlightReason.
+  llmFeatures             Json?
+  highlightPrediction     Json?
+  highlightRecommendation Json?
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 

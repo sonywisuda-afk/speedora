@@ -20,20 +20,52 @@ export const clipScoringInputSchema = z.object({
 });
 
 // Mirrors packages/shared's ClipScores shape (Fase 8 - Content
-// Intelligence). Duplicated here rather than imported so this contract has
-// no dependency on packages/shared at all - the two are expected to stay in
-// sync by convention (both describe the same 7 LLM-scored dimensions), not
-// by a shared import, since a DB-facing package and a DB-agnostic contract
+// Intelligence, extended Fase 32 with practicalValue/ctaStrength).
+// Duplicated here rather than imported so this contract has no dependency
+// on packages/shared at all - the two are expected to stay in sync by
+// convention (both describe the same LLM-scored dimensions), not by a
+// shared import, since a DB-facing package and a DB-agnostic contract
 // package should not depend on each other in either direction.
+//
+// Fase 32 (explicit user direction) - grouped into four domains so future
+// metrics get added to an existing domain rather than growing this object
+// one field at a time forever:
+//   - Engagement: hookStrength, curiosity, emotion, storytelling
+//   - Knowledge:  educationalValue, practicalValue, novelty, trustAuthority
+//   - Conversion: ctaStrength
+// See SCORE_DOMAINS below - the grouping is documented/used for feature
+// naming in the Fusion Engine's extraction step (packages/fusion-engine),
+// not (yet) a separate domain-level weighting mechanism - see that
+// package's own comments for why that's an intentionally-deferred next
+// step, not an oversight.
 export const clipScoresSchema = z.object({
   hookStrength: z.number(),
   educationalValue: z.number(),
+  // Fase 32 - "how much a viewer can immediately apply the clip's
+  // information with minimal additional knowledge." Scored independently
+  // from educationalValue/curiosity/etc. Higher for concrete steps,
+  // followable instructions, worked examples, checklists/procedures,
+  // directly-applicable solutions, or content that answers a "how do I"
+  // question. Lower for content that's purely opinion, motivation, theory,
+  // a story with no concrete takeaway, or too abstract to act on.
+  practicalValue: z.number(),
   curiosity: z.number(),
   emotion: z.number(),
   storytelling: z.number(),
   novelty: z.number(),
   trustAuthority: z.number(),
+  // Fase 32 - how persuasive/compelling the clip's call-to-action is (0 if
+  // there's no CTA at all) - a numeric companion to the existing free-text
+  // ctaText field, scored independently so the Fusion Engine has a number
+  // to weight rather than needing to infer strength from ctaText's prose.
+  ctaStrength: z.number(),
 });
+
+export const SCORE_DOMAINS = {
+  engagement: ['hookStrength', 'curiosity', 'emotion', 'storytelling'],
+  knowledge: ['educationalValue', 'practicalValue', 'novelty', 'trustAuthority'],
+  conversion: ['ctaStrength'],
+} as const satisfies Record<string, (keyof z.infer<typeof clipScoresSchema>)[]>;
 
 export const CLIP_INTENTS = [
   'educate',

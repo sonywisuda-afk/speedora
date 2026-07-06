@@ -139,6 +139,7 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
                 // trim (see ClipsService.update/.render).
                 captionStyle: clips[index].captionStyle,
                 keywords: candidate.keywords,
+                scores: candidate.scores,
               }),
             ),
           );

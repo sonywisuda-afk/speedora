@@ -16,8 +16,19 @@ import { toSharedPublishRecord } from '../social/publish-record.util';
 import { SocialAccountsService } from '../social/social.service';
 import { StorageService } from '../storage/storage.service';
 import {
+  toSharedAudioFeatures,
   toSharedCaptionStyle,
   toSharedClipScores,
+  toSharedFacialEmotions,
+  toSharedFacialFeatures,
+  toSharedGestureFeatures,
+  toSharedGestures,
+  toSharedHighlightBreakdown,
+  toSharedHighlightExplainability,
+  toSharedHighlightPrediction,
+  toSharedHighlightRecommendation,
+  toSharedLlmFeatures,
+  toSharedSceneFeatures,
   toSharedTranscriptSegment,
 } from '../videos/transcript-segment.util';
 import type { PublishClipDto } from './dto/publish-clip.dto';
@@ -148,6 +159,7 @@ export class ClipsService {
       ),
       captionStyle: toSharedCaptionStyle(clip.captionStyle),
       keywords: clip.keywords,
+      scores: toSharedClipScores(clip.scores),
     });
 
     return this.toDto(cleared);
@@ -259,6 +271,21 @@ export class ClipsService {
     intent: string | null;
     ctaText: string | null;
     emojiSuggestions: string[];
+    facialEmotions: unknown;
+    gestures: unknown;
+    audioFeatures: unknown;
+    sceneFeatures: unknown;
+    facialFeatures: unknown;
+    gestureFeatures: unknown;
+    highlightScore: number | null;
+    highlightBreakdown: unknown;
+    highlightExplainability: unknown;
+    highlightConfidence: number | null;
+    highlightReason: string | null;
+    llmFeatures: unknown;
+    highlightPrediction: unknown;
+    highlightRecommendation: unknown;
+    highlightRank: number | null;
     publishRecords: Parameters<typeof toSharedPublishRecord>[0][];
     updatedAt: Date;
   }) {
@@ -279,6 +306,21 @@ export class ClipsService {
       intent: clip.intent,
       ctaText: clip.ctaText,
       emojiSuggestions: clip.emojiSuggestions,
+      facialEmotions: toSharedFacialEmotions(clip.facialEmotions),
+      gestures: toSharedGestures(clip.gestures),
+      audioFeatures: toSharedAudioFeatures(clip.audioFeatures),
+      sceneFeatures: toSharedSceneFeatures(clip.sceneFeatures),
+      facialFeatures: toSharedFacialFeatures(clip.facialFeatures),
+      gestureFeatures: toSharedGestureFeatures(clip.gestureFeatures),
+      highlightScore: clip.highlightScore,
+      highlightBreakdown: toSharedHighlightBreakdown(clip.highlightBreakdown),
+      highlightExplainability: toSharedHighlightExplainability(clip.highlightExplainability),
+      highlightConfidence: clip.highlightConfidence,
+      highlightReason: clip.highlightReason,
+      llmFeatures: toSharedLlmFeatures(clip.llmFeatures),
+      highlightPrediction: toSharedHighlightPrediction(clip.highlightPrediction),
+      highlightRecommendation: toSharedHighlightRecommendation(clip.highlightRecommendation),
+      highlightRank: clip.highlightRank,
       publishRecords: clip.publishRecords.map(toSharedPublishRecord) satisfies PublishRecord[],
       updatedAt: clip.updatedAt,
     };

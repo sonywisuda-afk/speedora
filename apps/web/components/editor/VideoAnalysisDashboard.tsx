@@ -13,11 +13,13 @@ import { useTimelineStore, type TimelineClip } from '@/lib/timelineStore';
 const SCORE_LABELS: Record<keyof ClipScores, string> = {
   hookStrength: 'Hook Strength',
   educationalValue: 'Educational Value',
+  practicalValue: 'Practical Value',
   curiosity: 'Curiosity',
   emotion: 'Emotion',
   storytelling: 'Storytelling',
   novelty: 'Novelty',
   trustAuthority: 'Trust/Authority',
+  ctaStrength: 'CTA Strength',
 };
 
 const INTENT_LABELS: Record<string, string> = {

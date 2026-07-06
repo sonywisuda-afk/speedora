@@ -60,11 +60,13 @@ interface RawCandidate {
 const SCORE_PROPERTIES = {
   hookStrength: { type: 'number' },
   educationalValue: { type: 'number' },
+  practicalValue: { type: 'number' },
   curiosity: { type: 'number' },
   emotion: { type: 'number' },
   storytelling: { type: 'number' },
   novelty: { type: 'number' },
   trustAuthority: { type: 'number' },
+  ctaStrength: { type: 'number' },
 } as const;
 
 const RESPONSE_FORMAT = {
@@ -128,11 +130,13 @@ function clampScores(scores: ClipScores): ClipScores {
   return {
     hookStrength: clamp(scores.hookStrength),
     educationalValue: clamp(scores.educationalValue),
+    practicalValue: clamp(scores.practicalValue),
     curiosity: clamp(scores.curiosity),
     emotion: clamp(scores.emotion),
     storytelling: clamp(scores.storytelling),
     novelty: clamp(scores.novelty),
     trustAuthority: clamp(scores.trustAuthority),
+    ctaStrength: clamp(scores.ctaStrength),
   };
 }
 
@@ -149,11 +153,13 @@ function sanitizeStrings(values: string[]): string[] {
 const NEUTRAL_SCORES: ClipScores = {
   hookStrength: 50,
   educationalValue: 50,
+  practicalValue: 50,
   curiosity: 50,
   emotion: 50,
   storytelling: 50,
   novelty: 50,
   trustAuthority: 50,
+  ctaStrength: 50,
 };
 
 function flattenWords(segments: ClipScoringSegment[]): TranscriptWordInput[] {
@@ -255,11 +261,18 @@ export async function scoreClipCandidates(
           'within a word.\n\n' +
           'Additionally, analyze each clip on these dimensions:\n' +
           '- scores: rate 0-100 on each of hookStrength (how strong the first few seconds ' +
-          'grab attention), educationalValue (how much the viewer learns), curiosity (how ' +
-          'much it makes someone want to keep watching), emotion (emotional intensity), ' +
-          'storytelling (how well-formed the narrative arc is), novelty (how surprising/' +
-          'unexpected the content is), trustAuthority (how credible/authoritative the speaker ' +
-          'comes across).\n' +
+          'grab attention), educationalValue (how much the viewer learns), practicalValue ' +
+          "(how much a viewer could immediately APPLY this clip's information with minimal " +
+          'additional knowledge - score higher when there are clear steps, followable ' +
+          'instructions, a concrete example, a checklist/procedure, or a directly-applicable ' +
+          'solution, and especially when the clip answers a "how do I" question; score lower ' +
+          'when the clip is only opinion, only motivation/inspiration with no concrete ' +
+          'takeaway, purely theoretical, a story with no actionable step, or too abstract to ' +
+          'act on), curiosity (how much it makes someone want to keep watching), emotion ' +
+          '(emotional intensity), storytelling (how well-formed the narrative arc is), ' +
+          'novelty (how surprising/unexpected the content is), trustAuthority (how credible/' +
+          'authoritative the speaker comes across), ctaStrength (how persuasive/compelling ' +
+          'the call-to-action is - 0 if the clip has no call-to-action at all).\n' +
           '- reason: 1-2 sentences explaining IN PLAIN LANGUAGE why this specific clip was ' +
           'chosen over the rest of the video - this is shown directly to the end user as the ' +
           'explanation for the pick, so write it for a human, not a log message.\n' +
