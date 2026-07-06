@@ -38,8 +38,15 @@ jest.mock('node:fs/promises', () => ({
 }));
 
 const videoUpdateMock = jest.fn();
+const videoStatusEventCreateMock = jest.fn();
 jest.mock('../prisma', () => ({
-  prisma: { video: { update: (...args: unknown[]) => videoUpdateMock(...args) } },
+  prisma: {
+    video: { update: (...args: unknown[]) => videoUpdateMock(...args) },
+    // Fase 3 (DB+JSON-contract roadmap) - updateVideoStatus() writes here
+    // too, atomically alongside video.update() via $transaction.
+    videoStatusEvent: { create: (...args: unknown[]) => videoStatusEventCreateMock(...args) },
+    $transaction: (ops: Promise<unknown>[]) => Promise.all(ops),
+  },
 }));
 
 import { createImportYoutubeWorker } from './import-youtube.worker';
@@ -59,6 +66,7 @@ describe('import-youtube worker', () => {
     readFileMock.mockResolvedValue(Buffer.from('fake video bytes'));
     uploadObjectMock.mockResolvedValue(undefined);
     videoUpdateMock.mockResolvedValue({});
+    videoStatusEventCreateMock.mockResolvedValue({});
     transcribeQueueAdd.mockResolvedValue(undefined);
     cleanupTempFileMock.mockResolvedValue(undefined);
   });

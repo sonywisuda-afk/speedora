@@ -35,6 +35,7 @@ const clipCreateMock = jest.fn((args: { data: Record<string, unknown> }) => {
 });
 const videoUpdateMock = jest.fn();
 const videoFindUniqueOrThrowMock = jest.fn();
+const videoStatusEventCreateMock = jest.fn().mockResolvedValue({});
 const transactionMock = jest.fn((ops: Promise<unknown>[]) => Promise.all(ops));
 jest.mock('../prisma', () => ({
   prisma: {
@@ -43,6 +44,9 @@ jest.mock('../prisma', () => ({
       update: (...args: unknown[]) => videoUpdateMock(...args),
       findUniqueOrThrow: (...args: unknown[]) => videoFindUniqueOrThrowMock(...args),
     },
+    // Fase 3 (DB+JSON-contract roadmap) - updateVideoStatus() writes here
+    // too, in the same $transaction as video.update().
+    videoStatusEvent: { create: (...args: unknown[]) => videoStatusEventCreateMock(...args) },
     $transaction: (...args: [Promise<unknown>[]]) => transactionMock(...args),
   },
 }));

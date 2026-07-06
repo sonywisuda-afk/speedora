@@ -408,15 +408,24 @@ importers:
         specifier: ^8.22.0
         version: 8.22.0
     devDependencies:
+      '@types/jest':
+        specifier: ^29.5.2
+        version: 29.5.14
       '@types/pg':
         specifier: ^8.20.0
         version: 8.20.0
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
+      jest:
+        specifier: ^29.5.0
+        version: 29.7.0(@types/node@20.19.43)(ts-node@10.9.2(@types/node@20.19.43)(typescript@5.9.3))
       prisma:
         specifier: ^7.8.0
         version: 7.8.0(@types/react-dom@18.3.7(@types/react@18.3.31))(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)(typescript@5.9.3)
+      ts-jest:
+        specifier: ^29.1.0
+        version: 29.4.11(@babel/core@7.29.7)(@jest/transform@29.7.0)(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.7))(jest-util@29.7.0)(jest@29.7.0)(typescript@5.9.3)
       typescript:
         specifier: ^5.4.5
         version: 5.9.3

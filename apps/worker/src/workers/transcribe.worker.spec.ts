@@ -85,6 +85,7 @@ jest.mock('../groq', () => ({
 
 const transcriptSegmentCreateManyMock = jest.fn();
 const videoUpdateMock = jest.fn();
+const videoStatusEventCreateMock = jest.fn();
 const transactionMock = jest.fn((ops: Promise<unknown>[]) => Promise.all(ops));
 jest.mock('../prisma', () => ({
   prisma: {
@@ -92,6 +93,10 @@ jest.mock('../prisma', () => ({
       createMany: (...args: unknown[]) => transcriptSegmentCreateManyMock(...args),
     },
     video: { update: (...args: unknown[]) => videoUpdateMock(...args) },
+    // Fase 3 (DB+JSON-contract roadmap) - written alongside video.update()
+    // in the same $transaction (both the success-path inline transaction
+    // and updateVideoStatus()'s own, for the FAILED case).
+    videoStatusEvent: { create: (...args: unknown[]) => videoStatusEventCreateMock(...args) },
     $transaction: (...args: [Promise<unknown>[]]) => transactionMock(...args),
   },
 }));
@@ -116,6 +121,7 @@ describe('transcribe worker', () => {
     transactionMock.mockImplementation((ops: Promise<unknown>[]) => Promise.all(ops));
     transcriptSegmentCreateManyMock.mockResolvedValue({ count: 2 });
     videoUpdateMock.mockResolvedValue({});
+    videoStatusEventCreateMock.mockResolvedValue({});
     detectClipsQueueAdd.mockResolvedValue(undefined);
     // Short enough for a single Whisper request unless a test overrides it.
     getMediaDurationSecondsMock.mockResolvedValue(120);

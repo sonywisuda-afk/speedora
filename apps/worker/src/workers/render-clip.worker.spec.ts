@@ -92,6 +92,7 @@ jest.mock('@speedora/storage', () => ({
 const clipUpdateMock = jest.fn();
 const clipFindManyMock = jest.fn();
 const videoUpdateMock = jest.fn();
+const videoStatusEventCreateMock = jest.fn();
 jest.mock('../prisma', () => ({
   prisma: {
     clip: {
@@ -99,6 +100,10 @@ jest.mock('../prisma', () => ({
       findMany: (...args: unknown[]) => clipFindManyMock(...args),
     },
     video: { update: (...args: unknown[]) => videoUpdateMock(...args) },
+    // Fase 3 (DB+JSON-contract roadmap) - updateVideoStatus() writes here
+    // too, atomically alongside video.update() via $transaction.
+    videoStatusEvent: { create: (...args: unknown[]) => videoStatusEventCreateMock(...args) },
+    $transaction: (ops: Promise<unknown>[]) => Promise.all(ops),
   },
 }));
 
@@ -146,6 +151,7 @@ describe('render-clip worker', () => {
     uploadObjectMock.mockResolvedValue(undefined);
     clipUpdateMock.mockResolvedValue({});
     videoUpdateMock.mockResolvedValue({});
+    videoStatusEventCreateMock.mockResolvedValue({});
     cleanupTempFileMock.mockResolvedValue(undefined);
     getVideoDimensionsMock.mockResolvedValue({ width: 320, height: 240 });
     computeCropDimensionsMock.mockReturnValue({ width: 136, height: 240 });

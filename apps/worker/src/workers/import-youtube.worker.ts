@@ -1,6 +1,6 @@
 import { readFile } from 'node:fs/promises';
 import * as Sentry from '@sentry/node';
-import { VideoStatus } from '@speedora/database';
+import { updateVideoStatus, VideoStatus } from '@speedora/database';
 import {
   QueueName,
   type ImportYoutubeJobData,
@@ -36,10 +36,7 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
         const sourceUrl = `videos/${videoId}.mp4`;
         await uploadObject(sourceUrl, buffer, 'video/mp4');
 
-        await prisma.video.update({
-          where: { id: videoId },
-          data: { sourceUrl, status: VideoStatus.UPLOADED },
-        });
+        await updateVideoStatus(prisma, videoId, VideoStatus.UPLOADED, { data: { sourceUrl } });
 
         console.log(`[import-youtube] video ${videoId} -> ${sourceUrl}`);
 
@@ -50,9 +47,8 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
         console.error(`[import-youtube] video ${videoId} failed:`, error);
         // Tags only - never the URL's page content or any downloaded bytes.
         Sentry.captureException(error, { tags: { videoId } });
-        await prisma.video.update({
-          where: { id: videoId },
-          data: { status: VideoStatus.FAILED },
+        await updateVideoStatus(prisma, videoId, VideoStatus.FAILED, {
+          errorMessage: error instanceof Error ? error.message : String(error),
         });
         throw error;
       } finally {

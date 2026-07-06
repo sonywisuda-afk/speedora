@@ -17,6 +17,8 @@ describe('VideosService', () => {
       update: jest.Mock;
       delete: jest.Mock;
     };
+    videoStatusEvent: { create: jest.Mock };
+    $transaction: jest.Mock;
   };
   let storage: { saveVideo: jest.Mock; deleteObjects: jest.Mock };
   let payments: { getAvailability: jest.Mock; consumeCredit: jest.Mock };
@@ -34,7 +36,17 @@ describe('VideosService', () => {
         update: jest.fn().mockResolvedValue({}),
         delete: jest.fn().mockResolvedValue({}),
       },
+      videoStatusEvent: { create: jest.fn().mockResolvedValue({}) },
+      // Supports both call shapes used by VideosService: the interactive
+      // form (upload/importFromYoutube, which need the just-created video's
+      // id before writing its first VideoStatusEvent) and the array form
+      // (updateVideoStatus(), used by retry()) - see
+      // @speedora/database's video-status.ts.
+      $transaction: jest.fn(),
     };
+    prisma.$transaction.mockImplementation((arg: unknown) =>
+      typeof arg === 'function' ? arg(prisma) : Promise.all(arg as Promise<unknown>[]),
+    );
     storage = { saveVideo: jest.fn(), deleteObjects: jest.fn().mockResolvedValue(undefined) };
     payments = {
       getAvailability: jest.fn().mockResolvedValue({ available: true }),
@@ -58,7 +70,12 @@ describe('VideosService', () => {
   describe('upload', () => {
     it('saves the file to storage, creates the video row (GROQ), and enqueues transcribe', async () => {
       storage.saveVideo.mockResolvedValue({ sourceUrl: 'videos/abc.mp4' });
-      const createdVideo = { id: 'video-1', ownerId: 'user-1', sourceUrl: 'videos/abc.mp4' };
+      const createdVideo = {
+        id: 'video-1',
+        ownerId: 'user-1',
+        sourceUrl: 'videos/abc.mp4',
+        status: VideoStatus.UPLOADED,
+      };
       prisma.video.create.mockResolvedValue(createdVideo);
       const file = { buffer: Buffer.from('x'), mimetype: 'video/mp4' } as Express.Multer.File;
 
@@ -71,6 +88,11 @@ describe('VideosService', () => {
           sourceUrl: 'videos/abc.mp4',
           transcriptionProvider: TranscriptionProvider.GROQ,
         },
+      });
+      // Fase 3 (DB+JSON-contract roadmap) - the video's first status event,
+      // written in the same transaction as its creation.
+      expect(prisma.videoStatusEvent.create).toHaveBeenCalledWith({
+        data: { videoId: 'video-1', toStatus: VideoStatus.UPLOADED, errorMessage: null },
       });
       expect(payments.getAvailability).not.toHaveBeenCalled();
       expect(payments.consumeCredit).not.toHaveBeenCalled();
@@ -152,6 +174,9 @@ describe('VideosService', () => {
           status: VideoStatus.IMPORTING,
           transcriptionProvider: TranscriptionProvider.GROQ,
         },
+      });
+      expect(prisma.videoStatusEvent.create).toHaveBeenCalledWith({
+        data: { videoId: 'video-1', toStatus: VideoStatus.IMPORTING, errorMessage: null },
       });
       expect(payments.getAvailability).not.toHaveBeenCalled();
       expect(importYoutubeQueue.add).toHaveBeenCalledWith(QueueName.IMPORT_YOUTUBE, {
@@ -409,6 +434,12 @@ describe('VideosService', () => {
       expect(prisma.video.update).toHaveBeenCalledWith({
         where: { id: 'video-1' },
         data: { status: VideoStatus.IMPORTING },
+      });
+      // Fase 3 - retry()'s status changes go through updateVideoStatus(),
+      // so every retry transition gets an audit-trail event too, not just
+      // creation/the pipeline's own forward progress.
+      expect(prisma.videoStatusEvent.create).toHaveBeenCalledWith({
+        data: { videoId: 'video-1', toStatus: VideoStatus.IMPORTING, errorMessage: null },
       });
       expect(importYoutubeQueue.add).toHaveBeenCalledWith(QueueName.IMPORT_YOUTUBE, {
         videoId: 'video-1',

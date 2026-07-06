@@ -1,6 +1,11 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { VideoStatus, type Prisma } from '@speedora/database';
+import {
+  recordVideoStatusEvent,
+  updateVideoStatus,
+  VideoStatus,
+  type Prisma,
+} from '@speedora/database';
 import {
   filterSegmentsForClip,
   QueueName,
@@ -62,8 +67,16 @@ export class VideosService {
 
     const { sourceUrl } = await this.storage.saveVideo(file);
 
-    const video = await this.prisma.video.create({
-      data: { ownerId, sourceUrl, transcriptionProvider: provider },
+    const video = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.video.create({
+        data: { ownerId, sourceUrl, transcriptionProvider: provider },
+      });
+      // First entry in this video's status history - see
+      // ARCHITECTURE.md's Fase 3 section for why creation needs its own
+      // event write rather than going through updateVideoStatus() (there's
+      // no existing row yet for that helper's update() half to update).
+      await recordVideoStatusEvent(tx, created.id, created.status);
+      return created;
     });
 
     if (provider === TranscriptionProvider.OPENAI) {
@@ -95,14 +108,18 @@ export class VideosService {
       }
     }
 
-    const video = await this.prisma.video.create({
-      data: {
-        ownerId,
-        sourceUrl: '',
-        importSourceUrl: url,
-        status: VideoStatus.IMPORTING,
-        transcriptionProvider: provider,
-      },
+    const video = await this.prisma.$transaction(async (tx) => {
+      const created = await tx.video.create({
+        data: {
+          ownerId,
+          sourceUrl: '',
+          importSourceUrl: url,
+          status: VideoStatus.IMPORTING,
+          transcriptionProvider: provider,
+        },
+      });
+      await recordVideoStatusEvent(tx, created.id, created.status);
+      return created;
     });
 
     if (provider === TranscriptionProvider.OPENAI) {
@@ -177,23 +194,19 @@ export class VideosService {
     // fail again trying to read an empty object key. Re-run the import
     // instead, using the YouTube URL saved at creation time.
     if (video.importSourceUrl && video.sourceUrl === '') {
-      await this.prisma.video.update({
-        where: { id },
-        data: { status: VideoStatus.IMPORTING },
-      });
+      await updateVideoStatus(this.prisma, id, VideoStatus.IMPORTING);
       await this.importYoutubeQueue.add(QueueName.IMPORT_YOUTUBE, {
         videoId: id,
         url: video.importSourceUrl,
         provider: toSharedTranscriptionProvider(video.transcriptionProvider),
       });
     } else if (video.transcriptSegments.length === 0) {
-      await this.prisma.video.update({
-        where: { id },
-        // transcribeProgress reset immediately (not left to wait for the
-        // job itself to reset it) so a retry click doesn't briefly show a
-        // stale progress value from the failed attempt before the worker
-        // picks the job up.
-        data: { status: VideoStatus.UPLOADED, transcribeProgress: 0 },
+      // transcribeProgress reset immediately (not left to wait for the job
+      // itself to reset it) so a retry click doesn't briefly show a stale
+      // progress value from the failed attempt before the worker picks the
+      // job up.
+      await updateVideoStatus(this.prisma, id, VideoStatus.UPLOADED, {
+        data: { transcribeProgress: 0 },
       });
       await this.transcribeQueue.add(QueueName.TRANSCRIBE, {
         videoId: id,
@@ -201,10 +214,7 @@ export class VideosService {
         provider: toSharedTranscriptionProvider(video.transcriptionProvider),
       });
     } else if (video.clips.length === 0) {
-      await this.prisma.video.update({
-        where: { id },
-        data: { status: VideoStatus.TRANSCRIBED },
-      });
+      await updateVideoStatus(this.prisma, id, VideoStatus.TRANSCRIBED);
       await this.detectClipsQueue.add(QueueName.DETECT_CLIPS, {
         videoId: id,
         segments: video.transcriptSegments.map(toSharedTranscriptSegment),
@@ -216,17 +226,11 @@ export class VideosService {
         // Nothing left to redo - every clip already has output. Shouldn't
         // normally happen (status only becomes FAILED from an active job's
         // catch block), but self-heal rather than error if it does.
-        await this.prisma.video.update({
-          where: { id },
-          data: { status: VideoStatus.RENDERED },
-        });
+        await updateVideoStatus(this.prisma, id, VideoStatus.RENDERED);
         return this.findOne(id, requesterId);
       }
 
-      await this.prisma.video.update({
-        where: { id },
-        data: { status: VideoStatus.CLIPS_DETECTED },
-      });
+      await updateVideoStatus(this.prisma, id, VideoStatus.CLIPS_DETECTED);
       await Promise.all(
         unrendered.map((clip) =>
           this.renderClipQueue.add(QueueName.RENDER_CLIP, {

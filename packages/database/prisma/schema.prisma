@@ -158,8 +158,35 @@ model Video {
   transcriptSegments TranscriptSegment[]
   clips              Clip[]
   premiumCredit      PremiumCredit?
+  statusEvents       VideoStatusEvent[]
 
   @@index([ownerId])
+}
+
+// Audit trail for Video.status transitions (Fase 3 - DB+JSON-contract
+// roadmap: an explicit history table for the pipeline's long-running job,
+// rather than only ever seeing the current status). One row per transition.
+// There's no separate "fromStatus" column - transitions for one video are
+// always sequential (never processed by two workers concurrently), so the
+// previous status is simply the prior row's toStatus when read ordered by
+// createdAt, and storing it again would just be redundant with that
+// ordering. Written exclusively by @speedora/database's updateVideoStatus()/
+// recordVideoStatusEvent() helpers - see CLAUDE.md's Fase 3 section and
+// ARCHITECTURE.md.
+model VideoStatusEvent {
+  id        String      @id @default(cuid())
+  videoId   String
+  video     Video       @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  toStatus  VideoStatus
+  // Only set when toStatus is FAILED - the caught error's message, so a
+  // failure can be diagnosed from a DB query alone without needing Sentry
+  // access. Message text only (never the full error object/stack), same
+  // "tags only" discipline already used at these call sites'
+  // Sentry.captureException calls.
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  @@index([videoId, createdAt])
 }
 
 // One row per timestamped line from the transcribe (Whisper) job.

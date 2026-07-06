@@ -2,7 +2,7 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import * as Sentry from '@sentry/node';
-import { VideoStatus } from '@speedora/database';
+import { updateVideoStatus, VideoStatus } from '@speedora/database';
 import {
   QueueName,
   TranscriptionProvider,
@@ -301,6 +301,10 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
             .map((word) => ({ word: word.word, start: word.start, end: word.end })),
         }));
 
+        // The status-event write is inlined here (rather than calling
+        // updateVideoStatus()) so it joins the SAME $transaction as the
+        // segment insert and progress reset, instead of being a separate,
+        // merely-adjacent transaction - see ARCHITECTURE.md's Fase 3 section.
         await prisma.$transaction([
           prisma.transcriptSegment.createMany({
             data: segments.map((segment) => ({ videoId, ...segment })),
@@ -308,6 +312,9 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
           prisma.video.update({
             where: { id: videoId },
             data: { status: VideoStatus.TRANSCRIBED, transcribeProgress: null },
+          }),
+          prisma.videoStatusEvent.create({
+            data: { videoId, toStatus: VideoStatus.TRANSCRIBED, errorMessage: null },
           }),
         ]);
 
@@ -320,9 +327,8 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
         console.error(`[transcribe] video ${videoId} failed:`, error);
         // Tags only - never the transcript text/audio or OPENAI_API_KEY.
         Sentry.captureException(error, { tags: { videoId } });
-        await prisma.video.update({
-          where: { id: videoId },
-          data: { status: VideoStatus.FAILED },
+        await updateVideoStatus(prisma, videoId, VideoStatus.FAILED, {
+          errorMessage: error instanceof Error ? error.message : String(error),
         });
         throw error;
       } finally {

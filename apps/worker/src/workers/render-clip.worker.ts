@@ -11,7 +11,7 @@ import {
   totalCutSeconds,
   type CutRange,
 } from '@speedora/cutlist';
-import { VideoStatus } from '@speedora/database';
+import { updateVideoStatus, VideoStatus } from '@speedora/database';
 import {
   QueueName,
   type RenderClipJobData,
@@ -329,10 +329,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
         const siblingClips = await prisma.clip.findMany({ where: { videoId } });
         const allRendered = siblingClips.every((clip) => clip.outputUrl !== null);
         if (allRendered) {
-          await prisma.video.update({
-            where: { id: videoId },
-            data: { status: VideoStatus.RENDERED },
-          });
+          await updateVideoStatus(prisma, videoId, VideoStatus.RENDERED);
         }
 
         console.log(`[render-clip] clip ${clipId} -> ${outputKey}`);
@@ -342,9 +339,8 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
         console.error(`[render-clip] clip ${clipId} failed:`, error);
         // Tags only - never the transcript text or the source video itself.
         Sentry.captureException(error, { tags: { videoId, clipId } });
-        await prisma.video.update({
-          where: { id: videoId },
-          data: { status: VideoStatus.FAILED },
+        await updateVideoStatus(prisma, videoId, VideoStatus.FAILED, {
+          errorMessage: error instanceof Error ? error.message : String(error),
         });
         throw error;
       } finally {

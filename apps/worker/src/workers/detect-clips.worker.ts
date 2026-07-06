@@ -1,7 +1,7 @@
 import * as Sentry from '@sentry/node';
 import { scoreClipCandidates } from '@speedora/clip-scoring';
 import type { ClipScoringInput } from '@speedora/contracts';
-import { VideoStatus, type Prisma } from '@speedora/database';
+import { updateVideoStatus, VideoStatus, type Prisma } from '@speedora/database';
 import {
   filterSegmentsForClip,
   QueueName,
@@ -75,10 +75,7 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
           ),
         );
 
-        await prisma.video.update({
-          where: { id: videoId },
-          data: { status: VideoStatus.CLIPS_DETECTED },
-        });
+        await updateVideoStatus(prisma, videoId, VideoStatus.CLIPS_DETECTED);
 
         const candidates: ClipCandidate[] = clips.map((clip) => ({
           id: clip.id,
@@ -130,9 +127,8 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
         console.error(`[detect-clips] video ${videoId} failed:`, error);
         // Tags only - never the transcript text or OPENAI_API_KEY.
         Sentry.captureException(error, { tags: { videoId } });
-        await prisma.video.update({
-          where: { id: videoId },
-          data: { status: VideoStatus.FAILED },
+        await updateVideoStatus(prisma, videoId, VideoStatus.FAILED, {
+          errorMessage: error instanceof Error ? error.message : String(error),
         });
         throw error;
       }
