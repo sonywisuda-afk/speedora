@@ -50,7 +50,7 @@ describe('extractFeatures', () => {
     expect(absent).toEqual([]);
   });
 
-  it('extracts averageMotionEnergy and dynamicRatio for sceneMotion, skipping null readings', () => {
+  it('extracts averageMotionEnergy, dynamicRatio, peakRatePerMinute, and motionVariability for sceneMotion, skipping null readings', () => {
     const present = extractFeatures({
       clipId: 'clip-1',
       sceneMotion: {
@@ -58,6 +58,10 @@ describe('extractFeatures', () => {
         peakMotionEnergy: 12,
         staticRatio: 0.4,
         dynamicRatio: 0.6,
+        peakCount: 2,
+        peakTimestamps: [3, 8],
+        peakRatePerMinute: 1.5,
+        motionVariability: 0.3,
       },
     });
     expect(present).toEqual([
@@ -68,6 +72,18 @@ describe('extractFeatures', () => {
         isCategoryDerived: false,
       },
       { signal: 'sceneMotion', feature: 'dynamicRatio', value: 0.6, isCategoryDerived: false },
+      {
+        signal: 'sceneMotion',
+        feature: 'peakRatePerMinute',
+        value: 1.5,
+        isCategoryDerived: false,
+      },
+      {
+        signal: 'sceneMotion',
+        feature: 'motionVariability',
+        value: 0.3,
+        isCategoryDerived: false,
+      },
     ]);
 
     const absent = extractFeatures({
@@ -77,12 +93,16 @@ describe('extractFeatures', () => {
         peakMotionEnergy: null,
         staticRatio: null,
         dynamicRatio: null,
+        peakCount: null,
+        peakTimestamps: null,
+        peakRatePerMinute: null,
+        motionVariability: null,
       },
     });
     expect(absent).toEqual([]);
   });
 
-  it('extracts panScore/tiltScore/zoomScore/shakeScore and dominantMotionTypeWeight (category-derived, with label) for cameraMotion, skipping null readings', () => {
+  it('extracts panScore/tiltScore/zoomScore/shakeScore, dominantMotionTypeWeight (category-derived, with label), motionTypeDiversity, and smoothnessScore for cameraMotion, skipping null readings', () => {
     const present = extractFeatures({
       clipId: 'clip-1',
       cameraMotion: {
@@ -91,6 +111,9 @@ describe('extractFeatures', () => {
         zoomScore: 0.2,
         shakeScore: 0.05,
         dominantMotionType: 'pan',
+        dominantDirection: 'right',
+        motionTypeDiversity: 0.7,
+        smoothnessScore: 0.9,
       },
     });
     expect(present).toEqual([
@@ -105,6 +128,18 @@ describe('extractFeatures', () => {
         isCategoryDerived: true,
         label: 'pan',
       },
+      {
+        signal: 'cameraMotion',
+        feature: 'motionTypeDiversity',
+        value: 0.7,
+        isCategoryDerived: false,
+      },
+      {
+        signal: 'cameraMotion',
+        feature: 'smoothnessScore',
+        value: 0.9,
+        isCategoryDerived: false,
+      },
     ]);
 
     const absent = extractFeatures({
@@ -115,6 +150,9 @@ describe('extractFeatures', () => {
         zoomScore: null,
         shakeScore: null,
         dominantMotionType: null,
+        dominantDirection: null,
+        motionTypeDiversity: null,
+        smoothnessScore: null,
       },
     });
     expect(absent).toEqual([]);
@@ -664,6 +702,84 @@ describe('extractFeatures', () => {
     ]);
   });
 
+  it('extracts averageObjectsPerFrame/averageTrackingConfidence/averagePersistence/averageMotionSpeed/averageOcclusionScore/averageInteractionConfidence/averageAttentionScore/averageAttentionConfidence for object, skipping null readings and never scoring dominantObject/objectCount (Batch OI-1/OI-2/OI-3/OI-4/OI-5)', () => {
+    const present = extractFeatures({
+      clipId: 'clip-1',
+      object: {
+        objectCount: 3,
+        dominantObject: 'person',
+        averageObjectsPerFrame: 1.5,
+        averageTrackingConfidence: 0.85,
+        averagePersistence: 0.4,
+        averageMotionSpeed: 0.3,
+        averageOcclusionScore: 0.1,
+        averageInteractionConfidence: 0.2,
+        averageAttentionScore: 0.6,
+        averageAttentionConfidence: 0.7,
+      },
+    });
+    expect(present).toEqual([
+      {
+        signal: 'object',
+        feature: 'averageObjectsPerFrame',
+        value: 1.5,
+        isCategoryDerived: false,
+      },
+      {
+        signal: 'object',
+        feature: 'averageTrackingConfidence',
+        value: 0.85,
+        isCategoryDerived: false,
+      },
+      { signal: 'object', feature: 'averagePersistence', value: 0.4, isCategoryDerived: false },
+      { signal: 'object', feature: 'averageMotionSpeed', value: 0.3, isCategoryDerived: false },
+      {
+        signal: 'object',
+        feature: 'averageOcclusionScore',
+        value: 0.1,
+        isCategoryDerived: false,
+      },
+      {
+        signal: 'object',
+        feature: 'averageInteractionConfidence',
+        value: 0.2,
+        isCategoryDerived: false,
+      },
+      {
+        signal: 'object',
+        feature: 'averageAttentionScore',
+        value: 0.6,
+        isCategoryDerived: false,
+      },
+      // averageAttentionConfidence is extracted under the shared
+      // 'peakConfidence' feature name - see extractObjectFeatures()'s own
+      // comment for why.
+      {
+        signal: 'object',
+        feature: 'peakConfidence',
+        value: 0.7,
+        isCategoryDerived: false,
+      },
+    ]);
+
+    const absent = extractFeatures({
+      clipId: 'clip-1',
+      object: {
+        objectCount: null,
+        dominantObject: null,
+        averageObjectsPerFrame: null,
+        averageTrackingConfidence: null,
+        averagePersistence: null,
+        averageMotionSpeed: null,
+        averageOcclusionScore: null,
+        averageInteractionConfidence: null,
+        averageAttentionScore: null,
+        averageAttentionConfidence: null,
+      },
+    });
+    expect(absent).toEqual([]);
+  });
+
   it('extracts every non-null speaker field, skipping null ones (Speaker Intelligence roadmap, Milestone D)', () => {
     const result = extractFeatures({
       clipId: 'clip-1',
@@ -742,6 +858,36 @@ describe('normalizeFeatures', () => {
       { signal: 'sceneMotion', feature: 'dynamicRatio', value: 0.6, isCategoryDerived: false },
     ]);
     expect(result[0].normalizedValue).toBe(0.6);
+  });
+
+  it('maps sceneMotion peakRatePerMinute (Batch SC-5) onto 0-1 via its own cap', () => {
+    const result = normalizeFeatures([
+      { signal: 'sceneMotion', feature: 'peakRatePerMinute', value: 3, isCategoryDerived: false },
+    ]);
+    // PEAK_RATE_PER_MINUTE_CAP is 6 - a rate of 3/min maps to the midpoint.
+    expect(result[0].normalizedValue).toBeCloseTo(0.5);
+  });
+
+  it('maps sceneMotion motionVariability (Batch SC-6) onto 0-1 via its own cap', () => {
+    const result = normalizeFeatures([
+      { signal: 'sceneMotion', feature: 'motionVariability', value: 0.75, isCategoryDerived: false },
+    ]);
+    // MOTION_VARIABILITY_CAP is 1.5 - a CoV of 0.75 maps to the midpoint.
+    expect(result[0].normalizedValue).toBeCloseTo(0.5);
+  });
+
+  it("passes cameraMotion's already-0-1 motionTypeDiversity (Batch SC-6) through unchanged", () => {
+    const result = normalizeFeatures([
+      { signal: 'cameraMotion', feature: 'motionTypeDiversity', value: 0.7, isCategoryDerived: false },
+    ]);
+    expect(result[0].normalizedValue).toBe(0.7);
+  });
+
+  it("passes cameraMotion's already-0-1 smoothnessScore (Batch SC-7) through unchanged", () => {
+    const result = normalizeFeatures([
+      { signal: 'cameraMotion', feature: 'smoothnessScore', value: 0.9, isCategoryDerived: false },
+    ]);
+    expect(result[0].normalizedValue).toBe(0.9);
   });
 
   it("passes cameraMotion's already-0-1 panScore/tiltScore/zoomScore/shakeScore through unchanged", () => {
@@ -1080,6 +1226,61 @@ describe('normalizeFeatures', () => {
       { signal: 'ocr', feature: 'averageTextBlockCount', value: 3, isCategoryDerived: false },
     ]);
     expect(textBlockCount[0].normalizedValue).toBe(1);
+  });
+
+  it('caps averageObjectsPerFrame and passes averageTrackingConfidence/averagePersistence through unchanged (Batch OI-1)', () => {
+    const objectCount = normalizeFeatures([
+      { signal: 'object', feature: 'averageObjectsPerFrame', value: 3, isCategoryDerived: false },
+    ]);
+    expect(objectCount[0].normalizedValue).toBe(1);
+
+    const trackingConfidence = normalizeFeatures([
+      {
+        signal: 'object',
+        feature: 'averageTrackingConfidence',
+        value: 0.85,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(trackingConfidence[0].normalizedValue).toBe(0.85);
+
+    const persistence = normalizeFeatures([
+      { signal: 'object', feature: 'averagePersistence', value: 0.4, isCategoryDerived: false },
+    ]);
+    expect(persistence[0].normalizedValue).toBe(0.4);
+  });
+
+  it("passes object's already-0-1 averageMotionSpeed through unchanged (Batch OI-2)", () => {
+    const result = normalizeFeatures([
+      { signal: 'object', feature: 'averageMotionSpeed', value: 0.3, isCategoryDerived: false },
+    ]);
+    expect(result[0].normalizedValue).toBe(0.3);
+  });
+
+  it("passes object's already-0-1 averageOcclusionScore through unchanged (Batch OI-3)", () => {
+    const result = normalizeFeatures([
+      { signal: 'object', feature: 'averageOcclusionScore', value: 0.1, isCategoryDerived: false },
+    ]);
+    expect(result[0].normalizedValue).toBe(0.1);
+  });
+
+  it("passes object's already-0-1 averageInteractionConfidence through unchanged (Batch OI-4)", () => {
+    const result = normalizeFeatures([
+      {
+        signal: 'object',
+        feature: 'averageInteractionConfidence',
+        value: 0.2,
+        isCategoryDerived: false,
+      },
+    ]);
+    expect(result[0].normalizedValue).toBe(0.2);
+  });
+
+  it("passes object's already-0-1 averageAttentionScore through unchanged (Batch OI-5)", () => {
+    const result = normalizeFeatures([
+      { signal: 'object', feature: 'averageAttentionScore', value: 0.6, isCategoryDerived: false },
+    ]);
+    expect(result[0].normalizedValue).toBe(0.6);
   });
 
   it('throws for an unregistered feature name', () => {

@@ -178,6 +178,14 @@ export interface MotionEnergyFeatures {
   peakMotionEnergy: number | null;
   staticRatio: number | null;
   dynamicRatio: number | null;
+  // Batch SC-5 (Scene Intelligence taxonomy expansion) - Motion Peak
+  // Detection.
+  peakCount: number | null;
+  peakTimestamps: number[] | null;
+  peakRatePerMinute: number | null;
+  // Batch SC-6 (Scene Intelligence taxonomy expansion) - Motion Complexity
+  // (motion-energy half).
+  motionVariability: number | null;
 }
 
 // Batch SC-3 (Scene Intelligence taxonomy expansion, continuing SC-1/SC-2) -
@@ -198,12 +206,33 @@ export interface CameraMotionSample {
 export const CAMERA_MOTION_TYPES = ['pan', 'tilt', 'zoom', 'shake', 'static'] as const;
 export type CameraMotionType = (typeof CAMERA_MOTION_TYPES)[number];
 
+// Batch SC-4 (Scene Intelligence taxonomy expansion) - mirrors
+// @speedora/contracts' CameraMotionDirectionType, same duplication
+// precedent as CameraMotionType above.
+export const CAMERA_MOTION_DIRECTION_TYPES = [
+  'left',
+  'right',
+  'up',
+  'down',
+  'in',
+  'out',
+  'static',
+] as const;
+export type CameraMotionDirectionType = (typeof CAMERA_MOTION_DIRECTION_TYPES)[number];
+
 export interface CameraMotionFeatures {
   panScore: number | null;
   tiltScore: number | null;
   zoomScore: number | null;
   shakeScore: number | null;
   dominantMotionType: CameraMotionType | null;
+  // Batch SC-4 - descriptive/explainability only, not fed into the Fusion
+  // Engine (see @speedora/fusion-engine's extractCameraMotionFeatures).
+  dominantDirection: CameraMotionDirectionType | null;
+  // Batch SC-6 - Motion Complexity (camera-motion half).
+  motionTypeDiversity: number | null;
+  // Batch SC-7 - Motion Smoothness (Camera Jitter).
+  smoothnessScore: number | null;
 }
 
 // Taxonomy category F (Editing Rhythm, requested by user after Scene
@@ -395,6 +424,93 @@ export interface OcrFeatures {
   nameMentionRate: number | null;
   dominantTextCategory: OcrTextCategory | null;
   averageTextBlockCount: number | null;
+}
+
+// Object Intelligence roadmap, Batch OI-1 - one detected entity within a
+// single sampled frame (MediaPipe Object Detector/EfficientDet-Lite0,
+// COCO 80-class). Mirrors @speedora/contracts' objectDetectionSchema shape
+// rather than importing it, same duplication precedent as OcrTextBlock
+// above. `category` is a plain string (not a union), same reasoning as the
+// contract's own comment - COCO's label set is an externally-fixed model
+// vocabulary, not a small taxonomy this codebase designed.
+export interface ObjectDetection {
+  category: string;
+  boundingBox: { xCenter: number; yCenter: number; width: number; height: number };
+  confidence: number;
+}
+
+// A sampled frame's worth of object detections - `objects` is an EMPTY
+// array (not null) when nothing was found, same "empty is a real result"
+// convention as OcrSample.textBlocks.
+export interface ObjectSample {
+  t: number;
+  objects: ObjectDetection[];
+}
+
+// One tracked object across its full lifetime in the clip - mirrors
+// @speedora/contracts' objectTrackSchema rather than importing it, same
+// duplication precedent as OcrTextTrack above.
+export interface ObjectTrack {
+  trackId: number;
+  category: string;
+  boundingBox: { xCenter: number; yCenter: number; width: number; height: number };
+  confidence: number;
+  startTime: number;
+  endTime: number;
+  durationSeconds: number;
+  appearsFrames: number;
+  persistenceScore: number;
+  // Batch OI-2 - "objectMotionSpeed"/"objectMotionDirection" from the
+  // user's original taxonomy. motionDirection reuses CameraMotionDirectionType
+  // directly (see @speedora/contracts' objectTrackSchema comment for why) -
+  // a shrinking/growing bounding box is this track's analog of camera zoom
+  // in/out. Both null when this track only appeared in a single frame.
+  motionSpeed: number | null;
+  motionDirection: CameraMotionDirectionType | null;
+  // Batch OI-3 - "objectOcclusion" from the user's original taxonomy.
+  // Average, across this track's own appearances, of the highest IoU
+  // against any other simultaneous detection in the same frame - an honest
+  // proxy for occlusion, not a real depth/z-order signal. Never null.
+  occlusionScore: number;
+  // Batch OI-4 - "objectInteraction" from the user's original taxonomy,
+  // exposed as `interactionConfidence` (not a bare score/boolean) since
+  // this pipeline has no depth/pose/action recognition and cannot determine
+  // real interaction - an unweighted mean of proximity, temporal
+  // co-presence, and distance trend (see @speedora/contracts'
+  // objectTrackSchema comment for the full breakdown). Never null.
+  interactionConfidence: number;
+  // Batch OI-5 - "objectAttentionScore" from the user's original taxonomy.
+  // A "domain of domains" composite - Visibility (confidence + persistence +
+  // inverse occlusion), Activity (motionSpeed + motionPersistence +
+  // directionConsistency, 0.5 neutral when no motion data), and Social
+  // (interactionConfidence + partnerScore + coPresence), then averaged
+  // together - see @speedora/contracts' objectTrackSchema comment for the
+  // full architecture. Never null.
+  attentionScore: number;
+  // Batch OI-5 - a SEPARATE reliability signal for attentionScore, not a
+  // sixth ingredient inside it. Based on appearsFrames (capped) - a track
+  // backed by very little observation gets a low attentionConfidence even
+  // if its attentionScore itself reads high. Never null.
+  attentionConfidence: number;
+}
+
+// Aggregate, Fusion-Engine-ready summary derived from ObjectTrack[] above -
+// mirrors @speedora/contracts' objectFeaturesSchema.
+export interface ObjectFeatures {
+  objectCount: number | null;
+  dominantObject: string | null;
+  averageObjectsPerFrame: number | null;
+  averageTrackingConfidence: number | null;
+  averagePersistence: number | null;
+  // Batch OI-2 - mean motionSpeed across tracks that have a computable value.
+  averageMotionSpeed: number | null;
+  // Batch OI-3 - mean occlusionScore across all tracks.
+  averageOcclusionScore: number | null;
+  // Batch OI-4 - mean interactionConfidence across all tracks.
+  averageInteractionConfidence: number | null;
+  // Batch OI-5 - mean attentionScore/attentionConfidence across all tracks.
+  averageAttentionScore: number | null;
+  averageAttentionConfidence: number | null;
 }
 
 // AI Fusion roadmap's Face Intelligence initiative, Batch 2 - a per-sample
@@ -845,6 +961,16 @@ export interface Clip {
   // ocrText is null.
   ocrTracks: OcrTextTrack[] | null;
   ocrFeatures: OcrFeatures | null;
+  // Object Intelligence roadmap, Batch OI-1 (Foundation) -
+  // @speedora/object-intelligence's detectObjects() per-sample output
+  // (MediaPipe Object Detector/EfficientDet-Lite0). Null (not []) when the
+  // whole analysis failed to run.
+  objects: ObjectSample[] | null;
+  // trackObjects()'s "store everything" per-instance layer (objectTracks)
+  // and deriveObjectFeatures()'s aggregate Fusion-Engine-ready summary
+  // (objectFeatures) - both null exactly when objects is null.
+  objectTracks: ObjectTrack[] | null;
+  objectFeatures: ObjectFeatures | null;
   // Fase 29/31 (Mini Fusion Engine v1 -> v2) - @speedora/fusion-engine's
   // computeHighlightScore() output, combining whichever of
   // audioFeatures/sceneFeatures/facialFeatures/gestureFeatures were

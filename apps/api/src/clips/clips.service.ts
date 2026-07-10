@@ -39,6 +39,9 @@ import {
   toSharedLipSyncVerifications,
   toSharedMotionEnergy,
   toSharedMotionEnergyFeatures,
+  toSharedObjectFeatures,
+  toSharedObjects,
+  toSharedObjectTracks,
   toSharedOcrTracks,
   toSharedSceneCutEvents,
   toSharedSceneFeatures,
@@ -323,6 +326,9 @@ export class ClipsService {
     ocrText: unknown;
     ocrTracks: unknown;
     ocrFeatures: unknown;
+    objects: unknown;
+    objectTracks: unknown;
+    objectFeatures: unknown;
     highlightScore: number | null;
     highlightBreakdown: unknown;
     highlightExplainability: unknown;
@@ -379,6 +385,9 @@ export class ClipsService {
       ocrText: toSharedOcrText(clip.ocrText),
       ocrTracks: toSharedOcrTracks(clip.ocrTracks),
       ocrFeatures: toSharedOcrFeatures(clip.ocrFeatures),
+      objects: toSharedObjects(clip.objects),
+      objectTracks: toSharedObjectTracks(clip.objectTracks),
+      objectFeatures: toSharedObjectFeatures(clip.objectFeatures),
       highlightScore: clip.highlightScore,
       highlightBreakdown: toSharedHighlightBreakdown(clip.highlightBreakdown),
       highlightExplainability: toSharedHighlightExplainability(clip.highlightExplainability),

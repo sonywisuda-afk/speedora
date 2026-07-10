@@ -40,7 +40,7 @@ packages/
   shared/, database/, storage/, social/, contracts/    # cross-cutting infrastructure
   clip-scoring/, cutlist/, subtitles/, reframe/, emoji-suggester/,
   audio-intelligence/, scene-intelligence/, facial-intelligence/,
-  gesture-intelligence/, ocr-intelligence/, editing-rhythm/,
+  gesture-intelligence/, ocr-intelligence/, object-intelligence/, editing-rhythm/,
   fusion-engine/                                       # stateless JSON-in/JSON-out AI modules
 ```
 
@@ -72,6 +72,7 @@ pattern itself and its "add a new module" checklist.
 | [`docs/ai/fusion.md`](docs/ai/fusion.md) | The Fusion Engine — current pipeline, weights, prediction/recommendation |
 | [`docs/ai/scoring.md`](docs/ai/scoring.md) | How `viralityScore`/`ClipScores`/`highlightScore` relate (they are three different systems) |
 | [`docs/ai/speaker-intelligence.md`](docs/ai/speaker-intelligence.md) | Speaker Intelligence roadmap (VAD, Active Speaker Detection, Face-Voice Association, Speaker Timeline/Scoring) — contracts-only status vs. what's already covered by Face/Audio/Gesture Intelligence |
+| [`docs/ai/object-intelligence.md`](docs/ai/object-intelligence.md) | Object Intelligence roadmap (per-entity detection/tracking/behavioral features — a separate package from Scene Intelligence) — MediaPipe detector choice, multi-object tracker design, Batch OI-1 through OI-5 (complete) |
 
 ## Status
 
@@ -99,12 +100,28 @@ High-level state of each major initiative (see the linked docs for what's actual
   v2.1** — done (weighted feature-level fusion, confidence, explainability, ranking, LLM signal,
   prediction/recommendation). See `ai/fusion.md`.
 - **Gesture Intelligence, Face Intelligence (5 batches, 23 sub-features), Scene Intelligence
-  taxonomy (cut classification, motion energy, directional camera motion)** — done, all wired into
-  the Fusion Engine at weight 0 pending calibration. See `ai/vision.md`.
+  taxonomy (cut classification, motion energy, directional camera motion, plus the derived-only
+  Motion Intelligence batches SC-4 through SC-7 — Motion Direction, Peak Detection, Complexity,
+  Smoothness/Camera Jitter)** — done, all wired into the Fusion Engine at weight 0 pending
+  calibration. See `ai/vision.md`.
 - **OCR Intelligence** (detection → tracking/classification → evaluation tooling → dataset
   annotation UI) — done through OCR-2.5, wired into the Fusion Engine at a real 10% weight. OCR-3
   (object detector) and OCR-4 (scene understanding) are deferred pending a real annotated dataset.
   See `ai/ocr.md`.
+- **Object Intelligence roadmap** (per-entity detection/tracking/behavioral features — people,
+  vehicles, products, animals) — a separate package from Scene Intelligence, **complete** (OI-1
+  through OI-5, closing out the originally-scoped 10-feature taxonomy). Batch OI-1 (Foundation:
+  MediaPipe Object Detector + a genuinely multi-object tracker generalizing OCR Intelligence's
+  tracker), OI-2 (motion speed/direction, reusing Scene Intelligence's `CameraMotionDirectionType`),
+  OI-3 (occlusion — the first OI feature comparing detections across the same frame, not just
+  across time), OI-4 (interaction, exposed as `interactionConfidence` — a 3-component composite of
+  proximity/temporal co-presence/distance trend, explicitly named to avoid implying real
+  interaction detection this pipeline has no depth/pose/action recognition to support), and OI-5
+  (`objectAttentionScore` — not a flat average but a "domain of domains" composite of Visibility/
+  Activity/Social sub-scores, mirroring the top-level Fusion Engine's own layered shape one level
+  down, plus a separate `objectAttentionConfidence` reliability signal mirroring Speaker
+  Intelligence's confidence-score pattern) are all done, wired into the Fusion Engine at weight 0.
+  See `ai/object-intelligence.md`.
 - **Editing Rhythm** (tempo/pacing/acceleration, a composite signal built from other signals'
   already-computed features) — done, wired at a heuristic (unvalidated) 5% weight since production
   has 0 usable samples to calibrate against yet (`apps/worker/src/scripts/

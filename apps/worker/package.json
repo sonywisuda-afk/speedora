@@ -28,6 +28,7 @@
     "@speedora/facial-intelligence": "workspace:*",
     "@speedora/fusion-engine": "workspace:*",
     "@speedora/gesture-intelligence": "workspace:*",
+    "@speedora/object-intelligence": "workspace:*",
     "@speedora/ocr-intelligence": "workspace:*",
     "@speedora/reframe": "workspace:*",
     "@speedora/scene-intelligence": "workspace:*",

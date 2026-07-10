@@ -199,6 +199,10 @@ describe('motionEnergyFeaturesSchema', () => {
       peakMotionEnergy: 12.1,
       staticRatio: 0.6,
       dynamicRatio: 0.4,
+      peakCount: 2,
+      peakTimestamps: [3.5, 8.2],
+      peakRatePerMinute: 1.5,
+      motionVariability: 0.4,
     });
     expect(result.success).toBe(true);
   });
@@ -209,6 +213,10 @@ describe('motionEnergyFeaturesSchema', () => {
       peakMotionEnergy: null,
       staticRatio: null,
       dynamicRatio: null,
+      peakCount: null,
+      peakTimestamps: null,
+      peakRatePerMinute: null,
+      motionVariability: null,
     });
     expect(result.success).toBe(true);
   });
@@ -278,6 +286,9 @@ describe('cameraMotionFeaturesSchema', () => {
       zoomScore: 0.2,
       shakeScore: 0.05,
       dominantMotionType: 'pan',
+      dominantDirection: 'right',
+      motionTypeDiversity: 0.8,
+      smoothnessScore: 0.9,
     });
     expect(result.success).toBe(true);
   });
@@ -289,6 +300,9 @@ describe('cameraMotionFeaturesSchema', () => {
       zoomScore: null,
       shakeScore: null,
       dominantMotionType: null,
+      dominantDirection: null,
+      motionTypeDiversity: null,
+      smoothnessScore: null,
     });
     expect(result.success).toBe(true);
   });
@@ -300,6 +314,19 @@ describe('cameraMotionFeaturesSchema', () => {
       zoomScore: 0.2,
       shakeScore: 0.05,
       dominantMotionType: 'wobble',
+      dominantDirection: 'right',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('rejects an unrecognized dominantDirection', () => {
+    const result = cameraMotionFeaturesSchema.safeParse({
+      panScore: 0.5,
+      tiltScore: 0.1,
+      zoomScore: 0.2,
+      shakeScore: 0.05,
+      dominantMotionType: 'pan',
+      dominantDirection: 'northeast',
     });
     expect(result.success).toBe(false);
   });

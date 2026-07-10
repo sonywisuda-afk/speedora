@@ -147,6 +147,33 @@ export const motionEnergyFeaturesSchema = z.object({
   // unvalidated against real footage). Always sum to 1 when non-null.
   staticRatio: z.number().min(0).max(1).nullable(),
   dynamicRatio: z.number().min(0).max(1).nullable(),
+  // Batch SC-5 (Scene Intelligence taxonomy expansion, continuing SC-1..
+  // SC-4) - Motion Peak Detection. A "peak" is a local-maximum sample that
+  // clears the clip's own mean-plus-stddev threshold (see
+  // PEAK_STDDEV_MULTIPLIER in derive-motion-energy-features.ts,
+  // unvalidated against real footage, same caveat as staticRatio's own
+  // threshold). `peakTimestamps` is clip-relative seconds, same convention
+  // as detectSceneCutsOutputSchema's `cuts`.
+  peakCount: z.number().int().nonnegative().nullable(),
+  peakTimestamps: z.array(z.number()).nullable(),
+  // Peaks per 60 seconds of clip duration - same normalization reasoning as
+  // sceneFeaturesSchema's cutsPerMinute. Null when the clip's duration is 0
+  // (division undefined), same convention as cutsPerMinute.
+  peakRatePerMinute: z.number().nonnegative().nullable(),
+  // Batch SC-6 (Scene Intelligence taxonomy expansion, continuing SC-1..
+  // SC-5) - Motion Complexity, the motion-energy half. Coefficient of
+  // variation (stddev / mean) of the clip's motionEnergy samples - "how
+  // erratically motion magnitude swings over the clip", independent of its
+  // average level (a clip that's uniformly high-motion has LOW
+  // motionVariability; a clip alternating between static and bursty has
+  // HIGH motionVariability even at the same average). Per this codebase's
+  // "feature-level fusion" principle, this is reported as its own named
+  // feature rather than pre-blended with cameraMotionFeatures'
+  // motionTypeDiversity into one module-owned "complexity score" - see
+  // deriveMotionEnergyFeatures' own comment. Null when `samples` is empty
+  // or the mean is 0 (division undefined - a perfectly flat/silent clip has
+  // no meaningful variability ratio, not a fabricated 0).
+  motionVariability: z.number().nonnegative().nullable(),
 });
 export type MotionEnergyFeatures = z.infer<typeof motionEnergyFeaturesSchema>;
 
@@ -208,6 +235,30 @@ export type CameraMotionSample = z.infer<typeof cameraMotionSampleSchema>;
 export const CAMERA_MOTION_TYPES = ['pan', 'tilt', 'zoom', 'shake', 'static'] as const;
 export type CameraMotionType = (typeof CAMERA_MOTION_TYPES)[number];
 
+// Batch SC-4 (Scene Intelligence taxonomy expansion, continuing SC-1/SC-2/
+// SC-3) - Motion Direction. NOT a new signal or a new subprocess: it's a
+// finer-grained read of the SAME dx/dy/scale transform detectCameraMotion
+// already produces (dominantMotionType above answers "is this a pan?",
+// dominantDirection answers "which way?"). Reserved as its own enum (not
+// folded into CAMERA_MOTION_TYPES) because "static" is shared with the axis
+// enum above but the two are semantically different: CameraMotionType is an
+// AXIS (pan/tilt/zoom/shake/static), CameraMotionDirectionType is a SIGNED
+// SUB-DIRECTION along whichever axis won (pan -> left/right, tilt -> up/
+// down, zoom -> in/out) - "shake" has no coherent single direction so it's
+// deliberately absent from this enum (see deriveCameraMotionFeatures'
+// classifyDirection comment for what happens to a shake-dominant clip's
+// dominantDirection value).
+export const CAMERA_MOTION_DIRECTION_TYPES = [
+  'left',
+  'right',
+  'up',
+  'down',
+  'in',
+  'out',
+  'static',
+] as const;
+export type CameraMotionDirectionType = (typeof CAMERA_MOTION_DIRECTION_TYPES)[number];
+
 // Derived summary (see packages/contracts/src/intelligence-signal.ts) -
 // computed from detectCameraMotion's raw samples above by
 // @speedora/scene-intelligence's deriveCameraMotionFeatures(). All fields
@@ -228,5 +279,39 @@ export const cameraMotionFeaturesSchema = z.object({
   // in this codebase.
   shakeScore: z.number().min(0).max(1).nullable(),
   dominantMotionType: z.enum(CAMERA_MOTION_TYPES).nullable(),
+  // Batch SC-4 - majority-vote sub-direction across classifiable samples,
+  // same counting approach as dominantMotionType above. Deliberately NOT
+  // fed into the Fusion Engine (see extractCameraMotionFeatures' own
+  // comment) - direction has no obvious "more of this = more engaging"
+  // ordinal reading the way zoom/pan/tilt-over-static does, so this stays a
+  // descriptive/explainability field only, same treatment as Batch 4.5's
+  // trackingQualityMetrics.
+  dominantDirection: z.enum(CAMERA_MOTION_DIRECTION_TYPES).nullable(),
+  // Batch SC-6 (Scene Intelligence taxonomy expansion, continuing SC-1..
+  // SC-5) - Motion Complexity, the camera-motion half. Normalized Shannon
+  // entropy (0-1, divided by log2(4)) over the per-sample pan/tilt/zoom/
+  // static classification counts deriveCameraMotionFeatures already
+  // computes for dominantMotionType/shakeScore - "how varied the camera's
+  // movement pattern is" (0 = every sample classified the same way, 1 =
+  // evenly spread across all four categories), independent of WHICH type
+  // dominates. Companion to motionEnergyFeatures' motionVariability - see
+  // that field's own contract comment for why these stay two separate
+  // features instead of one blended "complexity" score. Null when there
+  // are zero classifiable samples, same convention as every other field
+  // here.
+  motionTypeDiversity: z.number().min(0).max(1).nullable(),
+  // Batch SC-7 (Scene Intelligence taxonomy expansion, continuing SC-1..
+  // SC-6) - Motion Smoothness (Camera Jitter). A MAGNITUDE-based
+  // complement to shakeScore above (which only counts sign reversals, so a
+  // slow, smooth pan that happens to reverse direction once still reads as
+  // "some shake") - averages |dx delta| + |dy delta| between consecutive
+  // classifiable samples and maps it to 0-1 (1 = perfectly smooth, 0 =
+  // maximally jittery), see JITTER_CAP in derive-camera-motion-features.ts,
+  // unvalidated against real footage. Same "no calibrated view on whether
+  // this reads as good or bad" honesty as shakeScore's own comment - a
+  // deliberate handheld aesthetic and an unstable tripod both produce a low
+  // smoothnessScore. Null when fewer than two classifiable samples (no
+  // consecutive pair to compare).
+  smoothnessScore: z.number().min(0).max(1).nullable(),
 });
 export type CameraMotionFeatures = z.infer<typeof cameraMotionFeaturesSchema>;

@@ -49,6 +49,12 @@ import {
   type GestureSample,
 } from '@speedora/gesture-intelligence';
 import {
+  deriveObjectFeatures,
+  detectObjects,
+  trackObjects,
+  type ObjectSample,
+} from '@speedora/object-intelligence';
+import {
   classifyOcrTrack,
   deriveOcrFeatures,
   detectOcrText,
@@ -100,6 +106,7 @@ import {
   type ReframeOptions,
 } from '../ffmpeg';
 import { gestureIntelligenceDeps } from '../gestureIntelligenceDeps';
+import { objectIntelligenceDeps } from '../objectIntelligenceDeps';
 import { ocrIntelligenceDeps } from '../ocrIntelligenceDeps';
 import { prisma } from '../prisma';
 import { createRedisConnection } from '../redis';
@@ -561,6 +568,20 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           );
         }
 
+        // Object Intelligence roadmap, Batch OI-1 (Foundation) - same
+        // "never fails the job" pattern as every other MediaPipe-based
+        // detector above.
+        let objects: ObjectSample[] | null = null;
+        try {
+          objects = await detectObjects({ sourcePath, startTime, endTime }, objectIntelligenceDeps);
+        } catch (error) {
+          console.warn(
+            `[render-clip] object detection failed for clip ${clipId}, continuing without ` +
+              'object data:',
+            error,
+          );
+        }
+
         // Mini Fusion Engine v1/v2 prep (Fase 28/30, Checkpoint 1/2 of the
         // AI Fusion roadmap) - dense derived summaries computed from the
         // raw signals above (see packages/contracts/src/intelligence-
@@ -577,8 +598,9 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           sceneCutEvents ?? [],
         );
         // Batch SC-2 - always computed (motionEnergy is always an array,
-        // even if empty), same convention as sceneFeatures above.
-        const motionEnergyFeatures = deriveMotionEnergyFeatures(motionEnergy);
+        // even if empty), same convention as sceneFeatures above. Batch
+        // SC-5 added the clipDurationSeconds parameter (peakRatePerMinute).
+        const motionEnergyFeatures = deriveMotionEnergyFeatures(motionEnergy, endTime - startTime);
         // Batch SC-3 - null exactly when cameraMotion is null, same
         // convention as facialFeatures/gestureFeatures below.
         const cameraMotionFeatures = cameraMotion ? deriveCameraMotionFeatures(cameraMotion) : null;
@@ -672,6 +694,17 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             )
           : null;
         const ocrFeatures = ocrText ? deriveOcrFeatures(ocrTracks ?? [], ocrText.length) : null;
+        // Object Intelligence roadmap, Batch OI-1 - cross-frame tracking
+        // over Batch OI-1's own raw `objects` (see
+        // @speedora/object-intelligence's trackObjects() module comment for
+        // why this generalizes OCR's tracker, not Face Intelligence's
+        // single-track one, into a genuine multi-object tracker). Same
+        // "raw/tracks/features" three-layer pattern as ocrText/ocrTracks/
+        // ocrFeatures above.
+        const objectTracks = objects ? trackObjects(objects) : null;
+        const objectFeatures = objects
+          ? deriveObjectFeatures(objectTracks ?? [], objects.length)
+          : null;
         const audioFeatures = deriveAudioFeatures(
           transcript.map((segment) => ({
             rmsDb: segment.rmsDb ?? null,
@@ -736,6 +769,9 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           // the 'ocr' signal's already-reserved 0.1 weight (see
           // weights.ts) since Fase 31.
           ocr: ocrFeatures ?? undefined,
+          // Object Intelligence roadmap, Batch OI-1 - also weight 0 until
+          // calibrated (see weights.ts).
+          object: objectFeatures ?? undefined,
           // Fase 32 - the clip's own Fase 8 Content Intelligence scores,
           // threaded through the job payload (see RenderClipJobData) rather
           // than re-queried here, same "payload carries what the adapter
@@ -853,6 +889,9 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             ocrText: ocrText ?? Prisma.JsonNull,
             ocrTracks: ocrTracks ?? Prisma.JsonNull,
             ocrFeatures: ocrFeatures ?? Prisma.JsonNull,
+            objects: objects ?? Prisma.JsonNull,
+            objectTracks: objectTracks ?? Prisma.JsonNull,
+            objectFeatures: objectFeatures ?? Prisma.JsonNull,
             // ClipScores is a closed interface (no index signature), which
             // Prisma's Json input type requires - same reasoning as
             // detect-clips.worker.ts's own scores write.

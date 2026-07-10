@@ -11,6 +11,7 @@ export * from './facial-intelligence';
 export * from './fusion';
 export * from './gesture-intelligence';
 export * from './intelligence-signal';
+export * from './object-intelligence';
 export * from './ocr';
 export * from './reframe';
 export * from './scene-intelligence';

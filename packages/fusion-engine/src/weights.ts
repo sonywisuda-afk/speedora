@@ -61,6 +61,12 @@ import type { FusionWeights } from '@speedora/contracts';
 // data to calibrate against (same apps/worker/src/scripts/
 // check-calibration-coverage.ts checkpoint editingRhythm went through -
 // re-run it for this signal once production has real published clips).
+//
+// `object` (Object Intelligence roadmap, Batch OI-1) - same "collect first,
+// calibrate later" treatment as every other recently-added signal above:
+// @speedora/object-intelligence's deriveObjectFeatures() output is
+// collected and visible in `contributions`, but weight 0 until there's real
+// engagement data to calibrate against.
 export const DEFAULT_FUSION_WEIGHTS: FusionWeights = {
   audio: 0.35,
   scene: 0.25,
@@ -71,6 +77,7 @@ export const DEFAULT_FUSION_WEIGHTS: FusionWeights = {
   gesture: 0,
   faceGeometry: 0,
   ocr: 0.1,
+  object: 0,
   llm: 0.05,
   speaker: 0,
 };

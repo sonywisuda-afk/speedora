@@ -42,6 +42,10 @@ describe('fusionInputSchema', () => {
         peakMotionEnergy: 12,
         staticRatio: 0.6,
         dynamicRatio: 0.4,
+        peakCount: 1,
+        peakTimestamps: [4],
+        peakRatePerMinute: 2,
+        motionVariability: 0.3,
       },
       facial: {
         dominantEmotion: 'happy',

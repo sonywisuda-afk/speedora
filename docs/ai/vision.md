@@ -107,6 +107,39 @@ Everything ffmpeg-native (no ML model) plus one OpenCV subprocess for directiona
   magnitude). `shakeScore` requires a sign-reversal *and* both samples in the pair clearing the
   pan/tilt threshold first, to avoid sub-threshold noise dominating the shake reading for an
   actually-static clip.
+- **Motion Direction (Batch SC-4)** — not a new detector: a finer-grained read of the same dx/dy/
+  scale transform Batch SC-3 already collects. `deriveCameraMotionFeatures()` resolves each
+  classifiable sample's dominant axis down to a signed sub-direction (`left`/`right`/`up`/`down`/
+  `in`/`out`/`static`) and majority-votes across the clip into `dominantDirection`, same counting
+  approach as `dominantMotionType`. Deliberately **not** fed into the Fusion Engine — unlike
+  zoom/pan/tilt-over-static, a direction alone has no obvious more-engaging-than reading, so it
+  stays a descriptive/explainability field on the persisted `Clip` row (same treatment as Batch
+  4.5's `trackingQualityMetrics`), not a scored feature.
+- **Motion Peak Detection (Batch SC-5)** — a pure derivation over `analyzeMotionEnergy`'s existing
+  samples, no new subprocess. `deriveMotionEnergyFeatures()` flags a sample as a peak when it's a
+  strict local maximum among its immediate neighbors *and* clears the clip's own
+  mean-plus-1.5×-stddev threshold (self-relative, since raw `motionEnergy` isn't comparable across
+  different source footage). Produces `peakCount`/`peakTimestamps`/`peakRatePerMinute`;
+  `peakRatePerMinute` feeds the Fusion Engine under the existing `sceneMotion` signal (still weight
+  0, pending calibration like every other recent addition).
+- **Motion Complexity (Batch SC-6)** — another pure derivation, split into two independently-
+  optional features rather than one module-owned "complexity" score, per this pipeline's
+  feature-level fusion principle (extract named features, let the Fusion Engine combine them, don't
+  pre-blend). `motionEnergyFeatures.motionVariability` is the coefficient of variation (stddev /
+  mean) of a clip's `motionEnergy` samples — how erratically motion magnitude swings, independent
+  of its average level. `cameraMotionFeatures.motionTypeDiversity` is normalized Shannon entropy
+  (0–1) over the pan/tilt/zoom/static per-sample classification counts
+  `deriveCameraMotionFeatures()` already computes for `dominantMotionType` — how varied the
+  camera's movement pattern is, independent of which type dominates. Both feed the Fusion Engine
+  under their existing `sceneMotion`/`cameraMotion` signals (still weight 0).
+- **Motion Smoothness / Camera Jitter (Batch SC-7)** — a magnitude-based complement to `shakeScore`
+  (which only counts sign reversals, so a slow pan that reverses once still reads as "some shake").
+  `deriveCameraMotionFeatures()` averages `|Δdx| + |Δdy|` between consecutive classifiable samples
+  and maps it to `smoothnessScore` (0–1, 1 = perfectly smooth), via the same unvalidated-cap
+  pattern as every other threshold in this module. Same "no calibrated view on whether this reads
+  as good or bad" honesty as `shakeScore` itself — a deliberate handheld aesthetic and an unstable
+  tripod both produce a low score. Feeds the Fusion Engine under the existing `cameraMotion` signal
+  (still weight 0).
 
 ## Deferred / future taxonomy
 

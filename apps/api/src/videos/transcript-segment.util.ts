@@ -28,6 +28,9 @@ import type {
   OcrSample,
   MotionEnergyFeatures,
   MotionEnergySample,
+  ObjectFeatures,
+  ObjectSample,
+  ObjectTrack,
   OcrTextTrack,
   SceneCutEvent,
   SceneFeatures,
@@ -302,6 +305,21 @@ export function toSharedOcrTracks(ocrTracks: unknown): OcrTextTrack[] | null {
 
 export function toSharedOcrFeatures(ocrFeatures: unknown): OcrFeatures | null {
   return (ocrFeatures as OcrFeatures | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.objects/.objectTracks/.objectFeatures (Object Intelligence roadmap,
+// Batch OI-1).
+export function toSharedObjects(objects: unknown): ObjectSample[] | null {
+  return (objects as ObjectSample[] | null) ?? null;
+}
+
+export function toSharedObjectTracks(objectTracks: unknown): ObjectTrack[] | null {
+  return (objectTracks as ObjectTrack[] | null) ?? null;
+}
+
+export function toSharedObjectFeatures(objectFeatures: unknown): ObjectFeatures | null {
+  return (objectFeatures as ObjectFeatures | null) ?? null;
 }
 
 // Same "Json column is opaque" situation as the functions above, for

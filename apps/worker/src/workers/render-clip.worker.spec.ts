@@ -104,6 +104,16 @@ jest.mock('@speedora/ocr-intelligence', () => ({
   detectOcrText: (...args: unknown[]) => detectOcrTextMock(...args),
 }));
 
+// Object Intelligence roadmap, Batch OI-1 - trackObjects/
+// deriveObjectFeatures are pure, left real (same reasoning as
+// derive*Features elsewhere); only the subprocess-calling detectObjects
+// is mocked.
+const detectObjectsMock = jest.fn();
+jest.mock('@speedora/object-intelligence', () => ({
+  ...jest.requireActual('@speedora/object-intelligence'),
+  detectObjects: (...args: unknown[]) => detectObjectsMock(...args),
+}));
+
 const detectFacesMock = jest.fn();
 const computeCropDimensionsMock = jest.fn();
 const buildCropPathMock = jest.fn();
@@ -159,6 +169,7 @@ import { cameraMotionDeps } from '../cameraMotionDeps';
 import { faceLandmarksDeps } from '../faceLandmarksDeps';
 import { facialIntelligenceDeps } from '../facialIntelligenceDeps';
 import { gestureIntelligenceDeps } from '../gestureIntelligenceDeps';
+import { objectIntelligenceDeps } from '../objectIntelligenceDeps';
 import { ocrIntelligenceDeps } from '../ocrIntelligenceDeps';
 import { sceneIntelligenceDeps } from '../sceneIntelligenceDeps';
 import { createRenderClipWorker } from './render-clip.worker';
@@ -190,6 +201,10 @@ const noMotionEnergyFeatures = {
   peakMotionEnergy: null,
   staticRatio: null,
   dynamicRatio: null,
+  peakCount: null,
+  peakTimestamps: null,
+  peakRatePerMinute: null,
+  motionVariability: null,
 };
 const noCameraMotionFeatures = {
   panScore: null,
@@ -197,6 +212,9 @@ const noCameraMotionFeatures = {
   zoomScore: null,
   shakeScore: null,
   dominantMotionType: null,
+  dominantDirection: null,
+  motionTypeDiversity: null,
+  smoothnessScore: null,
 };
 // deriveEditingRhythmFeatures is left real (not mocked) in this spec file,
 // same "pure function, no subprocess" precedent as deriveSceneFeatures/
@@ -280,6 +298,23 @@ const noOcrFeatures = {
   nameMentionRate: null,
   dominantTextCategory: null,
   averageTextBlockCount: null,
+};
+// Object Intelligence roadmap, Batch OI-1 - deriveObjectFeatures()'s
+// all-null return for totalSamples === 0 (the default detectObjectsMock
+// resolves an empty array, same "analysis ran, found nothing" case as
+// noOcrFeatures above, but object features go all-null at zero samples
+// rather than real zeroes - see deriveObjectFeatures's own comment).
+const noObjectFeatures = {
+  objectCount: null,
+  dominantObject: null,
+  averageObjectsPerFrame: null,
+  averageTrackingConfidence: null,
+  averagePersistence: null,
+  averageMotionSpeed: null,
+  averageOcclusionScore: null,
+  averageInteractionConfidence: null,
+  averageAttentionScore: null,
+  averageAttentionConfidence: null,
 };
 // Real computeHighlightScore() (v2, Fase 31) output for a clip with zero
 // scene cuts (the baseline scene score, 0.2 normalized) and no audio/
@@ -403,6 +438,7 @@ describe('render-clip worker', () => {
     detectFaceLandmarksMock.mockResolvedValue([]);
     detectGesturesMock.mockResolvedValue([]);
     detectOcrTextMock.mockResolvedValue([]);
+    detectObjectsMock.mockResolvedValue([]);
     findEmphasisWordsMock.mockReturnValue([]);
     buildCropPathMock.mockReturnValue(null); // no face/emphasis -> static center-crop by default
     buildSendCmdScriptMock.mockReturnValue('0 crop@reframe x 10, crop@reframe y 0;');
@@ -492,6 +528,9 @@ describe('render-clip worker', () => {
         ocrText: [],
         ocrTracks: [],
         ocrFeatures: noOcrFeatures,
+        objects: [],
+        objectTracks: [],
+        objectFeatures: noObjectFeatures,
         llmFeatures: Prisma.JsonNull,
         ...baselineHighlight,
       },
@@ -945,6 +984,9 @@ describe('render-clip worker', () => {
           ocrText: [],
           ocrTracks: [],
           ocrFeatures: noOcrFeatures,
+          objects: [],
+          objectTracks: [],
+          objectFeatures: noObjectFeatures,
           llmFeatures: Prisma.JsonNull,
           highlightScore: 64,
           highlightConfidence: 0.3,
@@ -1068,6 +1110,9 @@ describe('render-clip worker', () => {
           ocrText: [],
           ocrTracks: [],
           ocrFeatures: noOcrFeatures,
+          objects: [],
+          objectTracks: [],
+          objectFeatures: noObjectFeatures,
           llmFeatures: Prisma.JsonNull,
           ...baselineHighlight,
         },
@@ -1185,6 +1230,13 @@ describe('render-clip worker', () => {
               peakMotionEnergy: 10,
               staticRatio: 0.5,
               dynamicRatio: 0.5,
+              // clip duration is 10s (startTime 10, endTime 20); neither
+              // sample clears the mean+1.5*stddev peak threshold (12).
+              peakCount: 0,
+              peakTimestamps: [],
+              peakRatePerMinute: 0,
+              // mean 6, stddev 4 (sqrt(((2-6)^2+(10-6)^2)/2)) -> CoV 4/6.
+              motionVariability: 4 / 6,
             },
           }),
         }),
@@ -1249,6 +1301,13 @@ describe('render-clip worker', () => {
               zoomScore: 0,
               shakeScore: 0,
               dominantMotionType: 'pan',
+              dominantDirection: 'right',
+              // Both classifiable samples are 'pan' - a single category has
+              // zero entropy.
+              motionTypeDiversity: 0,
+              // Identical dx/dy across both classifiable samples - zero
+              // frame-to-frame delta, perfectly smooth.
+              smoothnessScore: 1,
             },
           }),
         }),
@@ -1343,6 +1402,9 @@ describe('render-clip worker', () => {
           ocrText: [],
           ocrTracks: [],
           ocrFeatures: noOcrFeatures,
+          objects: [],
+          objectTracks: [],
+          objectFeatures: noObjectFeatures,
           llmFeatures: Prisma.JsonNull,
           highlightScore: 46,
           highlightConfidence: 0.45,
@@ -1466,6 +1528,9 @@ describe('render-clip worker', () => {
           ocrText: [],
           ocrTracks: [],
           ocrFeatures: noOcrFeatures,
+          objects: [],
+          objectTracks: [],
+          objectFeatures: noObjectFeatures,
           llmFeatures: Prisma.JsonNull,
           ...baselineHighlight,
         },
@@ -1831,6 +1896,118 @@ describe('render-clip worker', () => {
       // from the no-signal baseline, not just get collected for later.
       const [{ data }] = clipUpdateMock.mock.calls[0];
       expect(data.highlightScore).not.toBe(baselineHighlight.highlightScore);
+    });
+  });
+
+  describe('Object Intelligence Batch OI-1 - Foundation (detection + tracking)', () => {
+    it('calls detectObjects with the source path and clip time range, tracking and persisting objects/objectTracks/objectFeatures', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      detectObjectsMock.mockResolvedValue([
+        {
+          t: 0,
+          objects: [
+            {
+              category: 'person',
+              boundingBox: { xCenter: 0.3, yCenter: 0.5, width: 0.2, height: 0.6 },
+              confidence: 0.9,
+            },
+          ],
+        },
+      ]);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(detectObjectsMock).toHaveBeenCalledWith(
+        { sourcePath: expect.stringContaining('source'), startTime: 10, endTime: 20 },
+        objectIntelligenceDeps,
+      );
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            objects: [
+              {
+                t: 0,
+                objects: [
+                  {
+                    category: 'person',
+                    boundingBox: { xCenter: 0.3, yCenter: 0.5, width: 0.2, height: 0.6 },
+                    confidence: 0.9,
+                  },
+                ],
+              },
+            ],
+            objectTracks: [
+              expect.objectContaining({
+                category: 'person',
+                appearsFrames: 1,
+                persistenceScore: 1,
+              }),
+            ],
+            objectFeatures: {
+              objectCount: 1,
+              dominantObject: 'person',
+              averageObjectsPerFrame: 1,
+              averageTrackingConfidence: 0.9,
+              averagePersistence: 1,
+              // Single-appearance track (one sample) - no motionSpeed to average.
+              averageMotionSpeed: null,
+              // No other objects in the frame - a real 0, not null.
+              averageOcclusionScore: 0,
+              // Alone throughout: proximity=0, temporalOverlap=0 (no other
+              // track), convergence=0.5 (neutral, no distance history).
+              // Written as the same expression the source computes
+              // (average([0, 0, 0.5])) so the floating-point result is
+              // guaranteed bit-identical, not just mathematically equal.
+              averageInteractionConfidence: (0 + 0 + 0.5) / 3,
+              // Batch OI-5 - same "mirror the source's exact expression"
+              // convention. Visibility = average(confidence 0.9,
+              // persistenceScore 1, 1 - occlusionScore 1). Activity = 0.5
+              // (neutral - single appearance). Social =
+              // average(interactionConfidence [(0+0+0.5)/3], partnerScore 0,
+              // coPresence 0). attentionScore = average(Visibility, 0.5,
+              // Social).
+              averageAttentionScore:
+                ((0.9 + 1 + (1 - 0)) / 3 + 0.5 + ((0 + 0 + 0.5) / 3 + 0 + 0) / 3) / 3,
+              // Single appearance / CONFIDENCE_FRAME_CAP (5).
+              averageAttentionConfidence: 1 / 5,
+            },
+          }),
+        }),
+      );
+
+      // `object` is weight 0 in DEFAULT_FUSION_WEIGHTS (collect first,
+      // calibrate later, same as sceneMotion/cameraMotion/gesture/
+      // faceGeometry) - unlike `ocr` above, this data is collected and
+      // visible in `contributions` but must NOT move highlightScore yet.
+      const [{ data }] = clipUpdateMock.mock.calls[0];
+      expect(data.highlightScore).toBe(baselineHighlight.highlightScore);
+    });
+
+    it('persists Prisma.JsonNull (not an empty array) without failing the job when object detection throws', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      detectObjectsMock.mockRejectedValue(new Error('python3 not found'));
+
+      const processor = getProcessor();
+      const result = await processor({ data: baseJobData });
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            objects: Prisma.JsonNull,
+            objectTracks: Prisma.JsonNull,
+            objectFeatures: Prisma.JsonNull,
+          }),
+        }),
+      );
+      expect(videoUpdateMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: { status: VideoStatus.FAILED } }),
+      );
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
     });
   });
 

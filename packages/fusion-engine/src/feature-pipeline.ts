@@ -10,6 +10,7 @@ import type {
   FusionWeights,
   GestureFeatures,
   MotionEnergyFeatures,
+  ObjectFeatures,
   OcrFeatures,
   SceneFeatures,
   SpeakerFusionFeatures,
@@ -182,6 +183,30 @@ function extractMotionEnergyFeatures(
       isCategoryDerived: false,
     });
   }
+  // Batch SC-5 - peakCount/peakTimestamps aren't extracted individually
+  // (peakCount is redundant with peakRatePerMinute once duration-normalized;
+  // peakTimestamps is a list, not a scalar the fusion pipeline can score) -
+  // only the normalized rate feeds scoring, same "one representative scalar
+  // per concept" pattern as dynamicRatio above.
+  if (features.peakRatePerMinute !== null) {
+    items.push({
+      signal: 'sceneMotion',
+      feature: 'peakRatePerMinute',
+      value: features.peakRatePerMinute,
+      isCategoryDerived: false,
+    });
+  }
+  // Batch SC-6 - Motion Complexity (motion-energy half). Companion to
+  // cameraMotion's motionTypeDiversity - see motionEnergyFeaturesSchema's
+  // own contract comment for why these stay two separate features.
+  if (features.motionVariability !== null) {
+    items.push({
+      signal: 'sceneMotion',
+      feature: 'motionVariability',
+      value: features.motionVariability,
+      isCategoryDerived: false,
+    });
+  }
   return items;
 }
 
@@ -249,6 +274,31 @@ function extractCameraMotionFeatures(
       value: CAMERA_MOTION_WEIGHT[features.dominantMotionType] ?? DEFAULT_CAMERA_MOTION_WEIGHT,
       isCategoryDerived: true,
       label: features.dominantMotionType,
+    });
+  }
+  // Batch SC-6 - Motion Complexity (camera-motion half). dominantDirection
+  // is deliberately NOT extracted here (see its own contract comment) -
+  // motionTypeDiversity has the same "no calibrated view on which direction
+  // is better" honesty as shakeScore, but unlike dominantDirection it IS a
+  // plain 0-1 scalar with a defensible "more varied = more dynamic footage"
+  // reading, so it's collected the same way shakeScore is.
+  if (features.motionTypeDiversity !== null) {
+    items.push({
+      signal: 'cameraMotion',
+      feature: 'motionTypeDiversity',
+      value: features.motionTypeDiversity,
+      isCategoryDerived: false,
+    });
+  }
+  // Batch SC-7 - Motion Smoothness (Camera Jitter). Same "no calibrated
+  // view on which direction is better" honesty as shakeScore itself - see
+  // this field's own contract comment.
+  if (features.smoothnessScore !== null) {
+    items.push({
+      signal: 'cameraMotion',
+      feature: 'smoothnessScore',
+      value: features.smoothnessScore,
+      isCategoryDerived: false,
     });
   }
   return items;
@@ -817,6 +867,114 @@ function extractOcrFeatures(features: OcrFeatures | undefined): ExtractedFeature
   return items;
 }
 
+// Object Intelligence roadmap, Batch OI-1. Unlike OCR's dominantTextCategory
+// above (a small, purpose-designed 6-category taxonomy with a defensible
+// ordinal ranking), `dominantObject` draws from COCO's 80 generic,
+// externally-fixed categories - there's no defensible "person is more
+// engaging than a car" weight table the way OCR_CATEGORY_WEIGHT has one, so
+// dominantObject is deliberately NOT extracted here, same reasoning as
+// cameraMotion's dominantDirection. `objectCount` isn't extracted either
+// (a raw count isn't duration-comparable across clips - averageObjectsPerFrame
+// is the normalized version that already covers this, same "one
+// representative scalar per concept" precedent as dynamicRatio/
+// peakRatePerMinute).
+function extractObjectFeatures(features: ObjectFeatures | undefined): ExtractedFeature[] {
+  if (!features) return [];
+  const items: ExtractedFeature[] = [];
+  if (features.averageObjectsPerFrame !== null) {
+    items.push({
+      signal: 'object',
+      feature: 'averageObjectsPerFrame',
+      value: features.averageObjectsPerFrame,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.averageTrackingConfidence !== null) {
+    items.push({
+      signal: 'object',
+      feature: 'averageTrackingConfidence',
+      value: features.averageTrackingConfidence,
+      isCategoryDerived: false,
+    });
+  }
+  if (features.averagePersistence !== null) {
+    items.push({
+      signal: 'object',
+      feature: 'averagePersistence',
+      value: features.averagePersistence,
+      isCategoryDerived: false,
+    });
+  }
+  // Batch OI-2 - "more movement among tracked objects = more dynamic
+  // footage" is a defensible ordinal reading, same reasoning sceneMotion's
+  // averageMotionEnergy/peakRatePerMinute already carry - unlike
+  // dominantObject, this is a plain numeric measurement, not a categorical
+  // label needing a designed weight table.
+  if (features.averageMotionSpeed !== null) {
+    items.push({
+      signal: 'object',
+      feature: 'averageMotionSpeed',
+      value: features.averageMotionSpeed,
+      isCategoryDerived: false,
+    });
+  }
+  // Batch OI-3 - same "no calibrated view on which direction is better"
+  // honesty as cameraMotion's shakeScore/smoothnessScore: high occlusion
+  // could mean cluttered/busy footage (a negative) or a naturally crowded,
+  // socially engaging scene (a positive) - scored anyway, direction
+  // deliberately left uninverted pending real engagement data.
+  if (features.averageOcclusionScore !== null) {
+    items.push({
+      signal: 'object',
+      feature: 'averageOcclusionScore',
+      value: features.averageOcclusionScore,
+      isCategoryDerived: false,
+    });
+  }
+  // Batch OI-4 - same "uncalibrated heuristic" honesty as averageOcclusionScore
+  // above, made explicit since this composite (proximity + temporal
+  // co-presence + distance trend) has no depth/pose/action-recognition
+  // grounding at all - it's a confidence that interaction is PLAUSIBLE, not
+  // a validated engagement signal in either direction.
+  if (features.averageInteractionConfidence !== null) {
+    items.push({
+      signal: 'object',
+      feature: 'averageInteractionConfidence',
+      value: features.averageInteractionConfidence,
+      isCategoryDerived: false,
+    });
+  }
+  // Batch OI-5 - a "domain of domains" composite (Visibility + Activity +
+  // Social, see @speedora/contracts' objectTrackSchema for the full
+  // architecture) over everything OI-1..4 already computed - same
+  // "combine, don't re-detect" precedent as this file's own editingRhythm
+  // extraction.
+  if (features.averageAttentionScore !== null) {
+    items.push({
+      signal: 'object',
+      feature: 'averageAttentionScore',
+      value: features.averageAttentionScore,
+      isCategoryDerived: false,
+    });
+  }
+  // Extracted the same way facial/gesture's own peakConfidence is - the
+  // shared 'peakConfidence' feature name is what computeHighlightScore()'s
+  // computeConfidence() looks for to fold a signal's own reliability into
+  // the Fusion Engine's overall confidence, not just into the weighted
+  // score. attentionConfidence is exactly that kind of number (how much
+  // observation backs the attentionScore reading above), so it reuses the
+  // name rather than introducing a parallel, unrecognized one.
+  if (features.averageAttentionConfidence !== null) {
+    items.push({
+      signal: 'object',
+      feature: 'peakConfidence',
+      value: features.averageAttentionConfidence,
+      isCategoryDerived: false,
+    });
+  }
+  return items;
+}
+
 export function extractFeatures(input: FusionInput): ExtractedFeature[] {
   return [
     ...extractAudioFeatures(input.audio),
@@ -828,6 +986,7 @@ export function extractFeatures(input: FusionInput): ExtractedFeature[] {
     ...extractGestureFeatures(input.gesture),
     ...extractFaceGeometryFeatures(input.faceGeometry),
     ...extractOcrFeatures(input.ocr),
+    ...extractObjectFeatures(input.object),
     ...extractLlmFeatures(input.llm),
     ...extractSpeakerFeatures(input.speaker),
   ];
@@ -899,6 +1058,18 @@ const SCENE_BASELINE = 0.2;
 // commonly reads well above single digits), NOT calibrated against real
 // footage, same caveat as every other cap in this file.
 const MOTION_ENERGY_CAP = 20;
+// Batch SC-5 (Scene Intelligence taxonomy expansion, continuing SC-2) -
+// motion-energy peaks/minute at/above which a clip reads as "maximally
+// spiky" - a reasonable guess (a fast-cut highlight reel might spike several
+// times per minute; a static talking-head clip typically has none), NOT
+// calibrated against real footage, same caveat as every other cap here.
+const PEAK_RATE_PER_MINUTE_CAP = 6;
+// Batch SC-6 (Scene Intelligence taxonomy expansion, continuing SC-2/SC-5) -
+// coefficient of variation at/above which motion-energy reads as "maximally
+// erratic" - a reasonable guess (a CoV of 1 means the stddev equals the
+// mean, already a wide swing for a physical magnitude measurement), NOT
+// calibrated against real footage, same caveat as every other cap here.
+const MOTION_VARIABILITY_CAP = 1.5;
 
 // clip-scoring's LLM output is already 0-100 by contract (clampScores()
 // there), so every llm.* normalizer is the same plain /100 divide - listed
@@ -993,6 +1164,13 @@ const HEAD_MOVEMENT_RATE_CAP = 30;
 // footage, same caveat as every other cap in this file.
 const AVERAGE_TEXT_BLOCK_COUNT_CAP = 3;
 
+// Object Intelligence roadmap, Batch OI-1 - detected objects/sampled-frame
+// at/above which object density reads as "maximally busy" - a reasonable
+// guess (a typical talking-head clip might show 1-2 objects: the speaker
+// plus maybe a prop), not calibrated against real footage, same caveat as
+// every other cap in this file.
+const AVERAGE_OBJECT_COUNT_CAP = 3;
+
 const NORMALIZERS: Record<string, (value: number) => number> = {
   averageRmsDb: (value) => clamp(mapRange(value, AUDIO_QUIET_DB, AUDIO_LOUD_DB, 0, 1), 0, 1),
   speakingRateStdDev: (value) => clamp(mapRange(value, 0, SPEAKING_RATE_STD_DEV_CAP, 0, 1), 0, 1),
@@ -1002,6 +1180,10 @@ const NORMALIZERS: Record<string, (value: number) => number> = {
   averageMotionEnergy: (value) => clamp(mapRange(value, 0, MOTION_ENERGY_CAP, 0, 1), 0, 1),
   // Already 0-1 by contract (MotionEnergyFeatures.dynamicRatio).
   dynamicRatio: (value) => clamp(value, 0, 1),
+  // Batch SC-5 (Scene Intelligence taxonomy expansion).
+  peakRatePerMinute: (value) => clamp(mapRange(value, 0, PEAK_RATE_PER_MINUTE_CAP, 0, 1), 0, 1),
+  // Batch SC-6 (Scene Intelligence taxonomy expansion).
+  motionVariability: (value) => clamp(mapRange(value, 0, MOTION_VARIABILITY_CAP, 0, 1), 0, 1),
   // Batch SC-3 - already 0-1 by contract (CameraMotionFeatures - see
   // scene-intelligence.ts).
   panScore: (value) => clamp(value, 0, 1),
@@ -1009,6 +1191,10 @@ const NORMALIZERS: Record<string, (value: number) => number> = {
   zoomScore: (value) => clamp(value, 0, 1),
   shakeScore: (value) => clamp(value, 0, 1),
   dominantMotionTypeWeight: (value) => clamp(value / 100, 0, 1),
+  // Batch SC-6 - already 0-1 by contract (CameraMotionFeatures.motionTypeDiversity).
+  motionTypeDiversity: (value) => clamp(value, 0, 1),
+  // Batch SC-7 - already 0-1 by contract (CameraMotionFeatures.smoothnessScore).
+  smoothnessScore: (value) => clamp(value, 0, 1),
   // Taxonomy category F (Editing Rhythm) - tempoScore/pacingScore already
   // 0-1 by contract. accelerationScore is -1 to 1 (concentrated-first-half
   // to concentrated-second-half) - the only feature normalized from a
@@ -1077,6 +1263,23 @@ const NORMALIZERS: Record<string, (value: number) => number> = {
   dominantTextCategoryWeight: (value) => clamp(value / 100, 0, 1),
   averageTextBlockCount: (value) =>
     clamp(mapRange(value, 0, AVERAGE_TEXT_BLOCK_COUNT_CAP, 0, 1), 0, 1),
+  // Object Intelligence roadmap, Batch OI-1.
+  averageObjectsPerFrame: (value) =>
+    clamp(mapRange(value, 0, AVERAGE_OBJECT_COUNT_CAP, 0, 1), 0, 1),
+  // Already 0-1 by contract (ObjectFeatures) - averageMotionSpeed is
+  // normalized at derive time in track-objects.ts (OBJECT_MOTION_CAP),
+  // same convention as averageTrackingConfidence/averagePersistence.
+  averageTrackingConfidence: (value) => clamp(value, 0, 1),
+  averagePersistence: (value) => clamp(value, 0, 1),
+  averageMotionSpeed: (value) => clamp(value, 0, 1),
+  // Batch OI-3 - already 0-1 by contract (an IoU value can't exceed 1).
+  averageOcclusionScore: (value) => clamp(value, 0, 1),
+  // Batch OI-4 - already 0-1 by contract (a mean of three [0,1] components).
+  averageInteractionConfidence: (value) => clamp(value, 0, 1),
+  // Batch OI-5 - already 0-1 by contract (a mean of three [0,1] domain
+  // scores). averageAttentionConfidence reuses the peakConfidence normalizer
+  // above (same feature name, see extractObjectFeatures()).
+  averageAttentionScore: (value) => clamp(value, 0, 1),
   'engagement.hookStrength': LLM_SCORE_NORMALIZER,
   'engagement.curiosity': LLM_SCORE_NORMALIZER,
   'engagement.emotion': LLM_SCORE_NORMALIZER,

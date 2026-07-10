@@ -538,6 +538,26 @@ model Clip {
   // per-frame shape). Both null exactly when ocrText is null.
   ocrTracks               Json?
   ocrFeatures             Json?
+  // Object Intelligence roadmap, Batch OI-1 (Foundation) -
+  // @speedora/object-intelligence's detectObjects() per-sample output
+  // (MediaPipe Object Detector/EfficientDet-Lite0: category + bounding box
+  // + confidence per detected entity, per sampled frame - a frame can have
+  // multiple simultaneous objects, same multi-region-per-frame shape as
+  // ocrText). Null (not []) when the whole analysis failed to run.
+  objects                 Json?
+  // The "store everything" layer between raw (objects) and aggregate
+  // (objectFeatures): @speedora/object-intelligence's trackObjects()
+  // output, one entry per tracked object across its lifetime (category,
+  // averaged position/size/confidence, start/end time, appearsFrames,
+  // persistenceScore) - same three-layer "raw/tracks/features" pattern as
+  // ocrText/ocrTracks/ocrFeatures, generalized to a genuine multi-object
+  // tracker (see track-objects.ts's own module comment for why OCR's
+  // tracker, not Face Intelligence's single-track one, is the right
+  // precedent). objectFeatures is the dense per-clip summary
+  // computeHighlightScore actually consumes, derived FROM objectTracks.
+  // Both null exactly when objects is null.
+  objectTracks            Json?
+  objectFeatures          Json?
   createdAt               DateTime     @default(now())
   updatedAt               DateTime     @updatedAt
 

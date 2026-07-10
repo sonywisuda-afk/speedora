@@ -5,6 +5,7 @@ import { editingRhythmFeaturesSchema } from './editing-rhythm';
 import { faceLandmarkFeaturesSchema } from './face-landmarks';
 import { facialEmotionFeaturesSchema } from './facial-intelligence';
 import { gestureFeaturesSchema } from './gesture-intelligence';
+import { objectFeaturesSchema } from './object-intelligence';
 import { ocrFeaturesSchema } from './ocr';
 import {
   cameraMotionFeaturesSchema,
@@ -74,6 +75,11 @@ import { speakerFusionFeaturesSchema } from './speaker-scoring';
 // backed by real per-clip detectors (Milestones A-C), unlike the
 // speakerFusionFeaturesSchema draft this replaced (see that schema's own
 // comment for what was cut for having no implementation at all).
+// `object` (Object Intelligence roadmap, Batch OI-1) - same "collect first,
+// calibrate later" treatment as sceneMotion/cameraMotion/gesture/
+// faceGeometry: @speedora/object-intelligence's deriveObjectFeatures()
+// output is collected and visible in `contributions`, but weight 0 (see
+// weights.ts) until there's real engagement data to calibrate against.
 export const FUSION_SIGNALS = [
   'audio',
   'scene',
@@ -84,6 +90,7 @@ export const FUSION_SIGNALS = [
   'gesture',
   'faceGeometry',
   'ocr',
+  'object',
   'llm',
   'speaker',
 ] as const;
@@ -118,6 +125,7 @@ export const fusionInputSchema = z.object({
   gesture: gestureFeaturesSchema.optional(),
   faceGeometry: faceLandmarkFeaturesSchema.optional(),
   ocr: ocrFeaturesSchema.optional(),
+  object: objectFeaturesSchema.optional(),
   llm: clipScoresSchema.optional(),
   speaker: speakerFusionFeaturesSchema.optional(),
 });
