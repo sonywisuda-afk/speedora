@@ -63,11 +63,12 @@ features).
 | Signal | Weight | Status |
 |---|---|---|
 | `audio` | 35% | active |
-| `scene` | 30% | active |
+| `scene` | 25% | active |
 | `facial` | 20% | active |
 | `ocr` | 10% | active (wired at OCR Batch OCR-2) |
+| `editingRhythm` | 5% | **heuristic, unvalidated** (see below) |
 | `llm` | 5% | active (wired at Fusion v2.1) |
-| `sceneMotion`, `cameraMotion`, `editingRhythm`, `gesture`, `faceGeometry` | 0% | collected, visible in `contributions`, not yet calibrated |
+| `sceneMotion`, `cameraMotion`, `gesture`, `faceGeometry` | 0% | collected, visible in `contributions`, not yet calibrated |
 
 These are explicit values given by the user, not learned — a future "weight optimization"
 checkpoint is expected to replace this table with values fit to real engagement data. Every
@@ -75,6 +76,16 @@ weight-0 signal is deliberately wired all the way through (feature extraction, n
 `contributions`) rather than left disconnected, specifically so real distributions can be observed
 before anyone decides on a calibrated weight — "wire in now, gather data, evaluate, then
 calibrate" is a recurring, explicit instruction across this roadmap.
+
+`editingRhythm`'s 5% is a deliberate exception to that pattern, not a calibrated result:
+`apps/worker/src/scripts/check-calibration-coverage.ts` (run 2026-07-10) confirmed **0 usable
+samples** exist in production (0 clips have both `editingRhythmFeatures` and a linked
+`PublishRecord` with a `viewCount`) — real statistical calibration is not yet possible. The 5% was
+assigned by explicit user decision as a temporary reasoned guess, borrowed from `scene`'s share
+(30% → 25%, chosen as the donor since editingRhythm's tempo/pacing features already partly derive
+from scene's own cut data) so the active weights still sum to 1.0. Re-run
+`check-calibration-coverage.ts` as production data accumulates and replace this value with a real
+fit once there's enough data (the script's own threshold is 500 usable samples).
 
 ## `SCORE_DOMAINS` — grouping `ClipScores`' 9 LLM dimensions
 

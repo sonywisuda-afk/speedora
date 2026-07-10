@@ -105,9 +105,12 @@ High-level state of each major initiative (see the linked docs for what's actual
   (object detector) and OCR-4 (scene understanding) are deferred pending a real annotated dataset.
   See `ai/ocr.md`.
 - **Editing Rhythm** (tempo/pacing/acceleration, a composite signal built from other signals'
-  already-computed features) — done, wired at weight 0. See `ai/fusion.md`.
+  already-computed features) — done, wired at a heuristic (unvalidated) 5% weight since production
+  has 0 usable samples to calibrate against yet (`apps/worker/src/scripts/
+  check-calibration-coverage.ts` is the reusable check — rerun it as production data accumulates).
+  See `ai/fusion.md`.
 - **Open**: Visual Composition (rule-of-thirds, shot framing), real dissolve-transition detection,
-  Eye Contact/Gesture/Editing Rhythm/OCR/etc. weight calibration against real engagement data,
+  Eye Contact/Gesture/OCR/etc. weight calibration against real engagement data,
   pitch/F0 audio tracking, and the eventual Multi-Modal Fusion Engine (whether it enriches
   `clip-scoring`'s LLM-selected candidates or replaces selection with a continuous importance
   timeline is an explicit open architectural question — see `ai/fusion.md`).

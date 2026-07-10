@@ -69,9 +69,10 @@ describe('computeHighlightScore', () => {
       },
     });
     // audio contributes 0.35 weight at normalizedValue 1 (=0.35), scene
-    // contributes 0.30 weight at normalizedValue 0.2 (=0.06) -> (0.41/0.65)*100.
-    expect(result.highlightScore).toBe(63);
-    expect(result.confidence).toBeCloseTo(0.65);
+    // contributes 0.25 weight at normalizedValue 0.2 (=0.05) -> (0.40/0.60)*100.
+    // Confidence coverage: (0.35+0.25) present / 1.0 total configured weight.
+    expect(result.highlightScore).toBe(67);
+    expect(result.confidence).toBeCloseTo(0.6);
   });
 
   it('lowers both the score and the confidence when facial peakConfidence is low, unlike v1s damping approach', () => {

@@ -1,7 +1,7 @@
 import type { FusionWeights } from '@speedora/contracts';
 
 // Default per-signal weights - explicit values given by the user, sized so
-// audio/scene/facial/ocr/llm sum to exactly 1.0. Injectable (see
+// the active (non-zero) weights sum to exactly 1.0. Injectable (see
 // computeHighlightScore's `weights` parameter): Checkpoint 5 of the AI
 // Fusion roadmap ("Training, Weight Optimization") is expected to replace
 // this table with values learned from real engagement data, not hardcode
@@ -17,8 +17,19 @@ import type { FusionWeights } from '@speedora/contracts';
 // calibration, contributing nothing to highlightScore yet.
 // `editingRhythm` (taxonomy category F - tempo/pacing/acceleration,
 // composed from scene/sceneMotion/audio's own already-computed features)
-// gets the identical treatment, per explicit user direction: wire it in
-// now, gather real data, evaluate the distribution, THEN calibrate.
+// got the identical "wire in at 0, calibrate later" treatment initially.
+// As of 2026-07-10, `check-calibration-coverage.ts` (apps/worker/src/
+// scripts) confirmed 0 usable samples exist in production (0 clips have
+// both editingRhythmFeatures and a linked PublishRecord with viewCount) -
+// nowhere near enough for a real statistical fit. Per explicit user
+// direction, this was bumped from 0 to a small HEURISTIC 0.05 anyway
+// (reasoned, not fit to data), taken out of `scene`'s share (0.30 -> 0.25)
+// to keep the active weights summing to 1.0 - `scene` was chosen as the
+// donor because editingRhythm's tempo/pacing features are themselves partly
+// derived from scene's own cut data, so the overlap makes it the least
+// arbitrary place to borrow from. Re-run check-calibration-coverage.ts as
+// production data accumulates and replace this with a fit value once
+// there's enough to fit.
 //
 // `gesture`/`faceGeometry` are deliberately 0 here, not absent - both are
 // collected (raw + derived features both exist, see
@@ -43,10 +54,10 @@ import type { FusionWeights } from '@speedora/contracts';
 // unvalidated then.
 export const DEFAULT_FUSION_WEIGHTS: FusionWeights = {
   audio: 0.35,
-  scene: 0.3,
+  scene: 0.25,
   sceneMotion: 0,
   cameraMotion: 0,
-  editingRhythm: 0,
+  editingRhythm: 0.05,
   facial: 0.2,
   gesture: 0,
   faceGeometry: 0,

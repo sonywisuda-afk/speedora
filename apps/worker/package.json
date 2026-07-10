@@ -8,6 +8,7 @@
     "dev": "tsx watch src/main.ts",
     "reencode:sources": "tsx src/scripts/reencode-existing-sources.ts",
     "evaluate:ocr": "tsx src/scripts/evaluate-ocr-classification.ts",
+    "check:calibration-coverage": "tsx src/scripts/check-calibration-coverage.ts",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "lint": "eslint \"src/**/*.ts\"",
