@@ -316,6 +316,21 @@ const noObjectFeatures = {
   averageAttentionScore: null,
   averageAttentionConfidence: null,
 };
+// Composition Intelligence roadmap, Batch RB-1/RB-2 -
+// deriveCompositionFeatures()'s all-null return for zero primary-subject
+// samples - every test in this file leaves faceLandmarks/objects empty or
+// null, so selectPrimarySubject always has an empty sample-timestamp grid
+// to work with, same "analysis found nothing" case as noObjectFeatures
+// above.
+const noCompositionFeatures = {
+  ruleOfThirdsScore: null,
+  headroomScore: null,
+  leadRoomScore: null,
+  centeringScore: null,
+  subjectLossRatio: null,
+  compositionStability: null,
+  framingConsistency: null,
+};
 // Real computeHighlightScore() (v2, Fase 31) output for a clip with zero
 // scene cuts (the baseline scene score, 0.2 normalized) and no audio/
 // facial/gesture signal - most tests here don't set up cuts/audio/facial/
@@ -531,6 +546,7 @@ describe('render-clip worker', () => {
         objects: [],
         objectTracks: [],
         objectFeatures: noObjectFeatures,
+        compositionFeatures: noCompositionFeatures,
         llmFeatures: Prisma.JsonNull,
         ...baselineHighlight,
       },
@@ -987,6 +1003,7 @@ describe('render-clip worker', () => {
           objects: [],
           objectTracks: [],
           objectFeatures: noObjectFeatures,
+          compositionFeatures: noCompositionFeatures,
           llmFeatures: Prisma.JsonNull,
           highlightScore: 64,
           highlightConfidence: 0.3,
@@ -1113,6 +1130,7 @@ describe('render-clip worker', () => {
           objects: [],
           objectTracks: [],
           objectFeatures: noObjectFeatures,
+          compositionFeatures: noCompositionFeatures,
           llmFeatures: Prisma.JsonNull,
           ...baselineHighlight,
         },
@@ -1405,6 +1423,7 @@ describe('render-clip worker', () => {
           objects: [],
           objectTracks: [],
           objectFeatures: noObjectFeatures,
+          compositionFeatures: noCompositionFeatures,
           llmFeatures: Prisma.JsonNull,
           highlightScore: 46,
           highlightConfidence: 0.45,
@@ -1531,6 +1550,7 @@ describe('render-clip worker', () => {
           objects: [],
           objectTracks: [],
           objectFeatures: noObjectFeatures,
+          compositionFeatures: noCompositionFeatures,
           llmFeatures: Prisma.JsonNull,
           ...baselineHighlight,
         },
@@ -2008,6 +2028,108 @@ describe('render-clip worker', () => {
         expect.objectContaining({ data: { status: VideoStatus.FAILED } }),
       );
       expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+    });
+  });
+
+  describe('Composition Intelligence roadmap - Batch RB-1/RB-2', () => {
+    it('runs Primary Subject Selection over faceLandmarks and persists real (non-null) compositionFeatures', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      // computeCropDimensionsMock (shared beforeEach) resolves a 136x240
+      // (portrait) output frame - the headroom target range below assumes
+      // that same portrait orientation.
+      detectFaceLandmarksMock.mockResolvedValue([
+        {
+          t: 0,
+          blendshapes: null,
+          // |yaw| = 4 is below leadRoomScore's neutral threshold (15), and a
+          // single sample has no motion-trend history either - leadRoomScore
+          // should resolve to null, not a guessed direction.
+          rotation: { pitch: 0, yaw: -4, roll: 0 },
+          // Dead-center box: centeringScore should be exactly 1.
+          boundingBox: { xCenter: 0.5, yCenter: 0.5, width: 0.3, height: 0.4 },
+          leftIris: null,
+          rightIris: null,
+          leftEyeInnerCorner: null,
+          leftEyeOuterCorner: null,
+          rightEyeInnerCorner: null,
+          rightEyeOuterCorner: null,
+          sharpness: null,
+          brightness: null,
+          mouthContrastRatio: null,
+          faceDescriptor: null,
+          trackId: 0,
+          mouthWidth: null,
+        },
+      ]);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      const [{ data }] = clipUpdateMock.mock.calls[0];
+      const composition = data.compositionFeatures;
+      // Dead-center box, exactly halfway between "on a thirds intersection"
+      // (1) and "as far as geometrically possible" (0) - see
+      // calculateRuleOfThirdsScore's own module comment. toBeCloseTo, not
+      // toBe - the sqrt-based geometry produces a floating-point-imprecise
+      // 0.5 (e.g. 0.5000000000000001), not a literal 0.5.
+      expect(composition.ruleOfThirdsScore).toBeCloseTo(0.5);
+      // topEdge = 0.5 - 0.4/2 = 0.3, which is 0.1 above the portrait target
+      // range's max (0.2), against a 0.2 max deviation - see
+      // calculateHeadroomScore. Same floating-point-imprecision reason as
+      // ruleOfThirdsScore above.
+      expect(composition.headroomScore).toBeCloseTo(0.5);
+      // Only one sample, and its yaw is inside the neutral band - no
+      // resolvable facing direction, excluded rather than guessed (see
+      // calculateLeadRoomScore).
+      expect(composition.leadRoomScore).toBeNull();
+      // Dead-center box - see calculateCenteringScore.
+      expect(composition.centeringScore).toBe(1);
+      // The one sample had a subject the whole time.
+      expect(composition.subjectLossRatio).toBe(0);
+      // Needs 2+ consecutive present samples to take a delta.
+      expect(composition.compositionStability).toBeNull();
+      // Needs 2+ present samples to compare shot-type transitions.
+      expect(composition.framingConsistency).toBeNull();
+
+      // `composition` is weight 0 in DEFAULT_FUSION_WEIGHTS (collect first,
+      // calibrate later, same as object/gesture/faceGeometry) - this data
+      // must NOT move highlightScore yet.
+      expect(data.highlightScore).toBe(baselineHighlight.highlightScore);
+    });
+
+    it('falls back to tracked objects for the sample grid when face detection finds nothing (empty, not null)', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      // detectFaceLandmarksMock already defaults to [] (shared beforeEach) -
+      // an empty array is truthy, so this exercises the union-not-fallback
+      // sample-timestamp fix (a `?? ` fallback would have silently produced
+      // an empty grid here and dropped this object-track data entirely).
+      detectObjectsMock.mockResolvedValue([
+        {
+          t: 0,
+          objects: [
+            {
+              category: 'person',
+              boundingBox: { xCenter: 0.5, yCenter: 0.5, width: 0.3, height: 0.4 },
+              confidence: 0.9,
+            },
+          ],
+        },
+      ]);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      const [{ data }] = clipUpdateMock.mock.calls[0];
+      // Dead-center tracked person -> the same centeringScore=1 the face-
+      // sourced test above got, confirming object-track data reached
+      // Composition Intelligence at all (would be all-null if the sample
+      // grid had silently come back empty).
+      expect(data.compositionFeatures.centeringScore).toBe(1);
+      expect(data.compositionFeatures.subjectLossRatio).toBe(0);
     });
   });
 
