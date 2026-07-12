@@ -283,11 +283,12 @@ describe('VideosService', () => {
         },
       ]);
 
-      const result = await service.findAll('user-1');
+      const result = await service.findAll('user-1', { limit: 20 });
 
       expect(prisma.video.findMany).toHaveBeenCalledWith({
         where: { ownerId: 'user-1' },
-        orderBy: { createdAt: 'desc' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 21,
         include: {
           clips: {
             orderBy: { viralityScore: 'desc' },
@@ -295,7 +296,8 @@ describe('VideosService', () => {
           },
         },
       });
-      expect(result[0].clips).toEqual([
+      expect(result.nextCursor).toBeNull();
+      expect(result.videos[0].clips).toEqual([
         {
           id: 'clip-1',
           viralityScore: 90,
@@ -383,7 +385,22 @@ describe('VideosService', () => {
           publishRecords: [],
         },
       ]);
-      expect(result[0].clips[0]).not.toHaveProperty('outputUrl');
+      expect(result.videos[0].clips[0]).not.toHaveProperty('outputUrl');
+    });
+
+    it('paginates via cursor and reports nextCursor when there are more rows than the limit', async () => {
+      prisma.video.findMany.mockResolvedValue([
+        { id: 'video-3', ownerId: 'user-1', clips: [] },
+        { id: 'video-2', ownerId: 'user-1', clips: [] },
+      ]);
+
+      const result = await service.findAll('user-1', { cursor: 'video-4', limit: 1 });
+
+      expect(prisma.video.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ cursor: { id: 'video-4' }, skip: 1, take: 2 }),
+      );
+      expect(result.videos.map((v) => v.id)).toEqual(['video-3']);
+      expect(result.nextCursor).toBe('video-3');
     });
   });
 

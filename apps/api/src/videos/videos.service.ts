@@ -243,14 +243,28 @@ export class VideosService {
     throw new BadRequestException(NO_PREMIUM_CREDIT_MESSAGE);
   }
 
-  async findAll(ownerId: string) {
+  // Cursor-based (not offset) - the list is polled every 2s while videos are
+  // actively being created, and offset pagination would skip/duplicate rows
+  // as new ones land ahead of an in-progress page walk. `cursor` is a
+  // previously-returned video id; `limit+1` is fetched so the extra row
+  // (never returned) tells us whether there's a next page without a second
+  // count query.
+  async findAll(ownerId: string, { cursor, limit }: { cursor?: string; limit: number }) {
     const videos = await this.prisma.video.findMany({
       where: { ownerId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
       include: { clips: CLIPS_WITH_PUBLISH_RECORDS },
     });
 
-    return videos.map((video) => this.mapVideoWithClips(video));
+    const hasMore = videos.length > limit;
+    const page = hasMore ? videos.slice(0, limit) : videos;
+
+    return {
+      videos: page.map((video) => this.mapVideoWithClips(video)),
+      nextCursor: hasMore ? page[page.length - 1].id : null,
+    };
   }
 
   // Re-enqueues whichever stage actually failed, inferred from what data

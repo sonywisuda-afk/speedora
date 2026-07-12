@@ -45,15 +45,45 @@ reflects the server.
   breakdown, topic/intent distribution — built entirely from data already on `TimelineClip`, no new
   API calls.
 
-## Dashboard (`app/dashboard/page.tsx`)
+## Dashboard (`app/dashboard/page.tsx`, `components/dashboard/`)
 
-Polls `GET /videos` every 2s. Clip preview `<video>` uses `clipStreamUrl(clip.id)` →
-`GET /clips/:id/stream` (Range-enabled inline stream), not `clipDownloadUrl` (attachment header,
-can't play in a `<video>` element). Clip delete is **optimistic** — the row disappears immediately
-on click; on a failed request it re-fetches the real list (`listVideos()`) rather than restoring a
-stale snapshot, since a poll may have moved state in the meantime. "OCR Review" link appears only
-when at least one clip has `ocrTracks`; "AI Explainability" link appears only when at least one clip
-has a non-null `highlightScore`.
+Product Experience performance pass (target: <1s load) turned this from a fully client-rendered
+page into a Server Component: `page.tsx` fetches auth + the first page of videos server-side
+(`lib/api.server.ts`, forwarding the httpOnly `token` cookie via `next/headers` — the API has no
+browser cookie jar to rely on server-side) so the first HTML response already contains real
+content, not a loading spinner. `components/dashboard/DashboardClient.tsx` (client component)
+takes it from there, seeded with that data via SWR's `fallbackData` instead of starting from
+`null`. Stats/Activity (`DashboardSummary.tsx`, an async Server Component) are wrapped in their own
+`<Suspense>` boundary in `page.tsx` so they stream in independently rather than blocking the video
+list's first paint — see `app/dashboard/loading.tsx` for the route-level skeleton shown before
+`page.tsx`'s own fetch resolves.
+
+`GET /videos` is now cursor-paginated (`PaginatedVideos` in `packages/shared`, default page size
+20) rather than unbounded — the previous unbounded query (every video/clip/publish record a user
+ever created, on every 2s poll) was both the main load-time cost and a real scalability risk.
+`DashboardClient.tsx` polls only page 1 via `useSWR` (2s while any video is non-terminal, paused
+once everything's `RENDERED`/`FAILED`); additional pages loaded via "Load More" are appended to
+separate, un-polled local state and merged for rendering (deduped by id). `RecentProjectsGrid.tsx`
+switches from a plain CSS grid to a virtualized `react-window` `List` past 30 loaded videos (the
+common case, one page, never hits this — see the component's own comment on why `react-window`'s
+`Grid` doesn't fit this grid's responsive Tailwind breakpoints without tracking container width).
+`ProcessingQueue.tsx`/`ActivityTimeline.tsx` extract memoized per-row components so a poll tick
+that changes one video doesn't re-render every row.
+
+Clip preview `<video>` uses `clipStreamUrl(clip.id)` → `GET /clips/:id/stream` (Range-enabled
+inline stream), not `clipDownloadUrl` (attachment header, can't play in a `<video>` element). Video
+and clip delete are both **optimistic** — the row disappears immediately on click; on a failed
+request it re-fetches the real list (SWR's `mutate()`) rather than restoring a stale snapshot,
+since a poll may have moved state in the meantime. "OCR Review" link appears only when at least one
+clip has `ocrTracks`; "AI Explainability" link appears only when at least one clip has a non-null
+`highlightScore`.
+
+The "Invite Member" quick action (`InviteMemberDialog.tsx`, code-split via `next/dynamic` since
+its Radix dialog content is only needed once clicked) now calls a real Server Action
+(`app/dashboard/actions.ts`'s `inviteMemberAction`) instead of a browser `fetch` — chosen as the
+one Server Action in this pass specifically because it's simple and self-contained; delete/publish/
+schedule keep their existing hand-tuned optimistic client mutations rather than being redone as
+Server Actions, since they aren't on the initial-load critical path.
 
 ## AI Explainability (`app/videos/[id]/explainability/page.tsx`, `components/explainability/`)
 

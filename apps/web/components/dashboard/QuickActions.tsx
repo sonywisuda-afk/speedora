@@ -1,8 +1,20 @@
+'use client';
+
 import { Download, FolderPlus, UploadCloud } from 'lucide-react';
+import dynamic from 'next/dynamic';
 import Link from 'next/link';
 import { Button } from '@/components/ui/button';
 import { dashboardExportCsvUrl } from '@/lib/api';
-import { InviteMemberDialog } from './InviteMemberDialog';
+
+// Code-split (Product Experience performance pass) - the Dialog/Radix
+// content (and the Server Action it now calls) is only needed once a user
+// actually clicks "Invite Member", not on every dashboard load. `ssr: false`
+// since it's a client-only interactive dialog with no meaningful
+// server-rendered fallback state.
+const InviteMemberDialog = dynamic(
+  () => import('./InviteMemberDialog').then((mod) => mod.InviteMemberDialog),
+  { ssr: false, loading: () => <Button variant="outline" disabled>Invite Member</Button> },
+);
 
 // "Create Project" is deliberately an alias for the same upload flow as
 // "Upload Video" - there is no Project grouping entity in this schema

@@ -60,6 +60,20 @@ export function SearchBar() {
           onBlur={() => setTimeout(() => setOpen(false), 150)}
           placeholder="Cari video, klip, kata kunci, atau transkrip..."
           className="pl-9"
+          // A live filter box, not a form field meant to be filled with a
+          // saved value - same autoComplete="off" convention as
+          // app/accounts/page.tsx's delete-confirmation input. Also stops
+          // the browser's own autofill/heuristic-highlighting pass on this
+          // input, which was the actual source of an intermittent "Extra
+          // attributes from the server: style" hydration warning (confirmed
+          // via a MutationObserver + repeated headless-Chromium runs: no
+          // style attribute was ever present in this app's own rendered
+          // output, and the warning wasn't reproducible on every run - a
+          // real server/client markup mismatch would be deterministic).
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
         />
       </div>
 

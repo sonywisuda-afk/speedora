@@ -2,6 +2,7 @@
 
 import { PendingInviteRole } from '@speedora/shared';
 import { useState } from 'react';
+import { inviteMemberAction } from '@/app/dashboard/actions';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -12,7 +13,6 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { sendTeamInvite } from '@/lib/api';
 
 const ROLE_LABELS: Record<PendingInviteRole, string> = {
   [PendingInviteRole.OWNER]: 'Owner',
@@ -47,7 +47,7 @@ export function InviteMemberDialog() {
     setError(null);
     setSending(true);
     try {
-      await sendTeamInvite(email, role);
+      await inviteMemberAction(email, role);
       setSent(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal mengirim undangan');

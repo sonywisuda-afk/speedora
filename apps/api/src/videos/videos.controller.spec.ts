@@ -14,6 +14,7 @@ describe('VideosController', () => {
     findSourceOrThrow: jest.Mock;
     upload: jest.Mock;
     importFromYoutube: jest.Mock;
+    findAll: jest.Mock;
   };
   const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
 
@@ -22,6 +23,7 @@ describe('VideosController', () => {
       findSourceOrThrow: jest.fn(),
       upload: jest.fn(),
       importFromYoutube: jest.fn(),
+      findAll: jest.fn(),
     };
     controller = new VideosController(videosService as unknown as VideosService);
     jest.clearAllMocks();
@@ -46,6 +48,26 @@ describe('VideosController', () => {
         file,
         TranscriptionProvider.OPENAI,
       );
+    });
+  });
+
+  describe('findAll', () => {
+    it('defaults to the default limit and no cursor when none are given', () => {
+      controller.findAll(user);
+
+      expect(videosService.findAll).toHaveBeenCalledWith('user-1', {
+        cursor: undefined,
+        limit: 20,
+      });
+    });
+
+    it('forwards an explicit cursor and clamps an out-of-range limit rather than passing it through raw', () => {
+      controller.findAll(user, 'video-9', '9999');
+
+      expect(videosService.findAll).toHaveBeenCalledWith('user-1', {
+        cursor: 'video-9',
+        limit: 50,
+      });
     });
   });
 

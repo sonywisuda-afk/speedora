@@ -14,8 +14,8 @@ import type {
   OpsAiHealthDto,
   OpsAiReadinessDto,
   OpsAiSignalsDto,
+  PaginatedVideos,
   PendingInviteDto,
-  PendingInviteRole,
   PremiumCheckoutResult,
   PremiumCreditAvailability,
   PublishRecord,
@@ -46,7 +46,10 @@ export type ClipDto = Clip;
 export type VideoDto = Video;
 export type VideoWithClipsDto = VideoWithClips;
 
-async function parseJsonOrThrow<T>(res: Response): Promise<T> {
+// Exported (not just used internally) so lib/api.server.ts's cookie-
+// forwarding server fetch can reuse the same response-parsing/error-message
+// convention as every browser call below, instead of a second copy.
+export async function parseJsonOrThrow<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => null);
   if (!res.ok) {
     const message =
@@ -219,9 +222,19 @@ export async function getVideoTranscript(id: string): Promise<TranscriptSegment[
   return parseJsonOrThrow<TranscriptSegment[]>(res);
 }
 
-export async function listVideos(): Promise<VideoWithClipsDto[]> {
-  const res = await apiFetch('/videos');
-  return parseJsonOrThrow<VideoWithClipsDto[]>(res);
+// Product Experience performance pass - GET /videos is now cursor-paginated
+// (see PaginatedVideos in packages/shared) rather than returning every video
+// a user has ever created on every 2s poll.
+export async function listVideos(params?: {
+  cursor?: string;
+  limit?: number;
+}): Promise<PaginatedVideos> {
+  const query = new URLSearchParams();
+  if (params?.cursor) query.set('cursor', params.cursor);
+  if (params?.limit) query.set('limit', String(params.limit));
+  const qs = query.toString();
+  const res = await apiFetch(`/videos${qs ? `?${qs}` : ''}`);
+  return parseJsonOrThrow<PaginatedVideos>(res);
 }
 
 export function clipDownloadUrl(downloadUrl: string): string {
@@ -492,20 +505,8 @@ export async function search(query: string): Promise<SearchResultsDto> {
   return parseJsonOrThrow<SearchResultsDto>(res);
 }
 
-// Invite Member quick action - see PendingInvite's own comment in
-// schema.prisma for why this is deliberately a one-way "email sent" action,
-// not a real invitation lifecycle.
-export async function sendTeamInvite(
-  email: string,
-  role: PendingInviteRole,
-): Promise<PendingInviteDto> {
-  const res = await apiFetch('/team/invites', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, role }),
-  });
-  return parseJsonOrThrow<PendingInviteDto>(res);
-}
+// Invite Member quick action - now a Server Action (see
+// app/dashboard/actions.ts's inviteMemberAction), not a browser POST.
 
 export async function listTeamInvites(): Promise<{ invites: PendingInviteDto[] }> {
   const res = await apiFetch('/team/invites');

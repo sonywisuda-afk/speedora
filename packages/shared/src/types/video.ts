@@ -1046,6 +1046,18 @@ export interface VideoWithClips extends Video {
   clips: Clip[];
 }
 
+// Product Experience performance pass - GET /videos was unbounded (every
+// video+clip+publishRecord a user ever created, on every 2s dashboard poll),
+// the main reason the dashboard couldn't paint quickly for an established
+// account. Cursor-based (not offset) since the list is live/growing -
+// `nextCursor` is the last returned video's id, `null` once there's nothing
+// more to page through, same "null means done, not zero" convention used
+// throughout this file (e.g. highlightScore).
+export interface PaginatedVideos {
+  videos: VideoWithClips[];
+  nextCursor: string | null;
+}
+
 // PATCH /clips/:id payload - manual trim from the timeline editor. Partial:
 // either field can be adjusted independently.
 export interface UpdateClipInput {

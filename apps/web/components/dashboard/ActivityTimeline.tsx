@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { ActivityEventType, type ActivityEventDto } from '@speedora/shared';
 import { Download, Film, UploadCloud, UserPlus } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
@@ -31,6 +32,19 @@ function describe(event: ActivityEventDto): string {
   }
 }
 
+const ActivityRow = memo(function ActivityRow({ event }: { event: ActivityEventDto }) {
+  const Icon = ICONS[event.type];
+  return (
+    <div className="flex items-center gap-3 p-3">
+      <Icon className="h-4 w-4 shrink-0 text-chrome" aria-hidden="true" />
+      <p className="flex-1 font-body text-sm text-foreground">{describe(event)}</p>
+      <span className="shrink-0 font-mono text-xs text-muted-foreground">
+        {formatRelativeTime(event.createdAt)}
+      </span>
+    </div>
+  );
+});
+
 // Fed by GET /dashboard/activity - a thin, no-JSX-logic read of
 // ActivityEvent rows, newest first (server-sorted). One icon per event
 // type, relative-time formatted (lib/dashboard.ts's formatRelativeTime, no
@@ -43,18 +57,9 @@ export function ActivityTimeline({ events }: ActivityTimelineProps) {
   return (
     <Card>
       <CardContent className="divide-y divide-border p-0">
-        {events.map((event) => {
-          const Icon = ICONS[event.type];
-          return (
-            <div key={event.id} className="flex items-center gap-3 p-3">
-              <Icon className="h-4 w-4 shrink-0 text-chrome" aria-hidden="true" />
-              <p className="flex-1 font-body text-sm text-foreground">{describe(event)}</p>
-              <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                {formatRelativeTime(event.createdAt)}
-              </span>
-            </div>
-          );
-        })}
+        {events.map((event) => (
+          <ActivityRow key={event.id} event={event} />
+        ))}
       </CardContent>
     </Card>
   );

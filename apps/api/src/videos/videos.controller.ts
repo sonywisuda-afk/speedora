@@ -8,6 +8,7 @@ import {
   Param,
   ParseFilePipeBuilder,
   Post,
+  Query,
   Res,
   UploadedFile,
   UseGuards,
@@ -26,6 +27,20 @@ import { UploadVideoDto } from './dto/upload-video.dto';
 import { VideosService } from './videos.service';
 
 const MAX_UPLOAD_SIZE_BYTES = 2 * 1024 * 1024 * 1024; // 2GB
+
+// Product Experience performance pass - same clamped-parse-rather-than-throw
+// posture as AnalyticsController/DashboardController's own parseLimit (each
+// controller keeps its own copy rather than sharing one, per this codebase's
+// existing convention).
+const MIN_LIMIT = 1;
+const MAX_LIMIT = 50;
+const DEFAULT_LIMIT = 20;
+
+function parseLimit(raw: string | undefined): number {
+  const parsed = Number(raw);
+  if (!raw || !Number.isFinite(parsed)) return DEFAULT_LIMIT;
+  return Math.min(MAX_LIMIT, Math.max(MIN_LIMIT, Math.round(parsed)));
+}
 
 @Controller('videos')
 @UseGuards(JwtAuthGuard)
@@ -66,8 +81,12 @@ export class VideosController {
   }
 
   @Get()
-  findAll(@CurrentUser() user: SafeUser) {
-    return this.videosService.findAll(user.id);
+  findAll(
+    @CurrentUser() user: SafeUser,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+  ) {
+    return this.videosService.findAll(user.id, { cursor, limit: parseLimit(limit) });
   }
 
   @Get(':id')

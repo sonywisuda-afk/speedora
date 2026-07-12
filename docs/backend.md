@@ -20,7 +20,13 @@ delegated to `apps/worker` via BullMQ. See `architecture.md` for the overall pip
   `cd apps/api && npx ts-node -T src/scripts/grant-role.ts user@example.com ADMIN`
   (`src/scripts/grant-role.ts`), see `docs/operations-runbook.md`.
 - **Videos** (`src/videos`) — upload, YouTube import, status polling, transcript, source
-  streaming, retry.
+  streaming, retry. `GET /videos` (Product Experience performance pass) is cursor-paginated —
+  `?cursor`/`?limit` (clamped 1-50, default 20, same parse-don't-throw `parseLimit` convention as
+  `AnalyticsController`/`DashboardController`), ordered `createdAt desc, id desc` for a stable
+  tiebreak, returning `{ videos, nextCursor }` (`PaginatedVideos` in `packages/shared`) instead of
+  every video a user has ever created — the previous unbounded query was the dashboard's main
+  load-time cost. See `docs/frontend.md`'s Dashboard section for the client side (SSR first page,
+  SWR polling, "Load More" for subsequent pages).
 - **Clips** (`src/clips`) — trim/caption-style updates, render trigger, publish, download/stream,
   delete.
 - **Social** (`src/social`) — OAuth connect/refresh/disconnect for YouTube/TikTok/Instagram.
