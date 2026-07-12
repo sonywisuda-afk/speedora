@@ -51,6 +51,14 @@ const TRIM_TIMEOUT_MS = 5 * 60 * 1000;
 // expensive of the two operations (full encode vs. a re-encode of already-rendered output).
 const RENDER_TIMEOUT_MS = 15 * 60 * 1000;
 
+// extractThumbnail's own bound - a single-frame extract has no legitimate
+// reason to run long (unlike TRIM_TIMEOUT_MS/RENDER_TIMEOUT_MS, which exist
+// because real multi-minute hangs were observed under load for much heavier
+// operations). Both callers treat a thumbnail failure as fully optional (see
+// transcribe.worker.ts/render-clip.worker.ts's own comments), so this just
+// needs to be long enough for a legitimate extraction, not generous.
+const THUMBNAIL_TIMEOUT_MS = 30 * 1000;
+
 export async function getVideoDimensions(
   inputPath: string,
 ): Promise<{ width: number; height: number }> {
@@ -128,6 +136,94 @@ export async function extractAudio(
     AUDIO_BITRATE,
     outputPath,
   ]);
+}
+
+// Extracts one frame at `atSeconds` into a small JPEG (thumbnail) - the
+// Product Experience roadmap's real-thumbnail addition (transcribe.worker.ts
+// for a Video's thumbnail, render-clip.worker.ts for a Clip's, both
+// best-effort/never job-failing). `-y` overwrites an existing file at
+// outputPath (a retry re-running this stage overwrites the same object-storage
+// key rather than erroring). `-update 1` tells the image2 muxer this is a
+// single still image, not a %03d-style sequence pattern - confirmed via a
+// real (non-mocked) ffmpeg run that without it, ffmpeg still writes a valid
+// image but emits a "does not contain an image sequence pattern" warning on
+// every single extraction (harmless, but exactly the kind of ambiguous
+// fallback a future ffmpeg version could turn into a hard error). `-vf
+// scale=480:-1` keeps the file small - this is explicitly a thumbnail, not a
+// full-res preview frame (see the caller comments for why higher-resolution/
+// next/image serving is deliberately a separate, later phase). WebP
+// (`-c:v libwebp -quality 80`, Phase 2 image-optimization roadmap) - real
+// ffmpeg runs against a test video measured meaningfully smaller output than
+// the JPEG this replaced, at equivalent visual quality; every browser this
+// app plausibly targets has supported WebP for years, so no JPEG fallback
+// markup is needed. No atomic-rename wrapper - unlike renderClip/
+// trimCutRanges this writes a small, fast, non-resumed file, same simplicity
+// as extractAudio/reencodeToH264 above.
+export async function extractThumbnail(
+  inputPath: string,
+  outputPath: string,
+  atSeconds: number,
+): Promise<void> {
+  await execFileAsync(
+    FFMPEG_PATH,
+    [
+      '-y',
+      '-ss',
+      String(atSeconds),
+      '-i',
+      inputPath,
+      '-vframes',
+      '1',
+      '-update',
+      '1',
+      '-vf',
+      'scale=480:-1',
+      '-c:v',
+      'libwebp',
+      '-quality',
+      '80',
+      outputPath,
+    ],
+    { timeout: THUMBNAIL_TIMEOUT_MS },
+  );
+}
+
+// Phase 2 (image optimization roadmap) - a tiny (16px-wide) companion frame
+// for the "blur placeholder" technique (a wide-CSS-blurred, near-invisible-
+// detail preview shown while the real thumbnail loads). Same best-effort/
+// never-job-failing callers, same timeout, same image2/WebP reasoning as
+// extractThumbnail above - just a much smaller `scale`/lower `-quality` since
+// blockiness/detail loss is invisible (arguably desirable) at this size.
+// Deliberately a *separate* ffmpeg call rather than deriving this from
+// extractThumbnail's own output - reads the higher-quality source frame
+// directly rather than re-compressing an already-compressed thumbnail.
+export async function extractBlurPlaceholder(
+  inputPath: string,
+  outputPath: string,
+  atSeconds: number,
+): Promise<void> {
+  await execFileAsync(
+    FFMPEG_PATH,
+    [
+      '-y',
+      '-ss',
+      String(atSeconds),
+      '-i',
+      inputPath,
+      '-vframes',
+      '1',
+      '-update',
+      '1',
+      '-vf',
+      'scale=16:-1',
+      '-c:v',
+      'libwebp',
+      '-quality',
+      '50',
+      outputPath,
+    ],
+    { timeout: THUMBNAIL_TIMEOUT_MS },
+  );
 }
 
 // Total duration of a media file in seconds, via ffprobe - the transcribe job

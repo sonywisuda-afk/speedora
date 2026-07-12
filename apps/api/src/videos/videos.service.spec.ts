@@ -302,6 +302,7 @@ describe('VideosService', () => {
           id: 'clip-1',
           viralityScore: 90,
           downloadUrl: '/clips/clip-1/download',
+          thumbnailUrl: null,
           scores: null,
           facialEmotions: null,
           sceneCutEvents: null,
@@ -345,6 +346,7 @@ describe('VideosService', () => {
           id: 'clip-2',
           viralityScore: 40,
           downloadUrl: null,
+          thumbnailUrl: null,
           scores: null,
           facialEmotions: null,
           sceneCutEvents: null,
@@ -386,6 +388,30 @@ describe('VideosService', () => {
         },
       ]);
       expect(result.videos[0].clips[0]).not.toHaveProperty('outputUrl');
+    });
+
+    it('passes thumbnailBlurDataUrl through unchanged at both video and clip level', async () => {
+      prisma.video.findMany.mockResolvedValue([
+        {
+          id: 'video-1',
+          ownerId: 'user-1',
+          thumbnailBlurDataUrl: 'data:image/webp;base64,dmlkZW8=',
+          clips: [
+            {
+              id: 'clip-1',
+              outputUrl: null,
+              viralityScore: 90,
+              thumbnailBlurDataUrl: 'data:image/webp;base64,Y2xpcA==',
+              publishRecords: [],
+            },
+          ],
+        },
+      ]);
+
+      const result = await service.findAll('user-1', { limit: 20 });
+
+      expect(result.videos[0].thumbnailBlurDataUrl).toBe('data:image/webp;base64,dmlkZW8=');
+      expect(result.videos[0].clips[0].thumbnailBlurDataUrl).toBe('data:image/webp;base64,Y2xpcA==');
     });
 
     it('paginates via cursor and reports nextCursor when there are more rows than the limit', async () => {
@@ -463,6 +489,44 @@ describe('VideosService', () => {
       });
 
       await expect(service.findSourceOrThrow('video-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('findThumbnailOrThrow', () => {
+    it('returns just the thumbnailUrl when the video belongs to the requester', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        thumbnailUrl: 'thumbnails/video-1.jpg',
+      });
+
+      const result = await service.findThumbnailOrThrow('video-1', 'user-1');
+
+      expect(result).toEqual({ thumbnailUrl: 'thumbnails/video-1.jpg' });
+    });
+
+    it('returns a null thumbnailUrl (not a throw) when extraction has not produced one yet', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        thumbnailUrl: null,
+      });
+
+      const result = await service.findThumbnailOrThrow('video-1', 'user-1');
+
+      expect(result).toEqual({ thumbnailUrl: null });
+    });
+
+    it('throws NotFoundException when the video belongs to a different user', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'someone-else',
+        thumbnailUrl: 'thumbnails/video-1.jpg',
+      });
+
+      await expect(service.findThumbnailOrThrow('video-1', 'user-1')).rejects.toThrow(
         NotFoundException,
       );
     });

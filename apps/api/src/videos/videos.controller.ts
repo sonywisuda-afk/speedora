@@ -5,6 +5,7 @@ import {
   Get,
   Headers,
   HttpCode,
+  NotFoundException,
   Param,
   ParseFilePipeBuilder,
   Post,
@@ -17,7 +18,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Video } from '@speedora/database';
 import { TranscriptionProvider } from '@speedora/shared';
-import { getObjectStreamRange } from '@speedora/storage';
+import { getObjectStream, getObjectStreamRange } from '@speedora/storage';
 import type { Response } from 'express';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { SafeUser } from '../auth/auth.service';
@@ -40,6 +41,14 @@ function parseLimit(raw: string | undefined): number {
   const parsed = Number(raw);
   if (!raw || !Number.isFinite(parsed)) return DEFAULT_LIMIT;
   return Math.min(MAX_LIMIT, Math.max(MIN_LIMIT, Math.round(parsed)));
+}
+
+// Derived from the stored key's own extension (Phase 2, image optimization
+// roadmap) rather than hardcoded - thumbnails extracted before the WebP
+// switch are still `.jpg` (never backfilled), and serving those with a
+// hardcoded `image/webp` header would be wrong.
+function thumbnailContentType(key: string): string {
+  return key.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
 }
 
 @Controller('videos')
@@ -124,6 +133,30 @@ export class VideosController {
       res.setHeader('Content-Range', result.contentRange);
     }
     result.stream.pipe(res);
+  }
+
+  // Product Experience roadmap - the extracted thumbnail frame. A plain
+  // (non-Range) stream is enough since this is a small static image, not
+  // something a <video> element seeks through.
+  @Get(':id/thumbnail')
+  async thumbnail(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const { thumbnailUrl } = await this.videosService.findThumbnailOrThrow(id, user.id);
+    if (!thumbnailUrl) {
+      throw new NotFoundException(`Video ${id} has no thumbnail`);
+    }
+
+    const stream = await getObjectStream(thumbnailUrl);
+    res.setHeader('Content-Type', thumbnailContentType(thumbnailUrl));
+    // Phase 2 (image optimization roadmap) - first Cache-Control precedent in
+    // this app. `private`: still JwtAuthGuard-protected, not for a shared
+    // cache. A day, not `immutable`: a retry can re-extract and overwrite the
+    // same key, so this exact URL *can* legitimately change.
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    stream.pipe(res);
   }
 
   @Post(':id/retry')

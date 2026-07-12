@@ -1,4 +1,5 @@
 import { createReadStream, createWriteStream } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import * as Sentry from '@sentry/node';
@@ -16,7 +17,7 @@ import {
   type TranscribeJobData,
   type TranscribeJobResult,
 } from '@speedora/shared';
-import { getObjectStream } from '@speedora/storage';
+import { getObjectStream, uploadObject } from '@speedora/storage';
 import { Worker, type Job } from 'bullmq';
 import type OpenAI from 'openai';
 import { audioIntelligenceDeps } from '../audioIntelligenceDeps';
@@ -26,7 +27,13 @@ import {
   toFriendlySpeakerTurns,
   type SpeakerTurn,
 } from '../diarization';
-import { type AudioWindow, extractAudio, getMediaDurationSeconds } from '../ffmpeg';
+import {
+  type AudioWindow,
+  extractAudio,
+  extractBlurPlaceholder,
+  extractThumbnail,
+  getMediaDurationSeconds,
+} from '../ffmpeg';
 import { groq, GROQ_WHISPER_MODEL } from '../groq';
 import { withJobTimeout } from '../jobTimeout';
 import { forStage } from '../logger';
@@ -197,6 +204,8 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
           logger.info('processing video', { videoId, sourceUrl, provider });
 
           let sourcePath: string | null = null;
+          let thumbPath: string | null = null;
+          let blurPath: string | null = null;
           const audioPaths: string[] = [];
 
           try {
@@ -221,6 +230,48 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
             const sourceStream = await getObjectStream(sourceUrl);
             await pipeline(sourceStream, createWriteStream(sourcePath));
             await reportProgress(videoId, 5);
+
+            // Product Experience roadmap - a Video's dashboard-card thumbnail.
+            // Best-effort, same "optional signal, never fails the job" idiom as
+            // diarization/vocal-emotion below - a failed extraction just leaves
+            // Video.thumbnailUrl null (the dashboard already has an honest
+            // placeholder for that case), it never fails transcription itself.
+            // Extracted here (not in import-youtube.worker.ts) since this is the
+            // one stage guaranteed to run for every video regardless of upload
+            // path (youtube-import vs. direct upload both reach here with
+            // sourcePath already a real local file).
+            try {
+              thumbPath = await reserveScratchPath('thumbnail', '.webp');
+              await extractThumbnail(sourcePath, thumbPath, 1);
+              const thumbnailKey = `thumbnails/${videoId}.webp`;
+              await uploadObject(thumbnailKey, createReadStream(thumbPath), 'image/webp');
+
+              // Phase 2 (image optimization roadmap) - a tiny inline blur
+              // placeholder alongside the real thumbnail, same best-effort
+              // block (a failed blur extraction shouldn't undo an otherwise-
+              // successful thumbnail, so it's caught on its own rather than
+              // aborting the block above).
+              let thumbnailBlurDataUrl: string | null = null;
+              try {
+                blurPath = await reserveScratchPath('thumbnail-blur', '.webp');
+                await extractBlurPlaceholder(sourcePath, blurPath, 1);
+                const blurBuffer = await readFile(blurPath);
+                thumbnailBlurDataUrl = `data:image/webp;base64,${blurBuffer.toString('base64')}`;
+              } catch (error) {
+                logger.warn(
+                  'blur placeholder extraction failed, continuing without one',
+                  { videoId },
+                  error,
+                );
+              }
+
+              await prisma.video.update({
+                where: { id: videoId },
+                data: { thumbnailUrl: thumbnailKey, thumbnailBlurDataUrl },
+              });
+            } catch (error) {
+              logger.warn('thumbnail extraction failed, continuing without one', { videoId }, error);
+            }
 
             // Decide up front whether the audio fits in one Whisper request or
             // has to be split - a source longer than ~50 min would otherwise
@@ -478,6 +529,8 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
             // Scratch files only - the persisted source lives in object storage.
             // Cleaned up whether the job succeeded or failed (same as render-clip).
             if (sourcePath) await cleanupTempFile(sourcePath);
+            if (thumbPath) await cleanupTempFile(thumbPath);
+            if (blurPath) await cleanupTempFile(blurPath);
             for (const audioPath of audioPaths) await cleanupTempFile(audioPath);
           }
         },

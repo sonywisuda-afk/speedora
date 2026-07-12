@@ -391,6 +391,24 @@ export class VideosService {
     return { sourceUrl: video.sourceUrl };
   }
 
+  // Used by GET /videos/:id/thumbnail (Product Experience roadmap) - same
+  // shape/reasoning as findSourceOrThrow above, just for the extracted
+  // thumbnail frame instead of the full source video. Callers must check
+  // thumbnailUrl for null themselves (extraction is best-effort and may
+  // not have succeeded yet, or ever, for this video).
+  async findThumbnailOrThrow(
+    id: string,
+    requesterId: string,
+  ): Promise<{ thumbnailUrl: string | null }> {
+    const video = await this.prisma.video.findUnique({ where: { id } });
+
+    if (!video || video.ownerId !== requesterId) {
+      throw new NotFoundException(`Video ${id} not found`);
+    }
+
+    return { thumbnailUrl: video.thumbnailUrl };
+  }
+
   // Permanently deletes a video, its clips/transcript/publish records (all
   // via onDelete: Cascade in the schema), and the objects they own in
   // storage (the source plus every rendered clip). Same ownership-based 404
@@ -448,10 +466,15 @@ export class VideosService {
       voiceActivitySegments,
       voiceActivityFeatures,
       diarizationFeatures,
+      thumbnailUrl,
       ...rest
     } = video;
     return {
       ...rest,
+      // Never the raw storage key - same "client hits an authenticated
+      // endpoint instead" treatment as each clip's downloadUrl/thumbnailUrl
+      // below (Product Experience roadmap).
+      thumbnailUrl: thumbnailUrl ? `/videos/${video.id}/thumbnail` : null,
       // Narrowed explicitly, same "un-narrowed Json field breaks
       // declaration emit up the call chain" reasoning as every clip.*
       // field below (Speaker Intelligence roadmap, Milestone A/B - these
@@ -462,6 +485,7 @@ export class VideosService {
       clips: clips.map(
         ({
           outputUrl,
+          thumbnailUrl: clipThumbnailUrl,
           publishRecords,
           scores,
           facialEmotions,
@@ -504,6 +528,7 @@ export class VideosService {
         }) => ({
           ...clip,
           downloadUrl: outputUrl ? `/clips/${clip.id}/download` : null,
+          thumbnailUrl: clipThumbnailUrl ? `/clips/${clip.id}/thumbnail` : null,
           // Narrowed explicitly (not left as Prisma's opaque JsonValue) - an
           // un-narrowed Json field pulls Prisma's internal (unnameable)
           // runtime type into this method's inferred return type, which then

@@ -36,6 +36,11 @@ export interface TopClipRow {
   // field, same fallback every existing UI (ClipCard, VideoAnalysisDashboard)
   // already uses.
   videoLabel: string;
+  // Product Experience roadmap - already a `/clips/:id/thumbnail` relative
+  // endpoint path, never the raw storage key (same treatment as Clip's own
+  // thumbnailUrl in packages/shared/src/types/video.ts). Null until the
+  // clip's render-clip.worker.ts extraction succeeds.
+  thumbnailUrl: string | null;
   platform: SocialPlatform;
   highlightScore: number | null;
   engagementScore: number | null;

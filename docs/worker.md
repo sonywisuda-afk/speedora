@@ -14,7 +14,16 @@ adapter pattern every AI module here follows.
   this stage), writes `TranscriptSegment` rows with word-level timestamps, runs Diarization +
   Vocal Emotion + Audio Intelligence on the full audio track (see `ai/audio.md`), self-chains
   `detect-clips`. Handles long videos via overlapping chunk extraction + nominal-ownership
-  filtering at chunk boundaries so no word is ever split across a chunk seam.
+  filtering at chunk boundaries so no word is ever split across a chunk seam. Right after the
+  source is downloaded to scratch (before Whisper), also extracts a `Video.thumbnailUrl` frame
+  (Product Experience roadmap) via `ffmpeg.ts`'s `extractThumbnail()` — best-effort, same
+  "optional signal, never fails the job" idiom as diarization/vocal-emotion, so an extraction
+  failure just leaves the dashboard showing its honest placeholder instead. Phase 2 (image
+  optimization) switched the output format to WebP (`-c:v libwebp`, meaningfully smaller than the
+  JPEG this replaced at equivalent quality) and added a second, much smaller extraction
+  (`extractBlurPlaceholder()`, 16px wide) whose output is base64-inlined into
+  `Video.thumbnailBlurDataUrl` for a blur-up loading effect — its own independent best-effort
+  block, so a failed blur extraction never undoes an otherwise-successful thumbnail.
 - **`detect-clips`** — one LLM call (`packages/clip-scoring`) over the full transcript selects 1–3
   candidate clips with `ClipScores`, `hookText`, `hashtags`, emoji suggestions (see `ai/llm.md`).
   Self-chains one `render-clip` per candidate.
@@ -67,7 +76,14 @@ adapter pattern every AI module here follows.
    pixels without any separate time-remap logic. A dip-to-black micro-transition (`eq` filter,
    brightness dips at each cut junction — not `fade`, which has a real chaining bug in this
    project's ffmpeg build that blacks out the whole output) softens the resulting jump cuts.
-10. **Upload + persist** — one `prisma.clip.update()` writes every raw/derived field from every
+10. **Thumbnail extraction** (Product Experience roadmap) — a single WebP frame from the midpoint
+    of the just-uploaded RENDERED output (not the raw source, so the thumbnail matches exactly what
+    the viewer sees), same best-effort/never-fails-the-job idiom as the silence/filler trim pass
+    above. Sets `Clip.thumbnailUrl` alongside `outputUrl`/`outputSizeBytes` in the same update as
+    step 11. A second, independent best-effort extraction (Phase 2) generates a tiny base64 blur
+    placeholder into `Clip.thumbnailBlurDataUrl` the same way `transcribe.worker.ts` does for
+    `Video`.
+11. **Upload + persist** — one `prisma.clip.update()` writes every raw/derived field from every
     step above.
 11. **Ranking** — once every sibling clip in the video has finished rendering (`allRendered`),
     `rankClips()` re-scores the whole set and writes `highlightRank` per clip, in its own try/catch

@@ -99,6 +99,44 @@ describe('ClipsService', () => {
     });
   });
 
+  describe('findThumbnailOrThrow', () => {
+    it('returns the thumbnailUrl when the clip belongs to the requester and has one', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        id: 'clip-1',
+        thumbnailUrl: 'thumbnails/clip-1.jpg',
+        video: { ownerId: 'user-1' },
+      });
+
+      const result = await service.findThumbnailOrThrow('clip-1', 'user-1');
+
+      expect(result).toEqual({ thumbnailUrl: 'thumbnails/clip-1.jpg' });
+    });
+
+    it('throws NotFoundException when no thumbnail has been extracted yet', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        id: 'clip-1',
+        thumbnailUrl: null,
+        video: { ownerId: 'user-1' },
+      });
+
+      await expect(service.findThumbnailOrThrow('clip-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws NotFoundException when the clip belongs to a different user', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        id: 'clip-1',
+        thumbnailUrl: 'thumbnails/clip-1.jpg',
+        video: { ownerId: 'someone-else' },
+      });
+
+      await expect(service.findThumbnailOrThrow('clip-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
   describe('getExplainability', () => {
     const clip = {
       id: 'clip-1',
@@ -198,6 +236,20 @@ describe('ClipsService', () => {
       video: { ownerId: 'user-1' },
     };
 
+    it('passes thumbnailBlurDataUrl through unchanged (already client-safe, not a storage key)', async () => {
+      prisma.clip.findUnique.mockResolvedValue(existingClip);
+      prisma.clip.update.mockResolvedValue({
+        ...existingClip,
+        startTime: 12,
+        endTime: 22,
+        thumbnailBlurDataUrl: 'data:image/webp;base64,Zm9v',
+      });
+
+      const result = await service.update('clip-1', 'user-1', { startTime: 12, endTime: 22 });
+
+      expect(result.thumbnailBlurDataUrl).toBe('data:image/webp;base64,Zm9v');
+    });
+
     it('updates startTime and endTime and returns a downloadUrl-mapped dto', async () => {
       prisma.clip.findUnique.mockResolvedValue(existingClip);
       prisma.clip.update.mockResolvedValue({ ...existingClip, startTime: 12, endTime: 22 });
@@ -222,6 +274,7 @@ describe('ClipsService', () => {
         endTime: 22,
         viralityScore: 80,
         downloadUrl: '/clips/clip-1/download',
+        thumbnailUrl: null,
         captionStyle: 'DEFAULT',
         hookText: 'Wait for it...',
         hashtags: ['viral', 'fyp'],
@@ -431,6 +484,7 @@ describe('ClipsService', () => {
         endTime: 20,
         viralityScore: 80,
         downloadUrl: null,
+        thumbnailUrl: null,
         captionStyle: CaptionStyle.KARAOKE,
         hookText: 'Wait for it...',
         hashtags: ['viral', 'fyp'],

@@ -106,6 +106,17 @@ export class ClipsService {
     return clip;
   }
 
+  // Used by GET /clips/:id/thumbnail (Product Experience roadmap) - same
+  // shape/reasoning as findRenderedOrThrow above, for the extracted
+  // thumbnail frame instead of the rendered video.
+  async findThumbnailOrThrow(id: string, requesterId: string): Promise<{ thumbnailUrl: string }> {
+    const clip = await this.findOwnedOrThrow(id, requesterId);
+    if (!clip.thumbnailUrl) {
+      throw new NotFoundException(`Clip ${id} has no thumbnail`);
+    }
+    return { thumbnailUrl: clip.thumbnailUrl };
+  }
+
   // Milestone 4 (AI Explainability) - a focused read of just the Fusion
   // Engine fields, not the full toDto() shape (rendering/publish/caption
   // fields this page has no use for). `results` is an array so a future
@@ -320,6 +331,8 @@ export class ClipsService {
     endTime: number;
     viralityScore: number;
     outputUrl: string | null;
+    thumbnailUrl: string | null;
+    thumbnailBlurDataUrl: string | null;
     captionStyle: CaptionStyle;
     hookText: string | null;
     hashtags: string[];
@@ -380,6 +393,8 @@ export class ClipsService {
       endTime: clip.endTime,
       viralityScore: clip.viralityScore,
       downloadUrl: clip.outputUrl ? `/clips/${clip.id}/download` : null,
+      thumbnailUrl: clip.thumbnailUrl ? `/clips/${clip.id}/thumbnail` : null,
+      thumbnailBlurDataUrl: clip.thumbnailBlurDataUrl,
       captionStyle: clip.captionStyle,
       hookText: clip.hookText,
       hashtags: clip.hashtags,

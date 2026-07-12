@@ -17,8 +17,10 @@ jest.mock('../queues', () => ({
 }));
 
 const getObjectStreamMock = jest.fn();
+const uploadObjectMock = jest.fn().mockResolvedValue('etag');
 jest.mock('@speedora/storage', () => ({
   getObjectStream: (...args: unknown[]) => getObjectStreamMock(...args),
+  uploadObject: (...args: unknown[]) => uploadObjectMock(...args),
 }));
 
 // Unique path per call - each chunk of a long video reserves its own audio
@@ -34,9 +36,13 @@ jest.mock('../storage', () => ({
 }));
 
 const extractAudioMock = jest.fn().mockResolvedValue(undefined);
+const extractThumbnailMock = jest.fn().mockResolvedValue(undefined);
+const extractBlurPlaceholderMock = jest.fn().mockResolvedValue(undefined);
 const getMediaDurationSecondsMock = jest.fn();
 jest.mock('../ffmpeg', () => ({
   extractAudio: (...args: unknown[]) => extractAudioMock(...args),
+  extractThumbnail: (...args: unknown[]) => extractThumbnailMock(...args),
+  extractBlurPlaceholder: (...args: unknown[]) => extractBlurPlaceholderMock(...args),
   getMediaDurationSeconds: (...args: unknown[]) => getMediaDurationSecondsMock(...args),
 }));
 
@@ -73,6 +79,11 @@ const createReadStreamMock = jest.fn((p: string) => ({ readStreamFor: p }));
 jest.mock('node:fs', () => ({
   createReadStream: (...args: [string]) => createReadStreamMock(...args),
   createWriteStream: jest.fn(() => ({ fake: 'writable' })),
+}));
+
+const readFileMock = jest.fn().mockResolvedValue(Buffer.from('fake-blur-bytes'));
+jest.mock('node:fs/promises', () => ({
+  readFile: (...args: unknown[]) => readFileMock(...args),
 }));
 
 const pipelineMock = jest.fn().mockResolvedValue(undefined);
@@ -200,16 +211,16 @@ describe('transcribe worker', () => {
     expect(extractAudioMock).toHaveBeenCalledTimes(2);
     expect(extractAudioMock).toHaveBeenCalledWith(
       '/scratch/transcribe-src-0.mp4',
-      '/scratch/transcribe-audio-1.mp3',
+      '/scratch/transcribe-audio-3.mp3',
       undefined,
     );
     expect(extractAudioMock).toHaveBeenCalledWith(
       '/scratch/transcribe-src-0.mp4',
-      '/scratch/diarize-audio-2.mp3',
+      '/scratch/diarize-audio-4.mp3',
     );
-    expect(diarizeSpeakersMock).toHaveBeenCalledWith('/scratch/diarize-audio-2.mp3');
+    expect(diarizeSpeakersMock).toHaveBeenCalledWith('/scratch/diarize-audio-4.mp3');
     expect(groqTranscriptionsCreateMock).toHaveBeenCalledWith({
-      file: { readStreamFor: '/scratch/transcribe-audio-1.mp3' },
+      file: { readStreamFor: '/scratch/transcribe-audio-3.mp3' },
       model: 'whisper-large-v3-turbo',
       response_format: 'verbose_json',
       timestamp_granularities: ['word', 'segment'],
@@ -217,8 +228,8 @@ describe('transcribe worker', () => {
     expect(openaiTranscriptionsCreateMock).not.toHaveBeenCalled();
     // All scratch files are cleaned up regardless of outcome.
     expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-src-0.mp4');
-    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-audio-1.mp3');
-    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/diarize-audio-2.mp3');
+    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-audio-3.mp3');
+    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/diarize-audio-4.mp3');
 
     const segments = [
       {
@@ -259,6 +270,114 @@ describe('transcribe worker', () => {
       segments,
     });
     expect(result).toEqual({ videoId: 'video-1', segments });
+  });
+
+  it('extracts a thumbnail from the downloaded source, uploads it, and records the key', async () => {
+    getObjectStreamMock.mockResolvedValue({});
+    groqTranscriptionsCreateMock.mockResolvedValue({
+      segments: [{ start: 0, end: 2, text: 'hi' }],
+      words: [{ start: 0, end: 0.8, word: 'hi' }],
+    });
+
+    const processor = getProcessor();
+    await processor({
+      data: { videoId: 'video-1', sourceUrl: 'videos/abc.mp4', provider: TranscriptionProvider.GROQ },
+    });
+
+    expect(extractThumbnailMock).toHaveBeenCalledWith(
+      '/scratch/transcribe-src-0.mp4',
+      '/scratch/thumbnail-1.webp',
+      1,
+    );
+    expect(uploadObjectMock).toHaveBeenCalledWith(
+      'thumbnails/video-1.webp',
+      { readStreamFor: '/scratch/thumbnail-1.webp' },
+      'image/webp',
+    );
+    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/thumbnail-1.webp');
+  });
+
+  it('also extracts a tiny blur placeholder alongside the thumbnail and inlines it as a data URL', async () => {
+    getObjectStreamMock.mockResolvedValue({});
+    groqTranscriptionsCreateMock.mockResolvedValue({
+      segments: [{ start: 0, end: 2, text: 'hi' }],
+      words: [{ start: 0, end: 0.8, word: 'hi' }],
+    });
+    readFileMock.mockResolvedValue(Buffer.from('tiny-webp-bytes'));
+
+    const processor = getProcessor();
+    await processor({
+      data: { videoId: 'video-1', sourceUrl: 'videos/abc.mp4', provider: TranscriptionProvider.GROQ },
+    });
+
+    expect(extractBlurPlaceholderMock).toHaveBeenCalledWith(
+      '/scratch/transcribe-src-0.mp4',
+      '/scratch/thumbnail-blur-2.webp',
+      1,
+    );
+    expect(readFileMock).toHaveBeenCalledWith('/scratch/thumbnail-blur-2.webp');
+    expect(videoUpdateMock).toHaveBeenCalledWith({
+      where: { id: 'video-1' },
+      data: {
+        thumbnailUrl: 'thumbnails/video-1.webp',
+        thumbnailBlurDataUrl: `data:image/webp;base64,${Buffer.from('tiny-webp-bytes').toString('base64')}`,
+      },
+    });
+    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/thumbnail-blur-2.webp');
+  });
+
+  it('keeps the real thumbnail even when only the blur placeholder extraction fails', async () => {
+    getObjectStreamMock.mockResolvedValue({});
+    groqTranscriptionsCreateMock.mockResolvedValue({
+      segments: [{ start: 0, end: 2, text: 'hi' }],
+      words: [{ start: 0, end: 0.8, word: 'hi' }],
+    });
+    extractBlurPlaceholderMock.mockRejectedValueOnce(new Error('ffmpeg exited with code 1'));
+
+    const processor = getProcessor();
+    await processor({
+      data: { videoId: 'video-1', sourceUrl: 'videos/abc.mp4', provider: TranscriptionProvider.GROQ },
+    });
+
+    expect(videoUpdateMock).toHaveBeenCalledWith({
+      where: { id: 'video-1' },
+      data: { thumbnailUrl: 'thumbnails/video-1.webp', thumbnailBlurDataUrl: null },
+    });
+  });
+
+  it('never fails the transcribe job when thumbnail extraction fails', async () => {
+    getObjectStreamMock.mockResolvedValue({});
+    groqTranscriptionsCreateMock.mockResolvedValue({
+      segments: [{ start: 0, end: 2, text: 'hi' }],
+      words: [{ start: 0, end: 0.8, word: 'hi' }],
+    });
+    extractThumbnailMock.mockRejectedValueOnce(new Error('ffmpeg exited with code 1'));
+
+    const processor = getProcessor();
+    const result = await processor({
+      data: { videoId: 'video-1', sourceUrl: 'videos/abc.mp4', provider: TranscriptionProvider.GROQ },
+    });
+
+    expect(result).toEqual({
+      videoId: 'video-1',
+      segments: [
+        {
+          start: 0,
+          end: 2,
+          text: 'hi',
+          words: [{ start: 0, end: 0.8, word: 'hi' }],
+          speakingRateWordsPerSecond: 0.5,
+        },
+      ],
+    });
+    expect(uploadObjectMock).not.toHaveBeenCalled();
+    expect(videoUpdateMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ thumbnailUrl: expect.anything() }) }),
+    );
+    // Still transitions to TRANSCRIBED - a thumbnail failure is invisible to the job's own outcome.
+    expect(videoUpdateMock).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: VideoStatus.TRANSCRIBED }) }),
+    );
   });
 
   it('reports real progress checkpoints (never fabricated) to Video.transcribeProgress', async () => {
@@ -400,7 +519,7 @@ describe('transcribe worker', () => {
     expect(detectClipsQueueAdd).not.toHaveBeenCalled();
     // Scratch files still cleaned up on the failure path.
     expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-src-0.mp4');
-    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-audio-1.mp3');
+    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-audio-3.mp3');
   });
 
   it('reports the failure to Sentry tagged with videoId only (no transcript content)', async () => {
@@ -493,7 +612,7 @@ describe('transcribe worker', () => {
     expect(extractAudioMock).toHaveBeenNthCalledWith(
       1,
       '/scratch/transcribe-src-0.mp4',
-      '/scratch/transcribe-audio-1.mp3',
+      '/scratch/transcribe-audio-3.mp3',
       {
         startSeconds: 0,
         durationSeconds: 3015,
@@ -502,7 +621,7 @@ describe('transcribe worker', () => {
     expect(extractAudioMock).toHaveBeenNthCalledWith(
       2,
       '/scratch/transcribe-src-0.mp4',
-      '/scratch/transcribe-audio-2.mp3',
+      '/scratch/transcribe-audio-4.mp3',
       {
         startSeconds: 2985,
         durationSeconds: 3030,
@@ -511,7 +630,7 @@ describe('transcribe worker', () => {
     expect(extractAudioMock).toHaveBeenNthCalledWith(
       3,
       '/scratch/transcribe-src-0.mp4',
-      '/scratch/transcribe-audio-3.mp3',
+      '/scratch/transcribe-audio-5.mp3',
       {
         startSeconds: 5985,
         durationSeconds: 1015,
@@ -520,7 +639,7 @@ describe('transcribe worker', () => {
     expect(extractAudioMock).toHaveBeenNthCalledWith(
       4,
       '/scratch/transcribe-src-0.mp4',
-      '/scratch/diarize-audio-4.mp3',
+      '/scratch/diarize-audio-6.mp3',
     );
     expect(groqTranscriptionsCreateMock).toHaveBeenCalledTimes(3);
 
@@ -562,10 +681,10 @@ describe('transcribe worker', () => {
     // Source, all three chunk audio files, and the diarization audio file
     // are all cleaned up.
     expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-src-0.mp4');
-    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-audio-1.mp3');
-    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-audio-2.mp3');
     expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-audio-3.mp3');
-    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/diarize-audio-4.mp3');
+    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-audio-4.mp3');
+    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-audio-5.mp3');
+    expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/diarize-audio-6.mp3');
   });
 
   it('uses the OpenAI Whisper client/model when provider is OPENAI (premium tier)', async () => {
@@ -585,7 +704,7 @@ describe('transcribe worker', () => {
     });
 
     expect(openaiTranscriptionsCreateMock).toHaveBeenCalledWith({
-      file: { readStreamFor: '/scratch/transcribe-audio-1.mp3' },
+      file: { readStreamFor: '/scratch/transcribe-audio-3.mp3' },
       model: 'whisper-1',
       response_format: 'verbose_json',
       timestamp_granularities: ['word', 'segment'],
@@ -703,7 +822,7 @@ describe('transcribe worker', () => {
         },
       });
 
-      expect(diarizeSpeakersMock).toHaveBeenCalledWith('/scratch/diarize-audio-2.mp3');
+      expect(diarizeSpeakersMock).toHaveBeenCalledWith('/scratch/diarize-audio-4.mp3');
       expect(assignSpeakerLabelsMock).toHaveBeenCalledWith(
         [
           { start: 0, end: 2, text: 'hi' },
@@ -800,7 +919,7 @@ describe('transcribe worker', () => {
 
       // Same diarize-audio-2.mp3 file diarization itself uses - no second
       // full-track extraction for emotion detection.
-      expect(detectVocalEmotionsMock).toHaveBeenCalledWith('/scratch/diarize-audio-2.mp3', [
+      expect(detectVocalEmotionsMock).toHaveBeenCalledWith('/scratch/diarize-audio-4.mp3', [
         { start: 0, end: 2, text: 'hi' },
         { start: 2, end: 4, text: 'there' },
       ]);
@@ -896,7 +1015,7 @@ describe('transcribe worker', () => {
       // use - no third full-track extraction just for loudness.
       expect(analyzeAudioLoudnessMock).toHaveBeenCalledWith(
         {
-          audioPath: '/scratch/diarize-audio-2.mp3',
+          audioPath: '/scratch/diarize-audio-4.mp3',
           segments: [
             { start: 0, end: 2, text: 'hi' },
             { start: 2, end: 4, text: 'there' },

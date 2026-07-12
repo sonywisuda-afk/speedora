@@ -24,6 +24,14 @@ import { PublishClipDto } from './dto/publish-clip.dto';
 import { ReschedulePublishDto } from './dto/reschedule-publish.dto';
 import { UpdateClipDto } from './dto/update-clip.dto';
 
+// Derived from the stored key's own extension (Phase 2, image optimization
+// roadmap) rather than hardcoded - thumbnails extracted before the WebP
+// switch are still `.jpg` (never backfilled), and serving those with a
+// hardcoded `image/webp` header would be wrong.
+function thumbnailContentType(key: string): string {
+  return key.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
+}
+
 @Controller('clips')
 @UseGuards(JwtAuthGuard)
 export class ClipsController {
@@ -82,6 +90,20 @@ export class ClipsController {
       res.setHeader('Content-Range', result.contentRange);
     }
     result.stream.pipe(res);
+  }
+
+  // Product Experience roadmap - the extracted thumbnail frame. A plain
+  // (non-Range) stream is enough since this is a small static JPEG.
+  @Get(':id/thumbnail')
+  async thumbnail(@CurrentUser() user: SafeUser, @Param('id') id: string, @Res() res: Response) {
+    const { thumbnailUrl } = await this.clipsService.findThumbnailOrThrow(id, user.id);
+    const stream = await getObjectStream(thumbnailUrl);
+
+    res.setHeader('Content-Type', thumbnailContentType(thumbnailUrl));
+    // Phase 2 (image optimization roadmap) - see VideosController's own
+    // Cache-Control comment for the private/max-age=86400 reasoning.
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    stream.pipe(res);
   }
 
   // Milestone 4 (AI Explainability) - a read-only, focused view of a clip's

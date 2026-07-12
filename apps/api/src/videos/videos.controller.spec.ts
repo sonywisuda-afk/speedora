@@ -1,10 +1,11 @@
 import { TranscriptionProvider } from '@speedora/shared';
-import { getObjectStreamRange } from '@speedora/storage';
+import { getObjectStream, getObjectStreamRange } from '@speedora/storage';
 import type { Response } from 'express';
 import type { VideosService } from './videos.service';
 import { VideosController } from './videos.controller';
 
 jest.mock('@speedora/storage', () => ({
+  getObjectStream: jest.fn(),
   getObjectStreamRange: jest.fn(),
 }));
 
@@ -12,6 +13,7 @@ describe('VideosController', () => {
   let controller: VideosController;
   let videosService: {
     findSourceOrThrow: jest.Mock;
+    findThumbnailOrThrow: jest.Mock;
     upload: jest.Mock;
     importFromYoutube: jest.Mock;
     findAll: jest.Mock;
@@ -21,6 +23,7 @@ describe('VideosController', () => {
   beforeEach(() => {
     videosService = {
       findSourceOrThrow: jest.fn(),
+      findThumbnailOrThrow: jest.fn(),
       upload: jest.fn(),
       importFromYoutube: jest.fn(),
       findAll: jest.fn(),
@@ -142,6 +145,56 @@ describe('VideosController', () => {
 
       await expect(controller.source(user, 'missing', undefined, res)).rejects.toThrow('not found');
       expect(getObjectStreamRange).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('thumbnail', () => {
+    it('streams a WebP thumbnail as image/webp, with a private day-long cache header', async () => {
+      videosService.findThumbnailOrThrow.mockResolvedValue({
+        thumbnailUrl: 'thumbnails/video-1.webp',
+      });
+      const fakeStream = { pipe: jest.fn() };
+      (getObjectStream as jest.Mock).mockResolvedValue(fakeStream);
+      const res = { setHeader: jest.fn() } as unknown as Response;
+
+      await controller.thumbnail(user, 'video-1', res);
+
+      expect(videosService.findThumbnailOrThrow).toHaveBeenCalledWith('video-1', 'user-1');
+      expect(getObjectStream).toHaveBeenCalledWith('thumbnails/video-1.webp');
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/webp');
+      expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, max-age=86400');
+      expect(fakeStream.pipe).toHaveBeenCalledWith(res);
+    });
+
+    it('derives image/jpeg for a pre-Phase-2 .jpg thumbnail key rather than hardcoding WebP', async () => {
+      videosService.findThumbnailOrThrow.mockResolvedValue({
+        thumbnailUrl: 'thumbnails/video-1.jpg',
+      });
+      const fakeStream = { pipe: jest.fn() };
+      (getObjectStream as jest.Mock).mockResolvedValue(fakeStream);
+      const res = { setHeader: jest.fn() } as unknown as Response;
+
+      await controller.thumbnail(user, 'video-1', res);
+
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/jpeg');
+    });
+
+    it('404s without touching storage when no thumbnail has been extracted yet', async () => {
+      videosService.findThumbnailOrThrow.mockResolvedValue({ thumbnailUrl: null });
+      const res = { setHeader: jest.fn() } as unknown as Response;
+
+      await expect(controller.thumbnail(user, 'video-1', res)).rejects.toThrow(
+        'Video video-1 has no thumbnail',
+      );
+      expect(getObjectStream).not.toHaveBeenCalled();
+    });
+
+    it('propagates the not-found error from the service without touching storage', async () => {
+      videosService.findThumbnailOrThrow.mockRejectedValue(new Error('not found'));
+      const res = { setHeader: jest.fn() } as unknown as Response;
+
+      await expect(controller.thumbnail(user, 'missing', res)).rejects.toThrow('not found');
+      expect(getObjectStream).not.toHaveBeenCalled();
     });
   });
 });

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream } from 'node:fs';
-import { stat, writeFile } from 'node:fs/promises';
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import * as Sentry from '@sentry/node';
@@ -49,6 +49,8 @@ import {
 } from '../broll';
 import { faceDetectionDeps } from '../faceDetectionDeps';
 import {
+  extractBlurPlaceholder,
+  extractThumbnail,
   fadeOutBRoll,
   getVideoDimensions,
   renderClip,
@@ -393,6 +395,8 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           let trimmedPath: string | null = null;
           let sendCmdPath: string | null = null;
           let brollPaths: string[] = [];
+          let thumbPath: string | null = null;
+          let blurPath: string | null = null;
 
           try {
             // ffmpeg needs a real local file to seek within - download the
@@ -531,6 +535,43 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             const etag = await uploadObject(outputKey, createReadStream(renderedPath), 'video/mp4');
             verifyUploadChecksum(etag, expectedMd5, clipId);
 
+            // Product Experience roadmap - a Clip's gallery-card thumbnail.
+            // Extracted from renderedPath (the FINAL rendered output, not the
+            // raw source) so the thumbnail matches exactly what the viewer
+            // will see - crop/captions/B-roll already burned in. Best-effort,
+            // same "optional signal, never fails the job" idiom as the
+            // silence/filler trim pass above: a failed extraction just leaves
+            // thumbnailUrl unset in the update below (a retry that fails
+            // extraction keeps whichever thumbnail a prior successful render
+            // already set, rather than clobbering it with null).
+            let thumbnailKey: string | null = null;
+            let thumbnailBlurDataUrl: string | null = null;
+            try {
+              thumbPath = await reserveScratchPath('thumbnail', '.webp');
+              await extractThumbnail(renderedPath, thumbPath, (endTime - startTime) / 2);
+              thumbnailKey = `thumbnails/${clipId}.webp`;
+              await uploadObject(thumbnailKey, createReadStream(thumbPath), 'image/webp');
+
+              // Phase 2 (image optimization roadmap) - same "own best-effort
+              // block, doesn't undo an otherwise-successful thumbnail" idiom
+              // as transcribe.worker.ts's own blur placeholder extraction.
+              try {
+                blurPath = await reserveScratchPath('thumbnail-blur', '.webp');
+                await extractBlurPlaceholder(renderedPath, blurPath, (endTime - startTime) / 2);
+                const blurBuffer = await readFile(blurPath);
+                thumbnailBlurDataUrl = `data:image/webp;base64,${blurBuffer.toString('base64')}`;
+              } catch (error) {
+                logger.warn(
+                  'blur placeholder extraction failed, continuing without one',
+                  { clipId },
+                  error,
+                );
+              }
+            } catch (error) {
+              thumbnailKey = null;
+              logger.warn('thumbnail extraction failed, continuing without one', { clipId }, error);
+            }
+
             // toClipUpdateData() replaces this call's former hand-written object literal the same way
             // toFusionInput() replaced computeHighlightScore's - see render-graph/sinks.ts's
             // CLIP_UPDATE_MAP for the per-node Prisma.JsonNull/plain-array/always-present rules, and
@@ -563,6 +604,8 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                   data: toClipUpdateData(graphResult, {
                     outputUrl: outputKey,
                     outputSizeBytes,
+                    ...(thumbnailKey ? { thumbnailUrl: thumbnailKey } : {}),
+                    ...(thumbnailBlurDataUrl ? { thumbnailBlurDataUrl } : {}),
                     llmFeatures: (scores as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
                     highlightScore: highlight.highlightScore,
                     highlightBreakdown: highlight.contributions,
@@ -667,6 +710,8 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             if (outputPath) await cleanupTempFile(outputPath);
             if (trimmedPath) await cleanupTempFile(trimmedPath);
             if (sendCmdPath) await cleanupTempFile(sendCmdPath);
+            if (thumbPath) await cleanupTempFile(thumbPath);
+            if (blurPath) await cleanupTempFile(blurPath);
             for (const brollPath of brollPaths) await cleanupTempFile(brollPath);
           }
         },

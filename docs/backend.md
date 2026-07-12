@@ -67,13 +67,22 @@ another user, so IDs can't be probed. CORS is enabled explicitly with `credentia
 - `GET /videos`, `GET /videos/:id` (polled every 2s by the frontend while processing), `GET
   /videos/:id/transcript` (separate from `findOne` so the 2s poll doesn't drag transcript text
   along), `GET /videos/:id/source` (Range-enabled stream of the *source*, not rendered, video —
-  used by the Timeline Editor's `<video>` preview), `POST /videos`, `POST /videos/import-youtube`,
-  `POST /videos/:id/retry`, `DELETE /videos/:id`.
+  used by the Timeline Editor's `<video>` preview), `GET /videos/:id/thumbnail` (Product Experience
+  roadmap — a plain, non-Range stream of the extracted frame via `getObjectStream`, since it's
+  a small static image, not something a `<video>` element seeks through; 404s if extraction hasn't
+  succeeded yet, same "client checks thumbnailUrl for null" contract as every other optional field.
+  Phase 2 (image optimization): `Content-Type` is derived from the stored key's own extension
+  (`.webp` vs. pre-Phase-2 `.jpg` rows, never backfilled) rather than hardcoded, and the response
+  carries this app's first `Cache-Control` header, `private, max-age=86400` — private since still
+  JwtAuthGuard'd, a day rather than `immutable` since a retry can re-extract and overwrite the same
+  key), `POST /videos`, `POST /videos/import-youtube`, `POST /videos/:id/retry`, `DELETE /videos/:id`.
 - `PATCH /clips/:id` (trim/caption-style, no auto-render), `POST /clips/:id/render` (explicit
   re-render, clears `outputUrl` before enqueue), `GET /clips/:id/download` (attachment,
   `Content-Disposition`), `GET /clips/:id/stream` (Range-enabled inline playback — added because
   `:id/download`'s attachment header + lack of Range support meant the dashboard's `<video>`
-  preview could never actually play), `GET /clips/:id/explainability` (Milestone 4 — a focused,
+  preview could never actually play), `GET /clips/:id/thumbnail` (Product Experience roadmap —
+  same shape, same Phase 2 Content-Type/Cache-Control treatment, as the video thumbnail endpoint
+  above, extracted from the RENDERED output by render-clip.worker.ts), `GET /clips/:id/explainability` (Milestone 4 — a focused,
   read-only view of a clip's Fusion Engine output: `highlightScore`/`highlightConfidence`/
   `highlightBreakdown`/`highlightExplainability`/`highlightReason`/`highlightPrediction`/
   `highlightRecommendation`/`highlightRank`, wrapped as `{ clipId, results: [{ engine: 'v2', ... }] }`

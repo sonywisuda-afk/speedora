@@ -138,6 +138,7 @@ export class AnalyticsService {
             id: true,
             videoId: true,
             hookText: true,
+            thumbnailUrl: true,
             highlightScore: true,
             highlightConfidence: true,
             highlightReason: true,
@@ -267,6 +268,9 @@ export class AnalyticsService {
       publishRecordId: r.id,
       videoId: r.clip.videoId,
       videoLabel: this.videoLabel(r.clip.hookText, r.clip.videoId),
+      // Never the raw storage key - same treatment as ClipsService.toDto()'s
+      // own thumbnailUrl (Product Experience roadmap).
+      thumbnailUrl: r.clip.thumbnailUrl ? `/clips/${r.clip.id}/thumbnail` : null,
       platform: r.socialAccount.platform as unknown as SharedSocialPlatform,
       highlightScore: r.clip.highlightScore,
       engagementScore: r.statsSnapshots[0]?.engagementScore ?? null,

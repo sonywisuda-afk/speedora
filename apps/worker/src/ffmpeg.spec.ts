@@ -32,6 +32,8 @@ jest.mock('node:fs/promises', () => ({
 import {
   escapeFfmpegFilterPath,
   extractAudio,
+  extractBlurPlaceholder,
+  extractThumbnail,
   fadeOutBRoll,
   getMediaDurationSeconds,
   getVideoCodec,
@@ -137,6 +139,104 @@ describe('extractAudio', () => {
     );
 
     await expect(extractAudio('/tmp/source.mp4', '/tmp/audio.mp3')).rejects.toThrow(
+      'ffmpeg exited with code 1',
+    );
+  });
+});
+
+describe('extractThumbnail', () => {
+  beforeEach(() => {
+    execFileMock.mockClear();
+  });
+
+  it('seeks to the given offset and extracts a single scaled-down WebP frame', async () => {
+    await extractThumbnail('/tmp/source.mp4', '/tmp/thumb.webp', 5);
+
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    const [file, args] = execFileMock.mock.calls[0];
+    expect(file).toBe('ffmpeg');
+    expect(args).toEqual(
+      expect.arrayContaining([
+        '-ss',
+        '5',
+        '-i',
+        '/tmp/source.mp4',
+        '-vframes',
+        '1',
+        '-update',
+        '1',
+        '-vf',
+        'scale=480:-1',
+        '-c:v',
+        'libwebp',
+        '-quality',
+        '80',
+        '/tmp/thumb.webp',
+      ]),
+    );
+    // -ss before -i for a fast input seek, same convention as extractAudio's window.
+    expect(args.indexOf('-ss')).toBeLessThan(args.indexOf('-i'));
+  });
+
+  it('propagates the error when ffmpeg fails', async () => {
+    execFileMock.mockImplementationOnce((_file, _args, ...rest) => {
+      const callback = rest[rest.length - 1] as (error: Error, result: unknown) => void;
+      callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
+    });
+
+    await expect(extractThumbnail('/tmp/source.mp4', '/tmp/thumb.webp', 1)).rejects.toThrow(
+      'ffmpeg exited with code 1',
+    );
+  });
+
+  it('passes a timeout so a hung extraction cannot block the job forever', async () => {
+    await extractThumbnail('/tmp/source.mp4', '/tmp/thumb.webp', 1);
+
+    const call = execFileMock.mock.calls[0];
+    const options = call[2] as { timeout?: number };
+    expect(options.timeout).toBe(30 * 1000);
+  });
+});
+
+describe('extractBlurPlaceholder', () => {
+  beforeEach(() => {
+    execFileMock.mockClear();
+  });
+
+  it('seeks to the given offset and extracts a tiny, heavily-compressed WebP frame', async () => {
+    await extractBlurPlaceholder('/tmp/source.mp4', '/tmp/blur.webp', 5);
+
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    const [file, args] = execFileMock.mock.calls[0];
+    expect(file).toBe('ffmpeg');
+    expect(args).toEqual(
+      expect.arrayContaining([
+        '-ss',
+        '5',
+        '-i',
+        '/tmp/source.mp4',
+        '-vframes',
+        '1',
+        '-update',
+        '1',
+        '-vf',
+        'scale=16:-1',
+        '-c:v',
+        'libwebp',
+        '-quality',
+        '50',
+        '/tmp/blur.webp',
+      ]),
+    );
+  });
+
+  it('propagates the error when ffmpeg fails', async () => {
+    execFileMock.mockImplementationOnce((_file, _args, ...rest) => {
+      const callback = rest[rest.length - 1] as (error: Error, result: unknown) => void;
+      callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
+    });
+
+    await expect(extractBlurPlaceholder('/tmp/source.mp4', '/tmp/blur.webp', 1)).rejects.toThrow(
       'ffmpeg exited with code 1',
     );
   });

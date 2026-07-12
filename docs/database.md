@@ -10,14 +10,22 @@ for client-usage conventions.
 - **`Video`** — one uploaded/imported video. `status` (state machine, see `architecture.md`),
   `transcribeProgress`/`importProgress` (real-time progress checkpoints), `sourceUrl`/
   `importSourceUrl` (object key / original YouTube URL), `transcriptionProvider`
-  (`GROQ`/`OPENAI`).
+  (`GROQ`/`OPENAI`), `thumbnailUrl` (Product Experience roadmap — object storage key for a single
+  extracted frame, WebP as of Phase 2/`.jpg` for pre-Phase-2 rows never backfilled, set best-effort
+  by `transcribe.worker.ts`; never exposed to the client as this raw key, see `backend.md`'s
+  `GET /videos/:id/thumbnail`), `thumbnailBlurDataUrl` (Phase 2 — a tiny base64 blur-placeholder
+  data URL, inlined directly in the DTO rather than behind its own endpoint like the full
+  thumbnail).
 - **`TranscriptSegment`** — per-video (not duplicated per-clip); a clip's transcript is derived by
   querying segments within its `startTime`/`endTime` range (`filterSegmentsForClip`, `packages/
   shared`). Carries `words` (word-level timestamps), `speaker` (Diarization label), `emotion`
   (Vocal Emotion label), `rmsDb`/`peakDb`/`speakingRateWordsPerSecond` (Audio Intelligence) — see
   `ai/audio.md`.
 - **`Clip`** — one candidate/rendered clip. `startTime`/`endTime`/`outputUrl`/`captionStyle`/
-  `hookText`/`hashtags`/`emojiSuggestions` from the MVP+early phases, plus a large set of AI
+  `hookText`/`hashtags`/`emojiSuggestions` from the MVP+early phases, `thumbnailUrl`/
+  `thumbnailBlurDataUrl` (Product Experience roadmap — same treatment as `Video`'s own columns
+  above, but extracted from the RENDERED output by `render-clip.worker.ts` instead of the source),
+  plus a large set of AI
   Intelligence columns (see below) and Fusion Engine output
   (`highlightScore`/`highlightConfidence`/`highlightBreakdown`/`highlightExplainability`/
   `highlightPrediction`/`highlightRecommendation`/`highlightRank`).

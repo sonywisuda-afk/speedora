@@ -258,6 +258,19 @@ export function videoSourceUrl(videoId: string): string {
   return `${API_URL}/videos/${videoId}/source`;
 }
 
+// Product Experience roadmap - `thumbnailUrl` is already a relative
+// `/videos/:id/thumbnail` / `/clips/:id/thumbnail` endpoint path (see
+// VideosService.mapVideoWithClips/ClipsService.toDto()), same
+// "prepend API_URL" convention as clipDownloadUrl above - callers should
+// only call these when the DTO's thumbnailUrl is non-null.
+export function videoThumbnailUrl(thumbnailUrl: string): string {
+  return `${API_URL}${thumbnailUrl}`;
+}
+
+export function clipThumbnailUrl(thumbnailUrl: string): string {
+  return `${API_URL}${thumbnailUrl}`;
+}
+
 export async function updateClip(clipId: string, input: UpdateClipInput): Promise<Clip> {
   const res = await apiFetch(`/clips/${clipId}`, {
     method: 'PATCH',

@@ -68,7 +68,19 @@ switches from a plain CSS grid to a virtualized `react-window` `List` past 30 lo
 common case, one page, never hits this — see the component's own comment on why `react-window`'s
 `Grid` doesn't fit this grid's responsive Tailwind breakpoints without tracking container width).
 `ProcessingQueue.tsx`/`ActivityTimeline.tsx` extract memoized per-row components so a poll tick
-that changes one video doesn't re-render every row.
+that changes one video doesn't re-render every row. `RecentProjectsGrid.tsx`'s card also renders a
+real `<img crossOrigin="use-credentials">` (via `lib/api.ts`'s `videoThumbnailUrl()`) when
+`video.thumbnailUrl` is set (Product Experience roadmap - `GET /videos/:id/thumbnail`), falling
+back to the original gradient+`Film`-icon placeholder otherwise (extraction pending/failed, or a
+pre-existing row) - this app's first real `<img>` usage, deliberately not `next/image` yet (see the
+component's own comment: optimization is a follow-up once real images exist to optimize). Phase 2
+(image optimization) added blur-up loading: when `thumbnailBlurDataUrl` exists it's shown as the
+card's CSS background immediately, and the real `<img>` fades in over it (`opacity` transition) once
+loaded; without blur data yet, a plain `Skeleton` shows instead. The `<img>` uses both `onLoad` and
+a ref callback checking `.complete` to flip its loaded state - confirmed via a real browser test
+that a cached/fast-loading image can fire its `load` event before React finishes attaching the
+`onLoad` handler, which without the ref check left the image permanently stuck at `opacity-0` even
+though it had fully rendered.
 
 Clip preview `<video>` uses `clipStreamUrl(clip.id)` → `GET /clips/:id/stream` (Range-enabled
 inline stream), not `clipDownloadUrl` (attachment header, can't play in a `<video>` element). Video
@@ -164,10 +176,15 @@ replacing it (the user's own framing: "mulai menghubungkan analytics dengan expl
   header re-sorts the already-fetched rows without a network round trip. `TopClipsTable` rows are
   one per publish record (a clip published to two platforms gets two rows, since
   platform/views/likes/shares are properties of the publish, not the clip).
-- `ClipThumbnail.tsx` — reuses `ClipCard.tsx`'s exact "no frame-extraction exists in this backend
-  yet" honest-placeholder convention (a neutral SVG data URI, not a fake preview), at table-row size,
-  rendered via CSS `backgroundImage` the same way `LiveReel.tsx` already renders its own thumbnail
-  frames (no `<img>`/`next/image` usage exists anywhere else in this app).
+- `ClipThumbnail.tsx` — Product Experience roadmap added a real `thumbnailUrl?` prop (backed by
+  `GET /clips/:id/thumbnail`, built via `lib/api.ts`'s `clipThumbnailUrl()`); `TopClipsTable.tsx`
+  passes it when the row's clip has one. Still falls back to the original neutral SVG placeholder
+  (not a broken image) when null - a clip with no thumbnail yet (extraction failed, or predates
+  this feature). Rendered via CSS `backgroundImage` either way, same technique `LiveReel.tsx`
+  already uses for its own thumbnail frames. Both this component and `ClipCard.tsx`'s `LiveReel`
+  usage get `content-visibility: auto` (Phase 2, image optimization roadmap) as the lazy-loading
+  equivalent for a `background-image` div - no native `loading` attribute exists for non-`<img>`
+  elements.
 - `EngagementTrendChart.tsx` — extends `UploadTrendChart.tsx`'s bar-per-day technique: `totalViews`
   is the bar height (the primary series), `publishCount`/`averageEngagementScore` ride along in the
   hover tooltip rather than competing for their own bar height in the same strip.

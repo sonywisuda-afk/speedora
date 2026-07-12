@@ -12,6 +12,7 @@ describe('ClipsController', () => {
   let controller: ClipsController;
   let clipsService: {
     findRenderedOrThrow: jest.Mock;
+    findThumbnailOrThrow: jest.Mock;
     getExplainability: jest.Mock;
     update: jest.Mock;
     render: jest.Mock;
@@ -26,6 +27,7 @@ describe('ClipsController', () => {
   beforeEach(() => {
     clipsService = {
       findRenderedOrThrow: jest.fn(),
+      findThumbnailOrThrow: jest.fn(),
       getExplainability: jest.fn(),
       update: jest.fn(),
       render: jest.fn(),
@@ -69,6 +71,46 @@ describe('ClipsController', () => {
         metadata: undefined,
       },
     });
+  });
+
+  it('streams a WebP thumbnail as image/webp, with a private day-long cache header', async () => {
+    clipsService.findThumbnailOrThrow.mockResolvedValue({
+      thumbnailUrl: 'thumbnails/clip-1.webp',
+    });
+    const fakeStream = { pipe: jest.fn() };
+    (getObjectStream as jest.Mock).mockResolvedValue(fakeStream);
+    const res = { setHeader: jest.fn() } as unknown as Response;
+
+    await controller.thumbnail(user, 'clip-1', res);
+
+    expect(clipsService.findThumbnailOrThrow).toHaveBeenCalledWith('clip-1', 'user-1');
+    expect(getObjectStream).toHaveBeenCalledWith('thumbnails/clip-1.webp');
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/webp');
+    expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, max-age=86400');
+    expect(fakeStream.pipe).toHaveBeenCalledWith(res);
+  });
+
+  it('derives image/jpeg for a pre-Phase-2 .jpg thumbnail key rather than hardcoding WebP', async () => {
+    clipsService.findThumbnailOrThrow.mockResolvedValue({
+      thumbnailUrl: 'thumbnails/clip-1.jpg',
+    });
+    const fakeStream = { pipe: jest.fn() };
+    (getObjectStream as jest.Mock).mockResolvedValue(fakeStream);
+    const res = { setHeader: jest.fn() } as unknown as Response;
+
+    await controller.thumbnail(user, 'clip-1', res);
+
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/jpeg');
+  });
+
+  it('propagates the not-found error from the service without touching storage', async () => {
+    clipsService.findThumbnailOrThrow.mockRejectedValue(new Error('Clip clip-1 has no thumbnail'));
+    const res = { setHeader: jest.fn() } as unknown as Response;
+
+    await expect(controller.thumbnail(user, 'clip-1', res)).rejects.toThrow(
+      'Clip clip-1 has no thumbnail',
+    );
+    expect(getObjectStream).not.toHaveBeenCalled();
   });
 
   it('delegates GET :id/explainability to ClipsService.getExplainability', async () => {

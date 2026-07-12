@@ -869,6 +869,18 @@ export interface Video {
   // Sprint 1-2 (Dashboard Redesign) - feeds the Dashboard's per-owner
   // Storage Used stat (see schema.prisma's comment on Video.sourceSizeBytes).
   sourceSizeBytes: number | null;
+  // Product Experience roadmap - already a `/videos/:id/thumbnail` relative
+  // endpoint path (see VideosService.mapVideoWithClips), never the raw
+  // object-storage key - same treatment as Clip.downloadUrl below. Null
+  // until transcribe.worker.ts's best-effort extraction succeeds, or for
+  // pre-existing rows (never backfilled).
+  thumbnailUrl: string | null;
+  // Phase 2 (image optimization roadmap) - a tiny base64 data URL (~16px
+  // wide), inlined directly rather than behind its own endpoint like the
+  // full thumbnail - small enough to ship with the DTO, and the whole point
+  // is having *something* to paint before the real image loads. Null
+  // whenever thumbnailUrl is null (same lifecycle).
+  thumbnailBlurDataUrl: string | null;
   // 0-100, real progress reported by import-youtube.worker.ts (see
   // schema.prisma's comment on this column) - null before an import
   // attempt has started or once status has moved past IMPORTING. Only
@@ -902,6 +914,14 @@ export interface Clip {
   // Storage Used stat (see schema.prisma's comment on Clip.outputSizeBytes).
   // Null until the clip finishes rendering.
   outputSizeBytes: number | null;
+  // Product Experience roadmap - a `/clips/:id/thumbnail` relative endpoint
+  // path (same "never the raw storage key" treatment as downloadUrl above),
+  // extracted from the RENDERED output by render-clip.worker.ts. Null until
+  // the clip finishes rendering, extraction fails, or for pre-existing rows.
+  thumbnailUrl: string | null;
+  // Phase 2 (image optimization roadmap) - same inline-base64 blur-placeholder
+  // treatment as Video.thumbnailBlurDataUrl above.
+  thumbnailBlurDataUrl: string | null;
   captionStyle: CaptionStyle;
   hookText: string | null;
   hashtags: string[];

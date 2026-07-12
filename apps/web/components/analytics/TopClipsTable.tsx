@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import type { TopClipRow } from '@speedora/shared';
+import { clipThumbnailUrl } from '@/lib/api';
 import { PLATFORM_LABELS } from '@/lib/analytics';
 import { formatPublishDate, sortByNumericField, type SortDirection } from '@/lib/performance';
 import { ClipThumbnail } from './ClipThumbnail';
@@ -90,7 +91,9 @@ export function TopClipsTable({ clips }: TopClipsTableProps) {
           {sortedClips.map((clip) => (
             <tr key={clip.publishRecordId} className="border-b border-border/50">
               <td className="p-2">
-                <ClipThumbnail />
+                <ClipThumbnail
+                  thumbnailUrl={clip.thumbnailUrl ? clipThumbnailUrl(clip.thumbnailUrl) : null}
+                />
               </td>
               <td className="max-w-[12rem] truncate p-2 text-foreground">{clip.videoLabel}</td>
               <td className="p-2 text-muted-foreground">{PLATFORM_LABELS[clip.platform]}</td>

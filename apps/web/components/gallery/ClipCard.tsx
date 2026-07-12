@@ -4,6 +4,7 @@ import type { Clip } from '@speedora/shared';
 import { ScoreGauge } from '@/components/ScoreGauge';
 import { LiveReel, type LiveReelThumbnail } from '@/components/signature/LiveReel';
 import { Badge } from '@/components/ui/badge';
+import { clipThumbnailUrl } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 const TOP_SCORE_THRESHOLD = 90;
@@ -32,6 +33,16 @@ function formatDuration(seconds: number): string {
 
 export function ClipCard({ videoId, clip }: { videoId: string; clip: Clip }) {
   const isTopScore = clip.viralityScore >= TOP_SCORE_THRESHOLD;
+  // A single real frame, not the 2-entry placeholder strip - showing the
+  // same real thumbnail twice would read as a bug, not a feature (Product
+  // Experience roadmap). LiveReel's `src` renders via CSS background-image,
+  // which already carries the session cookie cross-origin without needing
+  // a crossOrigin attribute (that's an <img>-only concept) - see
+  // components/dashboard/RecentProjectsGrid.tsx's own <img> for the
+  // equivalent explicit-attribute case.
+  const thumbnails: LiveReelThumbnail[] = clip.thumbnailUrl
+    ? [{ id: 'real', src: clipThumbnailUrl(clip.thumbnailUrl), alt: 'Pratinjau klip' }]
+    : PLACEHOLDER_THUMBNAILS;
 
   return (
     <Link
@@ -42,7 +53,16 @@ export function ClipCard({ videoId, clip }: { videoId: string; clip: Clip }) {
         'hover:border-signal-pink/50 hover:shadow-[0_0_28px_-8px_rgba(255,59,127,0.4)]',
       )}
     >
-      <LiveReel variant="thumbnail-strip" thumbnails={PLACEHOLDER_THUMBNAILS} />
+      {/* content-visibility:auto (Phase 2, image optimization roadmap) - the
+          closest real "lazy loading" equivalent for a CSS background-image
+          div (no native `loading` attribute exists for non-<img> elements,
+          unlike RecentProjectsGrid.tsx's plain <img>) - defers offscreen
+          render/paint cost. */}
+      <LiveReel
+        variant="thumbnail-strip"
+        thumbnails={thumbnails}
+        className="[content-visibility:auto]"
+      />
 
       <div className="p-4">
         <div className="flex items-center justify-between gap-3">

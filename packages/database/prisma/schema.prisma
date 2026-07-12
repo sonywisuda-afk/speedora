@@ -174,6 +174,25 @@ model Video {
   // S3/R2/MinIO bucket (see packages/storage's getBucketUsage(), which is
   // bucket-wide and not owner-scoped). Null for pre-existing rows.
   sourceSizeBytes       Int?
+  // Object storage key for a single extracted thumbnail frame
+  // (thumbnails/<id>.webp - .jpg for rows extracted before Phase 2's WebP
+  // switch, never backfilled, still served correctly since the API derives
+  // Content-Type from this key's own extension), set by transcribe.worker.ts
+  // (best-effort - a failed extraction never fails the transcribe job) right
+  // after the source video is downloaded locally. Never exposed to the client
+  // as this raw key - VideosService.mapVideoWithClips computes a
+  // `/videos/:id/thumbnail` endpoint path instead, same treatment as
+  // sourceUrl/downloadUrl. Null for pre-existing rows and while extraction is
+  // still pending/failed - never backfilled.
+  thumbnailUrl          String?
+  // Phase 2 (image optimization roadmap) - a tiny (~8px-wide) blurred version
+  // of thumbnailUrl, base64 data-URL encoded, generated in the same
+  // best-effort extraction step. Small enough to return inline in the video
+  // DTO (unlike the full thumbnail, which stays behind its own endpoint) so
+  // the frontend has *something* to paint before the real image loads. Null
+  // whenever thumbnailUrl is null (same lifecycle), and for pre-existing rows
+  // predating this column.
+  thumbnailBlurDataUrl  String?
   // 0-100, real progress reported by import-youtube.worker.ts as yt-dlp
   // downloads the source - same "never fabricated" convention as
   // transcribeProgress below, and deliberately a separate column rather
@@ -327,6 +346,19 @@ model Clip {
   // Dashboard's per-owner "Storage Used" stat - see Video.sourceSizeBytes.
   // Null until the clip finishes rendering, or for pre-existing rows.
   outputSizeBytes         Int?
+  // Object storage key for a single extracted thumbnail frame
+  // (thumbnails/<id>.webp - .jpg for pre-Phase-2 rows, see Video.thumbnailUrl's
+  // own comment), set by render-clip.worker.ts (best-effort) from the midpoint
+  // of the RENDERED output - not the raw source - so the thumbnail matches
+  // exactly what the viewer will see (crop/captions/B-roll already burned in).
+  // Same "never exposed as a raw key" treatment as Video.thumbnailUrl above -
+  // ClipsService.toDto()/VideosService.mapVideoWithClips compute a
+  // `/clips/:id/thumbnail` endpoint path instead. Null until the clip
+  // finishes rendering, extraction fails, or for pre-existing rows.
+  thumbnailUrl            String?
+  // Phase 2 (image optimization roadmap) - same tiny base64 blur-placeholder
+  // treatment as Video.thumbnailBlurDataUrl above, inlined in the clip DTO.
+  thumbnailBlurDataUrl    String?
   captionStyle            CaptionStyle @default(DEFAULT)
   // Suggested 3-second-opener hook line and social hashtags (without a
   // leading '#') from the same detect-clips LLM call that scores virality -
