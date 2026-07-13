@@ -36,6 +36,13 @@ const noCompositionFeatures = {
   compositionStability: null,
   framingConsistency: null,
 };
+const midpointThumbnailSelection = {
+  timestampSeconds: 5,
+  confidence: 0,
+  contributions: [],
+  fallbackLevel: 'midpoint' as const,
+  reason: 'no timed signals available, falling back to clip midpoint',
+};
 
 function baseResult(overrides: Partial<RenderGraphResult> = {}): RenderGraphResult {
   return {
@@ -70,6 +77,7 @@ function baseResult(overrides: Partial<RenderGraphResult> = {}): RenderGraphResu
     compositionFeatures: noCompositionFeatures,
     audioFeatures: noAudioFeatures,
     editingRhythmFeatures: noEditingRhythmFeatures,
+    thumbnailSelection: midpointThumbnailSelection,
     ...overrides,
   };
 }

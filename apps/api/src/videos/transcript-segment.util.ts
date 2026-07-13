@@ -42,6 +42,7 @@ import type {
   SpeakerImportanceScore,
   SpeakerTimelineEntry,
   SpeakerTimelineFeatures,
+  ThumbnailContribution,
   TranscriptionProvider,
   TranscriptSegment,
   TranscriptWord,
@@ -184,6 +185,15 @@ export function toSharedCompositionFeatures(
   compositionFeatures: unknown,
 ): CompositionFeatures | null {
   return (compositionFeatures as CompositionFeatures | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.thumbnailSelectionBreakdown (Phase 4 of the thumbnail roadmap - AI
+// Thumbnail Selection, Level 2).
+export function toSharedThumbnailSelectionBreakdown(
+  thumbnailSelectionBreakdown: unknown,
+): ThumbnailContribution[] | null {
+  return (thumbnailSelectionBreakdown as ThumbnailContribution[] | null) ?? null;
 }
 
 // Same "Json column is opaque" situation as the functions above, for

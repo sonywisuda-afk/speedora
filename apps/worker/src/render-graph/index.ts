@@ -23,6 +23,7 @@ import type {
   PrimarySubjectSample,
   SceneCutEvent,
   SceneFeatures,
+  SelectThumbnailTimestampOutput,
   SpeakerFaceAssociation,
   SpeakerFusionFeatures,
   SpeakerTimelineEntry,
@@ -39,6 +40,7 @@ import { faceSpeakerNodes } from './nodes/face-speaker';
 import { objectNodes } from './nodes/object';
 import { ocrNodes } from './nodes/ocr';
 import { sceneNodes } from './nodes/scene';
+import { thumbnailSelectionNodes } from './nodes/thumbnail-selection';
 
 export { runGraph, GraphConfigError, GraphCycleError, type GraphNode } from './executor';
 export type { RenderGraphContext } from './context';
@@ -60,6 +62,7 @@ export const renderClipGraph: GraphNode<RenderGraphContext, unknown>[] = [
   ...objectNodes,
   ...compositionNodes,
   ...audioEditingNodes,
+  ...thumbnailSelectionNodes,
 ];
 
 // Grows alongside renderClipGraph above - one field per migrated node id. Callers do exactly one
@@ -97,4 +100,5 @@ export interface RenderGraphResult {
   compositionFeatures: CompositionFeatures;
   audioFeatures: AudioFeatures;
   editingRhythmFeatures: EditingRhythmFeatures;
+  thumbnailSelection: SelectThumbnailTimestampOutput;
 }

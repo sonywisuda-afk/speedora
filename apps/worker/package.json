@@ -45,6 +45,7 @@
     "@speedora/speaker-scoring": "workspace:*",
     "@speedora/storage": "workspace:^",
     "@speedora/subtitles": "workspace:*",
+    "@speedora/thumbnail-selection": "workspace:*",
     "bullmq": "^5.7.8",
     "dotenv": "^17.4.2",
     "ioredis": "5.10.1",

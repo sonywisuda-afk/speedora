@@ -563,9 +563,20 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // already set, rather than clobbering it with null).
             let thumbnailKey: string | null = null;
             let thumbnailBlurDataUrl: string | null = null;
+            // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level
+            // 2) - graphResult.thumbnailSelection.timestampSeconds replaces
+            // the naive (endTime - startTime) / 2 midpoint. Deliberately
+            // reads ONLY graphResult, never `highlight` (Fusion Engine's
+            // clip-level highlightScore, computed further down in this file)
+            // - highlightScore has no per-timestamp meaning, see
+            // @speedora/contracts' thumbnail-selection.ts for why that
+            // boundary is load-bearing. Degrades to exactly today's midpoint
+            // whenever the selector had no timed signals to work with (see
+            // its own 'midpoint' fallback level).
+            const thumbTimestamp = graphResult.thumbnailSelection.timestampSeconds;
             try {
               thumbPath = await reserveScratchPath('thumbnail', '.webp');
-              await extractThumbnail(renderedPath, thumbPath, (endTime - startTime) / 2);
+              await extractThumbnail(renderedPath, thumbPath, thumbTimestamp);
               thumbnailKey = `thumbnails/${clipId}.webp`;
               await uploadObject(thumbnailKey, createReadStream(thumbPath), 'image/webp');
 
@@ -574,7 +585,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               // as transcribe.worker.ts's own blur placeholder extraction.
               try {
                 blurPath = await reserveScratchPath('thumbnail-blur', '.webp');
-                await extractBlurPlaceholder(renderedPath, blurPath, (endTime - startTime) / 2);
+                await extractBlurPlaceholder(renderedPath, blurPath, thumbTimestamp);
                 const blurBuffer = await readFile(blurPath);
                 thumbnailBlurDataUrl = `data:image/webp;base64,${blurBuffer.toString('base64')}`;
               } catch (error) {
@@ -780,6 +791,33 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                     }),
                   ),
                 );
+
+                // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection,
+                // Level 1 - video cover promotion). This is the ONLY place
+                // highlightScore/highlightRank are allowed to influence a
+                // thumbnail choice - see @speedora/contracts'
+                // thumbnail-selection.ts for why that boundary matters. Reuses
+                // the winning clip's ALREADY-EXTRACTED thumbnailUrl/
+                // thumbnailBlurDataUrl (a plain copy, no re-extraction) -
+                // best-effort, same never-fails-the-job posture as ranking
+                // itself.
+                const coverClipId = ranked.find((clip) => clip.rank === 1)?.clipId;
+                if (coverClipId) {
+                  const coverClip = await prisma.clip.findUnique({
+                    where: { id: coverClipId },
+                    select: { thumbnailUrl: true, thumbnailBlurDataUrl: true },
+                  });
+                  if (coverClip?.thumbnailUrl) {
+                    await prisma.video.update({
+                      where: { id: videoId },
+                      data: {
+                        coverClipId,
+                        coverThumbnailUrl: coverClip.thumbnailUrl,
+                        coverThumbnailBlurDataUrl: coverClip.thumbnailBlurDataUrl,
+                      },
+                    });
+                  }
+                }
               } catch (error) {
                 logger.warn(
                   'ranking sibling clips failed, continuing without highlightRank',

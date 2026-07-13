@@ -15,6 +15,7 @@ import {
   type DetectClipsJobData,
   type ImportYoutubeJobData,
   type RenderClipJobData,
+  type ThumbnailFallbackLevel,
   type TranscribeJobData,
 } from '@speedora/shared';
 import { Queue } from 'bullmq';
@@ -62,6 +63,7 @@ import {
   toSharedSpeakerTimeline,
   toSharedSpeakerTimelineFeatures,
   toSharedStoryboardFrameKeys,
+  toSharedThumbnailSelectionBreakdown,
   toSharedTrackingQualityMetrics,
   toSharedTranscriptionProvider,
   toSharedTranscriptSegment,
@@ -407,7 +409,10 @@ export class VideosService {
       throw new NotFoundException(`Video ${id} not found`);
     }
 
-    return { thumbnailUrl: video.thumbnailUrl };
+    // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 1) -
+    // prefer the highlightScore-ranked cover clip's thumbnail when one has
+    // been promoted, same preference as mapVideoWithClips.
+    return { thumbnailUrl: video.coverThumbnailUrl ?? video.thumbnailUrl };
   }
 
   // Used by GET /videos/:id/animated-thumbnail (Product Experience roadmap,
@@ -522,17 +527,32 @@ export class VideosService {
       voiceActivityFeatures,
       diarizationFeatures,
       thumbnailUrl,
+      thumbnailBlurDataUrl,
       animatedThumbnailUrl,
       hoverPreviewUrl,
       storyboardFrameUrls,
+      // Raw storage keys - excluded from `rest` so they never leak, only
+      // used to compute thumbnailUrl/thumbnailBlurDataUrl above.
+      // coverClipId is left in `rest` and passes through unchanged - it's a
+      // plain id, not a storage key, structurally no different from any
+      // clip id already visible in the `clips` array below.
+      coverThumbnailUrl,
+      coverThumbnailBlurDataUrl,
       ...rest
     } = video;
     return {
       ...rest,
       // Never the raw storage key - same "client hits an authenticated
       // endpoint instead" treatment as each clip's downloadUrl/thumbnailUrl
-      // below (Product Experience roadmap).
-      thumbnailUrl: thumbnailUrl ? `/videos/${video.id}/thumbnail` : null,
+      // below (Product Experience roadmap). Phase 4 of the thumbnail
+      // roadmap (AI Thumbnail Selection, Level 1) - the endpoint path is
+      // identical either way (findThumbnailOrThrow resolves which raw key
+      // backs it), so the only thing that changes here is the presence
+      // check preferring the highlightScore-ranked cover clip.
+      thumbnailUrl: coverThumbnailUrl || thumbnailUrl ? `/videos/${video.id}/thumbnail` : null,
+      // Unlike thumbnailUrl above, this IS the actual inline data - prefer
+      // the cover clip's own blur placeholder when one was promoted.
+      thumbnailBlurDataUrl: coverThumbnailBlurDataUrl ?? thumbnailBlurDataUrl,
       animatedThumbnailUrl: animatedThumbnailUrl ? `/videos/${video.id}/animated-thumbnail` : null,
       hoverPreviewUrl: hoverPreviewUrl ? `/videos/${video.id}/hover-preview` : null,
       // Only the COUNT of extracted frames is needed here - each entry is an
@@ -592,6 +612,8 @@ export class VideosService {
           highlightPrediction,
           highlightRecommendation,
           compositionFeatures,
+          thumbnailSelectionBreakdown,
+          thumbnailSelectionFallback,
           ...clip
         }) => ({
           ...clip,
@@ -646,6 +668,10 @@ export class VideosService {
           highlightPrediction: toSharedHighlightPrediction(highlightPrediction),
           highlightRecommendation: toSharedHighlightRecommendation(highlightRecommendation),
           compositionFeatures: toSharedCompositionFeatures(compositionFeatures),
+          thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
+            thumbnailSelectionBreakdown,
+          ),
+          thumbnailSelectionFallback: thumbnailSelectionFallback as ThumbnailFallbackLevel | null,
           publishRecords: publishRecords.map(toSharedPublishRecord),
         }),
       ),

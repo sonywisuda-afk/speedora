@@ -267,6 +267,32 @@ export interface CompositionFeatures {
   framingConsistency: number | null;
 }
 
+// Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2 - frame/
+// timestamp selection within an already-chosen clip, never which clip is
+// the video's cover) - mirrors @speedora/contracts' thumbnail-selection.ts
+// shapes rather than importing them, same duplication precedent as
+// CompositionFeatures/EditingRhythmFeatures above.
+export const THUMBNAIL_SIGNALS = [
+  'faceClarity',
+  'emotion',
+  'ocrImportance',
+  'gesture',
+  'motion',
+  'composition',
+] as const;
+export type ThumbnailSignal = (typeof THUMBNAIL_SIGNALS)[number];
+
+export interface ThumbnailContribution {
+  signal: ThumbnailSignal;
+  rawValue: number | null;
+  normalizedValue: number;
+  weight: number;
+  weightedContribution: number;
+}
+
+export const THUMBNAIL_FALLBACK_LEVELS = ['midpoint', 'single_signal', 'multi_signal'] as const;
+export type ThumbnailFallbackLevel = (typeof THUMBNAIL_FALLBACK_LEVELS)[number];
+
 // Speaker Intelligence roadmap, Milestone A (Voice Activity Detection) -
 // mirrors @speedora/contracts' VoiceActivitySegment/VoiceActivityFeatures
 // shapes rather than importing them, same duplication precedent as
@@ -1084,6 +1110,18 @@ export interface Clip {
   // samples for this clip, same nullability convention as
   // motionEnergyFeatures/sceneFeatures above.
   compositionFeatures: CompositionFeatures | null;
+  // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
+  // @speedora/thumbnail-selection's chosen in-clip timestamp, replacing the
+  // naive clip-midpoint thumbnailUrl/thumbnailBlurDataUrl are extracted at,
+  // plus its explainability breakdown/fallback level/reason. Deliberately
+  // NEVER used to pick which clip is a video's cover - that's
+  // highlightScore/highlightRank's job (see @speedora/contracts'
+  // thumbnail-selection.ts for the full policy). Null for pre-existing rows
+  // and if the render graph hasn't run yet.
+  thumbnailSelectionTimestamp: number | null;
+  thumbnailSelectionBreakdown: ThumbnailContribution[] | null;
+  thumbnailSelectionFallback: ThumbnailFallbackLevel | null;
+  thumbnailSelectionReason: string | null;
   // Publish attempts to connected social accounts (Fase 6b) - empty until
   // the user hits "Publish now" at least once. Small array in practice (at
   // most one per connected platform account), so returned inline rather

@@ -24,6 +24,7 @@ export * from './speaker-scoring';
 export * from './speaker-timeline';
 export * from './speaking-style';
 export * from './subtitles';
+export * from './thumbnail-selection';
 export * from './transcript-word';
 export * from './vocal-emotion';
 export * from './voice-activity';

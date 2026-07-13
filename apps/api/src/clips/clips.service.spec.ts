@@ -467,6 +467,10 @@ describe('ClipsService', () => {
         highlightPrediction: null,
         highlightRecommendation: null,
         compositionFeatures: null,
+        thumbnailSelectionTimestamp: undefined,
+        thumbnailSelectionBreakdown: null,
+        thumbnailSelectionFallback: undefined,
+        thumbnailSelectionReason: undefined,
         publishRecords: [],
         updatedAt: existingClip.updatedAt,
       });
@@ -680,6 +684,10 @@ describe('ClipsService', () => {
         highlightPrediction: null,
         highlightRecommendation: null,
         compositionFeatures: null,
+        thumbnailSelectionTimestamp: undefined,
+        thumbnailSelectionBreakdown: null,
+        thumbnailSelectionFallback: undefined,
+        thumbnailSelectionReason: undefined,
         publishRecords: [],
         updatedAt: cleared.updatedAt,
       });

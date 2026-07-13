@@ -104,6 +104,17 @@ const CLIP_UPDATE_MAP: {
   objectTracks: (r) => ({ objectTracks: r.objectTracks ?? Prisma.JsonNull }),
   objectFeatures: (r) => ({ objectFeatures: r.objectFeatures ?? Prisma.JsonNull }),
   compositionFeatures: (r) => ({ compositionFeatures: r.compositionFeatures }),
+  // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
+  // never added to FUSION_INPUT_MAP above: per this module's own policy
+  // (see @speedora/contracts' thumbnail-selection.ts), this output must
+  // never feed highlightScore.
+  thumbnailSelection: (r) => ({
+    thumbnailSelectionTimestamp: r.thumbnailSelection.timestampSeconds,
+    thumbnailSelectionBreakdown: r.thumbnailSelection
+      .contributions as unknown as Prisma.InputJsonValue,
+    thumbnailSelectionFallback: r.thumbnailSelection.fallbackLevel,
+    thumbnailSelectionReason: r.thumbnailSelection.reason,
+  }),
 };
 
 // Assembles the graph-derived portion of prisma.clip.update()'s data object. `extra` carries

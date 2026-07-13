@@ -10,6 +10,7 @@ import {
   type PublishClipJobData,
   type PublishRecord,
   type RenderClipJobData,
+  type ThumbnailFallbackLevel,
 } from '@speedora/shared';
 import type { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
@@ -55,6 +56,7 @@ import {
   toSharedSpeakerTimeline,
   toSharedSpeakerTimelineFeatures,
   toSharedStoryboardFrameKeys,
+  toSharedThumbnailSelectionBreakdown,
   toSharedTrackingQualityMetrics,
   toSharedTranscriptSegment,
 } from '../videos/transcript-segment.util';
@@ -431,6 +433,10 @@ export class ClipsService {
     highlightRecommendation: unknown;
     highlightRank: number | null;
     compositionFeatures: unknown;
+    thumbnailSelectionTimestamp: number | null;
+    thumbnailSelectionBreakdown: unknown;
+    thumbnailSelectionFallback: string | null;
+    thumbnailSelectionReason: string | null;
     publishRecords: Parameters<typeof toSharedPublishRecord>[0][];
     updatedAt: Date;
   }) {
@@ -500,6 +506,12 @@ export class ClipsService {
       highlightRecommendation: toSharedHighlightRecommendation(clip.highlightRecommendation),
       highlightRank: clip.highlightRank,
       compositionFeatures: toSharedCompositionFeatures(clip.compositionFeatures),
+      thumbnailSelectionTimestamp: clip.thumbnailSelectionTimestamp,
+      thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
+        clip.thumbnailSelectionBreakdown,
+      ),
+      thumbnailSelectionFallback: clip.thumbnailSelectionFallback as ThumbnailFallbackLevel | null,
+      thumbnailSelectionReason: clip.thumbnailSelectionReason,
       publishRecords: clip.publishRecords.map(toSharedPublishRecord) satisfies PublishRecord[],
       updatedAt: clip.updatedAt,
     };

@@ -222,6 +222,23 @@ model Video {
   // "/videos/:id/hover-preview" endpoint-path treatment as thumbnailUrl.
   // Null while extraction is still pending/failed, or for pre-existing rows.
   hoverPreviewUrl       String?
+  // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 1 -
+  // "which clip is the video's cover"). Set by render-clip.worker.ts once
+  // every sibling clip has rendered and rankClips() has run, by COPYING
+  // (never re-extracting) the rank-1 clip's own already-extracted
+  // thumbnailUrl/thumbnailBlurDataUrl. Deliberately ADDITIVE, not an
+  // overwrite of thumbnailUrl/thumbnailBlurDataUrl above - those keep
+  // serving their existing purpose (a placeholder available from the
+  // moment the raw source is downloaded, before any clip exists) - the API
+  // layer (VideosService) prefers these when present, falling back to
+  // thumbnailUrl/thumbnailBlurDataUrl otherwise. coverClipId is a plain id
+  // reference, not a real Prisma relation (kept soft/nullable, same
+  // treatment as Clip.highlightRank, so a cascade-deleted clip can't leave
+  // a dangling required FK). Null for pre-existing rows, videos with no
+  // rendered clips yet, or if this best-effort promotion step fails.
+  coverClipId           String?
+  coverThumbnailUrl     String?
+  coverThumbnailBlurDataUrl String?
   // 0-100, real progress reported by import-youtube.worker.ts as yt-dlp
   // downloads the source - same "never fabricated" convention as
   // transcribeProgress below, and deliberately a separate column rather
@@ -402,6 +419,19 @@ model Clip {
   // treatment as Video.hoverPreviewUrl above, extracted from the RENDERED
   // output by render-clip.worker.ts.
   hoverPreviewUrl         String?
+  // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
+  // @speedora/thumbnail-selection's chosen in-clip timestamp (replacing the
+  // naive (endTime - startTime) / 2 midpoint thumbnailUrl/
+  // thumbnailBlurDataUrl above are extracted at), plus its explainability
+  // breakdown. Deliberately NOT used to pick which clip is a video's cover -
+  // see @speedora/contracts' thumbnail-selection.ts for the Level 1 vs.
+  // Level 2 policy this column must never violate; that's highlightScore/
+  // highlightRank's job. Null for pre-existing rows and if the render graph
+  // hasn't run yet.
+  thumbnailSelectionTimestamp Float?
+  thumbnailSelectionBreakdown Json?
+  thumbnailSelectionFallback  String?
+  thumbnailSelectionReason    String?
   captionStyle            CaptionStyle @default(DEFAULT)
   // Suggested 3-second-opener hook line and social hashtags (without a
   // leading '#') from the same detect-clips LLM call that scores virality -
