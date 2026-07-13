@@ -303,6 +303,7 @@ describe('VideosService', () => {
           viralityScore: 90,
           downloadUrl: '/clips/clip-1/download',
           thumbnailUrl: null,
+          storyboardFrameUrls: [],
           scores: null,
           facialEmotions: null,
           sceneCutEvents: null,
@@ -347,6 +348,7 @@ describe('VideosService', () => {
           viralityScore: 40,
           downloadUrl: null,
           thumbnailUrl: null,
+          storyboardFrameUrls: [],
           scores: null,
           facialEmotions: null,
           sceneCutEvents: null,
@@ -527,6 +529,56 @@ describe('VideosService', () => {
       });
 
       await expect(service.findThumbnailOrThrow('video-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('findStoryboardFrameOrThrow', () => {
+    it('returns the raw key at the requested index', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        storyboardFrameUrls: ['storyboards/video-1-0.webp', 'storyboards/video-1-1.webp'],
+      });
+
+      const result = await service.findStoryboardFrameOrThrow('video-1', 'user-1', 1);
+
+      expect(result).toEqual({ frameKey: 'storyboards/video-1-1.webp' });
+    });
+
+    it('returns a null frameKey (not a throw) when the index is out of range', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        storyboardFrameUrls: ['storyboards/video-1-0.webp'],
+      });
+
+      const result = await service.findStoryboardFrameOrThrow('video-1', 'user-1', 5);
+
+      expect(result).toEqual({ frameKey: null });
+    });
+
+    it('returns a null frameKey when no storyboard has been extracted yet', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        storyboardFrameUrls: null,
+      });
+
+      const result = await service.findStoryboardFrameOrThrow('video-1', 'user-1', 0);
+
+      expect(result).toEqual({ frameKey: null });
+    });
+
+    it('throws NotFoundException when the video belongs to a different user', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'someone-else',
+        storyboardFrameUrls: ['storyboards/video-1-0.webp'],
+      });
+
+      await expect(service.findStoryboardFrameOrThrow('video-1', 'user-1', 0)).rejects.toThrow(
         NotFoundException,
       );
     });

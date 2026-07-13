@@ -4,7 +4,7 @@ import type { Clip } from '@speedora/shared';
 import { ScoreGauge } from '@/components/ScoreGauge';
 import { LiveReel, type LiveReelThumbnail } from '@/components/signature/LiveReel';
 import { Badge } from '@/components/ui/badge';
-import { clipThumbnailUrl } from '@/lib/api';
+import { clipStoryboardFrameUrl, clipThumbnailUrl } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 const TOP_SCORE_THRESHOLD = 90;
@@ -33,16 +33,25 @@ function formatDuration(seconds: number): string {
 
 export function ClipCard({ videoId, clip }: { videoId: string; clip: Clip }) {
   const isTopScore = clip.viralityScore >= TOP_SCORE_THRESHOLD;
-  // A single real frame, not the 2-entry placeholder strip - showing the
-  // same real thumbnail twice would read as a bug, not a feature (Product
-  // Experience roadmap). LiveReel's `src` renders via CSS background-image,
-  // which already carries the session cookie cross-origin without needing
-  // a crossOrigin attribute (that's an <img>-only concept) - see
-  // components/dashboard/RecentProjectsGrid.tsx's own <img> for the
-  // equivalent explicit-attribute case.
-  const thumbnails: LiveReelThumbnail[] = clip.thumbnailUrl
-    ? [{ id: 'real', src: clipThumbnailUrl(clip.thumbnailUrl), alt: 'Pratinjau klip' }]
-    : PLACEHOLDER_THUMBNAILS;
+  // Real storyboard frames (Phase 3) when extraction has produced any -
+  // this is the actual "filmstrip" the thumbnail-strip variant was designed
+  // for, not a single frame repeated. Falls back to the single real
+  // thumbnail (Phase 1) when storyboard extraction hasn't run/produced
+  // anything yet, and only then to the honest placeholder. LiveReel's `src`
+  // renders via CSS background-image, which already carries the session
+  // cookie cross-origin without needing a crossOrigin attribute (that's an
+  // <img>-only concept) - see components/dashboard/RecentProjectsGrid.tsx's
+  // own <img> for the equivalent explicit-attribute case.
+  const thumbnails: LiveReelThumbnail[] =
+    clip.storyboardFrameUrls.length > 0
+      ? clip.storyboardFrameUrls.map((frameUrl, i) => ({
+          id: `frame-${i}`,
+          src: clipStoryboardFrameUrl(frameUrl),
+          alt: `Pratinjau klip - frame ${i + 1}`,
+        }))
+      : clip.thumbnailUrl
+        ? [{ id: 'real', src: clipThumbnailUrl(clip.thumbnailUrl), alt: 'Pratinjau klip' }]
+        : PLACEHOLDER_THUMBNAILS;
 
   return (
     <Link

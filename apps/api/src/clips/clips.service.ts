@@ -54,6 +54,7 @@ import {
   toSharedSpeakerImportanceScores,
   toSharedSpeakerTimeline,
   toSharedSpeakerTimelineFeatures,
+  toSharedStoryboardFrameKeys,
   toSharedTrackingQualityMetrics,
   toSharedTranscriptSegment,
 } from '../videos/transcript-segment.util';
@@ -115,6 +116,22 @@ export class ClipsService {
       throw new NotFoundException(`Clip ${id} has no thumbnail`);
     }
     return { thumbnailUrl: clip.thumbnailUrl };
+  }
+
+  // Used by GET /clips/:id/storyboard/:index (Product Experience roadmap,
+  // Phase 3) - same shape/reasoning as findThumbnailOrThrow above,
+  // parameterized by frame index.
+  async findStoryboardFrameOrThrow(
+    id: string,
+    requesterId: string,
+    index: number,
+  ): Promise<{ frameKey: string }> {
+    const clip = await this.findOwnedOrThrow(id, requesterId);
+    const frameKey = toSharedStoryboardFrameKeys(clip.storyboardFrameUrls)[index];
+    if (!frameKey) {
+      throw new NotFoundException(`Clip ${id} has no storyboard frame at index ${index}`);
+    }
+    return { frameKey };
   }
 
   // Milestone 4 (AI Explainability) - a focused read of just the Fusion
@@ -333,6 +350,7 @@ export class ClipsService {
     outputUrl: string | null;
     thumbnailUrl: string | null;
     thumbnailBlurDataUrl: string | null;
+    storyboardFrameUrls: unknown;
     captionStyle: CaptionStyle;
     hookText: string | null;
     hashtags: string[];
@@ -395,6 +413,9 @@ export class ClipsService {
       downloadUrl: clip.outputUrl ? `/clips/${clip.id}/download` : null,
       thumbnailUrl: clip.thumbnailUrl ? `/clips/${clip.id}/thumbnail` : null,
       thumbnailBlurDataUrl: clip.thumbnailBlurDataUrl,
+      storyboardFrameUrls: toSharedStoryboardFrameKeys(clip.storyboardFrameUrls).map(
+        (_, i) => `/clips/${clip.id}/storyboard/${i}`,
+      ),
       captionStyle: clip.captionStyle,
       hookText: clip.hookText,
       hashtags: clip.hashtags,

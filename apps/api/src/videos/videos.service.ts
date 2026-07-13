@@ -61,6 +61,7 @@ import {
   toSharedSpeakerImportanceScores,
   toSharedSpeakerTimeline,
   toSharedSpeakerTimelineFeatures,
+  toSharedStoryboardFrameKeys,
   toSharedTrackingQualityMetrics,
   toSharedTranscriptionProvider,
   toSharedTranscriptSegment,
@@ -409,6 +410,28 @@ export class VideosService {
     return { thumbnailUrl: video.thumbnailUrl };
   }
 
+  // Used by GET /videos/:id/storyboard/:index (Product Experience roadmap,
+  // Phase 3) - mirrors findThumbnailOrThrow's shape/reasoning, parameterized
+  // by frame index. storyboardFrameUrls only ever needs to expose its COUNT
+  // to the DTO (mapVideoWithClips below builds an array of endpoint paths
+  // from that count) - the raw keys themselves are only looked up here, at
+  // the one call site that actually needs to read a specific frame's bytes
+  // from storage.
+  async findStoryboardFrameOrThrow(
+    id: string,
+    requesterId: string,
+    index: number,
+  ): Promise<{ frameKey: string | null }> {
+    const video = await this.prisma.video.findUnique({ where: { id } });
+
+    if (!video || video.ownerId !== requesterId) {
+      throw new NotFoundException(`Video ${id} not found`);
+    }
+
+    const frameKeys = toSharedStoryboardFrameKeys(video.storyboardFrameUrls);
+    return { frameKey: frameKeys[index] ?? null };
+  }
+
   // Permanently deletes a video, its clips/transcript/publish records (all
   // via onDelete: Cascade in the schema), and the objects they own in
   // storage (the source plus every rendered clip). Same ownership-based 404
@@ -467,6 +490,7 @@ export class VideosService {
       voiceActivityFeatures,
       diarizationFeatures,
       thumbnailUrl,
+      storyboardFrameUrls,
       ...rest
     } = video;
     return {
@@ -475,6 +499,11 @@ export class VideosService {
       // endpoint instead" treatment as each clip's downloadUrl/thumbnailUrl
       // below (Product Experience roadmap).
       thumbnailUrl: thumbnailUrl ? `/videos/${video.id}/thumbnail` : null,
+      // Only the COUNT of extracted frames is needed here - each entry is an
+      // endpoint path, not a raw key (see findStoryboardFrameOrThrow above).
+      storyboardFrameUrls: toSharedStoryboardFrameKeys(storyboardFrameUrls).map(
+        (_, i) => `/videos/${video.id}/storyboard/${i}`,
+      ),
       // Narrowed explicitly, same "un-narrowed Json field breaks
       // declaration emit up the call chain" reasoning as every clip.*
       // field below (Speaker Intelligence roadmap, Milestone A/B - these
@@ -486,6 +515,7 @@ export class VideosService {
         ({
           outputUrl,
           thumbnailUrl: clipThumbnailUrl,
+          storyboardFrameUrls: clipStoryboardFrameUrls,
           publishRecords,
           scores,
           facialEmotions,
@@ -529,6 +559,9 @@ export class VideosService {
           ...clip,
           downloadUrl: outputUrl ? `/clips/${clip.id}/download` : null,
           thumbnailUrl: clipThumbnailUrl ? `/clips/${clip.id}/thumbnail` : null,
+          storyboardFrameUrls: toSharedStoryboardFrameKeys(clipStoryboardFrameUrls).map(
+            (_, i) => `/clips/${clip.id}/storyboard/${i}`,
+          ),
           // Narrowed explicitly (not left as Prisma's opaque JsonValue) - an
           // un-narrowed Json field pulls Prisma's internal (unnameable)
           // runtime type into this method's inferred return type, which then

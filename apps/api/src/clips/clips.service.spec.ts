@@ -137,6 +137,56 @@ describe('ClipsService', () => {
     });
   });
 
+  describe('findStoryboardFrameOrThrow', () => {
+    it('returns the raw key at the requested index', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        id: 'clip-1',
+        storyboardFrameUrls: ['storyboards/clip-1-0.webp', 'storyboards/clip-1-1.webp'],
+        video: { ownerId: 'user-1' },
+      });
+
+      const result = await service.findStoryboardFrameOrThrow('clip-1', 'user-1', 1);
+
+      expect(result).toEqual({ frameKey: 'storyboards/clip-1-1.webp' });
+    });
+
+    it('throws NotFoundException when the index is out of range', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        id: 'clip-1',
+        storyboardFrameUrls: ['storyboards/clip-1-0.webp'],
+        video: { ownerId: 'user-1' },
+      });
+
+      await expect(service.findStoryboardFrameOrThrow('clip-1', 'user-1', 5)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws NotFoundException when no storyboard has been extracted yet', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        id: 'clip-1',
+        storyboardFrameUrls: null,
+        video: { ownerId: 'user-1' },
+      });
+
+      await expect(service.findStoryboardFrameOrThrow('clip-1', 'user-1', 0)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws NotFoundException when the clip belongs to a different user', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        id: 'clip-1',
+        storyboardFrameUrls: ['storyboards/clip-1-0.webp'],
+        video: { ownerId: 'someone-else' },
+      });
+
+      await expect(service.findStoryboardFrameOrThrow('clip-1', 'user-1', 0)).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
   describe('getExplainability', () => {
     const clip = {
       id: 'clip-1',
@@ -275,6 +325,7 @@ describe('ClipsService', () => {
         viralityScore: 80,
         downloadUrl: '/clips/clip-1/download',
         thumbnailUrl: null,
+        storyboardFrameUrls: [],
         captionStyle: 'DEFAULT',
         hookText: 'Wait for it...',
         hashtags: ['viral', 'fyp'],
@@ -485,6 +536,7 @@ describe('ClipsService', () => {
         viralityScore: 80,
         downloadUrl: null,
         thumbnailUrl: null,
+        storyboardFrameUrls: [],
         captionStyle: CaptionStyle.KARAOKE,
         hookText: 'Wait for it...',
         hashtags: ['viral', 'fyp'],

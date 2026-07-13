@@ -340,6 +340,11 @@ function verifyUploadChecksum(
 // insurance).
 const RENDER_CLIP_JOB_TIMEOUT_MS = 45 * 60 * 1000;
 
+// Phase 3 (Hover Preview/Storyboard roadmap) - same fractions as
+// transcribe.worker.ts's own storyboard (evenly spaced, excluding the very
+// start/end).
+const STORYBOARD_FRAME_FRACTIONS = [0.1, 0.3, 0.5, 0.7, 0.9];
+
 export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJobResult> {
   return new Worker<RenderClipJobData, RenderClipJobResult>(
     QueueName.RENDER_CLIP,
@@ -397,6 +402,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           let brollPaths: string[] = [];
           let thumbPath: string | null = null;
           let blurPath: string | null = null;
+          const storyboardPaths: string[] = [];
 
           try {
             // ffmpeg needs a real local file to seek within - download the
@@ -572,6 +578,33 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               logger.warn('thumbnail extraction failed, continuing without one', { clipId }, error);
             }
 
+            // Phase 3 (Hover Preview/Storyboard roadmap) - same "N evenly-spaced
+            // frames, each its own independent best-effort extraction" idiom as
+            // transcribe.worker.ts's own storyboard, extracted from
+            // renderedPath (not the raw source) for the same "matches what the
+            // viewer sees" reason as the thumbnail above.
+            const storyboardKeys: string[] = [];
+            for (let i = 0; i < STORYBOARD_FRAME_FRACTIONS.length; i++) {
+              try {
+                const framePath = await reserveScratchPath(`storyboard-${i}`, '.webp');
+                storyboardPaths.push(framePath);
+                await extractThumbnail(
+                  renderedPath,
+                  framePath,
+                  (endTime - startTime) * STORYBOARD_FRAME_FRACTIONS[i],
+                );
+                const frameKey = `storyboards/${clipId}-${i}.webp`;
+                await uploadObject(frameKey, createReadStream(framePath), 'image/webp');
+                storyboardKeys.push(frameKey);
+              } catch (error) {
+                logger.warn(
+                  'storyboard frame extraction failed, skipping this frame',
+                  { clipId, frameIndex: i },
+                  error,
+                );
+              }
+            }
+
             // toClipUpdateData() replaces this call's former hand-written object literal the same way
             // toFusionInput() replaced computeHighlightScore's - see render-graph/sinks.ts's
             // CLIP_UPDATE_MAP for the per-node Prisma.JsonNull/plain-array/always-present rules, and
@@ -606,6 +639,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                     outputSizeBytes,
                     ...(thumbnailKey ? { thumbnailUrl: thumbnailKey } : {}),
                     ...(thumbnailBlurDataUrl ? { thumbnailBlurDataUrl } : {}),
+                    storyboardFrameUrls: storyboardKeys as unknown as Prisma.InputJsonValue,
                     llmFeatures: (scores as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
                     highlightScore: highlight.highlightScore,
                     highlightBreakdown: highlight.contributions,
@@ -712,6 +746,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             if (sendCmdPath) await cleanupTempFile(sendCmdPath);
             if (thumbPath) await cleanupTempFile(thumbPath);
             if (blurPath) await cleanupTempFile(blurPath);
+            for (const storyboardPath of storyboardPaths) await cleanupTempFile(storyboardPath);
             for (const brollPath of brollPaths) await cleanupTempFile(brollPath);
           }
         },

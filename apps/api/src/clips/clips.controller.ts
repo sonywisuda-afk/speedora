@@ -106,6 +106,27 @@ export class ClipsController {
     stream.pipe(res);
   }
 
+  // Phase 3 (Storyboard) - see VideosController's own storyboardFrame
+  // endpoint for the per-index-endpoint reasoning.
+  @Get(':id/storyboard/:index')
+  async storyboardFrame(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Param('index') index: string,
+    @Res() res: Response,
+  ) {
+    const { frameKey } = await this.clipsService.findStoryboardFrameOrThrow(
+      id,
+      user.id,
+      Number(index),
+    );
+    const stream = await getObjectStream(frameKey);
+
+    res.setHeader('Content-Type', thumbnailContentType(frameKey));
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    stream.pipe(res);
+  }
+
   // Milestone 4 (AI Explainability) - a read-only, focused view of a clip's
   // Fusion Engine output (score/confidence/breakdown/reason/prediction/
   // recommendation), separate from the full clip DTO returned by

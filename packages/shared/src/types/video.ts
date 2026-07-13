@@ -881,6 +881,13 @@ export interface Video {
   // is having *something* to paint before the real image loads. Null
   // whenever thumbnailUrl is null (same lifecycle).
   thumbnailBlurDataUrl: string | null;
+  // Phase 3 (Storyboard roadmap) - already an array of `/videos/:id/storyboard/:index`
+  // relative endpoint paths (see VideosService.mapVideoWithClips), one per
+  // successfully extracted frame - never a fixed-N assumption, since each
+  // frame is its own independent best-effort extraction and some can fail
+  // while others succeed. Empty (not null) when extraction hasn't produced
+  // any frames yet, or for pre-existing rows.
+  storyboardFrameUrls: string[];
   // 0-100, real progress reported by import-youtube.worker.ts (see
   // schema.prisma's comment on this column) - null before an import
   // attempt has started or once status has moved past IMPORTING. Only
@@ -922,6 +929,10 @@ export interface Clip {
   // Phase 2 (image optimization roadmap) - same inline-base64 blur-placeholder
   // treatment as Video.thumbnailBlurDataUrl above.
   thumbnailBlurDataUrl: string | null;
+  // Phase 3 (Storyboard roadmap) - same "array of endpoint paths, one per
+  // successfully extracted frame" treatment as Video.storyboardFrameUrls
+  // above, extracted from the RENDERED output by render-clip.worker.ts.
+  storyboardFrameUrls: string[];
   captionStyle: CaptionStyle;
   hookText: string | null;
   hashtags: string[];

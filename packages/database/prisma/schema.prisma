@@ -193,6 +193,16 @@ model Video {
   // whenever thumbnailUrl is null (same lifecycle), and for pre-existing rows
   // predating this column.
   thumbnailBlurDataUrl  String?
+  // Phase 3 (Hover Preview/Storyboard roadmap) - object storage keys for N
+  // evenly-spaced frames (transcribe.worker.ts extracts each independently,
+  // best-effort - some can fail while others succeed, so this is the actual
+  // list of keys that succeeded, never a fabricated fixed-N array). Never
+  // exposed to the client as raw keys - VideosService.mapVideoWithClips
+  // computes `/videos/:id/storyboard/:index` endpoint paths instead, same
+  // treatment as thumbnailUrl. Empty array (not null) once extraction has
+  // run and found nothing; null only for pre-existing rows predating this
+  // column.
+  storyboardFrameUrls   Json?
   // 0-100, real progress reported by import-youtube.worker.ts as yt-dlp
   // downloads the source - same "never fabricated" convention as
   // transcribeProgress below, and deliberately a separate column rather
@@ -359,6 +369,11 @@ model Clip {
   // Phase 2 (image optimization roadmap) - same tiny base64 blur-placeholder
   // treatment as Video.thumbnailBlurDataUrl above, inlined in the clip DTO.
   thumbnailBlurDataUrl    String?
+  // Phase 3 (Hover Preview/Storyboard roadmap) - same treatment as
+  // Video.storyboardFrameUrls above, extracted from the RENDERED output by
+  // render-clip.worker.ts (same reasoning as thumbnailUrl - matches exactly
+  // what the viewer sees).
+  storyboardFrameUrls     Json?
   captionStyle            CaptionStyle @default(DEFAULT)
   // Suggested 3-second-opener hook line and social hashtags (without a
   // leading '#') from the same detect-clips LLM call that scores virality -

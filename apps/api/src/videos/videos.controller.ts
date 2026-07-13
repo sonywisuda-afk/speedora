@@ -159,6 +159,32 @@ export class VideosController {
     stream.pipe(res);
   }
 
+  // Phase 3 (Storyboard) - one endpoint per frame index rather than a single
+  // endpoint returning all frames bundled, so each frame stays independently
+  // cacheable/lazy-loadable (same reasoning as the per-resource Cache-Control
+  // below - see the Phase 3 architecture plan).
+  @Get(':id/storyboard/:index')
+  async storyboardFrame(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Param('index') index: string,
+    @Res() res: Response,
+  ) {
+    const { frameKey } = await this.videosService.findStoryboardFrameOrThrow(
+      id,
+      user.id,
+      Number(index),
+    );
+    if (!frameKey) {
+      throw new NotFoundException(`Video ${id} has no storyboard frame at index ${index}`);
+    }
+
+    const stream = await getObjectStream(frameKey);
+    res.setHeader('Content-Type', thumbnailContentType(frameKey));
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    stream.pipe(res);
+  }
+
   @Post(':id/retry')
   retry(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.videosService.retry(id, user.id);

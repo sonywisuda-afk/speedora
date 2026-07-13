@@ -14,6 +14,7 @@ describe('VideosController', () => {
   let videosService: {
     findSourceOrThrow: jest.Mock;
     findThumbnailOrThrow: jest.Mock;
+    findStoryboardFrameOrThrow: jest.Mock;
     upload: jest.Mock;
     importFromYoutube: jest.Mock;
     findAll: jest.Mock;
@@ -24,6 +25,7 @@ describe('VideosController', () => {
     videosService = {
       findSourceOrThrow: jest.fn(),
       findThumbnailOrThrow: jest.fn(),
+      findStoryboardFrameOrThrow: jest.fn(),
       upload: jest.fn(),
       importFromYoutube: jest.fn(),
       findAll: jest.fn(),
@@ -194,6 +196,49 @@ describe('VideosController', () => {
       const res = { setHeader: jest.fn() } as unknown as Response;
 
       await expect(controller.thumbnail(user, 'missing', res)).rejects.toThrow('not found');
+      expect(getObjectStream).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('storyboardFrame', () => {
+    it('streams a WebP storyboard frame as image/webp, with a private day-long cache header', async () => {
+      videosService.findStoryboardFrameOrThrow.mockResolvedValue({
+        frameKey: 'storyboards/video-1-0.webp',
+      });
+      const fakeStream = { pipe: jest.fn() };
+      (getObjectStream as jest.Mock).mockResolvedValue(fakeStream);
+      const res = { setHeader: jest.fn() } as unknown as Response;
+
+      await controller.storyboardFrame(user, 'video-1', '0', res);
+
+      expect(videosService.findStoryboardFrameOrThrow).toHaveBeenCalledWith(
+        'video-1',
+        'user-1',
+        0,
+      );
+      expect(getObjectStream).toHaveBeenCalledWith('storyboards/video-1-0.webp');
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/webp');
+      expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, max-age=86400');
+      expect(fakeStream.pipe).toHaveBeenCalledWith(res);
+    });
+
+    it('404s without touching storage when no frame exists at that index', async () => {
+      videosService.findStoryboardFrameOrThrow.mockResolvedValue({ frameKey: null });
+      const res = { setHeader: jest.fn() } as unknown as Response;
+
+      await expect(controller.storyboardFrame(user, 'video-1', '9', res)).rejects.toThrow(
+        'Video video-1 has no storyboard frame at index 9',
+      );
+      expect(getObjectStream).not.toHaveBeenCalled();
+    });
+
+    it('propagates the not-found error from the service without touching storage', async () => {
+      videosService.findStoryboardFrameOrThrow.mockRejectedValue(new Error('not found'));
+      const res = { setHeader: jest.fn() } as unknown as Response;
+
+      await expect(controller.storyboardFrame(user, 'missing', '0', res)).rejects.toThrow(
+        'not found',
+      );
       expect(getObjectStream).not.toHaveBeenCalled();
     });
   });

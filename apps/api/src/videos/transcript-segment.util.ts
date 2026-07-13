@@ -106,6 +106,17 @@ export function toSharedFacialEmotions(facialEmotions: unknown): FacialEmotionSa
   return (facialEmotions as FacialEmotionSample[] | null) ?? null;
 }
 
+// Same "Json column is opaque" situation as toSharedClipScores above, for
+// Video/Clip.storyboardFrameUrls (Phase 3, Hover Preview/Storyboard roadmap).
+// Empty array (not null) default - this narrows the RAW storage keys read
+// from Postgres; VideosService.mapVideoWithClips/ClipsService.toDto still
+// need to convert those into `/videos|clips/:id/storyboard/:index` endpoint
+// paths (same "never expose a raw key" treatment as thumbnailUrl), which
+// only needs this array's length, not its actual values.
+export function toSharedStoryboardFrameKeys(storyboardFrameUrls: unknown): string[] {
+  return Array.isArray(storyboardFrameUrls) ? (storyboardFrameUrls as string[]) : [];
+}
+
 // Same "Json column is opaque" situation as the functions above, for
 // Clip.audioFeatures/.sceneFeatures/.facialFeatures (Fase 28's Mini Fusion
 // Engine v1 prep) - used wherever a Clip row read from Postgres needs to

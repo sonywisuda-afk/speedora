@@ -271,6 +271,17 @@ export function clipThumbnailUrl(thumbnailUrl: string): string {
   return `${API_URL}${thumbnailUrl}`;
 }
 
+// Phase 3 (Storyboard roadmap) - same "prepend API_URL to an already-relative
+// endpoint path" treatment as videoThumbnailUrl/clipThumbnailUrl above, one
+// call per entry in Video.storyboardFrameUrls/Clip.storyboardFrameUrls.
+export function videoStoryboardFrameUrl(frameUrl: string): string {
+  return `${API_URL}${frameUrl}`;
+}
+
+export function clipStoryboardFrameUrl(frameUrl: string): string {
+  return `${API_URL}${frameUrl}`;
+}
+
 export async function updateClip(clipId: string, input: UpdateClipInput): Promise<Clip> {
   const res = await apiFetch(`/clips/${clipId}`, {
     method: 'PATCH',

@@ -156,6 +156,11 @@ export function computeChunkExtractionWindow(
 // while still failing an actually-hung job instead of never returning.
 const TRANSCRIBE_JOB_TIMEOUT_MS = 60 * 60 * 1000;
 
+// Phase 3 (Hover Preview/Storyboard roadmap) - evenly spaced, excluding the
+// very start/end (often black/transition frames) - same "5 frames" choice for
+// Video and Clip storyboards.
+const STORYBOARD_FRAME_FRACTIONS = [0.1, 0.3, 0.5, 0.7, 0.9];
+
 const logger = forStage('transcribe');
 
 export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJobResult> {
@@ -207,6 +212,7 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
           let thumbPath: string | null = null;
           let blurPath: string | null = null;
           const audioPaths: string[] = [];
+          const storyboardPaths: string[] = [];
 
           try {
             // Reset before anything else - a retry re-runs this same job from
@@ -277,6 +283,40 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
             // has to be split - a source longer than ~50 min would otherwise
             // extract to an audio file that's still over the 25 MB limit.
             const durationSeconds = await getMediaDurationSeconds(sourcePath);
+
+            // Phase 3 (Hover Preview/Storyboard roadmap) - N evenly-spaced
+            // frames for a scrubber-style preview, reusing extractThumbnail()
+            // unchanged (just called multiple times at different offsets).
+            // Each frame is its own independent best-effort extraction - one
+            // failing (e.g. a NaN durationSeconds for a container with no
+            // reported duration) doesn't block the others; storyboardKeys
+            // ends up with however many actually succeeded, written as a real
+            // (possibly empty, never fabricated) array either way.
+            try {
+              const storyboardKeys: string[] = [];
+              for (let i = 0; i < STORYBOARD_FRAME_FRACTIONS.length; i++) {
+                try {
+                  const framePath = await reserveScratchPath(`storyboard-${i}`, '.webp');
+                  storyboardPaths.push(framePath);
+                  await extractThumbnail(sourcePath, framePath, durationSeconds * STORYBOARD_FRAME_FRACTIONS[i]);
+                  const frameKey = `storyboards/${videoId}-${i}.webp`;
+                  await uploadObject(frameKey, createReadStream(framePath), 'image/webp');
+                  storyboardKeys.push(frameKey);
+                } catch (error) {
+                  logger.warn(
+                    'storyboard frame extraction failed, skipping this frame',
+                    { videoId, frameIndex: i },
+                    error,
+                  );
+                }
+              }
+              await prisma.video.update({
+                where: { id: videoId },
+                data: { storyboardFrameUrls: storyboardKeys },
+              });
+            } catch (error) {
+              logger.warn('storyboard extraction failed, continuing without one', { videoId }, error);
+            }
             const chunks = planTranscriptionChunks(durationSeconds);
             const singleRequest = chunks.length === 1;
             if (!singleRequest) {
@@ -531,6 +571,7 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
             if (sourcePath) await cleanupTempFile(sourcePath);
             if (thumbPath) await cleanupTempFile(thumbPath);
             if (blurPath) await cleanupTempFile(blurPath);
+            for (const storyboardPath of storyboardPaths) await cleanupTempFile(storyboardPath);
             for (const audioPath of audioPaths) await cleanupTempFile(audioPath);
           }
         },

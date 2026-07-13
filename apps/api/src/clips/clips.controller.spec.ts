@@ -13,6 +13,7 @@ describe('ClipsController', () => {
   let clipsService: {
     findRenderedOrThrow: jest.Mock;
     findThumbnailOrThrow: jest.Mock;
+    findStoryboardFrameOrThrow: jest.Mock;
     getExplainability: jest.Mock;
     update: jest.Mock;
     render: jest.Mock;
@@ -28,6 +29,7 @@ describe('ClipsController', () => {
     clipsService = {
       findRenderedOrThrow: jest.fn(),
       findThumbnailOrThrow: jest.fn(),
+      findStoryboardFrameOrThrow: jest.fn(),
       getExplainability: jest.fn(),
       update: jest.fn(),
       render: jest.fn(),
@@ -109,6 +111,35 @@ describe('ClipsController', () => {
 
     await expect(controller.thumbnail(user, 'clip-1', res)).rejects.toThrow(
       'Clip clip-1 has no thumbnail',
+    );
+    expect(getObjectStream).not.toHaveBeenCalled();
+  });
+
+  it('streams a WebP storyboard frame as image/webp, with a private day-long cache header', async () => {
+    clipsService.findStoryboardFrameOrThrow.mockResolvedValue({
+      frameKey: 'storyboards/clip-1-0.webp',
+    });
+    const fakeStream = { pipe: jest.fn() };
+    (getObjectStream as jest.Mock).mockResolvedValue(fakeStream);
+    const res = { setHeader: jest.fn() } as unknown as Response;
+
+    await controller.storyboardFrame(user, 'clip-1', '0', res);
+
+    expect(clipsService.findStoryboardFrameOrThrow).toHaveBeenCalledWith('clip-1', 'user-1', 0);
+    expect(getObjectStream).toHaveBeenCalledWith('storyboards/clip-1-0.webp');
+    expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/webp');
+    expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, max-age=86400');
+    expect(fakeStream.pipe).toHaveBeenCalledWith(res);
+  });
+
+  it('propagates the not-found error from the service without touching storage for a missing storyboard frame', async () => {
+    clipsService.findStoryboardFrameOrThrow.mockRejectedValue(
+      new Error('Clip clip-1 has no storyboard frame at index 9'),
+    );
+    const res = { setHeader: jest.fn() } as unknown as Response;
+
+    await expect(controller.storyboardFrame(user, 'clip-1', '9', res)).rejects.toThrow(
+      'Clip clip-1 has no storyboard frame at index 9',
     );
     expect(getObjectStream).not.toHaveBeenCalled();
   });

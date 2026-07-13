@@ -558,6 +558,7 @@ describe('render-clip worker', () => {
       data: {
         outputUrl: 'renders/clip-1.mp4',
         outputSizeBytes: 654321,
+        storyboardFrameUrls: [],
         sceneCuts: [],
         sceneCutEvents: [],
         facialEmotions: [],
@@ -615,10 +616,10 @@ describe('render-clip worker', () => {
         metadata: undefined,
       },
     });
-    // source + captions + output + thumbnail (reserved even though this
-    // default beforeEach makes extraction fail) - no reframe-cmds file (no
-    // face detected).
-    expect(cleanupTempFileMock).toHaveBeenCalledTimes(4);
+    // source + captions + output + thumbnail + 5 storyboard frames (reserved
+    // even though this default beforeEach makes extraction fail) - no
+    // reframe-cmds file (no face detected).
+    expect(cleanupTempFileMock).toHaveBeenCalledTimes(9);
     expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
   });
 
@@ -771,8 +772,8 @@ describe('render-clip worker', () => {
     expect(reserveScratchPathMock).not.toHaveBeenCalledWith('captions', '.ass');
     expect(writeFileMock).not.toHaveBeenCalled();
     expect(renderClipMock).toHaveBeenCalledWith(expect.objectContaining({ subtitlesPath: null }));
-    // source + output + thumbnail scratch files, no captions, no reframe-cmds.
-    expect(cleanupTempFileMock).toHaveBeenCalledTimes(3);
+    // source + output + thumbnail + 5 storyboard frames, no captions, no reframe-cmds.
+    expect(cleanupTempFileMock).toHaveBeenCalledTimes(8);
   });
 
   describe('silence/filler cut pass (Fase 8 follow-up)', () => {
@@ -995,6 +996,77 @@ describe('render-clip worker', () => {
     });
   });
 
+  describe('storyboard extraction (Phase 3, Hover Preview/Storyboard roadmap)', () => {
+    it('extracts 5 evenly-spaced frames from the RENDERED output and records the keys that succeeded', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      extractThumbnailMock.mockResolvedValue(undefined);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      // baseJobData is startTime: 10, endTime: 20 - a 10s clip, so fractions
+      // [0.1, 0.3, 0.5, 0.7, 0.9] land at [1, 3, 5, 7, 9]s into the rendered
+      // (already-trimmed-to-clip-length) output.
+      expect(extractThumbnailMock).toHaveBeenCalledWith(
+        expect.stringContaining('output'),
+        expect.stringContaining('storyboard-0'),
+        1,
+      );
+      expect(extractThumbnailMock).toHaveBeenCalledWith(
+        expect.stringContaining('output'),
+        expect.stringContaining('storyboard-4'),
+        9,
+      );
+      expect(uploadObjectMock).toHaveBeenCalledWith(
+        'storyboards/clip-1-0.webp',
+        expect.objectContaining({ fakeStream: expect.stringContaining('storyboard-0') }),
+        'image/webp',
+      );
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            storyboardFrameUrls: [
+              'storyboards/clip-1-0.webp',
+              'storyboards/clip-1-1.webp',
+              'storyboards/clip-1-2.webp',
+              'storyboards/clip-1-3.webp',
+              'storyboards/clip-1-4.webp',
+            ],
+          }),
+        }),
+      );
+    });
+
+    it('records only the frames that succeeded when some extractions fail, never fabricating a fixed count', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      extractThumbnailMock.mockImplementation(async (input, output) => {
+        if (typeof output === 'string' && output.includes('storyboard-1')) {
+          throw new Error('ffmpeg exited with code 1');
+        }
+      });
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            storyboardFrameUrls: [
+              'storyboards/clip-1-0.webp',
+              'storyboards/clip-1-2.webp',
+              'storyboards/clip-1-3.webp',
+              'storyboards/clip-1-4.webp',
+            ],
+          }),
+        }),
+      );
+    });
+  });
+
   describe('smart reframe', () => {
     it('falls back to a static center-crop when no face is detected anywhere in the clip', async () => {
       clipFindManyMock.mockResolvedValue([
@@ -1059,8 +1131,8 @@ describe('render-clip worker', () => {
           }),
         }),
       );
-      // source + output + reframe-cmds + thumbnail all cleaned up (no captions this time).
-      expect(cleanupTempFileMock).toHaveBeenCalledTimes(4);
+      // source + output + reframe-cmds + thumbnail + 5 storyboard frames (no captions this time).
+      expect(cleanupTempFileMock).toHaveBeenCalledTimes(9);
     });
 
     it('falls back to a static center-crop without failing the job when face detection itself throws', async () => {
@@ -1215,6 +1287,7 @@ describe('render-clip worker', () => {
         data: {
           outputUrl: 'renders/clip-1.mp4',
           outputSizeBytes: 654321,
+          storyboardFrameUrls: [],
           sceneCuts: [1.5, 4.2],
           sceneCutEvents: [],
           facialEmotions: [],
@@ -1351,6 +1424,7 @@ describe('render-clip worker', () => {
         data: {
           outputUrl: 'renders/clip-1.mp4',
           outputSizeBytes: 654321,
+          storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],
           facialEmotions: [],
@@ -1637,6 +1711,7 @@ describe('render-clip worker', () => {
         data: {
           outputUrl: 'renders/clip-1.mp4',
           outputSizeBytes: 654321,
+          storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],
           facialEmotions: [
@@ -1773,6 +1848,7 @@ describe('render-clip worker', () => {
         data: {
           outputUrl: 'renders/clip-1.mp4',
           outputSizeBytes: 654321,
+          storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],
           facialEmotions: Prisma.JsonNull,
