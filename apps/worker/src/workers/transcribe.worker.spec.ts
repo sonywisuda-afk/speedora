@@ -281,7 +281,11 @@ describe('transcribe worker', () => {
 
     const processor = getProcessor();
     await processor({
-      data: { videoId: 'video-1', sourceUrl: 'videos/abc.mp4', provider: TranscriptionProvider.GROQ },
+      data: {
+        videoId: 'video-1',
+        sourceUrl: 'videos/abc.mp4',
+        provider: TranscriptionProvider.GROQ,
+      },
     });
 
     expect(extractThumbnailMock).toHaveBeenCalledWith(
@@ -307,7 +311,11 @@ describe('transcribe worker', () => {
 
     const processor = getProcessor();
     await processor({
-      data: { videoId: 'video-1', sourceUrl: 'videos/abc.mp4', provider: TranscriptionProvider.GROQ },
+      data: {
+        videoId: 'video-1',
+        sourceUrl: 'videos/abc.mp4',
+        provider: TranscriptionProvider.GROQ,
+      },
     });
 
     expect(extractBlurPlaceholderMock).toHaveBeenCalledWith(
@@ -336,7 +344,11 @@ describe('transcribe worker', () => {
 
     const processor = getProcessor();
     await processor({
-      data: { videoId: 'video-1', sourceUrl: 'videos/abc.mp4', provider: TranscriptionProvider.GROQ },
+      data: {
+        videoId: 'video-1',
+        sourceUrl: 'videos/abc.mp4',
+        provider: TranscriptionProvider.GROQ,
+      },
     });
 
     expect(videoUpdateMock).toHaveBeenCalledWith({
@@ -356,7 +368,11 @@ describe('transcribe worker', () => {
 
       const processor = getProcessor();
       await processor({
-        data: { videoId: 'video-1', sourceUrl: 'videos/abc.mp4', provider: TranscriptionProvider.GROQ },
+        data: {
+          videoId: 'video-1',
+          sourceUrl: 'videos/abc.mp4',
+          provider: TranscriptionProvider.GROQ,
+        },
       });
 
       expect(extractThumbnailMock).toHaveBeenCalledWith(
@@ -410,7 +426,11 @@ describe('transcribe worker', () => {
 
       const processor = getProcessor();
       await processor({
-        data: { videoId: 'video-1', sourceUrl: 'videos/abc.mp4', provider: TranscriptionProvider.GROQ },
+        data: {
+          videoId: 'video-1',
+          sourceUrl: 'videos/abc.mp4',
+          provider: TranscriptionProvider.GROQ,
+        },
       });
 
       expect(videoUpdateMock).toHaveBeenCalledWith({
@@ -437,7 +457,11 @@ describe('transcribe worker', () => {
 
     const processor = getProcessor();
     const result = await processor({
-      data: { videoId: 'video-1', sourceUrl: 'videos/abc.mp4', provider: TranscriptionProvider.GROQ },
+      data: {
+        videoId: 'video-1',
+        sourceUrl: 'videos/abc.mp4',
+        provider: TranscriptionProvider.GROQ,
+      },
     });
 
     expect(result).toEqual({
@@ -458,7 +482,9 @@ describe('transcribe worker', () => {
       'image/webp',
     );
     expect(videoUpdateMock).not.toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ thumbnailUrl: expect.anything() }) }),
+      expect.objectContaining({
+        data: expect.objectContaining({ thumbnailUrl: expect.anything() }),
+      }),
     );
     // Storyboard extraction is a fully independent best-effort block - a
     // thumbnail failure (mockRejectedValueOnce only rejects that one call)
@@ -471,7 +497,9 @@ describe('transcribe worker', () => {
     );
     // Still transitions to TRANSCRIBED - a thumbnail failure is invisible to the job's own outcome.
     expect(videoUpdateMock).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ status: VideoStatus.TRANSCRIBED }) }),
+      expect.objectContaining({
+        data: expect.objectContaining({ status: VideoStatus.TRANSCRIBED }),
+      }),
     );
   });
 

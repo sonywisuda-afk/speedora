@@ -276,7 +276,11 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
                 data: { thumbnailUrl: thumbnailKey, thumbnailBlurDataUrl },
               });
             } catch (error) {
-              logger.warn('thumbnail extraction failed, continuing without one', { videoId }, error);
+              logger.warn(
+                'thumbnail extraction failed, continuing without one',
+                { videoId },
+                error,
+              );
             }
 
             // Decide up front whether the audio fits in one Whisper request or
@@ -298,7 +302,11 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
                 try {
                   const framePath = await reserveScratchPath(`storyboard-${i}`, '.webp');
                   storyboardPaths.push(framePath);
-                  await extractThumbnail(sourcePath, framePath, durationSeconds * STORYBOARD_FRAME_FRACTIONS[i]);
+                  await extractThumbnail(
+                    sourcePath,
+                    framePath,
+                    durationSeconds * STORYBOARD_FRAME_FRACTIONS[i],
+                  );
                   const frameKey = `storyboards/${videoId}-${i}.webp`;
                   await uploadObject(frameKey, createReadStream(framePath), 'image/webp');
                   storyboardKeys.push(frameKey);
@@ -315,7 +323,11 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
                 data: { storyboardFrameUrls: storyboardKeys },
               });
             } catch (error) {
-              logger.warn('storyboard extraction failed, continuing without one', { videoId }, error);
+              logger.warn(
+                'storyboard extraction failed, continuing without one',
+                { videoId },
+                error,
+              );
             }
             const chunks = planTranscriptionChunks(durationSeconds);
             const singleRequest = chunks.length === 1;

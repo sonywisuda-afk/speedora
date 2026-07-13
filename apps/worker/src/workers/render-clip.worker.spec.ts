@@ -711,9 +711,7 @@ describe('render-clip worker', () => {
 
     const processor = getProcessor();
 
-    await expect(processor({ data: baseJobData })).rejects.toThrow(
-      /failed checksum verification/,
-    );
+    await expect(processor({ data: baseJobData })).rejects.toThrow(/failed checksum verification/);
 
     // The corrupted upload must never be reflected in the clip/video state -
     // this is a hard failure, not a benign race like the P2025 case above.
