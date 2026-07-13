@@ -29,6 +29,7 @@ import {
 } from '../diarization';
 import {
   type AudioWindow,
+  extractAnimatedPreview,
   extractAudio,
   extractBlurPlaceholder,
   extractThumbnail,
@@ -161,6 +162,13 @@ const TRANSCRIBE_JOB_TIMEOUT_MS = 60 * 60 * 1000;
 // Video and Clip storyboards.
 const STORYBOARD_FRAME_FRACTIONS = [0.1, 0.3, 0.5, 0.7, 0.9];
 
+// Phase 3 (Animated Thumbnail roadmap) - short/coarse on purpose, since this
+// is a background-decoration-level preview (the always-shown default
+// thumbnail), not something a user stares at like Hover/Clip Preview - see
+// extractAnimatedPreview's own comment in ffmpeg.ts. Same 480px width as the
+// still thumbnail/storyboard frames, for visual consistency across all three.
+const ANIMATED_THUMBNAIL_CONFIG = { durationSeconds: 1.5, fps: 6, width: 480 };
+
 const logger = forStage('transcribe');
 
 export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJobResult> {
@@ -211,6 +219,7 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
           let sourcePath: string | null = null;
           let thumbPath: string | null = null;
           let blurPath: string | null = null;
+          let animatedThumbnailPath: string | null = null;
           const audioPaths: string[] = [];
           const storyboardPaths: string[] = [];
 
@@ -325,6 +334,37 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
             } catch (error) {
               logger.warn(
                 'storyboard extraction failed, continuing without one',
+                { videoId },
+                error,
+              );
+            }
+
+            // Phase 3 (Animated Thumbnail roadmap) - a short looping preview
+            // used as the default thumbnail in place of the static image.
+            // Same best-effort, independent-of-everything-else idiom as the
+            // storyboard block above - a failure here never blocks the
+            // thumbnail/storyboard/transcript this job also produces.
+            try {
+              animatedThumbnailPath = await reserveScratchPath('animated-thumbnail', '.webp');
+              await extractAnimatedPreview(
+                sourcePath,
+                animatedThumbnailPath,
+                1,
+                ANIMATED_THUMBNAIL_CONFIG,
+              );
+              const animatedThumbnailKey = `animated-thumbnails/${videoId}.webp`;
+              await uploadObject(
+                animatedThumbnailKey,
+                createReadStream(animatedThumbnailPath),
+                'image/webp',
+              );
+              await prisma.video.update({
+                where: { id: videoId },
+                data: { animatedThumbnailUrl: animatedThumbnailKey },
+              });
+            } catch (error) {
+              logger.warn(
+                'animated thumbnail extraction failed, continuing without one',
                 { videoId },
                 error,
               );
@@ -583,6 +623,7 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
             if (sourcePath) await cleanupTempFile(sourcePath);
             if (thumbPath) await cleanupTempFile(thumbPath);
             if (blurPath) await cleanupTempFile(blurPath);
+            if (animatedThumbnailPath) await cleanupTempFile(animatedThumbnailPath);
             for (const storyboardPath of storyboardPaths) await cleanupTempFile(storyboardPath);
             for (const audioPath of audioPaths) await cleanupTempFile(audioPath);
           }

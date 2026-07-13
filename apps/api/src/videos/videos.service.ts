@@ -410,6 +410,22 @@ export class VideosService {
     return { thumbnailUrl: video.thumbnailUrl };
   }
 
+  // Used by GET /videos/:id/animated-thumbnail (Product Experience roadmap,
+  // Phase 3) - same shape/reasoning as findThumbnailOrThrow above, for the
+  // extracted animated preview instead of the static frame.
+  async findAnimatedThumbnailOrThrow(
+    id: string,
+    requesterId: string,
+  ): Promise<{ animatedThumbnailUrl: string | null }> {
+    const video = await this.prisma.video.findUnique({ where: { id } });
+
+    if (!video || video.ownerId !== requesterId) {
+      throw new NotFoundException(`Video ${id} not found`);
+    }
+
+    return { animatedThumbnailUrl: video.animatedThumbnailUrl };
+  }
+
   // Used by GET /videos/:id/storyboard/:index (Product Experience roadmap,
   // Phase 3) - mirrors findThumbnailOrThrow's shape/reasoning, parameterized
   // by frame index. storyboardFrameUrls only ever needs to expose its COUNT
@@ -490,6 +506,7 @@ export class VideosService {
       voiceActivityFeatures,
       diarizationFeatures,
       thumbnailUrl,
+      animatedThumbnailUrl,
       storyboardFrameUrls,
       ...rest
     } = video;
@@ -499,6 +516,9 @@ export class VideosService {
       // endpoint instead" treatment as each clip's downloadUrl/thumbnailUrl
       // below (Product Experience roadmap).
       thumbnailUrl: thumbnailUrl ? `/videos/${video.id}/thumbnail` : null,
+      animatedThumbnailUrl: animatedThumbnailUrl
+        ? `/videos/${video.id}/animated-thumbnail`
+        : null,
       // Only the COUNT of extracted frames is needed here - each entry is an
       // endpoint path, not a raw key (see findStoryboardFrameOrThrow above).
       storyboardFrameUrls: toSharedStoryboardFrameKeys(storyboardFrameUrls).map(
@@ -515,6 +535,7 @@ export class VideosService {
         ({
           outputUrl,
           thumbnailUrl: clipThumbnailUrl,
+          animatedThumbnailUrl: clipAnimatedThumbnailUrl,
           storyboardFrameUrls: clipStoryboardFrameUrls,
           publishRecords,
           scores,
@@ -559,6 +580,9 @@ export class VideosService {
           ...clip,
           downloadUrl: outputUrl ? `/clips/${clip.id}/download` : null,
           thumbnailUrl: clipThumbnailUrl ? `/clips/${clip.id}/thumbnail` : null,
+          animatedThumbnailUrl: clipAnimatedThumbnailUrl
+            ? `/clips/${clip.id}/animated-thumbnail`
+            : null,
           storyboardFrameUrls: toSharedStoryboardFrameKeys(clipStoryboardFrameUrls).map(
             (_, i) => `/clips/${clip.id}/storyboard/${i}`,
           ),

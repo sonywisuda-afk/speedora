@@ -49,6 +49,7 @@ import {
 } from '../broll';
 import { faceDetectionDeps } from '../faceDetectionDeps';
 import {
+  extractAnimatedPreview,
   extractBlurPlaceholder,
   extractThumbnail,
   fadeOutBRoll,
@@ -345,6 +346,10 @@ const RENDER_CLIP_JOB_TIMEOUT_MS = 45 * 60 * 1000;
 // start/end).
 const STORYBOARD_FRAME_FRACTIONS = [0.1, 0.3, 0.5, 0.7, 0.9];
 
+// Phase 3 (Animated Thumbnail roadmap) - same config as transcribe.worker.ts's
+// own animated thumbnail (see its own comment for the reasoning).
+const ANIMATED_THUMBNAIL_CONFIG = { durationSeconds: 1.5, fps: 6, width: 480 };
+
 export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJobResult> {
   return new Worker<RenderClipJobData, RenderClipJobResult>(
     QueueName.RENDER_CLIP,
@@ -402,6 +407,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           let brollPaths: string[] = [];
           let thumbPath: string | null = null;
           let blurPath: string | null = null;
+          let animatedThumbnailPath: string | null = null;
           const storyboardPaths: string[] = [];
 
           try {
@@ -605,6 +611,33 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               }
             }
 
+            // Phase 3 (Animated Thumbnail roadmap) - same best-effort idiom
+            // as thumbnailKey above, extracted from renderedPath for the same
+            // "matches what the viewer sees" reason.
+            let animatedThumbnailKey: string | null = null;
+            try {
+              animatedThumbnailPath = await reserveScratchPath('animated-thumbnail', '.webp');
+              await extractAnimatedPreview(
+                renderedPath,
+                animatedThumbnailPath,
+                (endTime - startTime) / 2,
+                ANIMATED_THUMBNAIL_CONFIG,
+              );
+              animatedThumbnailKey = `animated-thumbnails/${clipId}.webp`;
+              await uploadObject(
+                animatedThumbnailKey,
+                createReadStream(animatedThumbnailPath),
+                'image/webp',
+              );
+            } catch (error) {
+              animatedThumbnailKey = null;
+              logger.warn(
+                'animated thumbnail extraction failed, continuing without one',
+                { clipId },
+                error,
+              );
+            }
+
             // toClipUpdateData() replaces this call's former hand-written object literal the same way
             // toFusionInput() replaced computeHighlightScore's - see render-graph/sinks.ts's
             // CLIP_UPDATE_MAP for the per-node Prisma.JsonNull/plain-array/always-present rules, and
@@ -640,6 +673,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                     ...(thumbnailKey ? { thumbnailUrl: thumbnailKey } : {}),
                     ...(thumbnailBlurDataUrl ? { thumbnailBlurDataUrl } : {}),
                     storyboardFrameUrls: storyboardKeys as unknown as Prisma.InputJsonValue,
+                    ...(animatedThumbnailKey ? { animatedThumbnailUrl: animatedThumbnailKey } : {}),
                     llmFeatures: (scores as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
                     highlightScore: highlight.highlightScore,
                     highlightBreakdown: highlight.contributions,
@@ -746,6 +780,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             if (sendCmdPath) await cleanupTempFile(sendCmdPath);
             if (thumbPath) await cleanupTempFile(thumbPath);
             if (blurPath) await cleanupTempFile(blurPath);
+            if (animatedThumbnailPath) await cleanupTempFile(animatedThumbnailPath);
             for (const storyboardPath of storyboardPaths) await cleanupTempFile(storyboardPath);
             for (const brollPath of brollPaths) await cleanupTempFile(brollPath);
           }

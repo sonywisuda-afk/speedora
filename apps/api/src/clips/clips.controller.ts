@@ -106,6 +106,25 @@ export class ClipsController {
     stream.pipe(res);
   }
 
+  // Phase 3 (Animated Thumbnail) - see VideosController's own
+  // animatedThumbnail endpoint for the reasoning.
+  @Get(':id/animated-thumbnail')
+  async animatedThumbnail(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const { animatedThumbnailUrl } = await this.clipsService.findAnimatedThumbnailOrThrow(
+      id,
+      user.id,
+    );
+    const stream = await getObjectStream(animatedThumbnailUrl);
+
+    res.setHeader('Content-Type', thumbnailContentType(animatedThumbnailUrl));
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    stream.pipe(res);
+  }
+
   // Phase 3 (Storyboard) - see VideosController's own storyboardFrame
   // endpoint for the per-index-endpoint reasoning.
   @Get(':id/storyboard/:index')

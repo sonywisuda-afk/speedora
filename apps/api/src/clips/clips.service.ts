@@ -118,6 +118,20 @@ export class ClipsService {
     return { thumbnailUrl: clip.thumbnailUrl };
   }
 
+  // Used by GET /clips/:id/animated-thumbnail (Product Experience roadmap,
+  // Phase 3) - same shape/reasoning as findThumbnailOrThrow above, for the
+  // extracted looping preview instead of the static frame.
+  async findAnimatedThumbnailOrThrow(
+    id: string,
+    requesterId: string,
+  ): Promise<{ animatedThumbnailUrl: string }> {
+    const clip = await this.findOwnedOrThrow(id, requesterId);
+    if (!clip.animatedThumbnailUrl) {
+      throw new NotFoundException(`Clip ${id} has no animated thumbnail`);
+    }
+    return { animatedThumbnailUrl: clip.animatedThumbnailUrl };
+  }
+
   // Used by GET /clips/:id/storyboard/:index (Product Experience roadmap,
   // Phase 3) - same shape/reasoning as findThumbnailOrThrow above,
   // parameterized by frame index.
@@ -350,6 +364,7 @@ export class ClipsService {
     outputUrl: string | null;
     thumbnailUrl: string | null;
     thumbnailBlurDataUrl: string | null;
+    animatedThumbnailUrl: string | null;
     storyboardFrameUrls: unknown;
     captionStyle: CaptionStyle;
     hookText: string | null;
@@ -413,6 +428,9 @@ export class ClipsService {
       downloadUrl: clip.outputUrl ? `/clips/${clip.id}/download` : null,
       thumbnailUrl: clip.thumbnailUrl ? `/clips/${clip.id}/thumbnail` : null,
       thumbnailBlurDataUrl: clip.thumbnailBlurDataUrl,
+      animatedThumbnailUrl: clip.animatedThumbnailUrl
+        ? `/clips/${clip.id}/animated-thumbnail`
+        : null,
       storyboardFrameUrls: toSharedStoryboardFrameKeys(clip.storyboardFrameUrls).map(
         (_, i) => `/clips/${clip.id}/storyboard/${i}`,
       ),

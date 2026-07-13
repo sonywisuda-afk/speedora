@@ -881,6 +881,11 @@ export interface Video {
   // is having *something* to paint before the real image loads. Null
   // whenever thumbnailUrl is null (same lifecycle).
   thumbnailBlurDataUrl: string | null;
+  // Phase 3 (Animated Thumbnail roadmap) - already a `/videos/:id/animated-thumbnail`
+  // relative endpoint path (same "never the raw storage key" treatment as
+  // thumbnailUrl above). Null while extraction is still pending/failed, or
+  // for pre-existing rows.
+  animatedThumbnailUrl: string | null;
   // Phase 3 (Storyboard roadmap) - already an array of `/videos/:id/storyboard/:index`
   // relative endpoint paths (see VideosService.mapVideoWithClips), one per
   // successfully extracted frame - never a fixed-N assumption, since each
@@ -929,6 +934,10 @@ export interface Clip {
   // Phase 2 (image optimization roadmap) - same inline-base64 blur-placeholder
   // treatment as Video.thumbnailBlurDataUrl above.
   thumbnailBlurDataUrl: string | null;
+  // Phase 3 (Animated Thumbnail roadmap) - same treatment as
+  // Video.animatedThumbnailUrl above, extracted from the RENDERED output by
+  // render-clip.worker.ts.
+  animatedThumbnailUrl: string | null;
   // Phase 3 (Storyboard roadmap) - same "array of endpoint paths, one per
   // successfully extracted frame" treatment as Video.storyboardFrameUrls
   // above, extracted from the RENDERED output by render-clip.worker.ts.

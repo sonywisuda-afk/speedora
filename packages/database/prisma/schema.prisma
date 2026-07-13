@@ -203,6 +203,14 @@ model Video {
   // run and found nothing; null only for pre-existing rows predating this
   // column.
   storyboardFrameUrls   Json?
+  // Phase 3 (Animated Thumbnail roadmap) - object storage key for a short,
+  // muted, looping animated WebP (extractAnimatedPreview in ffmpeg.ts, same
+  // best-effort extraction step as thumbnailUrl above, a separate call so a
+  // thumbnail failure doesn't imply an animated-preview failure or vice
+  // versa). Never exposed to the client as a raw key - same
+  // "/videos/:id/animated-thumbnail" endpoint-path treatment as thumbnailUrl.
+  // Null while extraction is still pending/failed, or for pre-existing rows.
+  animatedThumbnailUrl  String?
   // 0-100, real progress reported by import-youtube.worker.ts as yt-dlp
   // downloads the source - same "never fabricated" convention as
   // transcribeProgress below, and deliberately a separate column rather
@@ -374,6 +382,11 @@ model Clip {
   // render-clip.worker.ts (same reasoning as thumbnailUrl - matches exactly
   // what the viewer sees).
   storyboardFrameUrls     Json?
+  // Phase 3 (Animated Thumbnail roadmap) - same treatment as
+  // Video.animatedThumbnailUrl above, extracted from the RENDERED output by
+  // render-clip.worker.ts (same reasoning as thumbnailUrl - matches exactly
+  // what the viewer sees).
+  animatedThumbnailUrl    String?
   captionStyle            CaptionStyle @default(DEFAULT)
   // Suggested 3-second-opener hook line and social hashtags (without a
   // leading '#') from the same detect-clips LLM call that scores virality -

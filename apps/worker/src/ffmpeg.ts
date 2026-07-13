@@ -70,6 +70,12 @@ const RENDER_TIMEOUT_MS = 15 * 60 * 1000;
 // needs to be long enough for a legitimate extraction, not generous.
 const THUMBNAIL_TIMEOUT_MS = 30 * 1000;
 
+// extractAnimatedPreview's own bound - same "no legitimate reason to run
+// long, both callers treat this as fully optional" reasoning as
+// THUMBNAIL_TIMEOUT_MS above, just slightly more generous since this reads a
+// few seconds of frames through a filter chain (fps + scale) rather than one.
+const ANIMATED_PREVIEW_TIMEOUT_MS = 60 * 1000;
+
 export async function getVideoDimensions(
   inputPath: string,
 ): Promise<{ width: number; height: number }> {
@@ -234,6 +240,63 @@ export async function extractBlurPlaceholder(
       outputPath,
     ],
     { timeout: THUMBNAIL_TIMEOUT_MS },
+  );
+}
+
+// Phase 3 (Hover Preview/Animated Thumbnail roadmap) - a short, muted,
+// looping animated WebP, parameterized so both features share one
+// extraction primitive instead of two near-identical ffmpeg functions (see
+// the Phase 3 architecture plan): Animated Thumbnail uses a shorter/coarser
+// config (background decoration, not stared at); Hover/Clip Preview uses a
+// longer/smoother one (the main content of that interaction).
+//
+// Differs from extractThumbnail/extractBlurPlaceholder in more than just
+// frame count - those pass `-vframes 1 -update 1` to force the image2-style
+// muxer to accept a single still frame; this instead wants MULTIPLE frames,
+// so it omits both flags and adds `-t <durationSeconds>` (how much source to
+// read), `-an` (no audio - this is an <img>-rendered asset, never played
+// through a decoder that has an audio track to ignore), and `-loop 0`
+// (loop forever, not the libwebp default of playing once). `fps=<fps>`
+// comes before `scale=<width>:-1` in the filter chain - filtering down to
+// the target frame rate first, then scaling, is cheaper than the reverse
+// for the same visual result.
+//
+// Verified for real (this ffmpeg 8.1.2 build's `ffprobe`/`ffplay` cannot
+// read back multi-frame animated WebP at all - a known ffmpeg tooling
+// limitation, not a sign of a broken file - so ffprobe-based verification,
+// this codebase's usual real-verification tool, doesn't apply here). Real
+// output was confirmed by loading it in an actual Chromium `<img>` over
+// HTTP (matching how the browser actually consumes this asset) - correct
+// naturalWidth/Height, and two screenshots taken 600ms apart differ,
+// confirming genuine animation rather than a static single frame.
+export async function extractAnimatedPreview(
+  inputPath: string,
+  outputPath: string,
+  atSeconds: number,
+  options: { durationSeconds: number; fps: number; width: number },
+): Promise<void> {
+  await execFileAsync(
+    FFMPEG_PATH,
+    [
+      '-y',
+      '-ss',
+      String(atSeconds),
+      '-i',
+      inputPath,
+      '-t',
+      String(options.durationSeconds),
+      '-vf',
+      `fps=${options.fps},scale=${options.width}:-1`,
+      '-an',
+      '-c:v',
+      'libwebp',
+      '-loop',
+      '0',
+      '-quality',
+      '60',
+      outputPath,
+    ],
+    { timeout: ANIMATED_PREVIEW_TIMEOUT_MS },
   );
 }
 

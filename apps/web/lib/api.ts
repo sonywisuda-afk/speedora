@@ -271,6 +271,17 @@ export function clipThumbnailUrl(thumbnailUrl: string): string {
   return `${API_URL}${thumbnailUrl}`;
 }
 
+// Phase 3 (Animated Thumbnail roadmap) - same "prepend API_URL to an
+// already-relative endpoint path" treatment as videoThumbnailUrl/
+// clipThumbnailUrl above.
+export function videoAnimatedThumbnailUrl(animatedThumbnailUrl: string): string {
+  return `${API_URL}${animatedThumbnailUrl}`;
+}
+
+export function clipAnimatedThumbnailUrl(animatedThumbnailUrl: string): string {
+  return `${API_URL}${animatedThumbnailUrl}`;
+}
+
 // Phase 3 (Storyboard roadmap) - same "prepend API_URL to an already-relative
 // endpoint path" treatment as videoThumbnailUrl/clipThumbnailUrl above, one
 // call per entry in Video.storyboardFrameUrls/Clip.storyboardFrameUrls.

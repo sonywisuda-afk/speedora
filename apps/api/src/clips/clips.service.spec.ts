@@ -137,6 +137,44 @@ describe('ClipsService', () => {
     });
   });
 
+  describe('findAnimatedThumbnailOrThrow', () => {
+    it('returns the animatedThumbnailUrl when the clip belongs to the requester and has one', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        id: 'clip-1',
+        animatedThumbnailUrl: 'animated-thumbnails/clip-1.webp',
+        video: { ownerId: 'user-1' },
+      });
+
+      const result = await service.findAnimatedThumbnailOrThrow('clip-1', 'user-1');
+
+      expect(result).toEqual({ animatedThumbnailUrl: 'animated-thumbnails/clip-1.webp' });
+    });
+
+    it('throws NotFoundException when no animated thumbnail has been extracted yet', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        id: 'clip-1',
+        animatedThumbnailUrl: null,
+        video: { ownerId: 'user-1' },
+      });
+
+      await expect(service.findAnimatedThumbnailOrThrow('clip-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws NotFoundException when the clip belongs to a different user', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        id: 'clip-1',
+        animatedThumbnailUrl: 'animated-thumbnails/clip-1.webp',
+        video: { ownerId: 'someone-else' },
+      });
+
+      await expect(service.findAnimatedThumbnailOrThrow('clip-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
   describe('findStoryboardFrameOrThrow', () => {
     it('returns the raw key at the requested index', async () => {
       prisma.clip.findUnique.mockResolvedValue({
@@ -325,6 +363,7 @@ describe('ClipsService', () => {
         viralityScore: 80,
         downloadUrl: '/clips/clip-1/download',
         thumbnailUrl: null,
+        animatedThumbnailUrl: null,
         storyboardFrameUrls: [],
         captionStyle: 'DEFAULT',
         hookText: 'Wait for it...',
@@ -536,6 +575,7 @@ describe('ClipsService', () => {
         viralityScore: 80,
         downloadUrl: null,
         thumbnailUrl: null,
+        animatedThumbnailUrl: null,
         storyboardFrameUrls: [],
         captionStyle: CaptionStyle.KARAOKE,
         hookText: 'Wait for it...',

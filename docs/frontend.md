@@ -80,7 +80,10 @@ loaded; without blur data yet, a plain `Skeleton` shows instead. The `<img>` use
 a ref callback checking `.complete` to flip its loaded state - confirmed via a real browser test
 that a cached/fast-loading image can fire its `load` event before React finishes attaching the
 `onLoad` handler, which without the ref check left the image permanently stuck at `opacity-0` even
-though it had fully rendered.
+though it had fully rendered. Phase 3 (Animated Thumbnail) prefers `video.animatedThumbnailUrl`
+(via `videoAnimatedThumbnailUrl()`, `GET /videos/:id/animated-thumbnail`) as this same `<img>`'s
+`src` when set, falling back to the static `thumbnailUrl` - a browser renders/loops a WebP the same
+way it renders a static one, so no separate code path was needed.
 
 Clip preview `<video>` uses `clipStreamUrl(clip.id)` → `GET /clips/:id/stream` (Range-enabled
 inline stream), not `clipDownloadUrl` (attachment header, can't play in a `<video>` element). Video
@@ -184,7 +187,10 @@ replacing it (the user's own framing: "mulai menghubungkan analytics dengan expl
   already uses for its own thumbnail frames. Both this component and `ClipCard.tsx`'s `LiveReel`
   usage get `content-visibility: auto` (Phase 2, image optimization roadmap) as the lazy-loading
   equivalent for a `background-image` div - no native `loading` attribute exists for non-`<img>`
-  elements.
+  elements. `ClipCard.tsx`'s `LiveReel` (`thumbnail-strip` variant) picks the richest asset
+  available, in order: Phase 3 Storyboard frames (`clip.storyboardFrameUrls`, the real filmstrip
+  this variant was built for) → Phase 3 Animated Thumbnail (`clip.animatedThumbnailUrl`, a single
+  looping preview) → the static `thumbnailUrl` → the honest placeholder frames.
 - `EngagementTrendChart.tsx` — extends `UploadTrendChart.tsx`'s bar-per-day technique: `totalViews`
   is the bar height (the primary series), `publishCount`/`averageEngagementScore` ride along in the
   hover tooltip rather than competing for their own bar height in the same strip.

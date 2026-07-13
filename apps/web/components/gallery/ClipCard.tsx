@@ -4,7 +4,7 @@ import type { Clip } from '@speedora/shared';
 import { ScoreGauge } from '@/components/ScoreGauge';
 import { LiveReel, type LiveReelThumbnail } from '@/components/signature/LiveReel';
 import { Badge } from '@/components/ui/badge';
-import { clipStoryboardFrameUrl, clipThumbnailUrl } from '@/lib/api';
+import { clipAnimatedThumbnailUrl, clipStoryboardFrameUrl, clipThumbnailUrl } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 const TOP_SCORE_THRESHOLD = 90;
@@ -42,6 +42,10 @@ export function ClipCard({ videoId, clip }: { videoId: string; clip: Clip }) {
   // cookie cross-origin without needing a crossOrigin attribute (that's an
   // <img>-only concept) - see components/dashboard/RecentProjectsGrid.tsx's
   // own <img> for the equivalent explicit-attribute case.
+  // Phase 3 (Animated Thumbnail roadmap) - a single looping preview slots in
+  // between the storyboard filmstrip and the static thumbnail: richer than a
+  // static frame, but not the multi-moment scrubber storyboard already
+  // covers, so it only takes over when there's no storyboard to show.
   const thumbnails: LiveReelThumbnail[] =
     clip.storyboardFrameUrls.length > 0
       ? clip.storyboardFrameUrls.map((frameUrl, i) => ({
@@ -49,9 +53,17 @@ export function ClipCard({ videoId, clip }: { videoId: string; clip: Clip }) {
           src: clipStoryboardFrameUrl(frameUrl),
           alt: `Pratinjau klip - frame ${i + 1}`,
         }))
-      : clip.thumbnailUrl
-        ? [{ id: 'real', src: clipThumbnailUrl(clip.thumbnailUrl), alt: 'Pratinjau klip' }]
-        : PLACEHOLDER_THUMBNAILS;
+      : clip.animatedThumbnailUrl
+        ? [
+            {
+              id: 'animated',
+              src: clipAnimatedThumbnailUrl(clip.animatedThumbnailUrl),
+              alt: 'Pratinjau klip',
+            },
+          ]
+        : clip.thumbnailUrl
+          ? [{ id: 'real', src: clipThumbnailUrl(clip.thumbnailUrl), alt: 'Pratinjau klip' }]
+          : PLACEHOLDER_THUMBNAILS;
 
   return (
     <Link

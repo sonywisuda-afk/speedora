@@ -23,7 +23,12 @@ adapter pattern every AI module here follows.
   JPEG this replaced at equivalent quality) and added a second, much smaller extraction
   (`extractBlurPlaceholder()`, 16px wide) whose output is base64-inlined into
   `Video.thumbnailBlurDataUrl` for a blur-up loading effect — its own independent best-effort
-  block, so a failed blur extraction never undoes an otherwise-successful thumbnail.
+  block, so a failed blur extraction never undoes an otherwise-successful thumbnail. Phase 3 adds
+  two more independent best-effort blocks off the same source frame: a **Storyboard** (5 evenly-
+  spaced `extractThumbnail()` calls, each its own try/catch, into `Video.storyboardFrameUrls` — a
+  real, possibly-short array of the keys that actually succeeded, never a fabricated fixed-5) and
+  an **Animated Thumbnail** (`ffmpeg.ts`'s `extractAnimatedPreview()` — a short, muted, looping
+  WebP, into `Video.animatedThumbnailUrl`).
 - **`detect-clips`** — one LLM call (`packages/clip-scoring`) over the full transcript selects 1–3
   candidate clips with `ClipScores`, `hookText`, `hashtags`, emoji suggestions (see `ai/llm.md`).
   Self-chains one `render-clip` per candidate.
@@ -82,7 +87,9 @@ adapter pattern every AI module here follows.
     above. Sets `Clip.thumbnailUrl` alongside `outputUrl`/`outputSizeBytes` in the same update as
     step 11. A second, independent best-effort extraction (Phase 2) generates a tiny base64 blur
     placeholder into `Clip.thumbnailBlurDataUrl` the same way `transcribe.worker.ts` does for
-    `Video`.
+    `Video`. Phase 3 adds the same Storyboard (`Clip.storyboardFrameUrls`) and Animated Thumbnail
+    (`Clip.animatedThumbnailUrl`) extractions as `transcribe.worker.ts`, here from the RENDERED
+    output instead of the raw source.
 11. **Upload + persist** — one `prisma.clip.update()` writes every raw/derived field from every
     step above.
 11. **Ranking** — once every sibling clip in the video has finished rendering (`allRendered`),

@@ -15,7 +15,11 @@ for client-usage conventions.
   by `transcribe.worker.ts`; never exposed to the client as this raw key, see `backend.md`'s
   `GET /videos/:id/thumbnail`), `thumbnailBlurDataUrl` (Phase 2 — a tiny base64 blur-placeholder
   data URL, inlined directly in the DTO rather than behind its own endpoint like the full
-  thumbnail).
+  thumbnail), `storyboardFrameUrls` (Phase 3, `Json?` — object storage keys for N evenly-spaced
+  frames, one per independently-best-effort extraction; a real, possibly-short array of whichever
+  frames actually succeeded, never a fabricated fixed-N shape), `animatedThumbnailUrl` (Phase 3 —
+  object storage key for a short, muted, looping WebP, same best-effort/never-exposed-as-raw-key
+  treatment as `thumbnailUrl`).
 - **`TranscriptSegment`** — per-video (not duplicated per-clip); a clip's transcript is derived by
   querying segments within its `startTime`/`endTime` range (`filterSegmentsForClip`, `packages/
   shared`). Carries `words` (word-level timestamps), `speaker` (Diarization label), `emotion`
@@ -23,9 +27,9 @@ for client-usage conventions.
   `ai/audio.md`.
 - **`Clip`** — one candidate/rendered clip. `startTime`/`endTime`/`outputUrl`/`captionStyle`/
   `hookText`/`hashtags`/`emojiSuggestions` from the MVP+early phases, `thumbnailUrl`/
-  `thumbnailBlurDataUrl` (Product Experience roadmap — same treatment as `Video`'s own columns
-  above, but extracted from the RENDERED output by `render-clip.worker.ts` instead of the source),
-  plus a large set of AI
+  `thumbnailBlurDataUrl`, `storyboardFrameUrls`, `animatedThumbnailUrl` (Product Experience
+  roadmap — same treatment as `Video`'s own columns above, but extracted from the RENDERED output
+  by `render-clip.worker.ts` instead of the source), plus a large set of AI
   Intelligence columns (see below) and Fusion Engine output
   (`highlightScore`/`highlightConfidence`/`highlightBreakdown`/`highlightExplainability`/
   `highlightPrediction`/`highlightRecommendation`/`highlightRank`).

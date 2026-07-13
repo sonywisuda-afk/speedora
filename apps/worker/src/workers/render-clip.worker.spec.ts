@@ -41,6 +41,7 @@ const trimAndFadeInBRollMock = jest.fn();
 const fadeOutBRollMock = jest.fn();
 const extractThumbnailMock = jest.fn();
 const extractBlurPlaceholderMock = jest.fn();
+const extractAnimatedPreviewMock = jest.fn();
 jest.mock('../ffmpeg', () => ({
   renderClip: (...args: unknown[]) => renderClipMock(...args),
   getVideoDimensions: (...args: unknown[]) => getVideoDimensionsMock(...args),
@@ -49,6 +50,7 @@ jest.mock('../ffmpeg', () => ({
   fadeOutBRoll: (...args: unknown[]) => fadeOutBRollMock(...args),
   extractThumbnail: (...args: unknown[]) => extractThumbnailMock(...args),
   extractBlurPlaceholder: (...args: unknown[]) => extractBlurPlaceholderMock(...args),
+  extractAnimatedPreview: (...args: unknown[]) => extractAnimatedPreviewMock(...args),
 }));
 
 const findBRollMomentsMock = jest.fn();
@@ -477,6 +479,7 @@ describe('render-clip worker', () => {
     // convention as findBRollMomentsMock/detectFacesMock above. Dedicated
     // tests further down override this to exercise both outcomes.
     extractThumbnailMock.mockRejectedValue(new Error('not configured for this test'));
+    extractAnimatedPreviewMock.mockRejectedValue(new Error('not configured for this test'));
     uploadObjectMock.mockResolvedValue(undefined);
     clipUpdateMock.mockResolvedValue({});
     // Clip exists and isn't rendered yet by default - individual tests
@@ -616,10 +619,10 @@ describe('render-clip worker', () => {
         metadata: undefined,
       },
     });
-    // source + captions + output + thumbnail + 5 storyboard frames (reserved
-    // even though this default beforeEach makes extraction fail) - no
-    // reframe-cmds file (no face detected).
-    expect(cleanupTempFileMock).toHaveBeenCalledTimes(9);
+    // source + captions + output + thumbnail + 5 storyboard frames + animated
+    // thumbnail (reserved even though this default beforeEach makes
+    // extraction fail) - no reframe-cmds file (no face detected).
+    expect(cleanupTempFileMock).toHaveBeenCalledTimes(10);
     expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
   });
 
@@ -770,8 +773,9 @@ describe('render-clip worker', () => {
     expect(reserveScratchPathMock).not.toHaveBeenCalledWith('captions', '.ass');
     expect(writeFileMock).not.toHaveBeenCalled();
     expect(renderClipMock).toHaveBeenCalledWith(expect.objectContaining({ subtitlesPath: null }));
-    // source + output + thumbnail + 5 storyboard frames, no captions, no reframe-cmds.
-    expect(cleanupTempFileMock).toHaveBeenCalledTimes(8);
+    // source + output + thumbnail + 5 storyboard frames + animated thumbnail,
+    // no captions, no reframe-cmds.
+    expect(cleanupTempFileMock).toHaveBeenCalledTimes(9);
   });
 
   describe('silence/filler cut pass (Fase 8 follow-up)', () => {
@@ -1065,6 +1069,61 @@ describe('render-clip worker', () => {
     });
   });
 
+  describe('animated thumbnail extraction (Phase 3, Animated Thumbnail roadmap)', () => {
+    it('extracts a short looping WebP from the RENDERED output midpoint and records the key', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      extractAnimatedPreviewMock.mockResolvedValue(undefined);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      // baseJobData is startTime: 10, endTime: 20 - midpoint is 5s into the
+      // rendered (already-trimmed-to-clip-length) output.
+      expect(extractAnimatedPreviewMock).toHaveBeenCalledWith(
+        expect.stringContaining('output'),
+        expect.stringContaining('animated-thumbnail'),
+        5,
+        { durationSeconds: 1.5, fps: 6, width: 480 },
+      );
+      expect(uploadObjectMock).toHaveBeenCalledWith(
+        'animated-thumbnails/clip-1.webp',
+        expect.objectContaining({ fakeStream: expect.stringContaining('animated-thumbnail') }),
+        'image/webp',
+      );
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            animatedThumbnailUrl: 'animated-thumbnails/clip-1.webp',
+          }),
+        }),
+      );
+    });
+
+    it('never fails the render job when animated thumbnail extraction fails, and never writes the field', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      extractAnimatedPreviewMock.mockRejectedValue(new Error('ffmpeg exited with code 1'));
+
+      const processor = getProcessor();
+      const result = await processor({ data: baseJobData });
+
+      expect(uploadObjectMock).not.toHaveBeenCalledWith(
+        'animated-thumbnails/clip-1.webp',
+        expect.anything(),
+        expect.anything(),
+      );
+      expect(clipUpdateMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ animatedThumbnailUrl: expect.anything() }),
+        }),
+      );
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+    });
+  });
+
   describe('smart reframe', () => {
     it('falls back to a static center-crop when no face is detected anywhere in the clip', async () => {
       clipFindManyMock.mockResolvedValue([
@@ -1129,8 +1188,9 @@ describe('render-clip worker', () => {
           }),
         }),
       );
-      // source + output + reframe-cmds + thumbnail + 5 storyboard frames (no captions this time).
-      expect(cleanupTempFileMock).toHaveBeenCalledTimes(9);
+      // source + output + reframe-cmds + thumbnail + 5 storyboard frames +
+      // animated thumbnail (no captions this time).
+      expect(cleanupTempFileMock).toHaveBeenCalledTimes(10);
     });
 
     it('falls back to a static center-crop without failing the job when face detection itself throws', async () => {

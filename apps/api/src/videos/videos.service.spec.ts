@@ -303,6 +303,7 @@ describe('VideosService', () => {
           viralityScore: 90,
           downloadUrl: '/clips/clip-1/download',
           thumbnailUrl: null,
+          animatedThumbnailUrl: null,
           storyboardFrameUrls: [],
           scores: null,
           facialEmotions: null,
@@ -348,6 +349,7 @@ describe('VideosService', () => {
           viralityScore: 40,
           downloadUrl: null,
           thumbnailUrl: null,
+          animatedThumbnailUrl: null,
           storyboardFrameUrls: [],
           scores: null,
           facialEmotions: null,
@@ -529,6 +531,44 @@ describe('VideosService', () => {
       });
 
       await expect(service.findThumbnailOrThrow('video-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('findAnimatedThumbnailOrThrow', () => {
+    it('returns just the animatedThumbnailUrl when the video belongs to the requester', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        animatedThumbnailUrl: 'animated-thumbnails/video-1.webp',
+      });
+
+      const result = await service.findAnimatedThumbnailOrThrow('video-1', 'user-1');
+
+      expect(result).toEqual({ animatedThumbnailUrl: 'animated-thumbnails/video-1.webp' });
+    });
+
+    it('returns a null animatedThumbnailUrl (not a throw) when extraction has not produced one yet', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        animatedThumbnailUrl: null,
+      });
+
+      const result = await service.findAnimatedThumbnailOrThrow('video-1', 'user-1');
+
+      expect(result).toEqual({ animatedThumbnailUrl: null });
+    });
+
+    it('throws NotFoundException when the video belongs to a different user', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'someone-else',
+        animatedThumbnailUrl: 'animated-thumbnails/video-1.webp',
+      });
+
+      await expect(service.findAnimatedThumbnailOrThrow('video-1', 'user-1')).rejects.toThrow(
         NotFoundException,
       );
     });

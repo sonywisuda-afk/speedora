@@ -159,6 +159,31 @@ export class VideosController {
     stream.pipe(res);
   }
 
+  // Phase 3 (Animated Thumbnail) - same shape/reasoning as thumbnail above,
+  // for the extracted looping preview instead of the static frame. Still a
+  // plain (non-Range) stream - a browser renders an animated WebP the same
+  // way it renders a static one, via a plain <img>, so no seek support is
+  // needed here either.
+  @Get(':id/animated-thumbnail')
+  async animatedThumbnail(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const { animatedThumbnailUrl } = await this.videosService.findAnimatedThumbnailOrThrow(
+      id,
+      user.id,
+    );
+    if (!animatedThumbnailUrl) {
+      throw new NotFoundException(`Video ${id} has no animated thumbnail`);
+    }
+
+    const stream = await getObjectStream(animatedThumbnailUrl);
+    res.setHeader('Content-Type', thumbnailContentType(animatedThumbnailUrl));
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    stream.pipe(res);
+  }
+
   // Phase 3 (Storyboard) - one endpoint per frame index rather than a single
   // endpoint returning all frames bundled, so each frame stays independently
   // cacheable/lazy-loadable (same reasoning as the per-resource Cache-Control

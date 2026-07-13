@@ -31,6 +31,7 @@ jest.mock('node:fs/promises', () => ({
 
 import {
   escapeFfmpegFilterPath,
+  extractAnimatedPreview,
   extractAudio,
   extractBlurPlaceholder,
   extractThumbnail,
@@ -239,6 +240,89 @@ describe('extractBlurPlaceholder', () => {
     await expect(extractBlurPlaceholder('/tmp/source.mp4', '/tmp/blur.webp', 1)).rejects.toThrow(
       'ffmpeg exited with code 1',
     );
+  });
+});
+
+describe('extractAnimatedPreview', () => {
+  beforeEach(() => {
+    execFileMock.mockClear();
+  });
+
+  it('seeks to the given offset and extracts a short, muted, looping WebP (Animated Thumbnail config)', async () => {
+    await extractAnimatedPreview('/tmp/source.mp4', '/tmp/preview.webp', 3, {
+      durationSeconds: 1.5,
+      fps: 6,
+      width: 480,
+    });
+
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    const [file, args] = execFileMock.mock.calls[0];
+    expect(file).toBe('ffmpeg');
+    expect(args).toEqual(
+      expect.arrayContaining([
+        '-ss',
+        '3',
+        '-i',
+        '/tmp/source.mp4',
+        '-t',
+        '1.5',
+        '-vf',
+        'fps=6,scale=480:-1',
+        '-an',
+        '-c:v',
+        'libwebp',
+        '-loop',
+        '0',
+        '-quality',
+        '60',
+        '/tmp/preview.webp',
+      ]),
+    );
+    // No -vframes/-update - unlike extractThumbnail/extractBlurPlaceholder,
+    // this wants multiple frames, not a forced single still.
+    expect(args).not.toContain('-vframes');
+    expect(args).not.toContain('-update');
+    expect(args.indexOf('-ss')).toBeLessThan(args.indexOf('-i'));
+  });
+
+  it('accepts a different config (Hover/Clip Preview shape) via the same options', async () => {
+    await extractAnimatedPreview('/tmp/source.mp4', '/tmp/preview.webp', 0, {
+      durationSeconds: 3,
+      fps: 12,
+      width: 320,
+    });
+
+    const [, args] = execFileMock.mock.calls[0];
+    expect(args).toEqual(
+      expect.arrayContaining(['-t', '3', '-vf', 'fps=12,scale=320:-1']),
+    );
+  });
+
+  it('propagates the error when ffmpeg fails', async () => {
+    execFileMock.mockImplementationOnce((_file, _args, ...rest) => {
+      const callback = rest[rest.length - 1] as (error: Error, result: unknown) => void;
+      callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
+    });
+
+    await expect(
+      extractAnimatedPreview('/tmp/source.mp4', '/tmp/preview.webp', 0, {
+        durationSeconds: 1.5,
+        fps: 6,
+        width: 480,
+      }),
+    ).rejects.toThrow('ffmpeg exited with code 1');
+  });
+
+  it('passes a timeout so a hung extraction cannot block the job forever', async () => {
+    await extractAnimatedPreview('/tmp/source.mp4', '/tmp/preview.webp', 0, {
+      durationSeconds: 1.5,
+      fps: 6,
+      width: 480,
+    });
+
+    const call = execFileMock.mock.calls[0];
+    const options = call[2] as { timeout?: number };
+    expect(options.timeout).toBe(60 * 1000);
   });
 });
 

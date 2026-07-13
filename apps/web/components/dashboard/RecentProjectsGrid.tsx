@@ -9,7 +9,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { videoStatusBadge } from '@/lib/analytics';
 import { formatDuration } from '@/lib/dashboard';
-import { videoThumbnailUrl } from '@/lib/api';
+import { videoAnimatedThumbnailUrl, videoThumbnailUrl } from '@/lib/api';
 import { cn } from '@/lib/utils';
 
 export interface RecentProjectsGridProps {
@@ -42,13 +42,22 @@ const ROW_HEIGHT_PX = 168;
 const ThumbnailImage = memo(function ThumbnailImage({ video }: { video: VideoWithClips }) {
   const [loaded, setLoaded] = useState(false);
 
-  if (!video.thumbnailUrl) {
+  if (!video.thumbnailUrl && !video.animatedThumbnailUrl) {
     return (
       <div className="flex aspect-video items-center justify-center rounded-t-lg bg-gradient-to-br from-slate-panel to-bay-black">
         <Film className="h-8 w-8 text-chrome" aria-hidden="true" />
       </div>
     );
   }
+
+  // Phase 3 (Animated Thumbnail roadmap) - prefer the looping animated
+  // preview over the static frame; a browser renders/animates a WebP the
+  // same way it renders a static one, via this same plain <img>, so no
+  // separate code path is needed. Falls back to the static thumbnail when
+  // animated extraction hasn't produced one yet (or ever, for this video).
+  const src = video.animatedThumbnailUrl
+    ? videoAnimatedThumbnailUrl(video.animatedThumbnailUrl)
+    : videoThumbnailUrl(video.thumbnailUrl as string);
 
   return (
     <div
@@ -76,7 +85,7 @@ const ThumbnailImage = memo(function ThumbnailImage({ video }: { video: VideoWit
         ref={(el) => {
           if (el?.complete) setLoaded(true);
         }}
-        src={videoThumbnailUrl(video.thumbnailUrl)}
+        src={src}
         crossOrigin="use-credentials"
         loading="lazy"
         alt=""
