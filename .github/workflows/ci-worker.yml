@@ -26,17 +26,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build packages/shared
-        run: pnpm --filter @speedora/shared build
-
-      - name: Build packages/database
-        run: pnpm --filter @speedora/database build
-
-      - name: Build packages/storage
-        run: pnpm --filter @speedora/storage build
-
-      - name: Build packages/social
-        run: pnpm --filter @speedora/social build
+      # See ci.yml's "Build packages" step comment - one filtered, topological
+      # step instead of an explicit per-package list (see issue #31). This
+      # matters much more here than in ci-api.yml/ci.yml: apps/worker depends
+      # on essentially every package in the monorepo (every AI-intelligence
+      # package plus the shared infra ones), not just 4 of them.
+      - name: Build packages
+        run: pnpm --filter "./packages/**" build
 
       - name: Lint
         run: pnpm --filter @speedora/worker lint

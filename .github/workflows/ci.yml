@@ -32,17 +32,13 @@ jobs:
       - name: Lint
         run: pnpm lint
 
-      - name: Build packages/shared
-        run: pnpm --filter @speedora/shared build
-
-      - name: Build packages/database
-        run: pnpm --filter @speedora/database build
-
-      - name: Build packages/storage
-        run: pnpm --filter @speedora/storage build
-
-      - name: Build packages/social
-        run: pnpm --filter @speedora/social build
+      # Builds every package under packages/* in dependency-topological order
+      # (pnpm --filter respects the workspace dependency graph unless
+      # --parallel is passed) - a single filter instead of one explicit step
+      # per package so a newly added package is built automatically instead of
+      # only once someone remembers to add a step for it here (see issue #31).
+      - name: Build packages
+        run: pnpm --filter "./packages/**" build
 
       - name: Typecheck
         run: pnpm typecheck

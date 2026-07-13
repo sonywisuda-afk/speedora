@@ -26,8 +26,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build packages/shared
-        run: pnpm --filter @speedora/shared build
+      # See ci.yml's "Build packages" step comment - one filtered, topological
+      # step instead of an explicit per-package list (see issue #31). web only
+      # depends on @speedora/shared today, but this keeps the same
+      # future-proof pattern as the other 3 workflows rather than one that
+      # would go stale again the next time web gains a workspace dependency.
+      - name: Build packages
+        run: pnpm --filter "./packages/**" build
 
       - name: Lint
         run: pnpm --filter @speedora/web lint
