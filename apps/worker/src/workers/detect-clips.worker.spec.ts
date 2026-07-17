@@ -37,6 +37,8 @@ const videoUpdateMock = jest.fn();
 const videoFindUniqueOrThrowMock = jest.fn();
 const videoFindUniqueMock = jest.fn();
 const videoStatusEventCreateMock = jest.fn().mockResolvedValue({});
+const notificationCreateMock = jest.fn();
+const notificationPreferenceFindUniqueMock = jest.fn();
 const transactionMock = jest.fn((ops: Promise<unknown>[]) => Promise.all(ops));
 jest.mock('../prisma', () => ({
   prisma: {
@@ -49,8 +51,21 @@ jest.mock('../prisma', () => ({
     // Fase 3 (DB+JSON-contract roadmap) - updateVideoStatus() writes here
     // too, in the same $transaction as video.update().
     videoStatusEvent: { create: (...args: unknown[]) => videoStatusEventCreateMock(...args) },
+    // Notification Center Sprint 4A/4B - updateVideoStatus()'s RENDER_FAILED
+    // write on this stage's own failure path.
+    notification: { create: (...args: unknown[]) => notificationCreateMock(...args) },
+    notificationPreference: {
+      findUnique: (...args: unknown[]) => notificationPreferenceFindUniqueMock(...args),
+    },
     $transaction: (...args: [Promise<unknown>[]]) => transactionMock(...args),
   },
+}));
+
+// Milestone 04c - see render-clip.worker.spec.ts's own comment on why this
+// worker-local adapter (not @speedora/database itself) is mocked.
+const publishNotificationMock = jest.fn();
+jest.mock('../notificationPublisher', () => ({
+  publishNotification: (...args: unknown[]) => publishNotificationMock(...args),
 }));
 
 import { createDetectClipsWorker } from './detect-clips.worker';
@@ -94,6 +109,9 @@ describe('detect-clips worker (adapter)', () => {
     transactionMock.mockImplementation((ops: Promise<unknown>[]) => Promise.all(ops));
     videoUpdateMock.mockResolvedValue({});
     renderClipQueueAdd.mockResolvedValue(undefined);
+    notificationCreateMock.mockResolvedValue({ id: 'notif-1' });
+    notificationPreferenceFindUniqueMock.mockResolvedValue(null);
+    publishNotificationMock.mockResolvedValue(undefined);
     // Video exists and is at its precondition status (TRANSCRIBED) by
     // default - individual tests override this to exercise the
     // orphaned-job (deleted-video) and already-processed (idempotency) skip
@@ -268,6 +286,10 @@ describe('detect-clips worker (adapter)', () => {
       data: { status: VideoStatus.FAILED },
     });
     expect(renderClipQueueAdd).not.toHaveBeenCalled();
+    // Milestone 04c - deps.publish wired through to updateVideoStatus.
+    expect(publishNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'RENDER_FAILED' }),
+    );
   });
 
   it('reports the failure to Sentry tagged with videoId only (no transcript content)', async () => {

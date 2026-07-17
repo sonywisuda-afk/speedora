@@ -43,6 +43,13 @@ jest.mock('../prisma', () => ({
   },
 }));
 
+// Milestone 04c - see render-clip.worker.spec.ts's own comment on why this
+// worker-local adapter (not @speedora/database itself) is mocked.
+const publishNotificationMock = jest.fn();
+jest.mock('../notificationPublisher', () => ({
+  publishNotification: (...args: unknown[]) => publishNotificationMock(...args),
+}));
+
 const buildVideoReportInputFromPrismaMock = jest.fn();
 jest.mock('./build-video-report-input', () => ({
   buildVideoReportInputFromPrisma: (...args: unknown[]) =>
@@ -120,8 +127,9 @@ describe('export-generate worker', () => {
     buildVideoReportWorkbookMock.mockReturnValue({ xlsx: { writeBuffer: writeBufferMock } });
     renderToBufferMock.mockResolvedValue(Buffer.from('%PDF-fake'));
     uploadObjectMock.mockResolvedValue('etag');
-    notificationCreateMock.mockResolvedValue({});
+    notificationCreateMock.mockResolvedValue({ id: 'notif-1' });
     notificationPreferenceFindUniqueMock.mockResolvedValue(null);
+    publishNotificationMock.mockResolvedValue(undefined);
   });
 
   it('PDF: marks PROCESSING, renders the document, uploads it, and marks READY', async () => {
@@ -159,6 +167,12 @@ describe('export-generate worker', () => {
         clipId: null,
         metadata: { exportJobId: 'job-1', exportType: 'PDF' },
       },
+    });
+    // Milestone 04c - Export Ready pushed over SSE in realtime.
+    expect(publishNotificationMock).toHaveBeenCalledWith({
+      userId: 'user-1',
+      notificationId: 'notif-1',
+      type: 'EXPORT_READY',
     });
     expect(result).toEqual({ exportJobId: 'job-1', resultUrl: 'exports/job-1.pdf' });
   });

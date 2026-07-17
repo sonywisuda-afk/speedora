@@ -112,6 +112,51 @@ describe('updateVideoStatus', () => {
     });
   });
 
+  it('forwards deps.publish into recordNotification on a FAILED transition (Milestone 04c)', async () => {
+    const notificationCreate = jest.fn().mockResolvedValue({ id: 'notif-1' });
+    const publish = jest.fn().mockResolvedValue(undefined);
+    const prisma = {
+      video: { update: jest.fn().mockReturnValue('video-update-promise') },
+      videoStatusEvent: { create: jest.fn().mockReturnValue('event-create-promise') },
+      notification: { create: notificationCreate },
+      notificationPreference: { findUnique: jest.fn().mockResolvedValue(null) },
+      $transaction: jest
+        .fn()
+        .mockResolvedValue([{ id: 'video-1', ownerId: 'user-1', title: 'My Video' }, {}]),
+    };
+
+    await updateVideoStatus(
+      prisma as never,
+      'video-1',
+      'FAILED' as never,
+      { errorMessage: 'openai is down' },
+      { publish },
+    );
+
+    expect(publish).toHaveBeenCalledWith({
+      userId: 'user-1',
+      notificationId: 'notif-1',
+      type: 'RENDER_FAILED',
+    });
+  });
+
+  it('does not touch deps.publish on a non-FAILED transition', async () => {
+    const publish = jest.fn();
+    const prisma = {
+      video: { update: jest.fn().mockReturnValue('video-update-promise') },
+      videoStatusEvent: { create: jest.fn().mockReturnValue('event-create-promise') },
+      notification: { create: jest.fn().mockResolvedValue({ id: 'notif-1' }) },
+      notificationPreference: { findUnique: jest.fn().mockResolvedValue(null) },
+      $transaction: jest
+        .fn()
+        .mockResolvedValue([{ id: 'video-1', ownerId: 'user-1', title: 'My Video' }, {}]),
+    };
+
+    await updateVideoStatus(prisma as never, 'video-1', 'TRANSCRIBED' as never, {}, { publish });
+
+    expect(publish).not.toHaveBeenCalled();
+  });
+
   it('does not record a RENDER_FAILED notification when the user has disabled it', async () => {
     const notificationCreate = jest.fn().mockResolvedValue({});
     const prisma = {

@@ -15,6 +15,7 @@ import {
 import { Worker, type Job } from 'bullmq';
 import { withJobTimeout } from '../jobTimeout';
 import { forStage } from '../logger';
+import { publishNotification } from '../notificationPublisher';
 import { openai } from '../openai';
 import { prisma } from '../prisma';
 import { renderClipQueue } from '../queues';
@@ -191,9 +192,13 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
             logger.error('video failed', { videoId }, error);
             // Tags only - never the transcript text or OPENAI_API_KEY.
             Sentry.captureException(error, { tags: { videoId } });
-            await updateVideoStatus(prisma, videoId, VideoStatus.FAILED, {
-              errorMessage: error instanceof Error ? error.message : String(error),
-            });
+            await updateVideoStatus(
+              prisma,
+              videoId,
+              VideoStatus.FAILED,
+              { errorMessage: error instanceof Error ? error.message : String(error) },
+              { publish: publishNotification },
+            );
             throw error;
           }
         },

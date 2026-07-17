@@ -117,6 +117,8 @@ const transcriptSegmentCreateManyMock = jest.fn();
 const videoUpdateMock = jest.fn();
 const videoFindUniqueMock = jest.fn();
 const videoStatusEventCreateMock = jest.fn();
+const notificationCreateMock = jest.fn();
+const notificationPreferenceFindUniqueMock = jest.fn();
 const transactionMock = jest.fn((ops: Promise<unknown>[]) => Promise.all(ops));
 jest.mock('../prisma', () => ({
   prisma: {
@@ -131,8 +133,21 @@ jest.mock('../prisma', () => ({
     // in the same $transaction (both the success-path inline transaction
     // and updateVideoStatus()'s own, for the FAILED case).
     videoStatusEvent: { create: (...args: unknown[]) => videoStatusEventCreateMock(...args) },
+    // Notification Center Sprint 4A/4B - updateVideoStatus()'s RENDER_FAILED
+    // write on this stage's own failure path.
+    notification: { create: (...args: unknown[]) => notificationCreateMock(...args) },
+    notificationPreference: {
+      findUnique: (...args: unknown[]) => notificationPreferenceFindUniqueMock(...args),
+    },
     $transaction: (...args: [Promise<unknown>[]]) => transactionMock(...args),
   },
+}));
+
+// Milestone 04c - see render-clip.worker.spec.ts's own comment on why this
+// worker-local adapter (not @speedora/database itself) is mocked.
+const publishNotificationMock = jest.fn();
+jest.mock('../notificationPublisher', () => ({
+  publishNotification: (...args: unknown[]) => publishNotificationMock(...args),
 }));
 
 import {
@@ -160,6 +175,9 @@ describe('transcribe worker', () => {
     // (deleted-video) and already-processed (idempotency) skip paths.
     videoFindUniqueMock.mockResolvedValue({ status: VideoStatus.UPLOADED });
     videoStatusEventCreateMock.mockResolvedValue({});
+    notificationCreateMock.mockResolvedValue({ id: 'notif-1' });
+    notificationPreferenceFindUniqueMock.mockResolvedValue(null);
+    publishNotificationMock.mockResolvedValue(undefined);
     detectClipsQueueAdd.mockResolvedValue(undefined);
     // Short enough for a single Whisper request unless a test overrides it.
     getMediaDurationSecondsMock.mockResolvedValue(120);
@@ -798,6 +816,10 @@ describe('transcribe worker', () => {
     // Scratch files still cleaned up on the failure path.
     expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-src-0.mp4');
     expect(cleanupTempFileMock).toHaveBeenCalledWith('/scratch/transcribe-audio-10.mp3');
+    // Milestone 04c - deps.publish wired through to updateVideoStatus.
+    expect(publishNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'RENDER_FAILED' }),
+    );
   });
 
   it('reports the failure to Sentry tagged with videoId only (no transcript content)', async () => {

@@ -38,6 +38,7 @@ import {
 import { groq, GROQ_WHISPER_MODEL } from '../groq';
 import { withJobTimeout } from '../jobTimeout';
 import { forStage } from '../logger';
+import { publishNotification } from '../notificationPublisher';
 import { openai, OPENAI_WHISPER_MODEL } from '../openai';
 import { prisma } from '../prisma';
 import { detectClipsQueue } from '../queues';
@@ -641,9 +642,13 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
             logger.error('video failed', { videoId }, error);
             // Tags only - never the transcript text/audio or OPENAI_API_KEY.
             Sentry.captureException(error, { tags: { videoId } });
-            await updateVideoStatus(prisma, videoId, VideoStatus.FAILED, {
-              errorMessage: error instanceof Error ? error.message : String(error),
-            });
+            await updateVideoStatus(
+              prisma,
+              videoId,
+              VideoStatus.FAILED,
+              { errorMessage: error instanceof Error ? error.message : String(error) },
+              { publish: publishNotification },
+            );
             throw error;
           } finally {
             // Scratch files only - the persisted source lives in object storage.

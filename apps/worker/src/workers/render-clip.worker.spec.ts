@@ -167,6 +167,14 @@ const videoStatusEventCreateMock = jest.fn();
 const activityEventCreateMock = jest.fn();
 const notificationCreateMock = jest.fn();
 const notificationPreferenceFindUniqueMock = jest.fn();
+// Milestone 04c - the real recordNotification()/updateVideoStatus() from
+// @speedora/database (not mocked) call deps.publish internally; mocking
+// only this worker-local adapter lets these tests assert the call sites
+// wire it through correctly without needing a real Redis connection.
+const publishNotificationMock = jest.fn();
+jest.mock('../notificationPublisher', () => ({
+  publishNotification: (...args: unknown[]) => publishNotificationMock(...args),
+}));
 // $transaction now has two call shapes to support in this file: the
 // array form (still used by updateVideoStatus() on the FAILED path, see
 // video-status.ts) and the new interactive callback form the render-clip
@@ -504,8 +512,9 @@ describe('render-clip worker', () => {
     videoUpdateMock.mockResolvedValue({});
     videoStatusEventCreateMock.mockResolvedValue({});
     activityEventCreateMock.mockResolvedValue({});
-    notificationCreateMock.mockResolvedValue({});
+    notificationCreateMock.mockResolvedValue({ id: 'notif-1' });
     notificationPreferenceFindUniqueMock.mockResolvedValue(null);
+    publishNotificationMock.mockResolvedValue(undefined);
     // Sprint 1-2 (Dashboard Redesign) - Clip.outputSizeBytes.
     statMock.mockResolvedValue({ size: 654321 });
     cleanupTempFileMock.mockResolvedValue(undefined);
@@ -650,6 +659,12 @@ describe('render-clip worker', () => {
         clipId: 'clip-1',
         metadata: undefined,
       },
+    });
+    // Milestone 04c - Clip Ready pushed over SSE in realtime.
+    expect(publishNotificationMock).toHaveBeenCalledWith({
+      userId: 'user-1',
+      notificationId: 'notif-1',
+      type: 'CLIP_READY',
     });
     // source + captions + output + thumbnail + 5 storyboard frames + animated
     // thumbnail + hover preview (reserved even though this default beforeEach
@@ -2902,6 +2917,14 @@ describe('render-clip worker', () => {
     // source + captions + output were all reserved before renderClip threw
     // (no reframe-cmds this run - no face detected).
     expect(cleanupTempFileMock).toHaveBeenCalledTimes(3);
+    // Milestone 04c - Render Failed pushed over SSE in realtime (deps.publish
+    // wired through to updateVideoStatus). userId isn't asserted here - this
+    // test's videoUpdateMock resolves to {} (no ownerId), same as the
+    // pre-existing status-only assertion above; the exact payload shape is
+    // covered by packages/database's own video-status.spec.ts.
+    expect(publishNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({ notificationId: 'notif-1', type: 'RENDER_FAILED' }),
+    );
   });
 
   it('reports the failure to Sentry tagged with videoId and clipId only (no transcript content)', async () => {

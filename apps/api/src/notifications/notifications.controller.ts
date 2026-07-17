@@ -1,13 +1,27 @@
-import { Body, Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Query,
+  Sse,
+  UseGuards,
+  type MessageEvent,
+} from '@nestjs/common';
+import { filter, interval, map, merge, type Observable } from 'rxjs';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { NotificationSubscriberService } from '../redis-pubsub/notification-subscriber.service';
+import { matchesUser, toMessageEvent } from '../redis-pubsub/notification-realtime.util';
 import { UpdateNotificationPreferenceDto } from './dto/update-notification-preference.dto';
 import { NotificationsService } from './notifications.service';
 
 const MIN_LIMIT = 1;
 const MAX_LIMIT = 100;
 const DEFAULT_LIMIT = 20;
+const HEARTBEAT_MS = 20000;
 
 // Same "invalid/missing query param falls back to a default rather than
 // throwing" posture as DashboardController's own parseLimit.
@@ -24,7 +38,31 @@ function parseLimit(raw: string | undefined, fallback: number): number {
 @Controller('notifications')
 @UseGuards(JwtAuthGuard)
 export class NotificationsController {
-  constructor(private readonly notificationsService: NotificationsService) {}
+  constructor(
+    private readonly notificationsService: NotificationsService,
+    private readonly subscriber: NotificationSubscriberService,
+  ) {}
+
+  // Milestone 04c - additive realtime push, existing polling endpoints below
+  // are untouched. Heartbeat keeps the connection alive through any future
+  // proxy/load-balancer idle timeout (none exists in this stack today,
+  // cheap insurance regardless). Cleanup on client disconnect is handled by
+  // Nest's own @Sse() implementation, which unsubscribes the returned
+  // Observable when the HTTP response closes - this only tears down this
+  // one connection's filter/map, never the shared Redis subscription
+  // (NotificationSubscriberService.stream$ stays alive for every other
+  // connected client).
+  @Sse('stream')
+  stream(@CurrentUser() user: SafeUser): Observable<MessageEvent> {
+    const heartbeat$ = interval(HEARTBEAT_MS).pipe(
+      map((): MessageEvent => ({ data: { type: 'heartbeat' } })),
+    );
+    const events$ = this.subscriber.stream$.pipe(
+      filter((event) => matchesUser(event, user.id)),
+      map(toMessageEvent),
+    );
+    return merge(events$, heartbeat$);
+  }
 
   @Get()
   list(@CurrentUser() user: SafeUser, @Query('limit') limit?: string) {

@@ -47,6 +47,8 @@ jest.mock('node:fs', () => ({
 const videoUpdateMock = jest.fn();
 const videoFindUniqueMock = jest.fn();
 const videoStatusEventCreateMock = jest.fn();
+const notificationCreateMock = jest.fn();
+const notificationPreferenceFindUniqueMock = jest.fn();
 jest.mock('../prisma', () => ({
   prisma: {
     video: {
@@ -56,8 +58,21 @@ jest.mock('../prisma', () => ({
     // Fase 3 (DB+JSON-contract roadmap) - updateVideoStatus() writes here
     // too, atomically alongside video.update() via $transaction.
     videoStatusEvent: { create: (...args: unknown[]) => videoStatusEventCreateMock(...args) },
+    // Notification Center Sprint 4A/4B - updateVideoStatus()'s RENDER_FAILED
+    // write on this stage's own failure path.
+    notification: { create: (...args: unknown[]) => notificationCreateMock(...args) },
+    notificationPreference: {
+      findUnique: (...args: unknown[]) => notificationPreferenceFindUniqueMock(...args),
+    },
     $transaction: (ops: Promise<unknown>[]) => Promise.all(ops),
   },
+}));
+
+// Milestone 04c - see render-clip.worker.spec.ts's own comment on why this
+// worker-local adapter (not @speedora/database itself) is mocked.
+const publishNotificationMock = jest.fn();
+jest.mock('../notificationPublisher', () => ({
+  publishNotification: (...args: unknown[]) => publishNotificationMock(...args),
 }));
 
 import { createImportYoutubeWorker } from './import-youtube.worker';
@@ -79,6 +94,9 @@ describe('import-youtube worker', () => {
     createReadStreamMock.mockReturnValue('fake-read-stream');
     uploadObjectMock.mockResolvedValue(undefined);
     videoUpdateMock.mockResolvedValue({});
+    notificationCreateMock.mockResolvedValue({ id: 'notif-1' });
+    notificationPreferenceFindUniqueMock.mockResolvedValue(null);
+    publishNotificationMock.mockResolvedValue(undefined);
     // Video exists and is IMPORTING by default - individual tests override
     // this to exercise the orphaned-job (deleted-video) and
     // already-past-IMPORTING skip paths.
@@ -229,5 +247,9 @@ describe('import-youtube worker', () => {
     });
     expect(transcribeQueueAdd).not.toHaveBeenCalled();
     expect(cleanupTempFileMock).toHaveBeenCalledWith('/tmp/youtube-import-abc.mp4');
+    // Milestone 04c - deps.publish wired through to updateVideoStatus.
+    expect(publishNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'RENDER_FAILED' }),
+    );
   });
 });

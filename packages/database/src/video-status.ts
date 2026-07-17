@@ -1,5 +1,5 @@
 import { VideoStatus, type Prisma, type PrismaClient } from './generated/prisma/client';
-import { recordNotification } from './notification';
+import { recordNotification, type PublishNotificationFn } from './notification';
 
 // Inserts one VideoStatusEvent row - the audit-trail write half of a status
 // change. Takes any Prisma client-shaped object (a real PrismaClient, or the
@@ -30,6 +30,7 @@ export async function updateVideoStatus(
   videoId: string,
   status: VideoStatus,
   options: { errorMessage?: string; data?: Omit<Prisma.VideoUpdateInput, 'status'> } = {},
+  deps: { publish?: PublishNotificationFn } = {},
 ): Promise<void> {
   const [video] = await prisma.$transaction([
     prisma.video.update({ where: { id: videoId }, data: { ...options.data, status } }),
@@ -51,16 +52,20 @@ export async function updateVideoStatus(
   // never into the user-facing body text, to avoid leaking internal error
   // details.
   if (status === VideoStatus.FAILED) {
-    await recordNotification(prisma, {
-      userId: video.ownerId,
-      type: 'RENDER_FAILED',
-      title: 'Proses video gagal',
-      body: video.title
-        ? `Video "${video.title}" gagal diproses. Silakan coba lagi.`
-        : 'Video gagal diproses. Silakan coba lagi.',
-      videoId,
-      metadata: options.errorMessage ? { errorMessage: options.errorMessage } : undefined,
-    }).catch((error) => {
+    await recordNotification(
+      prisma,
+      {
+        userId: video.ownerId,
+        type: 'RENDER_FAILED',
+        title: 'Proses video gagal',
+        body: video.title
+          ? `Video "${video.title}" gagal diproses. Silakan coba lagi.`
+          : 'Video gagal diproses. Silakan coba lagi.',
+        videoId,
+        metadata: options.errorMessage ? { errorMessage: options.errorMessage } : undefined,
+      },
+      deps,
+    ).catch((error) => {
       console.warn(
         '[updateVideoStatus] failed to record RENDER_FAILED notification',
         videoId,

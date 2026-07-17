@@ -68,6 +68,7 @@ import {
 } from '../ffmpeg';
 import { withJobTimeout } from '../jobTimeout';
 import { forStage } from '../logger';
+import { publishNotification } from '../notificationPublisher';
 import { prisma } from '../prisma';
 import { createRedisConnection } from '../redis';
 import { cleanupTempFile, reserveScratchPath } from '../storage';
@@ -770,17 +771,22 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               logger.warn('failed to record CLIP_GENERATED activity event', { clipId }, error);
             });
 
-            // Notification Center Sprint 4A - Clip Ready.
-            await recordNotification(prisma, {
-              userId: existingClip.video.ownerId,
-              type: 'CLIP_READY',
-              title: 'Klip siap!',
-              body: existingClip.video.title
-                ? `Klip dari video "${existingClip.video.title}" sudah siap ditonton.`
-                : 'Klip Anda sudah siap ditonton.',
-              videoId,
-              clipId,
-            }).catch((error) => {
+            // Notification Center Sprint 4A - Clip Ready. Milestone 04c -
+            // deps.publish pushes this over SSE in realtime.
+            await recordNotification(
+              prisma,
+              {
+                userId: existingClip.video.ownerId,
+                type: 'CLIP_READY',
+                title: 'Klip siap!',
+                body: existingClip.video.title
+                  ? `Klip dari video "${existingClip.video.title}" sudah siap ditonton.`
+                  : 'Klip Anda sudah siap ditonton.',
+                videoId,
+                clipId,
+              },
+              { publish: publishNotification },
+            ).catch((error) => {
               logger.warn('failed to record CLIP_READY notification', { clipId }, error);
             });
 
@@ -856,9 +862,13 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             logger.error('clip failed', { clipId, videoId }, error);
             // Tags only - never the transcript text or the source video itself.
             Sentry.captureException(error, { tags: { videoId, clipId } });
-            await updateVideoStatus(prisma, videoId, VideoStatus.FAILED, {
-              errorMessage: error instanceof Error ? error.message : String(error),
-            });
+            await updateVideoStatus(
+              prisma,
+              videoId,
+              VideoStatus.FAILED,
+              { errorMessage: error instanceof Error ? error.message : String(error) },
+              { publish: publishNotification },
+            );
             throw error;
           } finally {
             if (sourcePath) await cleanupTempFile(sourcePath);

@@ -16,6 +16,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { OpsAiModule } from './ops-ai/ops-ai.module';
 import { PaymentsModule } from './payments/payments.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { RedisPubSubModule } from './redis-pubsub/redis-pubsub.module';
 import { SearchModule } from './search/search.module';
 import { SocialModule } from './social/social.module';
 import { TeamModule } from './team/team.module';
@@ -33,6 +34,7 @@ import { VideosModule } from './videos/videos.module';
       validate: validateEnv,
     }),
     PrismaModule,
+    RedisPubSubModule,
     AuthModule,
     PaymentsModule,
     VideosModule,

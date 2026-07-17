@@ -1,6 +1,8 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
+import { Subject } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationSubscriberService } from '../redis-pubsub/notification-subscriber.service';
 import { NotificationsController } from './notifications.controller';
 import { NotificationsService } from './notifications.service';
 
@@ -42,7 +44,17 @@ describe('Notifications module integration (Controller + Service via real DI)', 
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       controllers: [NotificationsController],
-      providers: [NotificationsService, { provide: PrismaService, useValue: prisma }],
+      providers: [
+        NotificationsService,
+        { provide: PrismaService, useValue: prisma },
+        // Milestone 04c - a stub with a real (empty) stream$ is enough here;
+        // the stream() route's own filtering/fan-out is covered by
+        // notifications.controller.spec.ts, not re-tested via this DI path.
+        {
+          provide: NotificationSubscriberService,
+          useValue: { stream$: new Subject().asObservable() },
+        },
+      ],
     }).compile();
 
     controller = moduleRef.get(NotificationsController);

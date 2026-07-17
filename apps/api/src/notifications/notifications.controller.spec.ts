@@ -1,3 +1,6 @@
+import { Subject, take } from 'rxjs';
+import type { NotificationPublishEvent } from '@speedora/database';
+import type { NotificationSubscriberService } from '../redis-pubsub/notification-subscriber.service';
 import type { NotificationsService } from './notifications.service';
 import { NotificationsController } from './notifications.controller';
 
@@ -11,6 +14,7 @@ describe('NotificationsController', () => {
     getPreferences: jest.Mock;
     updatePreference: jest.Mock;
   };
+  let subject: Subject<NotificationPublishEvent>;
   const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
 
   beforeEach(() => {
@@ -22,8 +26,10 @@ describe('NotificationsController', () => {
       getPreferences: jest.fn(),
       updatePreference: jest.fn(),
     };
+    subject = new Subject<NotificationPublishEvent>();
     controller = new NotificationsController(
       notificationsService as unknown as NotificationsService,
+      { stream$: subject.asObservable() } as unknown as NotificationSubscriberService,
     );
   });
 
@@ -80,6 +86,35 @@ describe('NotificationsController', () => {
       notificationsService.markRead.mockRejectedValue(new Error('not found'));
 
       await expect(controller.markRead(user, 'missing')).rejects.toThrow('not found');
+    });
+  });
+
+  describe('stream (Milestone 04c)', () => {
+    it('only forwards events matching the connected user, ignoring other users', (done) => {
+      const received: unknown[] = [];
+      const sub = controller
+        .stream(user)
+        .pipe(take(1))
+        .subscribe((message) => {
+          received.push(message);
+          sub.unsubscribe();
+          expect(received).toEqual([
+            { data: { userId: 'user-1', notificationId: 'notif-1', type: 'UPLOAD_COMPLETE' } },
+          ]);
+          done();
+        });
+
+      // Wrong user first - must not be the one that resolves take(1).
+      subject.next({
+        userId: 'user-2',
+        notificationId: 'notif-x',
+        type: 'UPLOAD_COMPLETE' as never,
+      });
+      subject.next({
+        userId: 'user-1',
+        notificationId: 'notif-1',
+        type: 'UPLOAD_COMPLETE' as never,
+      });
     });
   });
 

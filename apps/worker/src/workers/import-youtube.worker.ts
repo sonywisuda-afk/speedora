@@ -11,6 +11,7 @@ import { uploadObject } from '@speedora/storage';
 import { Worker, type Job } from 'bullmq';
 import { withJobTimeout } from '../jobTimeout';
 import { forStage } from '../logger';
+import { publishNotification } from '../notificationPublisher';
 import { prisma } from '../prisma';
 import { transcribeQueue } from '../queues';
 import { createRedisConnection } from '../redis';
@@ -135,9 +136,13 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
             logger.error('video failed', { videoId }, error);
             // Tags only - never the URL's page content or any downloaded bytes.
             Sentry.captureException(error, { tags: { videoId } });
-            await updateVideoStatus(prisma, videoId, VideoStatus.FAILED, {
-              errorMessage: error instanceof Error ? error.message : String(error),
-            });
+            await updateVideoStatus(
+              prisma,
+              videoId,
+              VideoStatus.FAILED,
+              { errorMessage: error instanceof Error ? error.message : String(error) },
+              { publish: publishNotification },
+            );
             throw error;
           } finally {
             if (downloadPath) await cleanupTempFile(downloadPath);

@@ -13,6 +13,7 @@ import { uploadObject } from '@speedora/storage';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { Worker, type Job } from 'bullmq';
 import { forStage } from '../logger';
+import { publishNotification } from '../notificationPublisher';
 import { prisma } from '../prisma';
 import { createRedisConnection } from '../redis';
 import { buildVideoReportInputFromPrisma } from './build-video-report-input';
@@ -129,14 +130,19 @@ export function createExportGenerateWorker(): Worker<
 
         // Notification Center Sprint 4A - Export Ready. video/exportJob are
         // already in scope from the fetches above, zero extra query.
-        await recordNotification(prisma, {
-          userId: exportJob.userId,
-          type: 'EXPORT_READY',
-          title: 'Export siap diunduh',
-          body: `Laporan export untuk video "${video.title}" sudah siap diunduh.`,
-          videoId: exportJob.videoId,
-          metadata: { exportJobId, exportType: exportJob.type },
-        }).catch((error) => {
+        // Milestone 04c - deps.publish pushes this over SSE in realtime.
+        await recordNotification(
+          prisma,
+          {
+            userId: exportJob.userId,
+            type: 'EXPORT_READY',
+            title: 'Export siap diunduh',
+            body: `Laporan export untuk video "${video.title}" sudah siap diunduh.`,
+            videoId: exportJob.videoId,
+            metadata: { exportJobId, exportType: exportJob.type },
+          },
+          { publish: publishNotification },
+        ).catch((error) => {
           logger.warn('failed to record EXPORT_READY notification', { exportJobId }, error);
         });
 

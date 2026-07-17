@@ -44,6 +44,21 @@ const mockMarkNotificationRead = markNotificationRead as jest.Mock;
 const mockMarkAllNotificationsRead = markAllNotificationsRead as jest.Mock;
 const mockToast = toast as jest.Mock;
 
+// Milestone 04c - jsdom has no native EventSource. Left unmocked, existing
+// tests below simply see useNotificationStream's `!('EventSource' in
+// window)` guard no-op (connected stays false, polling behaves exactly as
+// it did pre-04c) - only the dedicated SSE test below installs this mock.
+class MockEventSource {
+  static instances: MockEventSource[] = [];
+  onopen: (() => void) | null = null;
+  onerror: (() => void) | null = null;
+  onmessage: ((event: { data: string }) => void) | null = null;
+  constructor(public url: string) {
+    MockEventSource.instances.push(this);
+  }
+  close() {}
+}
+
 function notification(overrides: Partial<NotificationDto>): NotificationDto {
   return {
     id: 'notif-1',
@@ -166,5 +181,45 @@ describe('NotificationBell', () => {
     // dangling fake-timer-scheduled callback keeps the Jest worker alive.
     unmount();
     jest.useRealTimers();
+  });
+
+  describe('SSE (Milestone 04c)', () => {
+    const originalEventSource = (global as { EventSource?: unknown }).EventSource;
+
+    beforeEach(() => {
+      MockEventSource.instances = [];
+      (global as { EventSource?: unknown }).EventSource = MockEventSource;
+    });
+
+    afterEach(() => {
+      (global as { EventSource?: unknown }).EventSource = originalEventSource;
+    });
+
+    it('an SSE message triggers a refetch without waiting for the poll interval', async () => {
+      renderBell();
+      await waitFor(() => expect(mockGetNotifications).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(mockGetUnreadNotificationCount).toHaveBeenCalledTimes(1));
+      const es = MockEventSource.instances[0];
+
+      act(() =>
+        es.onmessage?.({
+          data: JSON.stringify({ userId: 'user-1', notificationId: 'notif-2', type: 'CLIP_READY' }),
+        }),
+      );
+
+      await waitFor(() => expect(mockGetNotifications).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(mockGetUnreadNotificationCount).toHaveBeenCalledTimes(2));
+    });
+
+    it('ignores a heartbeat message (no extra refetch)', async () => {
+      renderBell();
+      await waitFor(() => expect(mockGetNotifications).toHaveBeenCalledTimes(1));
+      const es = MockEventSource.instances[0];
+
+      act(() => es.onmessage?.({ data: JSON.stringify({ type: 'heartbeat' }) }));
+
+      // No new fetch triggered by the heartbeat itself - still exactly 1.
+      expect(mockGetNotifications).toHaveBeenCalledTimes(1);
+    });
   });
 });

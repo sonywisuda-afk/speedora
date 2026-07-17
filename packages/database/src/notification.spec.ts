@@ -88,4 +88,85 @@ describe('recordNotification', () => {
 
     expect(create).toHaveBeenCalled();
   });
+
+  describe('deps.publish (Milestone 04c)', () => {
+    it('calls deps.publish with the created row id after a successful write', async () => {
+      const create = jest.fn().mockResolvedValue({ id: 'notif-1' });
+      const findUnique = jest.fn().mockResolvedValue(null);
+      const prisma = { notification: { create }, notificationPreference: { findUnique } };
+      const publish = jest.fn().mockResolvedValue(undefined);
+
+      await recordNotification(
+        prisma as never,
+        {
+          userId: 'user-1',
+          type: 'CLIP_READY' as never,
+          title: 'Klip siap!',
+          body: 'Klip Anda sudah siap ditonton.',
+        },
+        { publish },
+      );
+
+      expect(publish).toHaveBeenCalledWith({
+        userId: 'user-1',
+        notificationId: 'notif-1',
+        type: 'CLIP_READY',
+      });
+    });
+
+    it('does not call deps.publish when the preference gate skips the write', async () => {
+      const create = jest.fn().mockResolvedValue({ id: 'notif-1' });
+      const findUnique = jest.fn().mockResolvedValue({ enabled: false });
+      const prisma = { notification: { create }, notificationPreference: { findUnique } };
+      const publish = jest.fn();
+
+      await recordNotification(
+        prisma as never,
+        {
+          userId: 'user-1',
+          type: 'CLIP_READY' as never,
+          title: 'Klip siap!',
+          body: 'Klip Anda sudah siap ditonton.',
+        },
+        { publish },
+      );
+
+      expect(publish).not.toHaveBeenCalled();
+    });
+
+    it('does not reject when deps.publish itself rejects', async () => {
+      const create = jest.fn().mockResolvedValue({ id: 'notif-1' });
+      const findUnique = jest.fn().mockResolvedValue(null);
+      const prisma = { notification: { create }, notificationPreference: { findUnique } };
+      const publish = jest.fn().mockRejectedValue(new Error('redis down'));
+
+      await expect(
+        recordNotification(
+          prisma as never,
+          {
+            userId: 'user-1',
+            type: 'CLIP_READY' as never,
+            title: 'Klip siap!',
+            body: 'Klip Anda sudah siap ditonton.',
+          },
+          { publish },
+        ),
+      ).resolves.toBeUndefined();
+    });
+
+    it('does not call deps.publish when no publish dep is given', async () => {
+      const create = jest.fn().mockResolvedValue({ id: 'notif-1' });
+      const findUnique = jest.fn().mockResolvedValue(null);
+      const prisma = { notification: { create }, notificationPreference: { findUnique } };
+
+      await expect(
+        recordNotification(prisma as never, {
+          userId: 'user-1',
+          type: 'CLIP_READY' as never,
+          title: 'Klip siap!',
+          body: 'Klip Anda sudah siap ditonton.',
+        }),
+      ).resolves.toBeUndefined();
+    });
+  });
 });

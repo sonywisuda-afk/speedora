@@ -4,6 +4,7 @@ import { QueueName, TranscriptionProvider } from '@speedora/shared';
 import type { Queue } from 'bullmq';
 import type { PaymentsService } from '../payments/payments.service';
 import type { PrismaService } from '../prisma/prisma.service';
+import type { NotificationPublisherService } from '../redis-pubsub/notification-publisher.service';
 import type { StorageService } from '../storage/storage.service';
 import { VideosService } from './videos.service';
 
@@ -25,6 +26,7 @@ describe('VideosService', () => {
   };
   let storage: { saveVideo: jest.Mock; deleteObjects: jest.Mock };
   let payments: { getAvailability: jest.Mock; consumeCredit: jest.Mock };
+  let notificationPublisher: { publish: jest.Mock };
   let importYoutubeQueue: { add: jest.Mock };
   let transcribeQueue: { add: jest.Mock };
   let detectClipsQueue: { add: jest.Mock };
@@ -44,7 +46,7 @@ describe('VideosService', () => {
         findMany: jest.fn().mockResolvedValue([]),
       },
       activityEvent: { create: jest.fn().mockResolvedValue({}) },
-      notification: { create: jest.fn().mockResolvedValue({}) },
+      notification: { create: jest.fn().mockResolvedValue({ id: 'notif-1' }) },
       notificationPreference: { findUnique: jest.fn().mockResolvedValue(null) },
       // Supports both call shapes used by VideosService: the interactive
       // form (upload/importFromYoutube, which need the just-created video's
@@ -61,6 +63,7 @@ describe('VideosService', () => {
       getAvailability: jest.fn().mockResolvedValue({ available: true }),
       consumeCredit: jest.fn().mockResolvedValue(true),
     };
+    notificationPublisher = { publish: jest.fn().mockResolvedValue(undefined) };
     importYoutubeQueue = { add: jest.fn() };
     transcribeQueue = { add: jest.fn() };
     detectClipsQueue = { add: jest.fn() };
@@ -69,6 +72,7 @@ describe('VideosService', () => {
       prisma as unknown as PrismaService,
       storage as unknown as StorageService,
       payments as unknown as PaymentsService,
+      notificationPublisher as unknown as NotificationPublisherService,
       importYoutubeQueue as unknown as Queue,
       transcribeQueue as unknown as Queue,
       detectClipsQueue as unknown as Queue,
@@ -131,6 +135,12 @@ describe('VideosService', () => {
           clipId: null,
           metadata: undefined,
         },
+      });
+      // Milestone 04c - Upload Complete pushed over SSE in realtime.
+      expect(notificationPublisher.publish).toHaveBeenCalledWith({
+        userId: 'user-1',
+        notificationId: 'notif-1',
+        type: 'UPLOAD_COMPLETE',
       });
       expect(payments.getAvailability).not.toHaveBeenCalled();
       expect(payments.consumeCredit).not.toHaveBeenCalled();
@@ -245,6 +255,12 @@ describe('VideosService', () => {
           clipId: null,
           metadata: undefined,
         },
+      });
+      // Milestone 04c - Upload Complete pushed over SSE in realtime.
+      expect(notificationPublisher.publish).toHaveBeenCalledWith({
+        userId: 'user-1',
+        notificationId: 'notif-1',
+        type: 'UPLOAD_COMPLETE',
       });
       expect(result).toEqual(createdVideo);
     });

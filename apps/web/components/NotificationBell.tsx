@@ -24,11 +24,18 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatRelativeTime } from '@/lib/dashboard';
 import { NOTIFICATION_ICONS, notificationTone } from '@/lib/notification-definitions';
 import { toast } from '@/lib/toast-store';
+import { useNotificationStream } from '@/lib/useNotificationStream';
 import { NotificationPreferencesTab } from './NotificationPreferencesTab';
 
 const LIST_LIMIT = 20;
-const LIST_POLL_MS = 15000;
-const UNREAD_POLL_MS = 20000;
+// Milestone 04c - full cadence until SSE is confirmed live, relaxed once it
+// is (a real safety net, not "poll at today's speed forever regardless" -
+// that would defeat the point of adding push delivery). Speeds back up the
+// instant the SSE connection drops (EventSource.onerror -> connected: false).
+const LIST_POLL_MS_ACTIVE = 15000;
+const LIST_POLL_MS_SSE = 120000;
+const UNREAD_POLL_MS_ACTIVE = 20000;
+const UNREAD_POLL_MS_SSE = 120000;
 
 // Notification Center Sprint 4A - reuses the Dialog primitive (bell +
 // dropdown), same shape as ExportCenterDialog. The list poll runs
@@ -39,11 +46,24 @@ export function NotificationBell() {
   const [open, setOpen] = useState(false);
   const lastSeenCreatedAt = useRef<string | null>(null);
   const seeded = useRef(false);
+  // Milestone 04c - useNotificationStream's onEvent callback needs
+  // mutateUnread/mutateList, which don't exist until after the useSWR calls
+  // below run; a ref sidesteps the ordering problem (the ref is populated
+  // after those hooks return, read only when the SSE hook later fires).
+  const mutateRef = useRef<{ unread: () => void; list: () => void }>({
+    unread: () => {},
+    list: () => {},
+  });
+
+  const { connected } = useNotificationStream(() => {
+    mutateRef.current.unread();
+    mutateRef.current.list();
+  });
 
   const { data: unread, mutate: mutateUnread } = useSWR(
     'notifications-unread-count',
     getUnreadNotificationCount,
-    { refreshInterval: UNREAD_POLL_MS },
+    { refreshInterval: connected ? UNREAD_POLL_MS_SSE : UNREAD_POLL_MS_ACTIVE },
   );
 
   // Sprint 4B - no aggressive refreshInterval; preferences change rarely,
@@ -56,7 +76,7 @@ export function NotificationBell() {
     'notifications-list',
     () => getNotifications(LIST_LIMIT),
     {
-      refreshInterval: LIST_POLL_MS,
+      refreshInterval: connected ? LIST_POLL_MS_SSE : LIST_POLL_MS_ACTIVE,
       onSuccess: (data) => {
         if (!seeded.current) {
           // First fetch just establishes the baseline - toasting every
@@ -81,6 +101,8 @@ export function NotificationBell() {
       },
     },
   );
+
+  mutateRef.current = { unread: mutateUnread, list: mutateList };
 
   async function handleMarkRead(notification: NotificationDto) {
     if (notification.readAt) return;

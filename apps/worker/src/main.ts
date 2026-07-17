@@ -56,6 +56,7 @@ async function main() {
     scheduleRepeatingTrigger: scheduleSyncPublishStatsTrigger,
   } = await import('./workers/sync-publish-stats.worker');
   const { createExportGenerateWorker } = await import('./export-generate/export-generate.worker');
+  const { closeNotificationPublisher } = await import('./notificationPublisher');
   const { prisma } = await import('./prisma');
   const { forStage } = await import('./logger');
   const logger = forStage('main');
@@ -113,6 +114,11 @@ async function main() {
         schedulePublishClipQueue.close(),
         syncPublishStatsQueue.close(),
       ]);
+      // Milestone 04c - the shared publish-only Redis connection, closed
+      // after every worker is done touching it (each worker's own
+      // recordNotification()/updateVideoStatus() calls may still be
+      // in-flight until worker.close() above resolves).
+      await closeNotificationPublisher();
       // Closed last, after every worker/queue is done touching it - not
       // strictly required before process.exit() would tear the process down
       // anyway, but an explicit disconnect lets Postgres release the

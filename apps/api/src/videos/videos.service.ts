@@ -24,6 +24,7 @@ import {
 import { Queue } from 'bullmq';
 import { PaymentsService } from '../payments/payments.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { NotificationPublisherService } from '../redis-pubsub/notification-publisher.service';
 import { toSharedPublishRecord } from '../social/publish-record.util';
 import { StorageService } from '../storage/storage.service';
 import { buildClipMetadataCsv, toClipMetadataInput } from './clip-metadata.util';
@@ -97,6 +98,7 @@ export class VideosService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly payments: PaymentsService,
+    private readonly notificationPublisher: NotificationPublisherService,
     @InjectQueue(QueueName.IMPORT_YOUTUBE)
     private readonly importYoutubeQueue: Queue<ImportYoutubeJobData>,
     @InjectQueue(QueueName.TRANSCRIBE) private readonly transcribeQueue: Queue<TranscribeJobData>,
@@ -176,16 +178,19 @@ export class VideosService {
       metadata: { title: video.title },
     });
 
-    // Notification Center Sprint 4A - Upload Complete.
-    await recordNotification(this.prisma, {
-      userId: ownerId,
-      type: 'UPLOAD_COMPLETE',
-      title: 'Upload selesai',
-      body: `Video "${video.title}" berhasil diunggah dan sedang diproses.`,
-      videoId: video.id,
-    }).catch((error) =>
-      this.logger.warn(`failed to record UPLOAD_COMPLETE notification: ${error}`),
-    );
+    // Notification Center Sprint 4A - Upload Complete. Milestone 04c -
+    // deps.publish pushes this over SSE in realtime.
+    await recordNotification(
+      this.prisma,
+      {
+        userId: ownerId,
+        type: 'UPLOAD_COMPLETE',
+        title: 'Upload selesai',
+        body: `Video "${video.title}" berhasil diunggah dan sedang diproses.`,
+        videoId: video.id,
+      },
+      { publish: (event) => this.notificationPublisher.publish(event) },
+    ).catch((error) => this.logger.warn(`failed to record UPLOAD_COMPLETE notification: ${error}`));
 
     return video;
   }
@@ -244,16 +249,19 @@ export class VideosService {
 
     // Notification Center Sprint 4A - Upload Complete. Title isn't known yet
     // at this point (see recordActivityEvent's own comment above) - the
-    // notification just confirms the import started.
-    await recordNotification(this.prisma, {
-      userId: ownerId,
-      type: 'UPLOAD_COMPLETE',
-      title: 'Import YouTube dimulai',
-      body: 'Video dari YouTube Anda sedang diunduh dan diproses.',
-      videoId: video.id,
-    }).catch((error) =>
-      this.logger.warn(`failed to record UPLOAD_COMPLETE notification: ${error}`),
-    );
+    // notification just confirms the import started. Milestone 04c -
+    // deps.publish pushes this over SSE in realtime.
+    await recordNotification(
+      this.prisma,
+      {
+        userId: ownerId,
+        type: 'UPLOAD_COMPLETE',
+        title: 'Import YouTube dimulai',
+        body: 'Video dari YouTube Anda sedang diunduh dan diproses.',
+        videoId: video.id,
+      },
+      { publish: (event) => this.notificationPublisher.publish(event) },
+    ).catch((error) => this.logger.warn(`failed to record UPLOAD_COMPLETE notification: ${error}`));
 
     return video;
   }
