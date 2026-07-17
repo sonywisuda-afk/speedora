@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from './notifications.service';
 
@@ -10,6 +10,11 @@ describe('NotificationsService', () => {
       count: jest.Mock;
       updateMany: jest.Mock;
     };
+    notificationPreference: {
+      findMany: jest.Mock;
+      findUnique: jest.Mock;
+      upsert: jest.Mock;
+    };
   };
 
   beforeEach(() => {
@@ -18,6 +23,11 @@ describe('NotificationsService', () => {
         findMany: jest.fn(),
         count: jest.fn(),
         updateMany: jest.fn(),
+      },
+      notificationPreference: {
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
+        upsert: jest.fn(),
       },
     };
     service = new NotificationsService(prisma as unknown as PrismaService);
@@ -103,6 +113,92 @@ describe('NotificationsService', () => {
         data: { readAt: expect.any(Date) },
       });
       expect(result).toEqual({ count: 5 });
+    });
+  });
+
+  describe('getPreferences', () => {
+    it('returns all 4 types with resolved defaults when no rows exist', async () => {
+      prisma.notificationPreference.findMany.mockResolvedValue([]);
+
+      const result = await service.getPreferences('user-1');
+
+      expect(prisma.notificationPreference.findMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', channel: 'IN_APP' },
+      });
+      expect(result.preferences).toHaveLength(4);
+      expect(result.preferences).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: 'UPLOAD_COMPLETE', enabled: true, toast: true }),
+          expect.objectContaining({ type: 'RENDER_FAILED', enabled: true, toast: true }),
+        ]),
+      );
+    });
+
+    it('merges an explicit override row (enabled + toast)', async () => {
+      prisma.notificationPreference.findMany.mockResolvedValue([
+        { type: 'RENDER_FAILED', channel: 'IN_APP', enabled: false, config: { toast: false } },
+      ]);
+
+      const result = await service.getPreferences('user-1');
+
+      expect(result.preferences).toContainEqual({
+        type: 'RENDER_FAILED',
+        enabled: false,
+        toast: false,
+      });
+    });
+  });
+
+  describe('updatePreference', () => {
+    it('upserts on the compound key with the given fields', async () => {
+      prisma.notificationPreference.findUnique.mockResolvedValue(null);
+      prisma.notificationPreference.upsert.mockResolvedValue({
+        type: 'RENDER_FAILED',
+        enabled: true,
+        config: { toast: false },
+      });
+
+      const result = await service.updatePreference('user-1', 'RENDER_FAILED', { toast: false });
+
+      expect(prisma.notificationPreference.upsert).toHaveBeenCalledWith({
+        where: {
+          userId_type_channel: { userId: 'user-1', type: 'RENDER_FAILED', channel: 'IN_APP' },
+        },
+        create: {
+          userId: 'user-1',
+          type: 'RENDER_FAILED',
+          channel: 'IN_APP',
+          enabled: true,
+          config: { toast: false },
+        },
+        update: { enabled: true, config: { toast: false } },
+      });
+      expect(result).toEqual({ type: 'RENDER_FAILED', enabled: true, toast: false });
+    });
+
+    it('a partial dto preserves the other field from the existing row', async () => {
+      prisma.notificationPreference.findUnique.mockResolvedValue({
+        enabled: false,
+        config: { toast: true },
+      });
+      prisma.notificationPreference.upsert.mockResolvedValue({
+        type: 'CLIP_READY',
+        enabled: false,
+        config: { toast: true },
+      });
+
+      await service.updatePreference('user-1', 'CLIP_READY', { toast: true });
+
+      expect(prisma.notificationPreference.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ update: { enabled: false, config: { toast: true } } }),
+      );
+    });
+
+    it('throws BadRequestException for an unknown type', async () => {
+      await expect(
+        service.updatePreference('user-1', 'NOT_A_REAL_TYPE', { enabled: false }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.notificationPreference.findUnique).not.toHaveBeenCalled();
     });
   });
 

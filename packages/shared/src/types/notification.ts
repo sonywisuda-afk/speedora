@@ -55,3 +55,28 @@ export interface NotificationListDto {
 export interface NotificationUnreadCountDto {
   count: number;
 }
+
+// Sprint 4B (Notification Preferences). `toast` reuses
+// NotificationPreference.config's existing JSON column ({ toast?: boolean })
+// rather than a second NotificationChannel value - see schema.prisma's own
+// comment on NotificationPreference for why (toast is a client-only
+// presentation of an IN_APP row, not a distinct delivery mechanism).
+export interface NotificationPreferenceDto {
+  type: NotificationType;
+  enabled: boolean;
+  toast: boolean;
+}
+
+// Wrapped, same convention as NotificationListDto - always exactly one
+// entry per NotificationType, defaults already resolved server-side (the
+// client never merges/defaults itself).
+export interface NotificationPreferenceListDto {
+  preferences: NotificationPreferenceDto[];
+}
+
+// Both optional - a single toggle click sends only the field that changed;
+// the server reads current row state for the other.
+export interface UpdateNotificationPreferenceDto {
+  enabled?: boolean;
+  toast?: boolean;
+}

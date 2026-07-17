@@ -26,3 +26,13 @@ const TONE_BY_SEVERITY: Record<NotificationSeverity, NotificationTone> = {
 export function notificationTone(type: NotificationType): NotificationTone {
   return TONE_BY_SEVERITY[NOTIFICATION_SEVERITY[type]];
 }
+
+// Sprint 4B - row labels for NotificationPreferencesTab's settings grid.
+// Same "web-only display registry, one entry per shipped type" convention
+// as NOTIFICATION_ICONS above.
+export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
+  [NotificationType.UPLOAD_COMPLETE]: 'Upload selesai',
+  [NotificationType.CLIP_READY]: 'Klip siap',
+  [NotificationType.EXPORT_READY]: 'Export siap',
+  [NotificationType.RENDER_FAILED]: 'Proses gagal',
+};

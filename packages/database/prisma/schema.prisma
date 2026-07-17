@@ -1003,13 +1003,18 @@ model Notification {
   @@index([userId, readAt])
 }
 
-// Schema-only in Sprint 4A - no call site reads or writes this yet. A
-// mute-toggle for a single channel that defaults to "on" has ~zero user
-// value until a second channel exists to actually choose between (deferred
-// to the email-channel sprint). A genuine per-(user, type, channel) matrix,
-// not a JSON blob on User - different shape from Brand Kit's few singleton
-// columns (see this file's own comment on User.brandLogoUrl for why THAT
-// stayed flat).
+// Was schema-only in Sprint 4A; wired in Sprint 4B. A genuine per-(user,
+// type, channel) matrix, not a JSON blob on User - different shape from
+// Brand Kit's few singleton columns (see this file's own comment on
+// User.brandLogoUrl for why THAT stayed flat). `channel` is always IN_APP
+// today (never client-chosen) - EMAIL/SLACK/DISCORD/TELEGRAM/WEBHOOK get
+// added only once each is actually wired, same incremental-enum discipline
+// as ExportType/NotificationType. `config` (Sprint 4B) holds
+// `{ toast?: boolean }` on the IN_APP row - toast is a client-only
+// ephemeral presentation of a Notification row that already exists via
+// IN_APP, not a distinct delivery mechanism, so it's NOT a second
+// NotificationChannel value (that would create a reachable-but-meaningless
+// enabled=false/toast=true state - nothing is ever created to toast about).
 model NotificationPreference {
   id        String              @id @default(cuid())
   userId    String

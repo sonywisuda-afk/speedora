@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsController } from './notifications.controller';
@@ -19,6 +19,11 @@ describe('Notifications module integration (Controller + Service via real DI)', 
       count: jest.Mock;
       updateMany: jest.Mock;
     };
+    notificationPreference: {
+      findMany: jest.Mock;
+      findUnique: jest.Mock;
+      upsert: jest.Mock;
+    };
   };
 
   beforeEach(async () => {
@@ -27,6 +32,11 @@ describe('Notifications module integration (Controller + Service via real DI)', 
         findMany: jest.fn(),
         count: jest.fn(),
         updateMany: jest.fn(),
+      },
+      notificationPreference: {
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
+        upsert: jest.fn(),
       },
     };
 
@@ -93,5 +103,49 @@ describe('Notifications module integration (Controller + Service via real DI)', 
       data: { readAt: expect.any(Date) },
     });
     expect(result).toEqual({ count: 3 });
+  });
+
+  it('GET /notifications/preferences returns all 4 types with resolved defaults', async () => {
+    prisma.notificationPreference.findMany.mockResolvedValue([]);
+
+    const result = await controller.getPreferences(user);
+
+    expect(prisma.notificationPreference.findMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', channel: 'IN_APP' },
+    });
+    expect(result.preferences).toHaveLength(4);
+  });
+
+  it('PATCH /notifications/preferences/:type upserts on the compound key', async () => {
+    prisma.notificationPreference.findUnique.mockResolvedValue(null);
+    prisma.notificationPreference.upsert.mockResolvedValue({
+      type: 'RENDER_FAILED',
+      enabled: true,
+      config: { toast: false },
+    });
+
+    const result = await controller.updatePreference(user, 'RENDER_FAILED', { toast: false });
+
+    expect(prisma.notificationPreference.upsert).toHaveBeenCalledWith({
+      where: {
+        userId_type_channel: { userId: 'user-1', type: 'RENDER_FAILED', channel: 'IN_APP' },
+      },
+      create: {
+        userId: 'user-1',
+        type: 'RENDER_FAILED',
+        channel: 'IN_APP',
+        enabled: true,
+        config: { toast: false },
+      },
+      update: { enabled: true, config: { toast: false } },
+    });
+    expect(result).toEqual({ type: 'RENDER_FAILED', enabled: true, toast: false });
+  });
+
+  it('PATCH /notifications/preferences/:type rejects an unknown type with 400, not 500', async () => {
+    await expect(
+      controller.updatePreference(user, 'NOT_A_REAL_TYPE', { enabled: false }),
+    ).rejects.toThrow(BadRequestException);
+    expect(prisma.notificationPreference.findUnique).not.toHaveBeenCalled();
   });
 });

@@ -1,7 +1,8 @@
-import { Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Query, UseGuards } from '@nestjs/common';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { UpdateNotificationPreferenceDto } from './dto/update-notification-preference.dto';
 import { NotificationsService } from './notifications.service';
 
 const MIN_LIMIT = 1;
@@ -38,6 +39,23 @@ export class NotificationsController {
   @Patch('read-all')
   markAllRead(@CurrentUser() user: SafeUser) {
     return this.notificationsService.markAllRead(user.id);
+  }
+
+  // Sprint 4B. Declared before the dynamic @Patch(':id/read') below - same
+  // "specific literal routes before dynamic-param routes" convention
+  // ExportController.list() follows relative to its own @Get(':id').
+  @Get('preferences')
+  getPreferences(@CurrentUser() user: SafeUser) {
+    return this.notificationsService.getPreferences(user.id);
+  }
+
+  @Patch('preferences/:type')
+  updatePreference(
+    @CurrentUser() user: SafeUser,
+    @Param('type') type: string,
+    @Body() dto: UpdateNotificationPreferenceDto,
+  ) {
+    return this.notificationsService.updatePreference(user.id, type, dto);
   }
 
   @Patch(':id/read')

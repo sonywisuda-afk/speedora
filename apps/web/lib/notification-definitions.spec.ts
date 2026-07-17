@@ -1,10 +1,22 @@
 import { NotificationType } from '@speedora/shared';
-import { NOTIFICATION_ICONS, notificationTone } from './notification-definitions';
+import {
+  NOTIFICATION_ICONS,
+  NOTIFICATION_TYPE_LABELS,
+  notificationTone,
+} from './notification-definitions';
 
 describe('NOTIFICATION_ICONS', () => {
   it('has an icon for every notification type', () => {
     for (const type of Object.values(NotificationType)) {
       expect(NOTIFICATION_ICONS[type]).toBeDefined();
+    }
+  });
+});
+
+describe('NOTIFICATION_TYPE_LABELS', () => {
+  it('has a non-empty label for every notification type', () => {
+    for (const type of Object.values(NotificationType)) {
+      expect(NOTIFICATION_TYPE_LABELS[type].length).toBeGreaterThan(0);
     }
   });
 });

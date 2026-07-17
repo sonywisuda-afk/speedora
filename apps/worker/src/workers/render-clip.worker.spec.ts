@@ -166,6 +166,7 @@ const videoUpdateMock = jest.fn();
 const videoStatusEventCreateMock = jest.fn();
 const activityEventCreateMock = jest.fn();
 const notificationCreateMock = jest.fn();
+const notificationPreferenceFindUniqueMock = jest.fn();
 // $transaction now has two call shapes to support in this file: the
 // array form (still used by updateVideoStatus() on the FAILED path, see
 // video-status.ts) and the new interactive callback form the render-clip
@@ -204,6 +205,11 @@ jest.mock('../prisma', () => ({
     // Notification Center Sprint 4A - recordNotification()'s write for the
     // CLIP_READY notification, same shape as activityEvent above.
     notification: { create: (...args: unknown[]) => notificationCreateMock(...args) },
+    // Sprint 4B - recordNotification()'s preference-check read, before the
+    // write above.
+    notificationPreference: {
+      findUnique: (...args: unknown[]) => notificationPreferenceFindUniqueMock(...args),
+    },
     $transaction: (...args: [Promise<unknown>[] | ((tx: unknown) => Promise<unknown>)]) =>
       transactionMock(...args),
   },
@@ -499,6 +505,7 @@ describe('render-clip worker', () => {
     videoStatusEventCreateMock.mockResolvedValue({});
     activityEventCreateMock.mockResolvedValue({});
     notificationCreateMock.mockResolvedValue({});
+    notificationPreferenceFindUniqueMock.mockResolvedValue(null);
     // Sprint 1-2 (Dashboard Redesign) - Clip.outputSizeBytes.
     statMock.mockResolvedValue({ size: 654321 });
     cleanupTempFileMock.mockResolvedValue(undefined);

@@ -89,6 +89,7 @@ describe('updateVideoStatus', () => {
       video: { update: jest.fn().mockReturnValue('video-update-promise') },
       videoStatusEvent: { create: jest.fn().mockReturnValue('event-create-promise') },
       notification: { create: notificationCreate },
+      notificationPreference: { findUnique: jest.fn().mockResolvedValue(null) },
       $transaction: jest
         .fn()
         .mockResolvedValue([{ id: 'video-1', ownerId: 'user-1', title: 'My Video' }, {}]),
@@ -109,6 +110,23 @@ describe('updateVideoStatus', () => {
         metadata: { errorMessage: 'openai is down' },
       },
     });
+  });
+
+  it('does not record a RENDER_FAILED notification when the user has disabled it', async () => {
+    const notificationCreate = jest.fn().mockResolvedValue({});
+    const prisma = {
+      video: { update: jest.fn().mockReturnValue('video-update-promise') },
+      videoStatusEvent: { create: jest.fn().mockReturnValue('event-create-promise') },
+      notification: { create: notificationCreate },
+      notificationPreference: { findUnique: jest.fn().mockResolvedValue({ enabled: false }) },
+      $transaction: jest
+        .fn()
+        .mockResolvedValue([{ id: 'video-1', ownerId: 'user-1', title: 'My Video' }, {}]),
+    };
+
+    await updateVideoStatus(prisma as never, 'video-1', 'FAILED' as never);
+
+    expect(notificationCreate).not.toHaveBeenCalled();
   });
 
   it('does not record a notification for a non-FAILED transition', async () => {

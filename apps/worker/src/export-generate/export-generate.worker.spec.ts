@@ -14,6 +14,7 @@ const videoFindUniqueOrThrowMock = jest.fn();
 const videoStatusEventFindManyMock = jest.fn();
 const userFindUniqueOrThrowMock = jest.fn();
 const notificationCreateMock = jest.fn();
+const notificationPreferenceFindUniqueMock = jest.fn();
 jest.mock('../prisma', () => ({
   prisma: {
     exportJob: {
@@ -33,6 +34,11 @@ jest.mock('../prisma', () => ({
     // EXPORT_READY notification.
     notification: {
       create: (...args: unknown[]) => notificationCreateMock(...args),
+    },
+    // Sprint 4B - recordNotification()'s preference-check read, before the
+    // write above.
+    notificationPreference: {
+      findUnique: (...args: unknown[]) => notificationPreferenceFindUniqueMock(...args),
     },
   },
 }));
@@ -115,6 +121,7 @@ describe('export-generate worker', () => {
     renderToBufferMock.mockResolvedValue(Buffer.from('%PDF-fake'));
     uploadObjectMock.mockResolvedValue('etag');
     notificationCreateMock.mockResolvedValue({});
+    notificationPreferenceFindUniqueMock.mockResolvedValue(null);
   });
 
   it('PDF: marks PROCESSING, renders the document, uploads it, and marks READY', async () => {

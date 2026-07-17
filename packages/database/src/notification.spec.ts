@@ -3,7 +3,8 @@ import { recordNotification } from './notification';
 describe('recordNotification', () => {
   it('creates one Notification row with the given type/title/body', async () => {
     const create = jest.fn().mockResolvedValue({});
-    const prisma = { notification: { create } };
+    const findUnique = jest.fn().mockResolvedValue(null);
+    const prisma = { notification: { create }, notificationPreference: { findUnique } };
 
     await recordNotification(prisma as never, {
       userId: 'user-1',
@@ -12,6 +13,11 @@ describe('recordNotification', () => {
       body: 'Video Anda berhasil diunggah.',
     });
 
+    expect(findUnique).toHaveBeenCalledWith({
+      where: {
+        userId_type_channel: { userId: 'user-1', type: 'UPLOAD_COMPLETE', channel: 'IN_APP' },
+      },
+    });
     expect(create).toHaveBeenCalledWith({
       data: {
         userId: 'user-1',
@@ -27,7 +33,8 @@ describe('recordNotification', () => {
 
   it('includes videoId/clipId/metadata when given', async () => {
     const create = jest.fn().mockResolvedValue({});
-    const prisma = { notification: { create } };
+    const findUnique = jest.fn().mockResolvedValue(null);
+    const prisma = { notification: { create }, notificationPreference: { findUnique } };
 
     await recordNotification(prisma as never, {
       userId: 'user-1',
@@ -50,5 +57,35 @@ describe('recordNotification', () => {
         metadata: { errorMessage: 'boom' },
       },
     });
+  });
+
+  it('skips creating a row when the user has disabled this notification type (IN_APP)', async () => {
+    const create = jest.fn().mockResolvedValue({});
+    const findUnique = jest.fn().mockResolvedValue({ enabled: false });
+    const prisma = { notification: { create }, notificationPreference: { findUnique } };
+
+    await recordNotification(prisma as never, {
+      userId: 'user-1',
+      type: 'RENDER_FAILED' as never,
+      title: 'Proses video gagal',
+      body: 'Video gagal diproses.',
+    });
+
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('still creates a row when a preference exists but is enabled (regression guard for the default)', async () => {
+    const create = jest.fn().mockResolvedValue({});
+    const findUnique = jest.fn().mockResolvedValue({ enabled: true });
+    const prisma = { notification: { create }, notificationPreference: { findUnique } };
+
+    await recordNotification(prisma as never, {
+      userId: 'user-1',
+      type: 'CLIP_READY' as never,
+      title: 'Klip siap!',
+      body: 'Klip Anda sudah siap ditonton.',
+    });
+
+    expect(create).toHaveBeenCalled();
   });
 });

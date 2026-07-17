@@ -12,6 +12,9 @@ import type {
   ExportJobListDto,
   ExportType,
   NotificationListDto,
+  NotificationPreferenceDto,
+  NotificationPreferenceListDto,
+  NotificationType,
   NotificationUnreadCountDto,
   OpsAiCalibrationDto,
   OpsAiCorrelationDto,
@@ -31,6 +34,7 @@ import type {
   TranscriptionProvider,
   TranscriptSegment,
   UpdateClipInput,
+  UpdateNotificationPreferenceDto,
   UserRole,
   Video,
   VideoWithClips,
@@ -633,6 +637,24 @@ export async function markNotificationRead(id: string): Promise<void> {
 export async function markAllNotificationsRead(): Promise<{ count: number }> {
   const res = await apiFetch('/notifications/read-all', { method: 'PATCH' });
   return parseJsonOrThrow<{ count: number }>(res);
+}
+
+// Sprint 4B (Notification Preferences).
+export async function getNotificationPreferences(): Promise<NotificationPreferenceListDto> {
+  const res = await apiFetch('/notifications/preferences');
+  return parseJsonOrThrow<NotificationPreferenceListDto>(res);
+}
+
+export async function updateNotificationPreference(
+  type: NotificationType,
+  dto: UpdateNotificationPreferenceDto,
+): Promise<NotificationPreferenceDto> {
+  const res = await apiFetch(`/notifications/preferences/${type}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(dto),
+  });
+  return parseJsonOrThrow<NotificationPreferenceDto>(res);
 }
 
 // Brand Kit (03d) - Brand Report's minimal logo + color settings.

@@ -1,14 +1,16 @@
 /** @jest-environment jsdom */
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { SWRConfig } from 'swr';
 import { NotificationType, type NotificationDto } from '@speedora/shared';
 import {
+  getNotificationPreferences,
   getNotifications,
   getUnreadNotificationCount,
   markAllNotificationsRead,
   markNotificationRead,
 } from '@/lib/api';
+import { toast } from '@/lib/toast-store';
 import { NotificationBell } from './NotificationBell';
 
 // NotificationBell's SWR keys are static strings ('notifications-list',
@@ -26,14 +28,21 @@ function renderBell() {
 jest.mock('@/lib/api', () => ({
   getNotifications: jest.fn(),
   getUnreadNotificationCount: jest.fn(),
+  getNotificationPreferences: jest.fn(),
   markNotificationRead: jest.fn(),
   markAllNotificationsRead: jest.fn(),
 }));
 
+jest.mock('@/lib/toast-store', () => ({
+  toast: jest.fn(),
+}));
+
 const mockGetNotifications = getNotifications as jest.Mock;
 const mockGetUnreadNotificationCount = getUnreadNotificationCount as jest.Mock;
+const mockGetNotificationPreferences = getNotificationPreferences as jest.Mock;
 const mockMarkNotificationRead = markNotificationRead as jest.Mock;
 const mockMarkAllNotificationsRead = markAllNotificationsRead as jest.Mock;
+const mockToast = toast as jest.Mock;
 
 function notification(overrides: Partial<NotificationDto>): NotificationDto {
   return {
@@ -55,6 +64,7 @@ describe('NotificationBell', () => {
     jest.clearAllMocks();
     mockGetUnreadNotificationCount.mockResolvedValue({ count: 0 });
     mockGetNotifications.mockResolvedValue({ notifications: [] });
+    mockGetNotificationPreferences.mockResolvedValue({ preferences: [] });
     mockMarkNotificationRead.mockResolvedValue(undefined);
     mockMarkAllNotificationsRead.mockResolvedValue({ count: 0 });
   });
@@ -118,5 +128,43 @@ describe('NotificationBell', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Tandai semua dibaca' }));
 
     await waitFor(() => expect(mockMarkAllNotificationsRead).toHaveBeenCalled());
+  });
+
+  it('does not toast a newly-arrived notification when its type has toast disabled (still updates the list)', async () => {
+    jest.useFakeTimers();
+    mockGetNotificationPreferences.mockResolvedValue({
+      preferences: [{ type: NotificationType.RENDER_FAILED, enabled: true, toast: false }],
+    });
+    const older = notification({
+      id: 'notif-1',
+      type: NotificationType.UPLOAD_COMPLETE,
+      createdAt: '2026-07-18T00:00:00.000Z',
+    });
+    const newer = notification({
+      id: 'notif-2',
+      type: NotificationType.RENDER_FAILED,
+      title: 'Proses gagal',
+      createdAt: '2026-07-18T00:01:00.000Z',
+    });
+    mockGetNotifications
+      .mockResolvedValueOnce({ notifications: [older] })
+      .mockResolvedValueOnce({ notifications: [newer, older] });
+    mockGetUnreadNotificationCount.mockResolvedValue({ count: 2 });
+
+    const { unmount } = renderBell();
+    await waitFor(() => expect(mockGetNotifications).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      jest.advanceTimersByTime(15000);
+    });
+    await waitFor(() => expect(mockGetNotifications).toHaveBeenCalledTimes(2));
+
+    expect(mockToast).not.toHaveBeenCalled();
+
+    // Unmount while still on fake timers so SWR's pending refreshInterval
+    // timer is cleared before switching back to real timers - otherwise a
+    // dangling fake-timer-scheduled callback keeps the Jest worker alive.
+    unmount();
+    jest.useRealTimers();
   });
 });

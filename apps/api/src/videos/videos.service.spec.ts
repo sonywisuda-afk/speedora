@@ -20,6 +20,7 @@ describe('VideosService', () => {
     videoStatusEvent: { create: jest.Mock; findMany: jest.Mock };
     activityEvent: { create: jest.Mock };
     notification: { create: jest.Mock };
+    notificationPreference: { findUnique: jest.Mock };
     $transaction: jest.Mock;
   };
   let storage: { saveVideo: jest.Mock; deleteObjects: jest.Mock };
@@ -44,6 +45,7 @@ describe('VideosService', () => {
       },
       activityEvent: { create: jest.fn().mockResolvedValue({}) },
       notification: { create: jest.fn().mockResolvedValue({}) },
+      notificationPreference: { findUnique: jest.fn().mockResolvedValue(null) },
       // Supports both call shapes used by VideosService: the interactive
       // form (upload/importFromYoutube, which need the just-created video's
       // id before writing its first VideoStatusEvent) and the array form

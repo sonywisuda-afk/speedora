@@ -5,6 +5,7 @@ import { useRef, useState } from 'react';
 import useSWR from 'swr';
 import type { NotificationDto } from '@speedora/shared';
 import {
+  getNotificationPreferences,
   getNotifications,
   getUnreadNotificationCount,
   markAllNotificationsRead,
@@ -19,9 +20,11 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatRelativeTime } from '@/lib/dashboard';
 import { NOTIFICATION_ICONS, notificationTone } from '@/lib/notification-definitions';
 import { toast } from '@/lib/toast-store';
+import { NotificationPreferencesTab } from './NotificationPreferencesTab';
 
 const LIST_LIMIT = 20;
 const LIST_POLL_MS = 15000;
@@ -43,6 +46,12 @@ export function NotificationBell() {
     { refreshInterval: UNREAD_POLL_MS },
   );
 
+  // Sprint 4B - no aggressive refreshInterval; preferences change rarely,
+  // default SWR revalidate-on-focus is enough. Kept as its own hook (not
+  // folded into the list poll below) so every 15s list refresh doesn't also
+  // pay for a preferences round trip.
+  const { data: preferences } = useSWR('notification-preferences', getNotificationPreferences);
+
   const { data: list, mutate: mutateList } = useSWR(
     'notifications-list',
     () => getNotifications(LIST_LIMIT),
@@ -61,7 +70,10 @@ export function NotificationBell() {
           (n) => !lastSeenCreatedAt.current || n.createdAt > lastSeenCreatedAt.current,
         );
         for (const n of newest.slice().reverse()) {
-          toast({ title: n.title, description: n.body, tone: notificationTone(n.type) });
+          const toastEnabled = preferences?.preferences.find((p) => p.type === n.type)?.toast ?? true;
+          if (toastEnabled) {
+            toast({ title: n.title, description: n.body, tone: notificationTone(n.type) });
+          }
         }
         if (data.notifications[0]) {
           lastSeenCreatedAt.current = data.notifications[0].createdAt;
@@ -105,42 +117,58 @@ export function NotificationBell() {
         </button>
       </DialogTrigger>
       <DialogContent className="max-w-md">
-        <DialogHeader className="flex-row items-center justify-between space-y-0">
+        <DialogHeader>
           <DialogTitle>Notifikasi</DialogTitle>
-          {notifications.some((n) => !n.readAt) && (
-            <Button size="sm" variant="ghost" onClick={handleMarkAllRead}>
-              Tandai semua dibaca
-            </Button>
-          )}
         </DialogHeader>
 
-        {notifications.length === 0 ? (
-          <p className="font-body text-sm text-muted-foreground">Belum ada notifikasi.</p>
-        ) : (
-          <div className="max-h-96 divide-y divide-border overflow-y-auto">
-            {notifications.map((notification) => {
-              const Icon = NOTIFICATION_ICONS[notification.type];
-              return (
-                <button
-                  key={notification.id}
-                  onClick={() => handleMarkRead(notification)}
-                  className={`flex w-full items-start gap-3 p-3 text-left transition-colors hover:bg-slate-panel/60 ${
-                    notification.readAt ? 'opacity-60' : ''
-                  }`}
-                >
-                  <Icon className="mt-0.5 h-4 w-4 shrink-0 text-chrome" aria-hidden="true" />
-                  <div className="flex-1">
-                    <p className="font-body text-sm text-foreground">{notification.title}</p>
-                    <p className="font-body text-xs text-muted-foreground">{notification.body}</p>
-                  </div>
-                  <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                    {formatRelativeTime(notification.createdAt)}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        )}
+        <Tabs defaultValue="notifikasi">
+          <TabsList>
+            <TabsTrigger value="notifikasi">Notifikasi</TabsTrigger>
+            <TabsTrigger value="pengaturan">Pengaturan</TabsTrigger>
+          </TabsList>
+          <TabsContent value="notifikasi">
+            <div className="mb-2 flex items-center justify-end">
+              {notifications.some((n) => !n.readAt) && (
+                <Button size="sm" variant="ghost" onClick={handleMarkAllRead}>
+                  Tandai semua dibaca
+                </Button>
+              )}
+            </div>
+
+            {notifications.length === 0 ? (
+              <p className="font-body text-sm text-muted-foreground">Belum ada notifikasi.</p>
+            ) : (
+              <div className="max-h-96 divide-y divide-border overflow-y-auto">
+                {notifications.map((notification) => {
+                  const Icon = NOTIFICATION_ICONS[notification.type];
+                  return (
+                    <button
+                      key={notification.id}
+                      onClick={() => handleMarkRead(notification)}
+                      className={`flex w-full items-start gap-3 p-3 text-left transition-colors hover:bg-slate-panel/60 ${
+                        notification.readAt ? 'opacity-60' : ''
+                      }`}
+                    >
+                      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-chrome" aria-hidden="true" />
+                      <div className="flex-1">
+                        <p className="font-body text-sm text-foreground">{notification.title}</p>
+                        <p className="font-body text-xs text-muted-foreground">
+                          {notification.body}
+                        </p>
+                      </div>
+                      <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                        {formatRelativeTime(notification.createdAt)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </TabsContent>
+          <TabsContent value="pengaturan">
+            <NotificationPreferencesTab />
+          </TabsContent>
+        </Tabs>
       </DialogContent>
     </Dialog>
   );
