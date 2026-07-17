@@ -8,6 +8,19 @@ import { limitExecFile } from './subprocessLimiter';
 // dependency.
 const YTDLP_PATH = process.env.YTDLP_PATH ?? 'yt-dlp';
 
+// YouTube's default ("web") client increasingly returns "HTTP Error 403:
+// Forbidden" on the actual video/audio data fetch (confirmed via a real
+// yt-dlp run against a real video, even on yt-dlp's current release -
+// this isn't a stale-binary problem) - a moving-target anti-bot measure
+// yt-dlp works around by impersonating a different client. The 'android'
+// client's own auth flow sidesteps it; 'tv' was tried too but reports
+// "DRM protected" for videos the web/android clients play back fine, so
+// it isn't a safe default. Kept as its own constant (not inlined) since
+// this is exactly the kind of value likely to need swapping again the
+// next time YouTube changes its blocking - see yt-dlp's own
+// --extractor-args documentation for the full client list.
+const YTDLP_PLAYER_CLIENT_ARGS = ['--extractor-args', 'youtube:player_client=android'];
+
 const execFileAsync = limitExecFile(promisify(execFile));
 
 // Bounded metadata-only lookup, same "generous but not unbounded" reasoning
@@ -26,7 +39,7 @@ export async function getYoutubeVideoTitle(url: string): Promise<string | null> 
   try {
     const { stdout } = await execFileAsync(
       YTDLP_PATH,
-      ['--no-playlist', '--skip-download', '--print', 'title', url],
+      ['--no-playlist', '--skip-download', '--print', 'title', ...YTDLP_PLAYER_CLIENT_ARGS, url],
       { timeout: YTDLP_TITLE_TIMEOUT_MS },
     );
     const title = stdout.trim();
@@ -96,6 +109,7 @@ export function downloadYoutubeVideo(
       // subsequent readFile(outputPath) fails with ENOENT - discovered via
       // a real end-to-end import that silently produced two split files.
       ...(process.env.FFMPEG_PATH ? ['--ffmpeg-location', process.env.FFMPEG_PATH] : []),
+      ...YTDLP_PLAYER_CLIENT_ARGS,
       // Prefer H.264 (avc1) video + AAC (mp4a) audio over anything else.
       // YouTube's "best mp4" is often AV1 (av01), which a plain <video>
       // element can't decode in many browsers (Firefox/Safari on Windows,

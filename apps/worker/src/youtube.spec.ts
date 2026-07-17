@@ -279,6 +279,8 @@ describe('getYoutubeVideoTitle', () => {
       '--skip-download',
       '--print',
       'title',
+      '--extractor-args',
+      'youtube:player_client=android',
       'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
     ]);
   });
