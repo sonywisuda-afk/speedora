@@ -35,6 +35,7 @@ async function main() {
   // is the one construct that's guaranteed to run after the env is loaded
   // no matter how this file is executed.
   const {
+    alertEngineQueue,
     detectClipsQueue,
     publishClipQueue,
     renderClipQueue,
@@ -56,6 +57,8 @@ async function main() {
     scheduleRepeatingTrigger: scheduleSyncPublishStatsTrigger,
   } = await import('./workers/sync-publish-stats.worker');
   const { createExportGenerateWorker } = await import('./export-generate/export-generate.worker');
+  const { createAlertEngineWorker, scheduleRepeatingTrigger: scheduleAlertEngineTrigger } =
+    await import('./workers/alert-engine.worker');
   const { closeNotificationPublisher } = await import('./notificationPublisher');
   const { prisma } = await import('./prisma');
   const { forStage } = await import('./logger');
@@ -66,6 +69,7 @@ async function main() {
   // before anything is listening.
   await scheduleSchedulePublishClipTrigger();
   await scheduleSyncPublishStatsTrigger();
+  await scheduleAlertEngineTrigger();
 
   const workers = [
     createImportYoutubeWorker(),
@@ -76,6 +80,7 @@ async function main() {
     createSchedulePublishClipWorker(),
     createSyncPublishStatsWorker(),
     createExportGenerateWorker(),
+    createAlertEngineWorker(),
   ];
 
   logger.info('worker started', { queueCount: workers.length });
@@ -113,6 +118,7 @@ async function main() {
         publishClipQueue.close(),
         schedulePublishClipQueue.close(),
         syncPublishStatsQueue.close(),
+        alertEngineQueue.close(),
       ]);
       // Milestone 04c - the shared publish-only Redis connection, closed
       // after every worker is done touching it (each worker's own

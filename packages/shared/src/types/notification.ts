@@ -1,14 +1,17 @@
 // Notification Center Sprint 4A (Product Experience track). Mirrors
 // NotificationType in packages/database's Prisma schema - same "Prisma and
 // shared enums are nominally distinct but share runtime string values"
-// convention as ActivityEventType. Only 4 values for now, one per shipped
-// trigger - see schema.prisma's own comment on why Storage/Credit Warning
-// aren't here (deferred to a future Alert Engine sprint, not just missing).
+// convention as ActivityEventType. Grown incrementally per shipped
+// trigger/rule, same discipline as ExportType.
 export enum NotificationType {
   UPLOAD_COMPLETE = 'UPLOAD_COMPLETE',
   CLIP_READY = 'CLIP_READY',
   EXPORT_READY = 'EXPORT_READY',
   RENDER_FAILED = 'RENDER_FAILED',
+  // Sprint 4C (Alert Engine) - the first state-based (not event-driven)
+  // types. See packages/database/src/alert-engine.ts.
+  STORAGE_WARNING = 'STORAGE_WARNING',
+  CREDIT_WARNING = 'CREDIT_WARNING',
 }
 
 // Registry keyed by NotificationType - a single source of truth for
@@ -29,6 +32,8 @@ export const NOTIFICATION_SEVERITY: Record<NotificationType, NotificationSeverit
   [NotificationType.CLIP_READY]: 'success',
   [NotificationType.EXPORT_READY]: 'success',
   [NotificationType.RENDER_FAILED]: 'error',
+  [NotificationType.STORAGE_WARNING]: 'warning',
+  [NotificationType.CREDIT_WARNING]: 'warning',
 };
 
 export interface NotificationDto {

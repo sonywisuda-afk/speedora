@@ -57,3 +57,12 @@ export const syncPublishStatsQueue = new Queue(QueueName.SYNC_PUBLISH_STATS, {
   connection: createRedisConnection(),
   defaultJobOptions,
 });
+
+// The repeatable trigger queue for alert-engine.worker.ts (Sprint 4C) -
+// self-contained (evaluates every registered AlertRule and writes
+// Notification/AlertState rows directly, no further job to hand off to),
+// same shape as syncPublishStatsQueue above.
+export const alertEngineQueue = new Queue(QueueName.ALERT_ENGINE, {
+  connection: createRedisConnection(),
+  defaultJobOptions,
+});

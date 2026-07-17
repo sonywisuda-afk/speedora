@@ -6,6 +6,7 @@ export * from './video-status';
 export * from './node-execution';
 export * from './activity';
 export * from './notification';
+export * from './alert-engine';
 export { PrismaPg };
 
 export function createPrismaClient(connectionString = process.env.DATABASE_URL) {

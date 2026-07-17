@@ -1,4 +1,4 @@
-import { Bell, Download, FileWarning, Film, UploadCloud } from 'lucide-react';
+import { Bell, CreditCard, Download, FileWarning, Film, HardDrive, UploadCloud } from 'lucide-react';
 import { NOTIFICATION_SEVERITY, NotificationType, type NotificationSeverity } from '@speedora/shared';
 
 // Notification Center Sprint 4A - the client-side half of the type registry
@@ -11,6 +11,8 @@ export const NOTIFICATION_ICONS: Record<NotificationType, typeof Bell> = {
   [NotificationType.CLIP_READY]: Film,
   [NotificationType.EXPORT_READY]: Download,
   [NotificationType.RENDER_FAILED]: FileWarning,
+  [NotificationType.STORAGE_WARNING]: HardDrive,
+  [NotificationType.CREDIT_WARNING]: CreditCard,
 };
 
 // Same 'good' | 'neutral' | 'bad' tone vocabulary as lib/export.ts's
@@ -35,4 +37,6 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   [NotificationType.CLIP_READY]: 'Klip siap',
   [NotificationType.EXPORT_READY]: 'Export siap',
   [NotificationType.RENDER_FAILED]: 'Proses gagal',
+  [NotificationType.STORAGE_WARNING]: 'Peringatan penyimpanan',
+  [NotificationType.CREDIT_WARNING]: 'Kredit premium habis',
 };

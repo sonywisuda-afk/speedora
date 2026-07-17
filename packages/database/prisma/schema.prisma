@@ -957,20 +957,20 @@ model ActivityEvent {
 // rename/extension of it: ActivityEvent stays a passive "what happened" feed
 // (Dashboard's Activity Timeline); Notification is "what was actually
 // delivered to a channel" and carries read-state (readAt), which
-// ActivityEvent has never needed. Only 4 values for now, one per shipped
-// trigger - Storage Warning/Credit Warning turned out to need real new
-// threshold-detection logic that doesn't exist anywhere today (no
-// bytes-used-vs-quota check, no low-balance check), so they're deferred to a
-// future Alert Engine sprint rather than forced into this one; the
+// ActivityEvent has never needed. Grown incrementally per shipped
+// trigger/rule, same discipline as ActivityEventType/ExportType. The
 // Collaboration-blocked events (Review Request/Comment/Approval/Member
-// Invitation accepted) are unscheduled. Added when their own milestones
-// actually ship, same incremental-enum discipline as ActivityEventType/
-// ExportType.
+// Invitation accepted) remain unscheduled.
 enum NotificationType {
   UPLOAD_COMPLETE
   CLIP_READY
   EXPORT_READY
   RENDER_FAILED
+  // Sprint 4C (Alert Engine) - the first state-based (not event-driven)
+  // types, backed by AlertState below. See
+  // packages/database/src/alert-engine.ts.
+  STORAGE_WARNING
+  CREDIT_WARNING
 }
 
 // Only IN_APP for Sprint 4A - EMAIL/SLACK/DISCORD/TELEGRAM/WEBHOOK get added
@@ -1027,6 +1027,25 @@ model NotificationPreference {
   updatedAt DateTime            @updatedAt
 
   @@unique([userId, type, channel])
+}
+
+// Sprint 4C (Alert Engine) - durable "is this alert instance currently
+// active" tracker, one row per AlertInstance.dedupeKey ('storage-warning'
+// for the one system-wide rule, `credit-warning:${userId}` for the
+// per-user rule). Presence of a row = already notified, don't re-notify
+// while still breached; absence = not active, same "absence = default"
+// convention as NotificationPreference. Deleted (not flagged) the moment a
+// condition clears, so a later re-breach starts a fresh incident with a
+// fresh activeSince - mirrors AlertStateTracker's in-memory
+// since-reset-on-absence behavior (apps/api/src/monitoring/alert-state.ts),
+// made durable across apps/worker restarts, which that in-memory tracker
+// explicitly does not survive (see its own doc comment) and which this
+// milestone's de-dup need cannot tolerate.
+model AlertState {
+  id          String   @id @default(cuid())
+  dedupeKey   String   @unique
+  activeSince DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 }
 
 // Sprint 1-2's Invite Member quick action. Deliberately minimal per explicit

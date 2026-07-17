@@ -20,6 +20,10 @@ export interface AlertThresholds {
   failureRate: number;
   // Fraction (0-1) of heapUsed/heapTotal that counts as memory pressure.
   heapUsageRatio: number;
+  // Sprint 4C (Alert Engine) - fraction (0-1) of totalSizeBytes/quotaBytes
+  // that counts as a storage warning. 0.8 matches the milestone's own
+  // illustrative "used > 80%" example.
+  storageQuotaRatio: number;
 }
 
 export const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
@@ -27,6 +31,7 @@ export const DEFAULT_ALERT_THRESHOLDS: AlertThresholds = {
   queueBacklogActive: 50,
   failureRate: 0.2,
   heapUsageRatio: 0.9,
+  storageQuotaRatio: 0.8,
 };
 
 export function isQueueBacklogged(
@@ -78,4 +83,24 @@ export function isHeapPressureHigh(
 ): boolean {
   if (heapTotalBytes === 0) return false;
   return heapUsedBytes / heapTotalBytes > thresholds.heapUsageRatio;
+}
+
+// Sprint 4C (Alert Engine) - quotaBytes is null when STORAGE_QUOTA_BYTES is
+// unset; skip the check entirely rather than compare against an arbitrary
+// number (no quota is configured anywhere in this codebase by default).
+export function isStorageOverQuota(
+  usedBytes: number,
+  quotaBytes: number | null,
+  thresholds: AlertThresholds = DEFAULT_ALERT_THRESHOLDS,
+): boolean {
+  if (quotaBytes === null || quotaBytes <= 0) return false;
+  return usedBytes / quotaBytes > thresholds.storageQuotaRatio;
+}
+
+// Sprint 4C (Alert Engine) - "credit" here is a discrete unspent-or-spent
+// PremiumCredit row, not a numeric wallet (see schema.prisma's own
+// comment), so there is no meaningful "< N" threshold to pick - the one
+// unambiguous trigger this schema supports is "ran out entirely."
+export function isOutOfPurchasedCredit(unspentPaidCredits: number): boolean {
+  return unspentPaidCredits === 0;
 }

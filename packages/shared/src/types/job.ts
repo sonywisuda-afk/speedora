@@ -26,6 +26,11 @@ export enum QueueName {
   // POST /export (never self-enqueued by apps/worker, unlike every queue
   // above), consumed by apps/worker/src/export-generate/export-generate.worker.ts.
   EXPORT_GENERATE = 'export-generate',
+  // Sprint 4C (Alert Engine) - a repeatable trigger (no per-firing payload),
+  // same shape as SCHEDULE_PUBLISH_CLIP/SYNC_PUBLISH_STATS above, that
+  // evaluates every registered AlertRule; see
+  // apps/worker/src/workers/alert-engine.worker.ts.
+  ALERT_ENGINE = 'alert-engine',
 }
 
 // videoId is created (status IMPORTING, placeholder sourceUrl) by
