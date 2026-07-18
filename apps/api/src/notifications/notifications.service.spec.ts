@@ -1,4 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { NotificationType } from '@speedora/shared';
 import type { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from './notifications.service';
 
@@ -117,7 +118,7 @@ describe('NotificationsService', () => {
   });
 
   describe('getPreferences', () => {
-    it('returns all 4 types with resolved defaults when no rows exist', async () => {
+    it('returns every NotificationType with resolved defaults when no rows exist', async () => {
       prisma.notificationPreference.findMany.mockResolvedValue([]);
 
       const result = await service.getPreferences('user-1');
@@ -125,7 +126,10 @@ describe('NotificationsService', () => {
       expect(prisma.notificationPreference.findMany).toHaveBeenCalledWith({
         where: { userId: 'user-1', channel: 'IN_APP' },
       });
-      expect(result.preferences).toHaveLength(4);
+      // Not a hardcoded count - Object.values(NotificationType) grows as new
+      // types ship (Sprint 4C added STORAGE_WARNING/CREDIT_WARNING), and this
+      // service iterates that enum generically rather than a fixed list.
+      expect(result.preferences).toHaveLength(Object.values(NotificationType).length);
       expect(result.preferences).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ type: 'UPLOAD_COMPLETE', enabled: true, toast: true }),

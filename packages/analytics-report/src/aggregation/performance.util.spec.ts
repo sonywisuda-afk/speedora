@@ -2,6 +2,7 @@ import {
   bucketByPublishDate,
   computeConfidenceDistribution,
   computeGrowthPct,
+  computeGrowthSummary,
   computeMostCommonSignals,
 } from './performance.util';
 
@@ -115,5 +116,74 @@ describe('bucketByPublishDate', () => {
     const jan10 = result.find((r) => r.date === '2026-01-10')!;
     expect(jan10.publishCount).toBe(1);
     expect(jan10.totalViews).toBe(0);
+  });
+});
+
+describe('computeGrowthSummary', () => {
+  it('computes growthPct: null for every metric when there is no previous-window data at all', () => {
+    const result = computeGrowthSummary({
+      videos: { current: 5, previous: 0 },
+      clips: { current: 12, previous: 0 },
+      currentRecords: [{ viewCount: 100, engagementScore: 0.5 }],
+      previousRecords: [],
+    });
+    expect(result.videos.growthPct).toBeNull();
+    expect(result.clips.growthPct).toBeNull();
+    expect(result.views.growthPct).toBeNull();
+    expect(result.engagementScore.growthPct).toBeNull();
+  });
+
+  it('sums viewCount and averages engagementScore per window, then computes growthPct', () => {
+    const result = computeGrowthSummary({
+      videos: { current: 8, previous: 5 },
+      clips: { current: 20, previous: 10 },
+      currentRecords: [
+        { viewCount: 100, engagementScore: 0.4 },
+        { viewCount: 50, engagementScore: 0.6 },
+      ],
+      previousRecords: [{ viewCount: 100, engagementScore: 0.5 }],
+    });
+
+    expect(result.views).toEqual({ current: 150, previous: 100, growthPct: 50 });
+    expect(result.engagementScore.current).toBeCloseTo(0.5);
+    expect(result.engagementScore.previous).toBe(0.5);
+    expect(result.engagementScore.growthPct).toBe(0);
+    expect(result.videos).toEqual({ current: 8, previous: 5, growthPct: 60 });
+    expect(result.clips).toEqual({ current: 20, previous: 10, growthPct: 100 });
+  });
+
+  it('handles a fully empty account without throwing - all counts 0, engagementScore null', () => {
+    const result = computeGrowthSummary({
+      videos: { current: 0, previous: 0 },
+      clips: { current: 0, previous: 0 },
+      currentRecords: [],
+      previousRecords: [],
+    });
+    expect(result.views).toEqual({ current: 0, previous: 0, growthPct: null });
+    expect(result.engagementScore).toEqual({ current: null, previous: null, growthPct: null });
+    expect(result.videos).toEqual({ current: 0, previous: 0, growthPct: null });
+    expect(result.clips).toEqual({ current: 0, previous: 0, growthPct: null });
+  });
+
+  it('treats a null viewCount as 0 when summing, same as bucketByPublishDate', () => {
+    const result = computeGrowthSummary({
+      videos: { current: 1, previous: 1 },
+      clips: { current: 1, previous: 1 },
+      currentRecords: [{ viewCount: null, engagementScore: null }],
+      previousRecords: [{ viewCount: 20, engagementScore: 0.3 }],
+    });
+    expect(result.views).toEqual({ current: 0, previous: 20, growthPct: -100 });
+  });
+
+  it('reports growthPct: null for engagementScore when either window has no scored records, even if the other does', () => {
+    const result = computeGrowthSummary({
+      videos: { current: 1, previous: 1 },
+      clips: { current: 1, previous: 1 },
+      currentRecords: [{ viewCount: 10, engagementScore: 0.9 }],
+      previousRecords: [{ viewCount: 10, engagementScore: null }],
+    });
+    expect(result.engagementScore.current).toBe(0.9);
+    expect(result.engagementScore.previous).toBeNull();
+    expect(result.engagementScore.growthPct).toBeNull();
   });
 });

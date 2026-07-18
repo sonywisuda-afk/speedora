@@ -1,7 +1,10 @@
 // Milestone 5A (Analytics Dashboard - Overview) - pure aggregation helpers,
 // no Prisma access here (that's AnalyticsService's job - it fetches rows
 // and hands them to these functions). Matches the module/adapter test
-// split used everywhere else in this codebase (docs/testing.md).
+// split used everywhere else in this codebase (docs/testing.md). Moved from
+// apps/api/src/analytics/ into this package so apps/worker (which cannot
+// import from apps/api) can reuse the exact same computation for the
+// Analytics Report PDF.
 
 export interface EngagementSnapshotRow {
   publishRecordId: string;

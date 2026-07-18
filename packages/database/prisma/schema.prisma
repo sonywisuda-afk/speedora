@@ -1083,16 +1083,19 @@ model PendingInvite {
 // pipeline job except publish-clip); a failed row is simply terminal.
 // Sprint 03d - EXCEL/HIGHLIGHT_REPORT/BRAND_REPORT all reuse the exact same
 // video-scoped data pipeline PDF already uses (buildVideoReportInputFromPrisma
-// -> buildVideoReportData) - only the rendering differs. ANALYTICS_REPORT is
-// deliberately NOT here yet: it's account-wide (AnalyticsService.getOverview/
-// getPerformance are userId-scoped across every video, never one videoId),
-// which would need ExportJob.videoId to become nullable - a bigger, separate
-// change, not made in this pass.
+// -> buildVideoReportData) - only the rendering differs. ANALYTICS_REPORT
+// (Analytics Report) is the one account-wide type - AnalyticsService.getOverview/
+// getPerformance are userId-scoped across every video, never one videoId, so
+// ExportJob.videoId became nullable to accommodate it (see below). Built via
+// its own pipeline: packages/analytics-report's buildAnalyticsReportData, fed
+// by apps/worker's own account-wide adapter (build-analytics-report-input.ts),
+// never the video-scoped one the other 4 types share.
 enum ExportType {
   PDF
   EXCEL
   HIGHLIGHT_REPORT
   BRAND_REPORT
+  ANALYTICS_REPORT
 }
 
 enum ExportJobStatus {
@@ -1106,8 +1109,12 @@ model ExportJob {
   id         String          @id @default(cuid())
   userId     String
   user       User            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  videoId    String
-  video      Video           @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  // Nullable since ANALYTICS_REPORT is account-wide, not tied to one video -
+  // every other ExportType still always sets this. Postgres indexes nullable
+  // columns fine; the index below simply never matches ANALYTICS_REPORT rows
+  // (they're queried by `type`, not `videoId`, in ExportService.listRecent).
+  videoId    String?
+  video      Video?          @relation(fields: [videoId], references: [id], onDelete: Cascade)
   type       ExportType      @default(PDF)
   status     ExportJobStatus @default(PENDING)
   // Object storage key, set only once status reaches READY - never exposed

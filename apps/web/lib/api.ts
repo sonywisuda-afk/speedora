@@ -587,8 +587,14 @@ export function videoExportUrl(videoId: string, format: VideoExportFormat): stri
 }
 
 // Async formats (03c/03d) - create the job, poll it (see ExportTypeRow's
-// useSWR usage), then hit the download URL once status is READY.
-export async function createExportJob(videoId: string, type: ExportType): Promise<ExportJobDto> {
+// useSWR usage), then hit the download URL once status is READY. videoId is
+// optional (not omitted) since ANALYTICS_REPORT is account-wide - existing
+// callers keep passing a real videoId unchanged, enforced server-side
+// (ExportService.create() rejects the videoId+ANALYTICS_REPORT combo).
+export async function createExportJob(
+  videoId: string | undefined,
+  type: ExportType,
+): Promise<ExportJobDto> {
   const res = await apiFetch('/export', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -602,12 +608,16 @@ export async function getExportJob(id: string): Promise<ExportJobDto> {
   return parseJsonOrThrow<ExportJobDto>(res);
 }
 
-// Recent Exports / Persistent Export History - the 10 most recent jobs for
-// this video, newest first. Fetched once when ExportCenterDialog opens, so
-// each ExportTypeRow can seed its state from the server instead of always
-// starting blank (see that component's own comment on why this matters).
-export async function listExportJobs(videoId: string): Promise<ExportJobListDto> {
-  const res = await apiFetch(`/export${toQueryString({ videoId })}`);
+// Recent Exports / Persistent Export History - the 10 most recent jobs
+// matching the given filter, newest first. Fetched once when
+// ExportCenterDialog/AnalyticsReportExport opens, so each row can seed its
+// state from the server instead of always starting blank. `videoId` scopes
+// the existing per-video tabs; `type` (ANALYTICS_REPORT has no videoId to
+// scope by) covers the account-wide list - callers pass exactly one.
+export async function listExportJobs(
+  filter: { videoId?: string; type?: ExportType },
+): Promise<ExportJobListDto> {
+  const res = await apiFetch(`/export${toQueryString(filter as Record<string, string | undefined>)}`);
   return parseJsonOrThrow<ExportJobListDto>(res);
 }
 

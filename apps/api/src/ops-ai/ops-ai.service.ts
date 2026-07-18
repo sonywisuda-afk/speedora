@@ -21,11 +21,11 @@ import type {
   OpsAiSignalsDto,
 } from '@speedora/shared';
 import {
+  computeConfidenceDistribution,
   computeExplainabilityReasonFrequency,
   computeScoreDistribution,
   computeSignalContributions,
-} from '../analytics/fusion-signal-analytics.util';
-import { computeConfidenceDistribution } from '../analytics/performance.util';
+} from '@speedora/analytics-report';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   toSharedHighlightBreakdown,

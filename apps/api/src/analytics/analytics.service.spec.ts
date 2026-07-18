@@ -237,6 +237,8 @@ describe('AnalyticsService', () => {
       prisma.publishRecord.findMany
         .mockResolvedValueOnce([fixtureRecord({ id: 'pr-current', publishedAt: today })]) // current window
         .mockResolvedValueOnce([]); // previous window
+      prisma.video.count.mockResolvedValue(0);
+      prisma.clip.count.mockResolvedValue(0);
 
       const result = await service.getPerformance('user-1', { days: 30 });
 
@@ -258,6 +260,16 @@ describe('AnalyticsService', () => {
       expect(result.aiSummary.signalContributions).toEqual([
         { signal: 'audio', averageContributionPct: 100, clipsWithSignal: 1 },
       ]);
+      // Growth Summary (Analytics Report) - 1 current record (viewCount 100,
+      // engagementScore 0.3), 0 previous -> no baseline for any metric.
+      expect(result.growthSummary.views).toEqual({ current: 100, previous: 0, growthPct: null });
+      expect(result.growthSummary.engagementScore).toEqual({
+        current: 0.3,
+        previous: null,
+        growthPct: null,
+      });
+      expect(result.growthSummary.videos).toEqual({ current: 0, previous: 0, growthPct: null });
+      expect(result.growthSummary.clips).toEqual({ current: 0, previous: 0, growthPct: null });
     });
 
     it('deduplicates a clip published to multiple platforms for the AI summary', async () => {
@@ -276,6 +288,8 @@ describe('AnalyticsService', () => {
           }),
         ])
         .mockResolvedValueOnce([]);
+      prisma.video.count.mockResolvedValue(0);
+      prisma.clip.count.mockResolvedValue(0);
 
       const result = await service.getPerformance('user-1', { days: 30 });
 
@@ -287,11 +301,62 @@ describe('AnalyticsService', () => {
       prisma.publishRecord.findMany
         .mockResolvedValueOnce([fixtureRecord({ id: 'pr-1' }), fixtureRecord({ id: 'pr-2' })]) // 2 current
         .mockResolvedValueOnce([fixtureRecord({ id: 'pr-0' })]); // 1 previous
+      prisma.video.count.mockResolvedValue(0);
+      prisma.clip.count.mockResolvedValue(0);
 
       const result = await service.getPerformance('user-1', { days: 30 });
 
       const youtube = result.platformComparison.find((p) => p.platform === SocialPlatform.YOUTUBE)!;
       expect(youtube.growthPct).toBe(100);
+    });
+
+    it('computes growthSummary from windowed video/clip counts plus the same current/previous records used for engagementTrend', async () => {
+      prisma.publishRecord.findMany
+        .mockResolvedValueOnce([
+          fixtureRecord({
+            id: 'pr-1',
+            statsSnapshots: [
+              {
+                viewCount: 100,
+                likeCount: 10,
+                commentCount: 2,
+                shareCount: 1,
+                engagementScore: 0.4,
+              },
+            ],
+          }),
+          fixtureRecord({
+            id: 'pr-2',
+            statsSnapshots: [
+              { viewCount: 50, likeCount: 5, commentCount: 1, shareCount: 0, engagementScore: 0.6 },
+            ],
+          }),
+        ])
+        .mockResolvedValueOnce([
+          fixtureRecord({
+            id: 'pr-0',
+            statsSnapshots: [
+              {
+                viewCount: 100,
+                likeCount: 10,
+                commentCount: 1,
+                shareCount: 0,
+                engagementScore: 0.5,
+              },
+            ],
+          }),
+        ]);
+      prisma.video.count.mockResolvedValueOnce(8).mockResolvedValueOnce(5);
+      prisma.clip.count.mockResolvedValueOnce(20).mockResolvedValueOnce(10);
+
+      const result = await service.getPerformance('user-1', { days: 30 });
+
+      expect(result.growthSummary.views).toEqual({ current: 150, previous: 100, growthPct: 50 });
+      expect(result.growthSummary.engagementScore.current).toBeCloseTo(0.5);
+      expect(result.growthSummary.engagementScore.previous).toBe(0.5);
+      expect(result.growthSummary.engagementScore.growthPct).toBe(0);
+      expect(result.growthSummary.videos).toEqual({ current: 8, previous: 5, growthPct: 60 });
+      expect(result.growthSummary.clips).toEqual({ current: 20, previous: 10, growthPct: 100 });
     });
   });
 });

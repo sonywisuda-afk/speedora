@@ -9,8 +9,10 @@ import type {
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { AiPerformanceSummary } from '../../components/analytics/AiPerformanceSummary';
+import { AnalyticsReportExport } from '../../components/analytics/AnalyticsReportExport';
 import { DateRangeFilter } from '../../components/analytics/DateRangeFilter';
 import { EngagementTrendChart } from '../../components/analytics/EngagementTrendChart';
+import { GrowthSummary } from '../../components/analytics/GrowthSummary';
 import { PlatformBreakdown } from '../../components/analytics/PlatformBreakdown';
 import { PlatformComparisonTable } from '../../components/analytics/PlatformComparisonTable';
 import { ProcessingStatusBreakdown } from '../../components/analytics/ProcessingStatusBreakdown';
@@ -106,6 +108,10 @@ export default function AnalyticsPage() {
           <>
             <Nav user={user} onLogout={logout} />
 
+            <div className="mt-4 flex justify-end">
+              <AnalyticsReportExport />
+            </div>
+
             {error && <p className="mt-4 font-body text-sm text-destructive">{error}</p>}
 
             {!error && overview ? (
@@ -164,6 +170,8 @@ export default function AnalyticsPage() {
 
             {!performanceError && performance && topClips && topVideos ? (
               <div className="mt-4 space-y-6">
+                <GrowthSummary growthSummary={performance.growthSummary} />
+
                 <Card>
                   <CardHeader>
                     <CardTitle className="text-base">Tren Engagement</CardTitle>

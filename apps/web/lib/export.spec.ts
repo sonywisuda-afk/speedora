@@ -1,6 +1,7 @@
 import type { ExportJobDto } from '@speedora/shared';
 import { ExportJobStatus, ExportType } from '@speedora/shared';
 import {
+  ACCOUNT_EXPORT_TYPES,
   EXPORT_TYPES,
   VIDEO_EXPORT_FORMATS,
   exportJobStatusBadge,
@@ -60,12 +61,23 @@ describe('exportTypeLabel', () => {
     }
   });
 
-  it('lists all 4 export types with no duplicates', () => {
+  it('lists all 4 video-scoped export types with no duplicates, excluding ANALYTICS_REPORT', () => {
     expect(new Set(EXPORT_TYPES).size).toBe(4);
     expect(EXPORT_TYPES).toContain(ExportType.PDF);
     expect(EXPORT_TYPES).toContain(ExportType.EXCEL);
     expect(EXPORT_TYPES).toContain(ExportType.HIGHLIGHT_REPORT);
     expect(EXPORT_TYPES).toContain(ExportType.BRAND_REPORT);
+    expect(EXPORT_TYPES).not.toContain(ExportType.ANALYTICS_REPORT);
+  });
+
+  it('has a label for ANALYTICS_REPORT even though it is not in EXPORT_TYPES', () => {
+    expect(exportTypeLabel(ExportType.ANALYTICS_REPORT).length).toBeGreaterThan(0);
+  });
+});
+
+describe('ACCOUNT_EXPORT_TYPES', () => {
+  it('contains only ANALYTICS_REPORT', () => {
+    expect(ACCOUNT_EXPORT_TYPES).toEqual([ExportType.ANALYTICS_REPORT]);
   });
 });
 

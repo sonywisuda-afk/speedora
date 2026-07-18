@@ -10,7 +10,9 @@ import type {
 // between AnalyticsService (owner-scoped input) and OpsAiService
 // (system-wide input, no ownerId filter) - same functions, different
 // candidate-clip set. No Prisma access here, same module/adapter split as
-// performance.util.ts.
+// performance.util.ts. Moved from apps/api/src/analytics/ into this package
+// so apps/worker (which cannot import from apps/api) can reuse the exact
+// same computation for the Analytics Report PDF.
 
 const SCORE_BUCKET_COUNT = 10;
 

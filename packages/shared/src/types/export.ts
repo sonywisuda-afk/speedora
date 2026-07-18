@@ -10,12 +10,14 @@ export enum ExportType {
   PDF = 'PDF',
   // Sprint 03d - EXCEL/HIGHLIGHT_REPORT/BRAND_REPORT all reuse the exact
   // same video-scoped data pipeline PDF already uses; only the rendering
-  // differs. ANALYTICS_REPORT deliberately isn't here yet - it's
-  // account-wide, not video-scoped, a bigger separate change (see
-  // schema.prisma's ExportType comment).
+  // differs.
   EXCEL = 'EXCEL',
   HIGHLIGHT_REPORT = 'HIGHLIGHT_REPORT',
   BRAND_REPORT = 'BRAND_REPORT',
+  // Analytics Report - the one account-wide type, not tied to a single
+  // video (see ExportJobDto.videoId below and schema.prisma's ExportType
+  // comment). Built from packages/analytics-report, not report-builder.
+  ANALYTICS_REPORT = 'ANALYTICS_REPORT',
 }
 
 export enum ExportJobStatus {
@@ -27,7 +29,9 @@ export enum ExportJobStatus {
 
 export interface ExportJobDto {
   id: string;
-  videoId: string;
+  // Null only for ANALYTICS_REPORT (account-wide, not tied to a video) -
+  // every other ExportType always sets this.
+  videoId: string | null;
   type: ExportType;
   status: ExportJobStatus;
   resultUrl: string | null;

@@ -59,18 +59,27 @@ const EXPORT_TYPE_LABELS: Record<ExportType, string> = {
   [ExportType.EXCEL]: 'Excel — Laporan Lengkap',
   [ExportType.HIGHLIGHT_REPORT]: 'PDF — Highlight Report',
   [ExportType.BRAND_REPORT]: 'PDF — Brand Report',
+  [ExportType.ANALYTICS_REPORT]: 'PDF — Analytics Report',
 };
 
 export function exportTypeLabel(type: ExportType): string {
   return EXPORT_TYPE_LABELS[type];
 }
 
+// Video-scoped only - drives ReportsTab's per-video tab. ANALYTICS_REPORT is
+// deliberately NOT here (account-wide, no videoId to scope by) - see
+// ACCOUNT_EXPORT_TYPES below.
 export const EXPORT_TYPES: ExportType[] = [
   ExportType.PDF,
   ExportType.EXCEL,
   ExportType.HIGHLIGHT_REPORT,
   ExportType.BRAND_REPORT,
 ];
+
+// Account-wide types, used only by AnalyticsReportExport - kept separate
+// from EXPORT_TYPES rather than merged, since that array's every consumer
+// (ReportsTab/ExportTypeRow) assumes a videoId prop.
+export const ACCOUNT_EXPORT_TYPES: ExportType[] = [ExportType.ANALYTICS_REPORT];
 
 // Recent Exports / Persistent Export History - `jobs` arrives already sorted
 // createdAt DESC (ExportService.listRecent's query), so keeping only the

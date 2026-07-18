@@ -1,7 +1,8 @@
 import * as Sentry from '@sentry/node';
 import { ExportJobStatus, ExportType, recordNotification } from '@speedora/database';
+import { buildAnalyticsReportData } from '@speedora/analytics-report';
 import { buildVideoReportData } from '@speedora/report-builder';
-import type { VideoReportData } from '@speedora/contracts';
+import type { AnalyticsReportData, VideoReportData } from '@speedora/contracts';
 import {
   exportFileInfo,
   QueueName,
@@ -16,13 +17,26 @@ import { forStage } from '../logger';
 import { publishNotification } from '../notificationPublisher';
 import { prisma } from '../prisma';
 import { createRedisConnection } from '../redis';
+import { buildAnalyticsReportInputFromPrisma } from './build-analytics-report-input';
 import { buildVideoReportInputFromPrisma } from './build-video-report-input';
+import { buildAnalyticsReportDocument } from './pdf/analytics-report-document';
 import { buildBrandReportDocument } from './pdf/brand-report-document';
 import { buildHighlightReportDocument } from './pdf/highlight-report-document';
 import { buildVideoReportDocument } from './pdf/video-report-document';
 import { buildVideoReportWorkbook } from './xlsx/video-report-workbook';
 
 const logger = forStage('export-generate');
+
+async function fetchBrandKit(userId: string) {
+  const user = await prisma.user.findUniqueOrThrow({
+    where: { id: userId },
+    select: { brandLogoUrl: true, brandPrimaryColor: true },
+  });
+  return {
+    logoUrl: user.brandLogoUrl ? '/brand-kit/logo' : null,
+    primaryColor: user.brandPrimaryColor,
+  };
+}
 
 // Sprint 03d - one shared VideoReportData (built once above, regardless of
 // output format) fans out into 4 renderers here. EXCEL is the only
@@ -31,7 +45,7 @@ const logger = forStage('export-generate');
 // BRAND_REPORT is the only branch that needs an extra Prisma read (the
 // job's own user's Brand Kit fields) - deliberately not fetched for every
 // job, only when actually needed.
-async function renderExportBuffer(
+async function renderVideoReportBuffer(
   type: ExportType,
   report: VideoReportData,
   userId: string,
@@ -45,21 +59,24 @@ async function renderExportBuffer(
     case ExportType.HIGHLIGHT_REPORT:
       return renderToBuffer(buildHighlightReportDocument(report) as never);
     case ExportType.BRAND_REPORT: {
-      const user = await prisma.user.findUniqueOrThrow({
-        where: { id: userId },
-        select: { brandLogoUrl: true, brandPrimaryColor: true },
-      });
-      return renderToBuffer(
-        buildBrandReportDocument(report, {
-          logoUrl: user.brandLogoUrl ? '/brand-kit/logo' : null,
-          primaryColor: user.brandPrimaryColor,
-        }) as never,
-      );
+      const brandKit = await fetchBrandKit(userId);
+      return renderToBuffer(buildBrandReportDocument(report, brandKit) as never);
     }
     case ExportType.PDF:
     default:
       return renderToBuffer(buildVideoReportDocument(report) as never);
   }
+}
+
+// Analytics Report (account-wide) - always PDF, always Brand-Kit-styled
+// (same graceful-fallback-to-default-palette posture as BRAND_REPORT, not a
+// separate branded/unbranded pair like the video-report family has).
+async function renderAnalyticsReportBuffer(
+  report: AnalyticsReportData,
+  userId: string,
+): Promise<Buffer> {
+  const brandKit = await fetchBrandKit(userId);
+  return renderToBuffer(buildAnalyticsReportDocument(report, brandKit) as never);
 }
 
 export function createExportGenerateWorker(): Worker<
@@ -78,7 +95,7 @@ export function createExportGenerateWorker(): Worker<
 
       logger.info('generating export', {
         jobId: exportJobId,
-        videoId: exportJob.videoId,
+        videoId: exportJob.videoId ?? undefined,
         type: exportJob.type,
       });
 
@@ -88,30 +105,47 @@ export function createExportGenerateWorker(): Worker<
       });
 
       try {
-        const [video, statusEvents] = await Promise.all([
-          prisma.video.findUniqueOrThrow({
-            where: { id: exportJob.videoId },
-            include: { clips: true, transcriptSegments: { orderBy: { start: 'asc' } } },
-          }),
-          prisma.videoStatusEvent.findMany({
-            where: { videoId: exportJob.videoId },
-            orderBy: { createdAt: 'asc' },
-          }),
-        ]);
+        let buffer: Buffer;
+        let notificationBody: string;
 
-        const input = buildVideoReportInputFromPrisma({
-          video,
-          clips: video.clips,
-          segments: video.transcriptSegments,
-          statusEvents: statusEvents.map((event) => ({
-            toStatus: event.toStatus,
-            occurredAt: event.createdAt.toISOString(),
-            errorMessage: event.errorMessage,
-          })),
-        });
+        if (exportJob.type === ExportType.ANALYTICS_REPORT) {
+          // Account-wide - no video/statusEvents fetch, no videoId anywhere
+          // in this branch. See build-analytics-report-input.ts for why this
+          // adapter owns its own Prisma querying rather than just narrowing
+          // already-fetched rows the way buildVideoReportInputFromPrisma does.
+          const input = await buildAnalyticsReportInputFromPrisma(prisma, {
+            userId: exportJob.userId,
+          });
+          const report = buildAnalyticsReportData(input);
+          buffer = await renderAnalyticsReportBuffer(report, exportJob.userId);
+          notificationBody = 'Laporan analytics kamu sudah siap diunduh.';
+        } else {
+          const [video, statusEvents] = await Promise.all([
+            prisma.video.findUniqueOrThrow({
+              where: { id: exportJob.videoId as string },
+              include: { clips: true, transcriptSegments: { orderBy: { start: 'asc' } } },
+            }),
+            prisma.videoStatusEvent.findMany({
+              where: { videoId: exportJob.videoId as string },
+              orderBy: { createdAt: 'asc' },
+            }),
+          ]);
 
-        const report = buildVideoReportData(input);
-        const buffer = await renderExportBuffer(exportJob.type, report, exportJob.userId);
+          const input = buildVideoReportInputFromPrisma({
+            video,
+            clips: video.clips,
+            segments: video.transcriptSegments,
+            statusEvents: statusEvents.map((event) => ({
+              toStatus: event.toStatus,
+              occurredAt: event.createdAt.toISOString(),
+              errorMessage: event.errorMessage,
+            })),
+          });
+
+          const report = buildVideoReportData(input);
+          buffer = await renderVideoReportBuffer(exportJob.type, report, exportJob.userId);
+          notificationBody = `Laporan export untuk video "${video.title}" sudah siap diunduh.`;
+        }
 
         // Prisma's own ExportType enum and @speedora/shared's are nominally
         // distinct TS enum types even though they share the same runtime
@@ -131,14 +165,16 @@ export function createExportGenerateWorker(): Worker<
         // Notification Center Sprint 4A - Export Ready. video/exportJob are
         // already in scope from the fetches above, zero extra query.
         // Milestone 04c - deps.publish pushes this over SSE in realtime.
+        // videoId is omitted entirely for ANALYTICS_REPORT (recordNotification's
+        // videoId param is already optional) rather than passed as null.
         await recordNotification(
           prisma,
           {
             userId: exportJob.userId,
             type: 'EXPORT_READY',
             title: 'Export siap diunduh',
-            body: `Laporan export untuk video "${video.title}" sudah siap diunduh.`,
-            videoId: exportJob.videoId,
+            body: notificationBody,
+            ...(exportJob.videoId ? { videoId: exportJob.videoId } : {}),
             metadata: { exportJobId, exportType: exportJob.type },
           },
           { publish: publishNotification },
@@ -148,17 +184,19 @@ export function createExportGenerateWorker(): Worker<
 
         logger.info('export generated', {
           jobId: exportJobId,
-          videoId: exportJob.videoId,
+          videoId: exportJob.videoId ?? undefined,
           resultUrl,
         });
         return { exportJobId, resultUrl };
       } catch (error) {
         logger.error(
           'export generation failed',
-          { jobId: exportJobId, videoId: exportJob.videoId },
+          { jobId: exportJobId, videoId: exportJob.videoId ?? undefined },
           error,
         );
-        Sentry.captureException(error, { tags: { exportJobId, videoId: exportJob.videoId } });
+        Sentry.captureException(error, {
+          tags: { exportJobId, videoId: exportJob.videoId ?? 'none' },
+        });
 
         // No automatic BullMQ retry for this queue (unlike publish-clip) -
         // every failure is this job's only/final attempt, so the row goes

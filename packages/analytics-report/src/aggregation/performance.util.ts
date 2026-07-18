@@ -1,8 +1,10 @@
-import type { EngagementTrendPoint } from '@speedora/shared';
+import type { EngagementTrendPoint, GrowthSummary } from '@speedora/shared';
 
 // Milestone 5B (Analytics Dashboard - Performance) - pure aggregation
 // helpers, no Prisma access here, same module/adapter split as
-// analytics.util.ts.
+// analytics.util.ts. Moved from apps/api/src/analytics/ into this package
+// so apps/worker (which cannot import from apps/api) can reuse the exact
+// same computation for the Analytics Report PDF.
 
 const CONFIDENCE_BUCKET_LABELS = ['0.0-0.2', '0.2-0.4', '0.4-0.6', '0.6-0.8', '0.8-1.0'];
 
@@ -88,4 +90,67 @@ export function bucketByPublishDate(
         : b.engagementScores.reduce((sum, v) => sum + v, 0) / b.engagementScores.length,
     publishCount: b.publishCount,
   }));
+}
+
+export interface GrowthSummaryRecord {
+  viewCount: number | null;
+  engagementScore: number | null;
+}
+
+export interface GrowthSummaryInput {
+  videos: { current: number; previous: number };
+  clips: { current: number; previous: number };
+  currentRecords: GrowthSummaryRecord[];
+  previousRecords: GrowthSummaryRecord[];
+}
+
+function sumViews(records: GrowthSummaryRecord[]): number {
+  return records.reduce((sum, r) => sum + (r.viewCount ?? 0), 0);
+}
+
+function averageEngagement(records: GrowthSummaryRecord[]): number | null {
+  const scores = records.map((r) => r.engagementScore).filter((s): s is number => s !== null);
+  if (scores.length === 0) return null;
+  return scores.reduce((sum, s) => sum + s, 0) / scores.length;
+}
+
+// The one implementation of "growth" for the report's 4 top-line metrics
+// (Total Views, Average Engagement, Total Videos, Total Clips) - called
+// identically by AnalyticsService.getPerformance() (live dashboard) and the
+// Analytics Report worker adapter (PDF), so the two surfaces can never
+// disagree on what growth means. Views/Engagement are reduced from
+// currentRecords/previousRecords (data both callers already fetch for
+// engagementTrend/platformComparison) - videos/clips come from 2 lightweight
+// windowed counts each caller runs itself.
+export function computeGrowthSummary(input: GrowthSummaryInput): GrowthSummary {
+  const currentViews = sumViews(input.currentRecords);
+  const previousViews = sumViews(input.previousRecords);
+  const currentEngagement = averageEngagement(input.currentRecords);
+  const previousEngagement = averageEngagement(input.previousRecords);
+
+  return {
+    views: {
+      current: currentViews,
+      previous: previousViews,
+      growthPct: computeGrowthPct(currentViews, previousViews),
+    },
+    engagementScore: {
+      current: currentEngagement,
+      previous: previousEngagement,
+      growthPct:
+        currentEngagement === null || previousEngagement === null
+          ? null
+          : computeGrowthPct(currentEngagement, previousEngagement),
+    },
+    videos: {
+      current: input.videos.current,
+      previous: input.videos.previous,
+      growthPct: computeGrowthPct(input.videos.current, input.videos.previous),
+    },
+    clips: {
+      current: input.clips.current,
+      previous: input.clips.previous,
+      growthPct: computeGrowthPct(input.clips.current, input.clips.previous),
+    },
+  };
 }

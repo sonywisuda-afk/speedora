@@ -61,6 +61,22 @@ jest.mock('@speedora/report-builder', () => ({
   buildVideoReportData: (...args: unknown[]) => buildVideoReportDataMock(...args),
 }));
 
+const buildAnalyticsReportInputFromPrismaMock = jest.fn();
+jest.mock('./build-analytics-report-input', () => ({
+  buildAnalyticsReportInputFromPrisma: (...args: unknown[]) =>
+    buildAnalyticsReportInputFromPrismaMock(...args),
+}));
+
+const buildAnalyticsReportDataMock = jest.fn();
+jest.mock('@speedora/analytics-report', () => ({
+  buildAnalyticsReportData: (...args: unknown[]) => buildAnalyticsReportDataMock(...args),
+}));
+
+const buildAnalyticsReportDocumentMock = jest.fn();
+jest.mock('./pdf/analytics-report-document', () => ({
+  buildAnalyticsReportDocument: (...args: unknown[]) => buildAnalyticsReportDocumentMock(...args),
+}));
+
 const buildVideoReportDocumentMock = jest.fn();
 jest.mock('./pdf/video-report-document', () => ({
   buildVideoReportDocument: (...args: unknown[]) => buildVideoReportDocumentMock(...args),
@@ -120,6 +136,12 @@ describe('export-generate worker', () => {
     userFindUniqueOrThrowMock.mockResolvedValue({ brandLogoUrl: null, brandPrimaryColor: null });
     buildVideoReportInputFromPrismaMock.mockReturnValue({ video: {}, clips: [], statusEvents: [] });
     buildVideoReportDataMock.mockReturnValue({ cover: {} });
+    buildAnalyticsReportInputFromPrismaMock.mockResolvedValue({
+      generatedAt: '2026-07-18T00:00:00.000Z',
+      windowDays: 30,
+    });
+    buildAnalyticsReportDataMock.mockReturnValue({ cover: {} });
+    buildAnalyticsReportDocumentMock.mockReturnValue({});
     buildVideoReportDocumentMock.mockReturnValue({});
     buildHighlightReportDocumentMock.mockReturnValue({});
     buildBrandReportDocumentMock.mockReturnValue({});
@@ -261,6 +283,49 @@ describe('export-generate worker', () => {
       logoUrl: null,
       primaryColor: null,
     });
+  });
+
+  it('ANALYTICS_REPORT: skips the video/statusEvents fetch, uses the account-wide adapter, no videoId in the notification', async () => {
+    exportJobFindUniqueOrThrowMock.mockResolvedValue({
+      id: 'job-1',
+      userId: 'user-1',
+      videoId: null,
+      type: 'ANALYTICS_REPORT',
+      status: 'PENDING',
+    });
+    const processor = getProcessor();
+
+    const result = await processor({ data: { exportJobId: 'job-1' } });
+
+    expect(videoFindUniqueOrThrowMock).not.toHaveBeenCalled();
+    expect(videoStatusEventFindManyMock).not.toHaveBeenCalled();
+    expect(buildAnalyticsReportInputFromPrismaMock).toHaveBeenCalledWith(expect.anything(), {
+      userId: 'user-1',
+    });
+    expect(buildAnalyticsReportDocumentMock).toHaveBeenCalled();
+    expect(buildVideoReportDocumentMock).not.toHaveBeenCalled();
+    // BRAND_REPORT-style Brand Kit lookup, always run for this type.
+    expect(userFindUniqueOrThrowMock).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      select: { brandLogoUrl: true, brandPrimaryColor: true },
+    });
+    expect(uploadObjectMock).toHaveBeenCalledWith(
+      'exports/job-1.pdf',
+      expect.any(Buffer),
+      'application/pdf',
+    );
+    expect(notificationCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'user-1',
+        type: 'EXPORT_READY',
+        title: 'Export siap diunduh',
+        body: 'Laporan analytics kamu sudah siap diunduh.',
+        metadata: { exportJobId: 'job-1', exportType: 'ANALYTICS_REPORT' },
+      }),
+    });
+    const notificationCall = notificationCreateMock.mock.calls[0][0];
+    expect(notificationCall.data.videoId).toBeNull();
+    expect(result).toEqual({ exportJobId: 'job-1', resultUrl: 'exports/job-1.pdf' });
   });
 
   it('marks FAILED with the error message and rethrows when generation fails', async () => {

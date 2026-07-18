@@ -2,9 +2,9 @@ import type { FeatureDriftResult, MissingDataEntry } from '@speedora/dataset-qua
 
 // Milestone 5C-B - the two pieces of AI Operations Dashboard logic not
 // already covered by @speedora/dataset-quality (missing data/distribution/
-// drift/calibration) or ../analytics/fusion-signal-analytics.util.ts
-// (signal contributions/explainability reasons). Pure, no Prisma access,
-// same module/adapter split as every other util in this codebase.
+// drift/calibration) or @speedora/analytics-report's fusion-signal-analytics
+// aggregation (signal contributions/explainability reasons). Pure, no Prisma
+// access, same module/adapter split as every other util in this codebase.
 
 // Heuristic, unvalidated thresholds - same "scale honesty" caveat as every
 // other threshold in this codebase's calibration tooling.

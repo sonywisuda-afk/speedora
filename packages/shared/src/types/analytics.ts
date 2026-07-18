@@ -125,10 +125,38 @@ export interface AiPerformanceSummary {
   signalContributions: SignalContributionEntry[];
 }
 
+// Analytics Report - period-over-period growth for exactly 4 top-line
+// metrics (Total Views, Average Engagement, Total Videos, Total Clips),
+// current vs. the immediately preceding window of equal length. Computed
+// once (packages/analytics-report's computeGrowthSummary) and consumed
+// identically by this live dashboard endpoint and the Analytics Report PDF,
+// so the two surfaces can never disagree on what "growth" means. Deliberately
+// NOT per-row on TopClipRow/TopVideoRow - just these 4 aggregate metrics.
+export interface GrowthMetric {
+  // Null only for engagementScore when a window has no snapshot with a
+  // non-null engagementScore at all - "no data," not "zero engagement,"
+  // same convention as AnalyticsOverviewDto.averageEngagementScore. Always a
+  // real number (never null) for views/videos/clips, since those are counts.
+  current: number | null;
+  previous: number | null;
+  // Percent change vs. the previous window. Null (not a fabricated 0%/±∞%)
+  // when there's no prior-period data to compare against - same convention
+  // as PlatformComparisonRow.growthPct.
+  growthPct: number | null;
+}
+
+export interface GrowthSummary {
+  views: GrowthMetric;
+  engagementScore: GrowthMetric;
+  videos: GrowthMetric;
+  clips: GrowthMetric;
+}
+
 export interface AnalyticsPerformanceDto {
   engagementTrend: EngagementTrendPoint[];
   platformComparison: PlatformComparisonRow[];
   aiSummary: AiPerformanceSummary;
+  growthSummary: GrowthSummary;
 }
 
 export interface AnalyticsPerformanceClipsDto {

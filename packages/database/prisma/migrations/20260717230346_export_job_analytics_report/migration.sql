@@ -1,0 +1,5 @@
+-- AlterEnum
+ALTER TYPE "ExportType" ADD VALUE 'ANALYTICS_REPORT';
+
+-- AlterTable
+ALTER TABLE "ExportJob" ALTER COLUMN "videoId" DROP NOT NULL;

@@ -97,6 +97,41 @@ describe('Export module integration (Controller + Service via real DI)', () => {
     expect(prisma.exportJob.findMany).not.toHaveBeenCalled();
   });
 
+  it('POST /export with type=ANALYTICS_REPORT creates a videoId-less job, no video lookup', async () => {
+    const createdAt = new Date('2026-07-18T00:00:00.000Z');
+    prisma.exportJob.create.mockResolvedValue({
+      id: 'job-1',
+      userId: 'user-1',
+      videoId: null,
+      type: 'ANALYTICS_REPORT',
+      status: 'PENDING',
+      resultUrl: null,
+      failReason: null,
+      createdAt,
+      updatedAt: createdAt,
+    });
+
+    const result = await controller.create(user, { type: 'ANALYTICS_REPORT' as never });
+
+    expect(prisma.video.findUnique).not.toHaveBeenCalled();
+    expect(prisma.exportJob.create).toHaveBeenCalledWith({
+      data: { userId: 'user-1', type: 'ANALYTICS_REPORT' },
+    });
+    expect(result.videoId).toBeNull();
+  });
+
+  it('GET /export?type=ANALYTICS_REPORT lists jobs by type when there is no videoId', async () => {
+    prisma.exportJob.findMany.mockResolvedValue([]);
+
+    await controller.list(user, undefined, 'ANALYTICS_REPORT');
+
+    expect(prisma.exportJob.findMany).toHaveBeenCalledWith({
+      where: { userId: 'user-1', type: 'ANALYTICS_REPORT' },
+      orderBy: { createdAt: 'desc' },
+      take: 10,
+    });
+  });
+
   it('GET /export/:id/download 404s for a job owned by a different user', async () => {
     prisma.exportJob.findUnique.mockResolvedValue({
       id: 'job-1',

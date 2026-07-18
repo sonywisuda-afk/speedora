@@ -31,7 +31,7 @@ export function ExportCenterDialog({ videoId }: { videoId: string }) {
   // (lazily loaded) dialog, so this doesn't grow the edit page's initial
   // bundle/fetch footprint.
   const { data: jobList } = useSWR(open ? ['export-jobs', videoId] : null, () =>
-    listExportJobs(videoId),
+    listExportJobs({ videoId }),
   );
 
   return (

@@ -46,12 +46,36 @@ describe('ExportController', () => {
 
       const result = await controller.list(user, 'video-1');
 
-      expect(exportService.listRecent).toHaveBeenCalledWith('user-1', 'video-1');
+      expect(exportService.listRecent).toHaveBeenCalledWith('user-1', {
+        videoId: 'video-1',
+        type: undefined,
+      });
       expect(result).toEqual({ jobs: [{ id: 'job-1' }, { id: 'job-2' }] });
     });
 
-    it('throws BadRequestException when videoId is missing', async () => {
-      await expect(controller.list(user, undefined)).rejects.toThrow(BadRequestException);
+    it('accepts type without videoId, for the account-wide ANALYTICS_REPORT list', async () => {
+      exportService.listRecent.mockResolvedValue([{ id: 'job-1' }]);
+
+      const result = await controller.list(user, undefined, 'ANALYTICS_REPORT');
+
+      expect(exportService.listRecent).toHaveBeenCalledWith('user-1', {
+        videoId: undefined,
+        type: 'ANALYTICS_REPORT',
+      });
+      expect(result).toEqual({ jobs: [{ id: 'job-1' }] });
+    });
+
+    it('throws BadRequestException when neither videoId nor type is given', async () => {
+      await expect(controller.list(user, undefined, undefined)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(exportService.listRecent).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException for an invalid type value', async () => {
+      await expect(controller.list(user, undefined, 'NOT_A_REAL_TYPE')).rejects.toThrow(
+        BadRequestException,
+      );
       expect(exportService.listRecent).not.toHaveBeenCalled();
     });
   });
@@ -119,6 +143,24 @@ describe('ExportController', () => {
       expect(res.setHeader).toHaveBeenCalledWith(
         'Content-Disposition',
         'attachment; filename="video-video-1-report.xlsx"',
+      );
+    });
+
+    it('falls back to an analytics-report-scoped filename when the job has no videoId', async () => {
+      exportService.findReadyOrThrow.mockResolvedValue({
+        id: 'job-1',
+        videoId: null,
+        type: 'ANALYTICS_REPORT',
+        resultUrl: 'exports/job-1.pdf',
+      });
+      (getObjectStream as jest.Mock).mockResolvedValue({ pipe: jest.fn() });
+      const res = { setHeader: jest.fn() } as unknown as Response;
+
+      await controller.download(user, 'job-1', res);
+
+      expect(res.setHeader).toHaveBeenCalledWith(
+        'Content-Disposition',
+        'attachment; filename="analytics-report-job-1.pdf"',
       );
     });
 

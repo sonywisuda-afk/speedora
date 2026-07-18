@@ -1,5 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Test, type TestingModule } from '@nestjs/testing';
+import { NotificationType } from '@speedora/shared';
 import { Subject } from 'rxjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationSubscriberService } from '../redis-pubsub/notification-subscriber.service';
@@ -117,7 +118,7 @@ describe('Notifications module integration (Controller + Service via real DI)', 
     expect(result).toEqual({ count: 3 });
   });
 
-  it('GET /notifications/preferences returns all 4 types with resolved defaults', async () => {
+  it('GET /notifications/preferences returns every NotificationType with resolved defaults', async () => {
     prisma.notificationPreference.findMany.mockResolvedValue([]);
 
     const result = await controller.getPreferences(user);
@@ -125,7 +126,7 @@ describe('Notifications module integration (Controller + Service via real DI)', 
     expect(prisma.notificationPreference.findMany).toHaveBeenCalledWith({
       where: { userId: 'user-1', channel: 'IN_APP' },
     });
-    expect(result.preferences).toHaveLength(4);
+    expect(result.preferences).toHaveLength(Object.values(NotificationType).length);
   });
 
   it('PATCH /notifications/preferences/:type upserts on the compound key', async () => {

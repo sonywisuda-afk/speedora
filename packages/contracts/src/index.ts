@@ -1,4 +1,5 @@
 export * from './active-speaker';
+export * from './analytics-report';
 export * from './audio-intelligence';
 export * from './clip-scoring';
 export * from './composition-intelligence';

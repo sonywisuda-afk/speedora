@@ -31,6 +31,12 @@ const performance: AnalyticsPerformanceDto = {
     scoreDistribution: [],
     signalContributions: [],
   },
+  growthSummary: {
+    views: { current: 100, previous: 80, growthPct: 25 },
+    engagementScore: { current: 50, previous: 40, growthPct: 25 },
+    videos: { current: 5, previous: 3, growthPct: 66.7 },
+    clips: { current: 12, previous: 10, growthPct: 20 },
+  },
 };
 
 describe('buildDashboardReportCsv', () => {

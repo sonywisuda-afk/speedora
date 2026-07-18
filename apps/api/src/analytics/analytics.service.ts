@@ -11,21 +11,21 @@ import type {
   VideoStatus as SharedVideoStatus,
 } from '@speedora/shared';
 import {
+  bucketByPublishDate,
+  bucketUploadsByDay,
+  computeAverageEngagementScore,
+  computeConfidenceDistribution,
+  computeGrowthPct,
+  computeGrowthSummary,
+  computeMostCommonSignals,
+  computeScoreDistribution,
+  computeSignalContributions,
+} from '@speedora/analytics-report';
+import {
   toSharedHighlightBreakdown,
   toSharedHighlightExplainability,
 } from '../videos/transcript-segment.util';
 import { PrismaService } from '../prisma/prisma.service';
-import { bucketUploadsByDay, computeAverageEngagementScore } from './analytics.util';
-import {
-  computeScoreDistribution,
-  computeSignalContributions,
-} from './fusion-signal-analytics.util';
-import {
-  bucketByPublishDate,
-  computeConfidenceDistribution,
-  computeGrowthPct,
-  computeMostCommonSignals,
-} from './performance.util';
 
 const UPLOAD_TREND_DAYS = 30;
 const ALL_PLATFORMS: SocialPlatform[] = ['YOUTUBE', 'TIKTOK', 'INSTAGRAM'] as SocialPlatform[];
@@ -177,7 +177,14 @@ export class AnalyticsService {
     const previousWindowStart = new Date(windowStart);
     previousWindowStart.setDate(previousWindowStart.getDate() - options.days);
 
-    const [currentRecords, previousRecords] = await Promise.all([
+    const [
+      currentRecords,
+      previousRecords,
+      currentVideoCount,
+      previousVideoCount,
+      currentClipCount,
+      previousClipCount,
+    ] = await Promise.all([
       this.fetchPublishedRecords(userId, {
         platform: options.platform,
         publishedAfter: windowStart,
@@ -186,6 +193,24 @@ export class AnalyticsService {
         platform: options.platform,
         publishedAfter: previousWindowStart,
         publishedBefore: windowStart,
+      }),
+      // Growth Summary (Analytics Report) - "videos"/"clips" growth is
+      // creation-count, not publish-count, matching totalVideos/totalClips'
+      // own semantics on AnalyticsOverviewDto. Cheap, indexed count()s -
+      // views/engagement growth below need zero extra queries, reduced from
+      // currentRecords/previousRecords already fetched above.
+      this.prisma.video.count({ where: { ownerId: userId, createdAt: { gte: windowStart } } }),
+      this.prisma.video.count({
+        where: { ownerId: userId, createdAt: { gte: previousWindowStart, lt: windowStart } },
+      }),
+      this.prisma.clip.count({
+        where: { video: { ownerId: userId }, createdAt: { gte: windowStart } },
+      }),
+      this.prisma.clip.count({
+        where: {
+          video: { ownerId: userId },
+          createdAt: { gte: previousWindowStart, lt: windowStart },
+        },
       }),
     ]);
 
@@ -244,9 +269,23 @@ export class AnalyticsService {
     // system-wide).
     const breakdowns = clips.map((c) => toSharedHighlightBreakdown(c.highlightBreakdown));
 
+    const growthSummary = computeGrowthSummary({
+      videos: { current: currentVideoCount, previous: previousVideoCount },
+      clips: { current: currentClipCount, previous: previousClipCount },
+      currentRecords: currentRecords.map((r) => ({
+        viewCount: r.statsSnapshots[0]?.viewCount ?? null,
+        engagementScore: r.statsSnapshots[0]?.engagementScore ?? null,
+      })),
+      previousRecords: previousRecords.map((r) => ({
+        viewCount: r.statsSnapshots[0]?.viewCount ?? null,
+        engagementScore: r.statsSnapshots[0]?.engagementScore ?? null,
+      })),
+    });
+
     return {
       engagementTrend,
       platformComparison,
+      growthSummary,
       aiSummary: {
         averageHighlightScore: average(highlightScores),
         averageConfidence: average(confidences),

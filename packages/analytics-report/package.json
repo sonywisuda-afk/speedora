@@ -1,0 +1,38 @@
+{
+  "name": "@speedora/analytics-report",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stateless module (JSON-in/JSON-out): account-wide Analytics Report. Holds the pure aggregation functions moved from apps/api/src/analytics (analytics/performance/fusion-signal-analytics .util.ts) plus buildAnalyticsReportData, the orchestrator that assembles a full AnalyticsReportData from already-fetched, narrowed data - never queries Prisma, never renders PDF itself. Exists so apps/worker (which cannot import from apps/api) can reuse the exact same computation apps/api's AnalyticsService uses for the live dashboard - see root ARCHITECTURE.md.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@speedora/contracts": "workspace:*",
+    "@speedora/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.2",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.4.5"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "testEnvironment": "node"
+  }
+}

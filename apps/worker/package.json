@@ -22,6 +22,7 @@
     "@react-pdf/renderer": "^4.5.1",
     "@sentry/node": "^10.63.0",
     "@speedora/active-speaker-intelligence": "workspace:*",
+    "@speedora/analytics-report": "workspace:*",
     "@speedora/audio-intelligence": "workspace:*",
     "@speedora/clip-scoring": "workspace:*",
     "@speedora/composition-intelligence": "workspace:*",

@@ -9,7 +9,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { exportFileInfo, type ExportType } from '@speedora/shared';
+import { exportFileInfo, ExportType } from '@speedora/shared';
 import { getObjectStream } from '@speedora/storage';
 import type { Response } from 'express';
 import type { SafeUser } from '../auth/auth.service';
@@ -36,16 +36,29 @@ export class ExportController {
 
   // Recent Exports / Persistent Export History - a plain `/export` GET
   // (no path param) never collides with `/export/:id` below, they're
-  // structurally different paths. videoId is required (this list is always
-  // scoped to one video, unlike AnalyticsController's optional videoId
-  // filter) - same manual-parse-not-DTO posture that controller already
-  // uses for its own query params.
+  // structurally different paths. At least one of videoId/type is required -
+  // the existing per-video tabs pass videoId; ANALYTICS_REPORT (account-wide,
+  // no videoId to scope by) passes type instead. Same manual-parse-not-DTO
+  // posture that controller already uses for its own query params, so `type`
+  // is validated against the real enum here rather than reaching Prisma's
+  // enum column and surfacing as an opaque 500 (same convention as Sprint
+  // 4B's NotificationType validation).
   @Get()
-  async list(@CurrentUser() user: SafeUser, @Query('videoId') videoId?: string) {
-    if (!videoId) {
-      throw new BadRequestException('videoId query parameter is required');
+  async list(
+    @CurrentUser() user: SafeUser,
+    @Query('videoId') videoId?: string,
+    @Query('type') type?: string,
+  ) {
+    if (!videoId && !type) {
+      throw new BadRequestException('videoId or type query parameter is required');
     }
-    const jobs = await this.exportService.listRecent(user.id, videoId);
+    if (type && !Object.values(ExportType).includes(type as ExportType)) {
+      throw new BadRequestException(`Invalid export type: ${type}`);
+    }
+    const jobs = await this.exportService.listRecent(user.id, {
+      videoId,
+      type: type as ExportType | undefined,
+    });
     return { jobs };
   }
 
@@ -64,12 +77,12 @@ export class ExportController {
     // values (same "narrow via a cast at the one call site that needs it"
     // convention as ExportService.toDto()).
     const { extension, contentType } = exportFileInfo(job.type as unknown as ExportType);
+    const filename = job.videoId
+      ? `video-${job.videoId}-report.${extension}`
+      : `analytics-report-${job.id}.${extension}`;
 
     res.setHeader('Content-Type', contentType);
-    res.setHeader(
-      'Content-Disposition',
-      `attachment; filename="video-${job.videoId}-report.${extension}"`,
-    );
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     stream.pipe(res);
   }
 }
