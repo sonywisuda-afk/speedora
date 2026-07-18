@@ -29,6 +29,7 @@ describe('WorkspaceService', () => {
     activityEvent: { create: jest.Mock };
     notification: { create: jest.Mock };
     notificationPreference: { findUnique: jest.Mock };
+    publishRecord: { findMany: jest.Mock };
     $transaction: jest.Mock;
   };
   let access: { assertMinRole: jest.Mock; getRole: jest.Mock };
@@ -62,6 +63,7 @@ describe('WorkspaceService', () => {
       activityEvent: { create: jest.fn().mockResolvedValue({}) },
       notification: { create: jest.fn().mockResolvedValue({ id: 'notif-1' }) },
       notificationPreference: { findUnique: jest.fn().mockResolvedValue(null) },
+      publishRecord: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn(),
     };
     prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma));
@@ -368,6 +370,104 @@ describe('WorkspaceService', () => {
       );
       expect(result.entries).toHaveLength(1);
       expect(result.nextCursor).toBe('log-2');
+    });
+  });
+
+  describe('getCalendar', () => {
+    const start = new Date('2026-07-01T00:00:00.000Z');
+    const end = new Date('2026-08-01T00:00:00.000Z');
+
+    function baseRecord(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'record-1',
+        clipId: 'clip-1',
+        status: 'PUBLISHED',
+        scheduledAt: null as Date | null,
+        publishedAt: null as Date | null,
+        createdAt: new Date('2026-07-10T00:00:00.000Z'),
+        errorMessage: null,
+        clip: { hookText: 'Wait for it' },
+        socialAccount: { platform: 'TIKTOK' },
+        campaign: null as { id: string; name: string } | null,
+        ...overrides,
+      };
+    }
+
+    it('requires VIEWER+ and queries by clip.video.workspaceId with the [start, end) range', async () => {
+      await service.getCalendar('user-1', 'ws-1', start, end);
+
+      expect(access.assertMinRole).toHaveBeenCalledWith('user-1', 'ws-1', 'VIEWER');
+      expect(prisma.publishRecord.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ clip: { video: { workspaceId: 'ws-1' } } }),
+        }),
+      );
+    });
+
+    it('uses publishedAt as the display date when set', async () => {
+      const publishedAt = new Date('2026-07-15T12:00:00.000Z');
+      prisma.publishRecord.findMany.mockResolvedValue([
+        baseRecord({ publishedAt, scheduledAt: null }),
+      ]);
+
+      const result = await service.getCalendar('user-1', 'ws-1', start, end);
+
+      expect(result.entries[0].date).toBe(publishedAt.toISOString());
+    });
+
+    it('falls back to scheduledAt when publishedAt is not set', async () => {
+      const scheduledAt = new Date('2026-07-20T09:00:00.000Z');
+      prisma.publishRecord.findMany.mockResolvedValue([
+        baseRecord({ scheduledAt, publishedAt: null, status: 'SCHEDULED' }),
+      ]);
+
+      const result = await service.getCalendar('user-1', 'ws-1', start, end);
+
+      expect(result.entries[0].date).toBe(scheduledAt.toISOString());
+    });
+
+    it('falls back to createdAt when neither scheduledAt nor publishedAt is set', async () => {
+      const createdAt = new Date('2026-07-05T08:00:00.000Z');
+      prisma.publishRecord.findMany.mockResolvedValue([
+        baseRecord({ scheduledAt: null, publishedAt: null, createdAt, status: 'QUEUED' }),
+      ]);
+
+      const result = await service.getCalendar('user-1', 'ws-1', start, end);
+
+      expect(result.entries[0].date).toBe(createdAt.toISOString());
+    });
+
+    it('maps platform/clipHookText/campaign onto the entry, null campaign when unset', async () => {
+      prisma.publishRecord.findMany.mockResolvedValue([
+        baseRecord({
+          publishedAt: new Date('2026-07-15T12:00:00.000Z'),
+          campaign: { id: 'camp-1', name: 'Launch Week' },
+        }),
+      ]);
+
+      const result = await service.getCalendar('user-1', 'ws-1', start, end);
+
+      expect(result.entries[0]).toMatchObject({
+        id: 'record-1',
+        clipId: 'clip-1',
+        clipHookText: 'Wait for it',
+        platform: 'TIKTOK',
+        status: 'PUBLISHED',
+        campaignId: 'camp-1',
+        campaignName: 'Launch Week',
+        errorMessage: null,
+      });
+    });
+
+    it('returns null campaignId/campaignName when the record has no campaign', async () => {
+      prisma.publishRecord.findMany.mockResolvedValue([
+        baseRecord({ publishedAt: new Date('2026-07-15T12:00:00.000Z'), campaign: null }),
+      ]);
+
+      const result = await service.getCalendar('user-1', 'ws-1', start, end);
+
+      expect(result.entries[0].campaignId).toBeNull();
+      expect(result.entries[0].campaignName).toBeNull();
     });
   });
 });

@@ -14,6 +14,7 @@ const LINKS = [
   { href: '/social', label: 'Social Media' },
   { href: '/campaigns', label: 'Campaigns' },
   { href: '/schedules', label: 'Schedules' },
+  { href: '/calendar', label: 'Calendar' },
   { href: '/accounts', label: 'Accounts' },
 ] as const;
 

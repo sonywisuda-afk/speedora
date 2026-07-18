@@ -107,4 +107,19 @@ export class WorkspaceController {
   ) {
     return this.workspaceService.listAuditLog(user.id, id, { cursor, limit: parseLimit(limit) });
   }
+
+  // Publishing Expansion Phase 6D (Calendar view) - VIEWER+-only, enforced
+  // in the service (any workspace member should see the publish calendar,
+  // unlike audit-log's ADMIN+-only governance surface). start/end are ISO
+  // 8601 instants; see WorkspaceService.getCalendar for the exact
+  // half-open [start, end) range semantics.
+  @Get(':id/calendar')
+  getCalendar(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Query('start') start: string,
+    @Query('end') end: string,
+  ) {
+    return this.workspaceService.getCalendar(user.id, id, new Date(start), new Date(end));
+  }
 }

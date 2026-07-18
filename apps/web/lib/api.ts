@@ -7,6 +7,7 @@ import type {
   ApprovalListDto,
   AuditLogListDto,
   BrandKitDto,
+  CalendarDto,
   CampaignDetailDto,
   CampaignDto,
   CampaignListDto,
@@ -759,6 +760,19 @@ export async function listWorkspaceAuditLog(
   const qs = query.toString();
   const res = await apiFetch(`/workspaces/${workspaceId}/audit-log${qs ? `?${qs}` : ''}`);
   return parseJsonOrThrow<AuditLogListDto>(res);
+}
+
+// Publishing Expansion Phase 6D (Calendar view) - start/end are ISO 8601
+// instants for a half-open [start, end) range, same convention as
+// WorkspaceService.getCalendar.
+export async function getWorkspaceCalendar(
+  workspaceId: string,
+  start: string,
+  end: string,
+): Promise<CalendarDto> {
+  const query = new URLSearchParams({ start, end });
+  const res = await apiFetch(`/workspaces/${workspaceId}/calendar?${query.toString()}`);
+  return parseJsonOrThrow<CalendarDto>(res);
 }
 
 export async function createWorkspaceInvite(

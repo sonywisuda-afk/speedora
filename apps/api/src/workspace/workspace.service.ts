@@ -11,6 +11,8 @@ import { recordActivityEvent, recordAuditLog, recordNotification } from '@speedo
 import type {
   AuditLogEntryDto,
   AuditLogListDto,
+  CalendarDto,
+  CalendarEntryDto,
   PendingInviteDto,
   WorkspaceDetailDto,
   WorkspaceDto,
@@ -381,6 +383,65 @@ export class WorkspaceService {
         createdAt: e.createdAt.toISOString(),
       })),
       nextCursor: hasMore ? page[page.length - 1].id : null,
+    };
+  }
+
+  // Publishing Expansion Phase 6D (Calendar view) - a read-only rollup of
+  // PublishRecord rows for a date range. PublishRecord has no workspaceId
+  // column - the only join path is clip.video.workspaceId (Campaign's/
+  // RecurringSchedule's own workspaceId can't be used instead, since a
+  // PublishRecord's campaignId/recurringScheduleId are both nullable and
+  // independent - joining through either would miss an ad-hoc publish
+  // attached to neither).
+  //
+  // Each record needs exactly one "calendar day": publishedAt once real,
+  // otherwise scheduledAt, otherwise (an immediate "publish now" that
+  // hasn't resolved yet) createdAt - encoded directly in this WHERE rather
+  // than fetched-then-filtered, so exactly the right rows come back in one
+  // query for the [start, end) range requested.
+  async getCalendar(
+    userId: string,
+    workspaceId: string,
+    start: Date,
+    end: Date,
+  ): Promise<CalendarDto> {
+    await this.access.assertMinRole(userId, workspaceId, WorkspaceRole.VIEWER);
+
+    const records = await this.prisma.publishRecord.findMany({
+      where: {
+        clip: { video: { workspaceId } },
+        OR: [
+          { scheduledAt: { gte: start, lt: end } },
+          { scheduledAt: null, publishedAt: { gte: start, lt: end } },
+          { scheduledAt: null, publishedAt: null, createdAt: { gte: start, lt: end } },
+        ],
+      },
+      include: {
+        clip: { select: { hookText: true } },
+        socialAccount: { select: { platform: true } },
+        campaign: { select: { id: true, name: true } },
+      },
+    });
+
+    return {
+      entries: records.map((record): CalendarEntryDto => {
+        const date = record.publishedAt ?? record.scheduledAt ?? record.createdAt;
+        return {
+          id: record.id,
+          clipId: record.clipId,
+          clipHookText: record.clip.hookText,
+          // Prisma's own SocialPlatform/PublishStatus enums and
+          // @speedora/shared's are nominally distinct TS types even though
+          // they share the same runtime string values - same "cast at the
+          // one call site that needs it" convention as toDto() above.
+          platform: record.socialAccount.platform as unknown as CalendarEntryDto['platform'],
+          status: record.status as unknown as CalendarEntryDto['status'],
+          date: date.toISOString(),
+          campaignId: record.campaign?.id ?? null,
+          campaignName: record.campaign?.name ?? null,
+          errorMessage: record.errorMessage,
+        };
+      }),
     };
   }
 
