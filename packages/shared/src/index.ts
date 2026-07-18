@@ -13,6 +13,7 @@ export * from './types/ops-ai';
 export * from './types/workspace';
 export * from './types/share';
 export * from './types/comment';
+export * from './types/approval';
 export * from './utils/alert-conditions';
 export * from './utils/duration';
 export * from './utils/export-format';

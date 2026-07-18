@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '../../../../components/ui/button';
 import { Nav } from '../../../../components/Nav';
 import { TimelineEditor } from '../../../../components/TimelineEditor';
+import { ApprovalPanel } from '../../../../components/editor/ApprovalPanel';
 import { CommentsPanel } from '../../../../components/editor/CommentsPanel';
 import { VideoAnalysisDashboard } from '../../../../components/editor/VideoAnalysisDashboard';
 import { getVideo, getVideoTranscript } from '../../../../lib/api';
@@ -101,6 +102,7 @@ export default function EditVideoPage({ params }: { params: { id: string } }) {
                 </div>
                 <VideoAnalysisDashboard />
                 <TimelineEditor videoId={params.id} />
+                <ApprovalPanel videoId={params.id} />
                 <CommentsPanel videoId={params.id} />
               </div>
             )}

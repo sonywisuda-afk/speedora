@@ -6,11 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { recordNotification, WorkspaceRole, type Comment, type Video } from '@speedora/database';
-import type {
-  CommentAttachmentDto,
-  CommentDto,
-  CommentListDto,
-} from '@speedora/shared';
+import type { CommentAttachmentDto, CommentDto, CommentListDto } from '@speedora/shared';
 import { NotificationDeliveryProducer } from '../queue/notification-delivery.producer';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationPublisherService } from '../redis-pubsub/notification-publisher.service';
@@ -64,15 +60,13 @@ function toDto(comment: CommentWithRelations, requesterId: string): CommentDto {
     createdAt: comment.createdAt.toISOString(),
     mentions: comment.mentions.map((m) => ({ userId: m.userId, email: m.user.email })),
     reactions: Array.from(reactionsByEmoji.entries()).map(([emoji, v]) => ({ emoji, ...v })),
-    attachments: comment.attachments.map(
-      (a): CommentAttachmentDto => ({
-        id: a.id,
-        fileName: a.fileName,
-        fileSize: a.fileSize,
-        contentType: a.contentType,
-        url: `/comments/${comment.id}/attachments/${a.id}`,
-      }),
-    ),
+    attachments: comment.attachments.map((a): CommentAttachmentDto => ({
+      id: a.id,
+      fileName: a.fileName,
+      fileSize: a.fileSize,
+      contentType: a.contentType,
+      url: `/comments/${comment.id}/attachments/${a.id}`,
+    })),
   };
 }
 
@@ -141,7 +135,9 @@ export class CommentsService {
         parentId: dto.parentId ?? null,
         body: dto.body,
         timestampSeconds: dto.timestampSeconds ?? null,
-        mentions: { create: mentionedUserIds.map((mentionedUserId) => ({ userId: mentionedUserId })) },
+        mentions: {
+          create: mentionedUserIds.map((mentionedUserId) => ({ userId: mentionedUserId })),
+        },
       },
       include: COMMENT_INCLUDE,
     });

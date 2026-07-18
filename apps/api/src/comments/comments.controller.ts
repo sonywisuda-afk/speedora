@@ -69,11 +69,7 @@ export class CommentsController {
   }
 
   @Post('comments/:id/reactions')
-  addReaction(
-    @CurrentUser() user: SafeUser,
-    @Param('id') id: string,
-    @Body() dto: AddReactionDto,
-  ) {
+  addReaction(@CurrentUser() user: SafeUser, @Param('id') id: string, @Body() dto: AddReactionDto) {
     return this.commentsService.addReaction(user.id, id, dto.emoji);
   }
 

@@ -1,6 +1,7 @@
 import { MiddlewareConsumer, Module, type NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { ApprovalsModule } from './approvals/approvals.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
@@ -51,6 +52,7 @@ import { WorkspaceModule } from './workspace/workspace.module';
     WorkspaceModule,
     ShareModule,
     CommentsModule,
+    ApprovalsModule,
     ExportModule,
     BrandKitModule,
     NotificationsModule,

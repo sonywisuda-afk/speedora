@@ -3,6 +3,8 @@ import type {
   AnalyticsPerformanceClipsDto,
   AnalyticsPerformanceDto,
   AnalyticsPerformanceVideosDto,
+  ApprovalDto,
+  ApprovalListDto,
   BrandKitDto,
   Clip,
   ClipExplainabilityDto,
@@ -954,6 +956,45 @@ export async function addCommentAttachment(
 
 export function commentAttachmentUrl(url: string): string {
   return `${API_URL}${url}`;
+}
+
+// Sprint 5D (Approval).
+export async function requestApproval(
+  videoId: string,
+  input: { clipId?: string; note?: string; reviewerId?: string },
+): Promise<ApprovalDto> {
+  const res = await apiFetch(`/videos/${videoId}/approvals`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return parseJsonOrThrow<ApprovalDto>(res);
+}
+
+export async function listApprovals(videoId: string): Promise<ApprovalListDto> {
+  const res = await apiFetch(`/videos/${videoId}/approvals`);
+  return parseJsonOrThrow<ApprovalListDto>(res);
+}
+
+export async function decideApproval(
+  id: string,
+  input: { status: 'APPROVED' | 'REJECTED' | 'NEEDS_REVISION'; note?: string },
+): Promise<ApprovalDto> {
+  const res = await apiFetch(`/approvals/${id}/decide`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return parseJsonOrThrow<ApprovalDto>(res);
+}
+
+export async function resubmitApproval(id: string, note?: string): Promise<ApprovalDto> {
+  const res = await apiFetch(`/approvals/${id}/resubmit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note }),
+  });
+  return parseJsonOrThrow<ApprovalDto>(res);
 }
 
 export { API_URL };

@@ -216,7 +216,11 @@ describe('CommentsService', () => {
   describe('update', () => {
     it('allows the author to edit their own comment', async () => {
       prisma.comment.findUnique.mockResolvedValue(BASE_COMMENT);
-      prisma.comment.update.mockResolvedValue({ ...BASE_COMMENT, body: 'edited', editedAt: new Date() });
+      prisma.comment.update.mockResolvedValue({
+        ...BASE_COMMENT,
+        body: 'edited',
+        editedAt: new Date(),
+      });
 
       const result = await service.update('user-1', 'comment-1', 'edited');
 
@@ -296,7 +300,9 @@ describe('CommentsService', () => {
       const result = await service.addReaction('user-1', 'comment-1', '👍');
 
       expect(prisma.commentReaction.upsert).toHaveBeenCalledWith({
-        where: { commentId_userId_emoji: { commentId: 'comment-1', userId: 'user-1', emoji: '👍' } },
+        where: {
+          commentId_userId_emoji: { commentId: 'comment-1', userId: 'user-1', emoji: '👍' },
+        },
         create: { commentId: 'comment-1', userId: 'user-1', emoji: '👍' },
         update: {},
       });

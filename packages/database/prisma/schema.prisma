@@ -163,6 +163,10 @@ model User {
   resolvedComments         Comment[]                 @relation("CommentResolver")
   commentMentions          CommentMention[]
   commentReactions         CommentReaction[]
+  // Sprint 5D (Approval)
+  requestedApprovals       Approval[]                @relation("ApprovalRequester")
+  reviewedApprovals        Approval[]                @relation("ApprovalReviewer")
+  approvalEvents           ApprovalEvent[]
 }
 
 model Video {
@@ -347,6 +351,7 @@ model Video {
   exportJobs         ExportJob[]
   shareLinks         ShareLink[]
   comments           Comment[]
+  approvals          Approval[]
 
   @@index([ownerId])
   @@index([workspaceId])
@@ -778,6 +783,7 @@ model Clip {
   publishRecords PublishRecord[]
   jobExecutions  JobExecution[]
   comments       Comment[]
+  approvals      Approval[]
 
   @@index([videoId])
 }
@@ -1016,6 +1022,14 @@ enum NotificationType {
   // regardless of who owns the video.
   COMMENT
   MENTION
+  // Sprint 5D (Approval) - the last two of the four originally
+  // "Collaboration-blocked" notification types. REVIEW_REQUEST fires when
+  // an Approval is created (to the assigned reviewer, or the video owner
+  // if none was named); APPROVAL fires when a reviewer decides
+  // (APPROVED/REJECTED/NEEDS_REVISION all fire this one type, back to
+  // whoever requested the review) - see ApprovalStatus below.
+  REVIEW_REQUEST
+  APPROVAL
 }
 
 // Only IN_APP for Sprint 4A. Milestone 04d wired SLACK/DISCORD/WEBHOOK, 04e
@@ -1457,4 +1471,68 @@ model CommentAttachment {
   createdAt   DateTime @default(now())
 
   @@index([commentId])
+}
+
+// Sprint 5D (Approval). PENDING is the only non-terminal-looking state
+// that's actually re-enterable - NEEDS_REVISION/REJECTED can both go back
+// to PENDING via CommentsService-sibling ApprovalService.resubmit(),
+// appending a new ApprovalEvent rather than mutating history away. APPROVED
+// is the only state this codebase treats as a real terminal state (no
+// resubmit path) - matches this workflow's real-world meaning ("this
+// specific version was approved"), not a UI restriction.
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  NEEDS_REVISION
+}
+
+// Video-scoped (clipId optional - an approval can target one specific
+// clip, the more common case since clips are the actual publishable unit,
+// or the video as a whole). Only one active (PENDING or NEEDS_REVISION)
+// Approval may exist per clipId/videoId pair at a time - enforced at the
+// service layer (ApprovalService.request), not the schema, same
+// "cross-field invariant lives in the service" convention as
+// ExportJob's type/videoId mutual exclusion.
+model Approval {
+  id            String         @id @default(cuid())
+  videoId       String
+  video         Video          @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  clipId        String?
+  clip          Clip?          @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  status        ApprovalStatus @default(PENDING)
+  requestedById String
+  requestedBy   User           @relation("ApprovalRequester", fields: [requestedById], references: [id], onDelete: Cascade)
+  // Set at request time if the requester named a specific reviewer
+  // (validated as a real REVIEWER+ workspace member); null means "anyone
+  // REVIEWER+ can pick this up," and the REVIEW_REQUEST notification falls
+  // back to the video's owner.
+  reviewerId    String?
+  reviewer      User?          @relation("ApprovalReviewer", fields: [reviewerId], references: [id], onDelete: SetNull)
+  note          String?
+  reviewedAt    DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  events ApprovalEvent[]
+
+  @@index([videoId])
+  @@index([clipId])
+}
+
+// Audit trail of every status transition - the current Approval row only
+// shows the latest state, not the sequence of who requested/decided/
+// resubmitted when, same "separate history table, not just a current-state
+// column" reasoning as VideoStatusEvent.
+model ApprovalEvent {
+  id         String         @id @default(cuid())
+  approvalId String
+  approval   Approval       @relation(fields: [approvalId], references: [id], onDelete: Cascade)
+  status     ApprovalStatus
+  actorId    String
+  actor      User           @relation(fields: [actorId], references: [id], onDelete: Cascade)
+  note       String?
+  createdAt  DateTime       @default(now())
+
+  @@index([approvalId, createdAt])
 }
