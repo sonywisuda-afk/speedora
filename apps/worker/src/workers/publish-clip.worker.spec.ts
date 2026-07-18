@@ -16,12 +16,14 @@ const uploadInstagramReelMock = jest.fn();
 const uploadFacebookReelMock = jest.fn();
 const uploadThreadsVideoMock = jest.fn();
 const uploadLinkedInVideoMock = jest.fn();
+const uploadPinterestVideoMock = jest.fn();
 class FakeYouTubeOAuthClient {}
 class FakeTikTokOAuthClient {}
 class FakeInstagramOAuthClient {}
 class FakeFacebookOAuthClient {}
 class FakeThreadsOAuthClient {}
 class FakeLinkedInOAuthClient {}
+class FakePinterestOAuthClient {}
 jest.mock('@speedora/social', () => ({
   resolveAccessToken: (...args: unknown[]) => resolveAccessTokenMock(...args),
   uploadYouTubeVideo: (...args: unknown[]) => uploadYouTubeVideoMock(...args),
@@ -30,12 +32,14 @@ jest.mock('@speedora/social', () => ({
   uploadFacebookReel: (...args: unknown[]) => uploadFacebookReelMock(...args),
   uploadThreadsVideo: (...args: unknown[]) => uploadThreadsVideoMock(...args),
   uploadLinkedInVideo: (...args: unknown[]) => uploadLinkedInVideoMock(...args),
+  uploadPinterestVideo: (...args: unknown[]) => uploadPinterestVideoMock(...args),
   YouTubeOAuthClient: FakeYouTubeOAuthClient,
   TikTokOAuthClient: FakeTikTokOAuthClient,
   InstagramOAuthClient: FakeInstagramOAuthClient,
   FacebookOAuthClient: FakeFacebookOAuthClient,
   ThreadsOAuthClient: FakeThreadsOAuthClient,
   LinkedInOAuthClient: FakeLinkedInOAuthClient,
+  PinterestOAuthClient: FakePinterestOAuthClient,
 }));
 
 const getObjectStreamMock = jest.fn();
@@ -87,6 +91,7 @@ const baseRecord = {
     outputUrl: 'renders/clip-1.mp4',
     hookText: 'Wait for it',
     hashtags: ['viral', 'fyp'],
+    thumbnailUrl: 'thumbnails/clip-1.webp',
   },
   socialAccount: {
     id: 'account-1',
@@ -462,6 +467,74 @@ describe('publish-clip worker', () => {
       expect(resolveAccessTokenMock).toHaveBeenCalledWith(
         linkedinRecord.socialAccount,
         expect.any(FakeLinkedInOAuthClient),
+      );
+    });
+  });
+
+  describe('Pinterest accounts', () => {
+    const pinterestRecord = {
+      ...baseRecord,
+      socialAccount: {
+        ...baseRecord.socialAccount,
+        platform: SocialPlatform.PINTEREST,
+        platformAccountId: 'board-1',
+      },
+    };
+
+    beforeEach(() => {
+      uploadPinterestVideoMock.mockResolvedValue({ pinId: 'pin-1' });
+    });
+
+    it('streams the clip bytes, presigns a cover image, publishes a Pin, and marks PUBLISHED with the pin id', async () => {
+      publishRecordFindUniqueOrThrowMock.mockResolvedValue(pinterestRecord);
+
+      const processor = getProcessor();
+      const result = await processor(baseJob());
+
+      expect(getObjectStreamMock).toHaveBeenCalledWith('renders/clip-1.mp4');
+      expect(getPresignedDownloadUrlMock).toHaveBeenCalledWith('thumbnails/clip-1.webp', 15 * 60);
+      expect(uploadPinterestVideoMock).toHaveBeenCalledWith({
+        accessToken: 'plaintext-access',
+        boardId: 'board-1',
+        videoStream: { fake: 'readable' },
+        title: 'Wait for it',
+        description: 'Wait for it\n\n#viral #fyp',
+        coverImageUrl: 'https://bucket.example.com/renders/clip-1.mp4?signed=1',
+      });
+      expect(publishRecordUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'record-1' },
+        data: {
+          status: PublishStatus.PUBLISHED,
+          platformPostId: 'pin-1',
+          publishedAt: expect.any(Date),
+        },
+      });
+      expect(result).toEqual({ publishRecordId: 'record-1', platformPostId: 'pin-1' });
+    });
+
+    it('throws without uploading when the clip has no thumbnail', async () => {
+      publishRecordFindUniqueOrThrowMock.mockResolvedValue({
+        ...pinterestRecord,
+        clip: { ...pinterestRecord.clip, thumbnailUrl: null },
+      });
+
+      const processor = getProcessor();
+
+      await expect(processor(baseJob({ opts: { attempts: 1 } }))).rejects.toThrow(
+        'Pinterest requires a cover image for video Pins',
+      );
+      expect(uploadPinterestVideoMock).not.toHaveBeenCalled();
+    });
+
+    it('resolves the access token via the Pinterest client, not any other platform', async () => {
+      publishRecordFindUniqueOrThrowMock.mockResolvedValue(pinterestRecord);
+
+      const processor = getProcessor();
+      await processor(baseJob());
+
+      expect(resolveAccessTokenMock).toHaveBeenCalledWith(
+        pinterestRecord.socialAccount,
+        expect.any(FakePinterestOAuthClient),
       );
     });
   });

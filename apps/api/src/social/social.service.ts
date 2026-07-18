@@ -7,6 +7,7 @@ import {
   FacebookOAuthClient,
   InstagramOAuthClient,
   LinkedInOAuthClient,
+  PinterestOAuthClient,
   ThreadsOAuthClient,
   TikTokOAuthClient,
   YouTubeOAuthClient,
@@ -16,6 +17,8 @@ import {
   type InstagramTokens,
   type LinkedInMember,
   type LinkedInTokens,
+  type PinterestAccount,
+  type PinterestTokens,
   type ThreadsTokens,
   type ThreadsUser,
   type TikTokTokens,
@@ -37,6 +40,7 @@ export class SocialAccountsService {
     private readonly facebook: FacebookOAuthClient,
     private readonly threads: ThreadsOAuthClient,
     private readonly linkedin: LinkedInOAuthClient,
+    private readonly pinterest: PinterestOAuthClient,
   ) {}
 
   // Both revokeToken() and resolveAccessToken() (via OAuthRefreshClient)
@@ -51,7 +55,8 @@ export class SocialAccountsService {
     | InstagramOAuthClient
     | FacebookOAuthClient
     | ThreadsOAuthClient
-    | LinkedInOAuthClient {
+    | LinkedInOAuthClient
+    | PinterestOAuthClient {
     switch (platform) {
       case SocialPlatform.YOUTUBE:
         return this.youtube;
@@ -65,6 +70,8 @@ export class SocialAccountsService {
         return this.threads;
       case SocialPlatform.LINKEDIN:
         return this.linkedin;
+      case SocialPlatform.PINTEREST:
+        return this.pinterest;
     }
   }
 
@@ -306,6 +313,42 @@ export class SocialAccountsService {
         displayName: member.name,
         accessToken: encryptToken(tokens.accessToken),
         refreshToken: encryptToken(tokens.refreshToken ?? ''),
+        tokenExpiresAt: tokens.expiresAt,
+      },
+    });
+    return toDto(row);
+  }
+
+  // Upserts on (userId, platform, boardId) - PinterestAccount.boardId IS
+  // the platformAccountId here (see PinterestOAuthClient's own comment on
+  // why - Pinterest has no per-account URL segment like Instagram/
+  // Facebook's Page id, but every Pin create call needs a target board_id).
+  async connectPinterest(
+    userId: string,
+    tokens: PinterestTokens,
+    account: PinterestAccount,
+  ): Promise<SocialAccount> {
+    const row = await this.prisma.socialAccount.upsert({
+      where: {
+        userId_platform_platformAccountId: {
+          userId,
+          platform: SocialPlatform.PINTEREST,
+          platformAccountId: account.boardId,
+        },
+      },
+      create: {
+        userId,
+        platform: SocialPlatform.PINTEREST,
+        platformAccountId: account.boardId,
+        displayName: account.displayName,
+        accessToken: encryptToken(tokens.accessToken),
+        refreshToken: encryptToken(tokens.refreshToken),
+        tokenExpiresAt: tokens.expiresAt,
+      },
+      update: {
+        displayName: account.displayName,
+        accessToken: encryptToken(tokens.accessToken),
+        refreshToken: encryptToken(tokens.refreshToken),
         tokenExpiresAt: tokens.expiresAt,
       },
     });

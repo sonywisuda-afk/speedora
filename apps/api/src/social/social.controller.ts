@@ -15,6 +15,7 @@ import {
   InstagramOAuthClient,
   LinkedInOAuthClient,
   OAuthNotConfiguredError,
+  PinterestOAuthClient,
   ThreadsOAuthClient,
   TikTokOAuthClient,
   YouTubeOAuthClient,
@@ -24,6 +25,8 @@ import {
   type InstagramTokens,
   type LinkedInMember,
   type LinkedInTokens,
+  type PinterestAccount,
+  type PinterestTokens,
   type ThreadsTokens,
   type ThreadsUser,
   type TikTokTokens,
@@ -92,6 +95,7 @@ export class SocialController {
     private readonly facebook: FacebookOAuthClient,
     private readonly threads: ThreadsOAuthClient,
     private readonly linkedin: LinkedInOAuthClient,
+    private readonly pinterest: PinterestOAuthClient,
     // Separate JwtModule instance from AuthModule's (see social.module.ts) -
     // same JWT_SECRET, unrelated purpose (signing the OAuth `state` param,
     // not session auth), short-lived (10m) so a state token can't be
@@ -159,6 +163,17 @@ export class SocialController {
             userId,
             tokens as LinkedInTokens,
             profile as LinkedInMember,
+          ),
+      },
+      [SocialPlatform.PINTEREST]: {
+        buildAuthorizeUrl: (state) => this.pinterest.buildAuthorizeUrl(state),
+        exchangeCode: (code) => this.pinterest.exchangeCode(code),
+        fetchProfile: (token) => this.pinterest.fetchAccountInfo(token),
+        connect: (userId, tokens, profile) =>
+          this.socialAccounts.connectPinterest(
+            userId,
+            tokens as PinterestTokens,
+            profile as PinterestAccount,
           ),
       },
     };

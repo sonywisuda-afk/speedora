@@ -95,7 +95,9 @@ model PremiumCredit {
 // Expansion, Phase 1 - both Meta Graph API products, following Instagram's
 // container-create -> poll -> publish pattern. LINKEDIN added in Phase 2 -
 // a genuinely different multi-part byte-upload model (LinkedIn's Videos
-// API), not the Meta "fetch from a URL" pattern.
+// API), not the Meta "fetch from a URL" pattern. PINTEREST added in
+// Phase 3 - a board-scoped video Pin, requiring a mandatory cover image
+// unlike every other platform.
 enum SocialPlatform {
   YOUTUBE
   TIKTOK
@@ -103,6 +105,7 @@ enum SocialPlatform {
   FACEBOOK
   THREADS
   LINKEDIN
+  PINTEREST
 }
 
 // Mirrors PublishStatus in packages/shared/src/types/social.ts. SCHEDULED

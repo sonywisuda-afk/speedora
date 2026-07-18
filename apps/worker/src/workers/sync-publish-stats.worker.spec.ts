@@ -18,6 +18,7 @@ const fetchTikTokVideoStatsMock = jest.fn();
 const fetchFacebookVideoStatsMock = jest.fn();
 const fetchThreadsPostStatsMock = jest.fn();
 const fetchLinkedInPostStatsMock = jest.fn();
+const fetchPinterestPinStatsMock = jest.fn();
 const computeEngagementScoreMock = jest.fn();
 class FakeYouTubeOAuthClient {}
 class FakeInstagramOAuthClient {}
@@ -25,6 +26,7 @@ class FakeTikTokOAuthClient {}
 class FakeFacebookOAuthClient {}
 class FakeThreadsOAuthClient {}
 class FakeLinkedInOAuthClient {}
+class FakePinterestOAuthClient {}
 jest.mock('@speedora/social', () => ({
   resolveAccessToken: (...args: unknown[]) => resolveAccessTokenMock(...args),
   fetchYouTubeVideoStats: (...args: unknown[]) => fetchYouTubeVideoStatsMock(...args),
@@ -34,6 +36,7 @@ jest.mock('@speedora/social', () => ({
   fetchFacebookVideoStats: (...args: unknown[]) => fetchFacebookVideoStatsMock(...args),
   fetchThreadsPostStats: (...args: unknown[]) => fetchThreadsPostStatsMock(...args),
   fetchLinkedInPostStats: (...args: unknown[]) => fetchLinkedInPostStatsMock(...args),
+  fetchPinterestPinStats: (...args: unknown[]) => fetchPinterestPinStatsMock(...args),
   computeEngagementScore: (...args: unknown[]) => computeEngagementScoreMock(...args),
   YouTubeOAuthClient: FakeYouTubeOAuthClient,
   InstagramOAuthClient: FakeInstagramOAuthClient,
@@ -41,6 +44,7 @@ jest.mock('@speedora/social', () => ({
   FacebookOAuthClient: FakeFacebookOAuthClient,
   ThreadsOAuthClient: FakeThreadsOAuthClient,
   LinkedInOAuthClient: FakeLinkedInOAuthClient,
+  PinterestOAuthClient: FakePinterestOAuthClient,
 }));
 
 const publishRecordFindManyMock = jest.fn();
@@ -129,6 +133,19 @@ const linkedinRecord = {
   },
 };
 
+const pinterestRecord = {
+  id: 'record-5',
+  socialAccountId: 'account-5',
+  platformPostId: 'pin-1',
+  socialAccount: {
+    id: 'account-5',
+    platform: SocialPlatform.PINTEREST,
+    accessToken: 'encrypted-access-5',
+    refreshToken: 'encrypted-refresh-5',
+    tokenExpiresAt: new Date('2099-01-01'),
+  },
+};
+
 describe('sync-publish-stats worker', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -167,6 +184,13 @@ describe('sync-publish-stats worker', () => {
       shareCount: null,
       watchTimeSeconds: null,
     });
+    fetchPinterestPinStatsMock.mockResolvedValue({
+      viewCount: 500,
+      likeCount: 12,
+      commentCount: null,
+      shareCount: null,
+      watchTimeSeconds: null,
+    });
   });
 
   describe('scheduleRepeatingTrigger', () => {
@@ -201,11 +225,12 @@ describe('sync-publish-stats worker', () => {
         },
         include: { socialAccount: true },
       });
-      // Also includes FACEBOOK/THREADS (Phase 1) and LINKEDIN (Phase 2)
-      // since all define syncStats - platformsWithStatsSync() derives this
-      // list rather than a second hand-maintained platform array.
+      // Also includes FACEBOOK/THREADS (Phase 1), LINKEDIN (Phase 2), and
+      // PINTEREST (Phase 3) since all define syncStats -
+      // platformsWithStatsSync() derives this list rather than a second
+      // hand-maintained platform array.
       const inArg = publishRecordFindManyMock.mock.calls[0][0].where.socialAccount.platform.in;
-      expect(inArg).toHaveLength(6);
+      expect(inArg).toHaveLength(7);
     });
 
     it('fetches and persists YouTube stats via the YouTube client', async () => {
@@ -438,6 +463,42 @@ describe('sync-publish-stats worker', () => {
           viewCount: null,
           likeCount: 40,
           commentCount: 8,
+          shareCount: null,
+          watchTimeSeconds: null,
+          engagementScore: 0.5,
+        },
+      });
+    });
+  });
+
+  describe('Pinterest records', () => {
+    it('fetches and persists Pinterest stats via the Pinterest client', async () => {
+      publishRecordFindManyMock.mockResolvedValue([pinterestRecord]);
+
+      const processor = getProcessor();
+      await processor({});
+
+      expect(resolveAccessTokenMock).toHaveBeenCalledWith(
+        pinterestRecord.socialAccount,
+        expect.any(FakePinterestOAuthClient),
+      );
+      expect(fetchPinterestPinStatsMock).toHaveBeenCalledWith('plaintext-access', 'pin-1');
+      expect(publishRecordUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'record-5' },
+        data: {
+          viewCount: 500,
+          likeCount: 12,
+          commentCount: null,
+          statsUpdatedAt: expect.any(Date),
+        },
+      });
+      // Pinterest has no comment/share/watch-time metric at this API tier.
+      expect(publishRecordStatsSnapshotCreateMock).toHaveBeenCalledWith({
+        data: {
+          publishRecordId: 'record-5',
+          viewCount: 500,
+          likeCount: 12,
+          commentCount: null,
           shareCount: null,
           watchTimeSeconds: null,
           engagementScore: 0.5,

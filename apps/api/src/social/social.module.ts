@@ -4,6 +4,7 @@ import {
   FacebookOAuthClient,
   InstagramOAuthClient,
   LinkedInOAuthClient,
+  PinterestOAuthClient,
   ThreadsOAuthClient,
   TikTokOAuthClient,
   YouTubeOAuthClient,
@@ -33,6 +34,7 @@ import { SocialAccountsService } from './social.service';
     FacebookOAuthClient,
     ThreadsOAuthClient,
     LinkedInOAuthClient,
+    PinterestOAuthClient,
   ],
   // ClipsModule (Fase 6b) needs SocialAccountsService.findOwnedOrThrow() to
   // validate the target account before enqueueing a publish-clip job.

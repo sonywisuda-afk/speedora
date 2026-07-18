@@ -4,6 +4,7 @@ import {
   type FacebookOAuthClient,
   type InstagramOAuthClient,
   type LinkedInOAuthClient,
+  type PinterestOAuthClient,
   type ThreadsOAuthClient,
   type TikTokOAuthClient,
   type YouTubeOAuthClient,
@@ -23,6 +24,7 @@ describe('SocialController', () => {
     connectFacebook: jest.Mock;
     connectThreads: jest.Mock;
     connectLinkedIn: jest.Mock;
+    connectPinterest: jest.Mock;
   };
   let youtube: {
     buildAuthorizeUrl: jest.Mock;
@@ -54,6 +56,11 @@ describe('SocialController', () => {
     exchangeCode: jest.Mock;
     fetchAccountInfo: jest.Mock;
   };
+  let pinterest: {
+    buildAuthorizeUrl: jest.Mock;
+    exchangeCode: jest.Mock;
+    fetchAccountInfo: jest.Mock;
+  };
   let jwt: { sign: jest.Mock; verify: jest.Mock };
   const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
 
@@ -71,6 +78,7 @@ describe('SocialController', () => {
       connectFacebook: jest.fn(),
       connectThreads: jest.fn(),
       connectLinkedIn: jest.fn(),
+      connectPinterest: jest.fn(),
     };
     youtube = {
       buildAuthorizeUrl: jest.fn(),
@@ -102,6 +110,11 @@ describe('SocialController', () => {
       exchangeCode: jest.fn(),
       fetchAccountInfo: jest.fn(),
     };
+    pinterest = {
+      buildAuthorizeUrl: jest.fn(),
+      exchangeCode: jest.fn(),
+      fetchAccountInfo: jest.fn(),
+    };
     jwt = { sign: jest.fn(), verify: jest.fn() };
     controller = new SocialController(
       socialAccounts as unknown as SocialAccountsService,
@@ -111,6 +124,7 @@ describe('SocialController', () => {
       facebook as unknown as FacebookOAuthClient,
       threads as unknown as ThreadsOAuthClient,
       linkedin as unknown as LinkedInOAuthClient,
+      pinterest as unknown as PinterestOAuthClient,
       jwt as never,
     );
     process.env.WEB_ORIGIN = 'http://localhost:3000';
@@ -346,6 +360,30 @@ describe('SocialController', () => {
         { personUrn: 'urn:li:person:abc123', name: 'Jane Doe' },
       );
       expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/social?connected=linkedin');
+    });
+
+    it('exchanges the code, fetches the board, connects the account, and redirects on success (Pinterest)', async () => {
+      jwt.verify.mockReturnValue({ sub: 'user-1' });
+      pinterest.exchangeCode.mockResolvedValue({
+        accessToken: 'access-1',
+        refreshToken: 'refresh-1',
+      });
+      pinterest.fetchAccountInfo.mockResolvedValue({
+        boardId: 'board-1',
+        displayName: 'my_pins — My Board',
+      });
+      const res = fakeResponse();
+
+      await controller.callback('pinterest', 'the-code', 'signed-state', undefined, res);
+
+      expect(pinterest.exchangeCode).toHaveBeenCalledWith('the-code');
+      expect(pinterest.fetchAccountInfo).toHaveBeenCalledWith('access-1');
+      expect(socialAccounts.connectPinterest).toHaveBeenCalledWith(
+        'user-1',
+        { accessToken: 'access-1', refreshToken: 'refresh-1' },
+        { boardId: 'board-1', displayName: 'my_pins — My Board' },
+      );
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/social?connected=pinterest');
     });
   });
 });

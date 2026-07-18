@@ -8,13 +8,16 @@ import {
   fetchTikTokPublishStatus,
   fetchTikTokVideoStats,
   fetchYouTubeVideoStats,
+  fetchPinterestPinStats,
   InstagramOAuthClient,
   LinkedInOAuthClient,
+  PinterestOAuthClient,
   ThreadsOAuthClient,
   TikTokOAuthClient,
   uploadFacebookReel,
   uploadInstagramReel,
   uploadLinkedInVideo,
+  uploadPinterestVideo,
   uploadThreadsVideo,
   uploadTikTokVideo,
   uploadYouTubeVideo,
@@ -82,6 +85,7 @@ const instagramOAuth = new InstagramOAuthClient();
 const facebookOAuth = new FacebookOAuthClient();
 const threadsOAuth = new ThreadsOAuthClient();
 const linkedinOAuth = new LinkedInOAuthClient();
+const pinterestOAuth = new PinterestOAuthClient();
 
 // How long the presigned URL handed to Meta's servers (Instagram Reels,
 // Facebook Reels, and Threads video posts - all fetch-from-URL rather than
@@ -243,6 +247,37 @@ export const platformRegistry: Record<SocialPlatform, PlatformPublishAdapter> = 
     },
     async syncStats({ accessToken, platformPostId }) {
       return { kind: 'stats', stats: await fetchLinkedInPostStats(accessToken, platformPostId) };
+    },
+  },
+  [SocialPlatform.PINTEREST]: {
+    oauth: pinterestOAuth,
+    async publish({ record, outputUrl, accessToken }) {
+      // Pinterest mandates a cover image for every video Pin - unlike the
+      // rest of this registry, there's no reasonable fallback if the clip's
+      // AI-selected thumbnail (packages/thumbnail-selection) hasn't been
+      // extracted yet, so this fails loudly and specifically rather than
+      // sending Pinterest a request that will 400 anyway.
+      if (!record.clip.thumbnailUrl) {
+        throw new Error(
+          `Clip ${record.clip.id} has no thumbnail available - Pinterest requires a cover image for video Pins`,
+        );
+      }
+      const [videoStream, coverImageUrl] = await Promise.all([
+        getObjectStream(outputUrl),
+        getPresignedDownloadUrl(record.clip.thumbnailUrl, META_PRESIGNED_URL_TTL_SECONDS),
+      ]);
+      const upload = await uploadPinterestVideo({
+        accessToken,
+        boardId: record.socialAccount.platformAccountId,
+        videoStream,
+        title: record.clip.hookText || `Clip ${record.clip.id}`,
+        description: buildCaption(record.clip.hookText, record.clip.hashtags),
+        coverImageUrl,
+      });
+      return { platformPostId: upload.pinId, logDetail: `published as a Pinterest Pin, pin id ${upload.pinId}` };
+    },
+    async syncStats({ accessToken, platformPostId }) {
+      return { kind: 'stats', stats: await fetchPinterestPinStats(accessToken, platformPostId) };
     },
   },
 };
