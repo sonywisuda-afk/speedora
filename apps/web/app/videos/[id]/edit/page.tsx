@@ -98,7 +98,10 @@ export default function EditVideoPage({ params }: { params: { id: string } }) {
 
             {!error && loaded && (
               <div className="mt-3">
-                <div className="mb-3 flex justify-end">
+                <div className="mb-3 flex justify-end gap-2">
+                  <Button variant="outline" asChild>
+                    <Link href={`/videos/${params.id}/review`}>Review Mode</Link>
+                  </Button>
                   <ExportCenterDialog videoId={params.id} />
                 </div>
                 <VideoAnalysisDashboard />

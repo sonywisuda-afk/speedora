@@ -480,6 +480,14 @@ export function DashboardClient({
                         Edit Timeline
                       </Link>
                     )}
+                    {video.clips.length > 0 && (
+                      <Link
+                        href={`/videos/${video.id}/review`}
+                        className="font-body text-sm text-foreground underline underline-offset-2 hover:text-signal-pink"
+                      >
+                        Review Mode
+                      </Link>
+                    )}
                     {video.clips.some((clip) => (clip.ocrTracks?.length ?? 0) > 0) && (
                       <Link
                         href={`/videos/${video.id}/ocr-review`}
