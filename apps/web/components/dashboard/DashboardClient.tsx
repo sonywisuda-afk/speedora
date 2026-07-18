@@ -7,7 +7,7 @@ import {
   type PublishRecord,
   type SocialAccount,
 } from '@speedora/shared';
-import { AlertTriangle, ExternalLink, Trash2, Trophy, UploadCloud } from 'lucide-react';
+import { AlertTriangle, ExternalLink, Ghost, Trash2, Trophy, UploadCloud } from 'lucide-react';
 import Link from 'next/link';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import useSWR from 'swr';
@@ -627,9 +627,39 @@ export function DashboardClient({
                                     </Button>
                                   )}
                                   {clip.downloadUrl ? (
-                                    <Button size="sm" variant="outline" asChild>
-                                      <a href={clipDownloadUrl(clip.downloadUrl)}>Unduh</a>
-                                    </Button>
+                                    <>
+                                      <Button size="sm" variant="outline" asChild>
+                                        <a href={clipDownloadUrl(clip.downloadUrl)}>Unduh</a>
+                                      </Button>
+                                      {/* Multi-Platform Publishing Expansion, Phase 5 - Snapchat
+                                          has no server-side publish API for third-party apps, and
+                                          Creative Kit (its one attach-and-share mechanism) is a
+                                          native iOS/Android SDK only - a web page cannot hand off
+                                          a specific video to it (no pasteboard/Intent access from
+                                          a browser). This is deliberately just the same download
+                                          as "Unduh" above, labeled honestly rather than dressed up
+                                          as a real automated publish - the user finishes posting
+                                          manually inside the Snapchat app themselves, the same
+                                          "Sent to inbox, open the app to finish" honesty precedent
+                                          as TikTok's Upload-to-Inbox mode (see CLAUDE.md's Publish
+                                          Center section). No SocialAccount/PublishRecord/OAuth for
+                                          this platform - there is no server-side action at all. */}
+                                      <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className="gap-1.5"
+                                        title="Downloads your clip - open Snapchat and add it from your camera roll"
+                                        asChild
+                                      >
+                                        <a href={clipDownloadUrl(clip.downloadUrl)}>
+                                          <Ghost className="h-3.5 w-3.5" aria-hidden="true" />
+                                          Share to Snapchat
+                                        </a>
+                                      </Button>
+                                      <span className="font-mono text-[10px] text-muted-foreground">
+                                        Manual publish required - not auto-published
+                                      </span>
+                                    </>
                                   ) : (
                                     <span className="font-mono text-xs text-muted-foreground">
                                       Merender...
