@@ -3,6 +3,7 @@ import {
   formatDiscordPayload,
   formatGenericWebhookPayload,
   formatSlackPayload,
+  formatTelegramPayload,
 } from './payload-formatters';
 
 function notification(overrides: Partial<Notification> = {}): Notification {
@@ -32,6 +33,17 @@ describe('formatDiscordPayload', () => {
   it('formats title bold and body plain, Discord webhook shape', () => {
     const result = formatDiscordPayload(notification());
     expect(result).toEqual({ content: '**Klip siap!**\nKlip Anda sudah siap ditonton.' });
+  });
+});
+
+describe('formatTelegramPayload', () => {
+  it('joins title and body with a blank line, no parse_mode key present', () => {
+    const result = formatTelegramPayload(notification(), '999888777');
+    expect(result).toEqual({
+      chat_id: '999888777',
+      text: 'Klip siap!\n\nKlip Anda sudah siap ditonton.',
+    });
+    expect(result).not.toHaveProperty('parse_mode');
   });
 });
 

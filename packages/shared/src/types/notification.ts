@@ -20,11 +20,15 @@ export enum NotificationType {
 // SLACK/DISCORD/WEBHOOK as outbound delivery surfaces, each independently
 // toggleable per NotificationType (see NotificationPreferenceDto) and
 // backed by one account-level destination (see NotificationWebhookDto).
+// Milestone 04e wired TELEGRAM - same shape, but its "destination" is
+// discovered in two steps (bot token, then a chat_id) rather than pasted in
+// one - see NotificationWebhookDto's `pending` field.
 export enum NotificationChannel {
   IN_APP = 'IN_APP',
   SLACK = 'SLACK',
   DISCORD = 'DISCORD',
   WEBHOOK = 'WEBHOOK',
+  TELEGRAM = 'TELEGRAM',
 }
 
 // Registry keyed by NotificationType - a single source of truth for
@@ -108,9 +112,19 @@ export interface UpdateNotificationPreferenceDto {
 // write-only, same "secrets are for writing not reading back" posture a
 // password field would use (see NotificationWebhook.url's own schema
 // comment).
+// Milestone 04e - `pending`/`telegramBotUsername` are additive, TELEGRAM-only
+// fields (always undefined for SLACK/DISCORD/WEBHOOK). For TELEGRAM,
+// `configured` means "chatId is known" (a message can actually be sent),
+// not merely "a bot token was saved" - `pending: true` is the distinct
+// in-between state ("token saved, waiting for the user to message their own
+// bot"), needed so the UI can render a t.me/<username> deep link + "waiting"
+// status instead of collapsing that into either "not configured" or
+// "configured".
 export interface NotificationWebhookDto {
   channel: NotificationChannel;
   configured: boolean;
+  pending?: boolean;
+  telegramBotUsername?: string;
 }
 
 export interface NotificationWebhookListDto {
@@ -119,4 +133,13 @@ export interface NotificationWebhookListDto {
 
 export interface UpsertNotificationWebhookDto {
   url: string;
+}
+
+// Milestone 04e - a genuinely different input shape from
+// UpsertNotificationWebhookDto (a bot token, not a URL), and a distinct
+// route (PUT /notifications/telegram) rather than the generic
+// /notifications/webhooks/:channel - see NotificationsService.upsertTelegramWebhook's
+// own comment for why this isn't folded into the generic upsert path.
+export interface UpsertTelegramWebhookDto {
+  botToken: string;
 }

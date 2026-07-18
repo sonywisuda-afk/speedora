@@ -9,6 +9,7 @@ import {
   getNotificationWebhooks,
   updateNotificationPreference,
   upsertNotificationWebhook,
+  upsertTelegramWebhook,
 } from '@/lib/api';
 import { NotificationPreferencesTab } from './NotificationPreferencesTab';
 
@@ -26,6 +27,7 @@ jest.mock('@/lib/api', () => ({
   getNotificationWebhooks: jest.fn(),
   upsertNotificationWebhook: jest.fn(),
   deleteNotificationWebhook: jest.fn(),
+  upsertTelegramWebhook: jest.fn(),
 }));
 
 const mockGetNotificationPreferences = getNotificationPreferences as jest.Mock;
@@ -33,6 +35,7 @@ const mockUpdateNotificationPreference = updateNotificationPreference as jest.Mo
 const mockGetNotificationWebhooks = getNotificationWebhooks as jest.Mock;
 const mockUpsertNotificationWebhook = upsertNotificationWebhook as jest.Mock;
 const mockDeleteNotificationWebhook = deleteNotificationWebhook as jest.Mock;
+const mockUpsertTelegramWebhook = upsertTelegramWebhook as jest.Mock;
 
 describe('NotificationPreferencesTab', () => {
   beforeEach(() => {
@@ -48,6 +51,7 @@ describe('NotificationPreferencesTab', () => {
         { channel: NotificationChannel.SLACK, configured: false },
         { channel: NotificationChannel.DISCORD, configured: false },
         { channel: NotificationChannel.WEBHOOK, configured: false },
+        { channel: NotificationChannel.TELEGRAM, configured: false, pending: false },
       ],
     });
   });
@@ -110,13 +114,14 @@ describe('NotificationPreferencesTab', () => {
   });
 
   describe('outbound destinations (Milestone 04d)', () => {
-    it('renders all 3 destination rows as "Belum diatur" by default', async () => {
+    it('renders all 4 destination rows as "Belum diatur" by default', async () => {
       renderTab();
 
       expect(await screen.findByText('Slack')).toBeInTheDocument();
       expect(screen.getByText('Discord')).toBeInTheDocument();
       expect(screen.getByText('Webhook Generik')).toBeInTheDocument();
-      expect(screen.getAllByText('Belum diatur')).toHaveLength(3);
+      expect(screen.getByText('Telegram')).toBeInTheDocument();
+      expect(screen.getAllByText('Belum diatur')).toHaveLength(4);
     });
 
     it('saves a webhook url and refreshes to show it as configured', async () => {
@@ -226,6 +231,97 @@ describe('NotificationPreferencesTab', () => {
           NotificationType.RENDER_FAILED,
           { enabled: false, channel: NotificationChannel.SLACK },
         ),
+      );
+    });
+  });
+
+  describe('Telegram destination (Milestone 04e)', () => {
+    it('saves a bot token via upsertTelegramWebhook', async () => {
+      mockUpsertTelegramWebhook.mockResolvedValue({
+        channel: NotificationChannel.TELEGRAM,
+        configured: false,
+        pending: true,
+        telegramBotUsername: 'my_speedora_bot',
+      });
+      renderTab();
+      await screen.findByText('Telegram');
+
+      const input = screen.getByPlaceholderText('Token bot dari @BotFather...');
+      fireEvent.change(input, { target: { value: '123:abcdefghij' } });
+      // Telegram's row is rendered last among the 4 destination rows -
+      // every "not configured" row shows its own "Simpan" button.
+      const saveButtons = screen.getAllByRole('button', { name: 'Simpan' });
+      fireEvent.click(saveButtons[saveButtons.length - 1]);
+
+      await waitFor(() =>
+        expect(mockUpsertTelegramWebhook).toHaveBeenCalledWith('123:abcdefghij'),
+      );
+    });
+
+    it('renders a t.me deep link and "Menunggu konfirmasi..." status while pending', async () => {
+      mockGetNotificationWebhooks.mockResolvedValue({
+        webhooks: [
+          { channel: NotificationChannel.SLACK, configured: false },
+          { channel: NotificationChannel.DISCORD, configured: false },
+          { channel: NotificationChannel.WEBHOOK, configured: false },
+          {
+            channel: NotificationChannel.TELEGRAM,
+            configured: false,
+            pending: true,
+            telegramBotUsername: 'my_speedora_bot',
+          },
+        ],
+      });
+
+      renderTab();
+
+      expect(await screen.findByText('Menunggu konfirmasi...')).toBeInTheDocument();
+      const link = screen.getByRole('link', { name: /t\.me\/my_speedora_bot/ });
+      expect(link).toHaveAttribute('href', 'https://t.me/my_speedora_bot');
+    });
+
+    it('shows "Terhubung" once chatId has been discovered (configured: true)', async () => {
+      mockGetNotificationWebhooks.mockResolvedValue({
+        webhooks: [
+          { channel: NotificationChannel.SLACK, configured: false },
+          { channel: NotificationChannel.DISCORD, configured: false },
+          { channel: NotificationChannel.WEBHOOK, configured: false },
+          {
+            channel: NotificationChannel.TELEGRAM,
+            configured: true,
+            pending: false,
+            telegramBotUsername: 'my_speedora_bot',
+          },
+        ],
+      });
+
+      renderTab();
+
+      expect(await screen.findByText('Terhubung')).toBeInTheDocument();
+      expect(screen.queryByText('Menunggu konfirmasi...')).not.toBeInTheDocument();
+    });
+
+    it('removes a connected Telegram destination', async () => {
+      mockGetNotificationWebhooks.mockResolvedValue({
+        webhooks: [
+          { channel: NotificationChannel.SLACK, configured: false },
+          { channel: NotificationChannel.DISCORD, configured: false },
+          { channel: NotificationChannel.WEBHOOK, configured: false },
+          {
+            channel: NotificationChannel.TELEGRAM,
+            configured: true,
+            pending: false,
+            telegramBotUsername: 'my_speedora_bot',
+          },
+        ],
+      });
+      renderTab();
+      await screen.findByText('Terhubung');
+
+      fireEvent.click(screen.getByRole('button', { name: 'Hapus' }));
+
+      await waitFor(() =>
+        expect(mockDeleteNotificationWebhook).toHaveBeenCalledWith(NotificationChannel.TELEGRAM),
       );
     });
   });

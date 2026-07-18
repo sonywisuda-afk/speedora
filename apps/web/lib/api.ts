@@ -697,6 +697,19 @@ export async function deleteNotificationWebhook(channel: NotificationChannel): P
   await apiFetch(`/notifications/webhooks/${channel}`, { method: 'DELETE' });
 }
 
+// Milestone 04e - a distinct route from the generic webhook upsert above: a
+// bot token isn't a URL, and saving one triggers a real Telegram API
+// validation call server-side, returning telegramBotUsername for the
+// "message your bot" onboarding deep link.
+export async function upsertTelegramWebhook(botToken: string): Promise<NotificationWebhookDto> {
+  const res = await apiFetch('/notifications/telegram', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ botToken }),
+  });
+  return parseJsonOrThrow<NotificationWebhookDto>(res);
+}
+
 // Brand Kit (03d) - Brand Report's minimal logo + color settings.
 export async function getBrandKit(): Promise<BrandKitDto> {
   const res = await apiFetch('/brand-kit');

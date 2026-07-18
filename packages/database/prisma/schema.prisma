@@ -974,17 +974,18 @@ enum NotificationType {
   CREDIT_WARNING
 }
 
-// Only IN_APP for Sprint 4A. Milestone 04d wired SLACK/DISCORD/WEBHOOK -
-// each an outbound delivery surface a user can independently enable/disable
-// per NotificationType (see NotificationPreference below), backed by a
-// destination configured once via NotificationWebhook. EMAIL/TELEGRAM stay
-// deferred (04e/unscheduled), same incremental-enum discipline as
-// ExportType.
+// Only IN_APP for Sprint 4A. Milestone 04d wired SLACK/DISCORD/WEBHOOK, 04e
+// wired TELEGRAM - each an outbound delivery surface a user can
+// independently enable/disable per NotificationType (see
+// NotificationPreference below), backed by a destination configured once
+// via NotificationWebhook. EMAIL stays deferred (unscheduled), same
+// incremental-enum discipline as ExportType.
 enum NotificationChannel {
   IN_APP
   SLACK
   DISCORD
   WEBHOOK
+  TELEGRAM
 }
 
 model Notification {
@@ -1043,6 +1044,21 @@ model NotificationPreference {
 // downstream rows" shape, without the OAuth complexity - just a single
 // secret URL. IN_APP is deliberately excluded (rejected at the service
 // layer, not the schema) since it has no external destination to configure.
+//
+// Milestone 04e (Telegram) - reuses this same model rather than a dedicated
+// TelegramConnection, so every existing consumer (the delivery worker,
+// getWebhooks/deleteWebhook, the @@unique([userId, channel]) invariant)
+// keeps branching on nullable columns instead of learning a second table.
+// For TELEGRAM only: `url` holds the encrypted BOT TOKEN, not a URL (a
+// Telegram bot has no callable webhook URL of its own - the token is what
+// both proves ownership and builds the api.telegram.org request URL at
+// send time). `chatId` is null the instant the token is saved (a bot token
+// alone doesn't say who to message) and stays null until the durable
+// long-polling discovery worker (telegram-chat-discovery.worker.ts) sees
+// the user message their own bot - "configured" now genuinely means
+// "chatId is known", not just "a secret is saved", which is why
+// NotificationWebhookDto grew a separate `pending` field rather than
+// reusing `configured` for this in-between state.
 model NotificationWebhook {
   id        String              @id @default(cuid())
   userId    String
@@ -1052,8 +1068,23 @@ model NotificationWebhook {
   // as SocialAccount.accessToken/refreshToken - see that field's own
   // comment) - stored as "<iv>:<authTag>:<ciphertext>", all hex. Never
   // decrypted back to a client - NotificationWebhookDto only ever exposes
-  // `configured: boolean`.
+  // `configured: boolean`. For TELEGRAM this holds the encrypted bot token
+  // (see this model's own comment above), not a URL.
   url       String
+  // TELEGRAM only - the chat_id discovered by telegram-chat-discovery.worker.ts.
+  // Null for every other channel and for a TELEGRAM row still pending
+  // discovery.
+  chatId               String?
+  // TELEGRAM only - cached from the Telegram getMe API at save time, so the
+  // "message your bot" onboarding UI can render a t.me/<username> deep link
+  // without a second Telegram call.
+  telegramBotUsername  String?
+  // TELEGRAM only - the getUpdates pagination cursor, persisted durably
+  // (not in-memory) so a /start message is processed exactly once and never
+  // reprocessed after an apps/worker restart - the discovery poller's whole
+  // reason for existing as a durable Postgres column rather than a
+  // process-local variable.
+  telegramUpdateOffset Int?
   createdAt DateTime            @default(now())
   updatedAt DateTime            @updatedAt
 

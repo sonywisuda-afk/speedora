@@ -13,6 +13,17 @@ export function formatDiscordPayload(notification: Notification): { content: str
   return { content: `**${notification.title}**\n${notification.body}` };
 }
 
+// Milestone 04e - no `parse_mode` field at all (defaults to Telegram's
+// plain-text mode) - deliberately avoids MarkdownV2's escaping subsystem
+// and legacy Markdown's `_`/`*` footgun in arbitrary notification titles,
+// same plain-text restraint as Slack/Discord's own V1 formatters above.
+export function formatTelegramPayload(
+  notification: Notification,
+  chatId: string,
+): { chat_id: string; text: string } {
+  return { chat_id: chatId, text: `${notification.title}\n\n${notification.body}` };
+}
+
 // A raw JSON mirror of NotificationDto - an arbitrary receiving endpoint
 // needs structured fields, not a chat-formatted string.
 export function formatGenericWebhookPayload(notification: Notification): {

@@ -16,6 +16,7 @@ describe('NotificationsController', () => {
     getWebhooks: jest.Mock;
     upsertWebhook: jest.Mock;
     deleteWebhook: jest.Mock;
+    upsertTelegramWebhook: jest.Mock;
   };
   let subject: Subject<NotificationPublishEvent>;
   const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
@@ -31,6 +32,7 @@ describe('NotificationsController', () => {
       getWebhooks: jest.fn(),
       upsertWebhook: jest.fn(),
       deleteWebhook: jest.fn(),
+      upsertTelegramWebhook: jest.fn(),
     };
     subject = new Subject<NotificationPublishEvent>();
     controller = new NotificationsController(
@@ -226,6 +228,30 @@ describe('NotificationsController', () => {
         'Invalid notification channel: NOT_A_REAL_CHANNEL',
       );
       expect(notificationsService.deleteWebhook).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('upsertTelegram (Milestone 04e)', () => {
+    it('forwards the requester id and bot token', async () => {
+      notificationsService.upsertTelegramWebhook.mockResolvedValue({
+        channel: 'TELEGRAM',
+        configured: false,
+        pending: true,
+        telegramBotUsername: 'my_speedora_bot',
+      });
+
+      const result = await controller.upsertTelegram(user, { botToken: '123:abcdefghij' });
+
+      expect(notificationsService.upsertTelegramWebhook).toHaveBeenCalledWith(
+        'user-1',
+        '123:abcdefghij',
+      );
+      expect(result).toEqual({
+        channel: 'TELEGRAM',
+        configured: false,
+        pending: true,
+        telegramBotUsername: 'my_speedora_bot',
+      });
     });
   });
 });

@@ -77,3 +77,12 @@ export const notificationDeliveryQueue = new Queue(QueueName.NOTIFICATION_DELIVE
   connection: createRedisConnection(),
   defaultJobOptions,
 });
+
+// The repeatable trigger queue for telegram-chat-discovery.worker.ts
+// (Milestone 04e) - self-contained (polls Telegram's getUpdates and writes
+// NotificationWebhook rows directly, no further job to hand off to), same
+// shape as alertEngineQueue above.
+export const telegramChatDiscoveryQueue = new Queue(QueueName.TELEGRAM_CHAT_DISCOVERY, {
+  connection: createRedisConnection(),
+  defaultJobOptions,
+});

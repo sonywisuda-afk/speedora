@@ -246,20 +246,21 @@ describe('NotificationsService', () => {
     });
   });
 
-  describe('getWebhooks (Milestone 04d)', () => {
+  describe('getWebhooks (Milestone 04d/04e)', () => {
     it('returns configured: true only for channels with a saved destination', async () => {
       prisma.notificationWebhook.findMany.mockResolvedValue([{ channel: 'SLACK' }]);
 
       const result = await service.getWebhooks('user-1');
 
       expect(prisma.notificationWebhook.findMany).toHaveBeenCalledWith({
-        where: { userId: 'user-1', channel: { in: ['SLACK', 'DISCORD', 'WEBHOOK'] } },
-        select: { channel: true },
+        where: { userId: 'user-1', channel: { in: ['SLACK', 'DISCORD', 'WEBHOOK', 'TELEGRAM'] } },
+        select: { channel: true, chatId: true, telegramBotUsername: true },
       });
       expect(result.webhooks).toEqual([
         { channel: 'SLACK', configured: true },
         { channel: 'DISCORD', configured: false },
         { channel: 'WEBHOOK', configured: false },
+        { channel: 'TELEGRAM', configured: false, pending: false, telegramBotUsername: undefined },
       ]);
     });
 
@@ -269,6 +270,36 @@ describe('NotificationsService', () => {
       const result = await service.getWebhooks('user-1');
 
       expect(JSON.stringify(result)).not.toContain('url');
+    });
+
+    it('reports a TELEGRAM row with no chatId as pending, not configured', async () => {
+      prisma.notificationWebhook.findMany.mockResolvedValue([
+        { channel: 'TELEGRAM', chatId: null, telegramBotUsername: 'my_speedora_bot' },
+      ]);
+
+      const result = await service.getWebhooks('user-1');
+
+      expect(result.webhooks).toContainEqual({
+        channel: 'TELEGRAM',
+        configured: false,
+        pending: true,
+        telegramBotUsername: 'my_speedora_bot',
+      });
+    });
+
+    it('reports a TELEGRAM row with a chatId as configured, not pending', async () => {
+      prisma.notificationWebhook.findMany.mockResolvedValue([
+        { channel: 'TELEGRAM', chatId: '999888777', telegramBotUsername: 'my_speedora_bot' },
+      ]);
+
+      const result = await service.getWebhooks('user-1');
+
+      expect(result.webhooks).toContainEqual({
+        channel: 'TELEGRAM',
+        configured: true,
+        pending: false,
+        telegramBotUsername: 'my_speedora_bot',
+      });
     });
   });
 
@@ -300,6 +331,63 @@ describe('NotificationsService', () => {
       ).rejects.toThrow(BadRequestException);
       expect(prisma.notificationWebhook.upsert).not.toHaveBeenCalled();
     });
+
+    it('rejects TELEGRAM with BadRequestException (Milestone 04e)', async () => {
+      await expect(
+        service.upsertWebhook('user-1', 'TELEGRAM' as never, 'https://example.com/hook'),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.notificationWebhook.upsert).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('upsertTelegramWebhook (Milestone 04e)', () => {
+    let fetchMock: jest.Mock;
+
+    beforeEach(() => {
+      fetchMock = jest.fn();
+      global.fetch = fetchMock as never;
+    });
+
+    it('validates the token via getMe, persists with chatId nulled, and returns pending: true', async () => {
+      fetchMock.mockResolvedValue({
+        ok: true,
+        json: async () => ({ ok: true, result: { username: 'my_speedora_bot' } }),
+      });
+      prisma.notificationWebhook.upsert.mockResolvedValue({});
+
+      const result = await service.upsertTelegramWebhook('user-1', '123:abcdefghij');
+
+      expect(prisma.notificationWebhook.upsert).toHaveBeenCalledWith({
+        where: { userId_channel: { userId: 'user-1', channel: 'TELEGRAM' } },
+        create: {
+          userId: 'user-1',
+          channel: 'TELEGRAM',
+          url: expect.stringMatching(/^[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$/),
+          telegramBotUsername: 'my_speedora_bot',
+        },
+        update: {
+          url: expect.stringMatching(/^[0-9a-f]+:[0-9a-f]+:[0-9a-f]+$/),
+          telegramBotUsername: 'my_speedora_bot',
+          chatId: null,
+          telegramUpdateOffset: null,
+        },
+      });
+      expect(result).toEqual({
+        channel: 'TELEGRAM',
+        configured: false,
+        pending: true,
+        telegramBotUsername: 'my_speedora_bot',
+      });
+    });
+
+    it('throws BadRequestException for an invalid token, persisting nothing', async () => {
+      fetchMock.mockResolvedValue({ ok: false, json: async () => null });
+
+      await expect(service.upsertTelegramWebhook('user-1', 'bad-token')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.notificationWebhook.upsert).not.toHaveBeenCalled();
+    });
   });
 
   describe('deleteWebhook (Milestone 04d)', () => {
@@ -310,6 +398,16 @@ describe('NotificationsService', () => {
 
       expect(prisma.notificationWebhook.deleteMany).toHaveBeenCalledWith({
         where: { userId: 'user-1', channel: 'DISCORD' },
+      });
+    });
+
+    it('deletes a TELEGRAM row through the same generic path, no special-casing (Milestone 04e)', async () => {
+      prisma.notificationWebhook.deleteMany.mockResolvedValue({ count: 1 });
+
+      await service.deleteWebhook('user-1', 'TELEGRAM' as never);
+
+      expect(prisma.notificationWebhook.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', channel: 'TELEGRAM' },
       });
     });
 

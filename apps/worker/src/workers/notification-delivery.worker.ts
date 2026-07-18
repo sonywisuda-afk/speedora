@@ -7,6 +7,7 @@ import {
   formatDiscordPayload,
   formatGenericWebhookPayload,
   formatSlackPayload,
+  formatTelegramPayload,
 } from '../notification-delivery/payload-formatters';
 import { prisma } from '../prisma';
 import { createRedisConnection } from '../redis';
@@ -17,9 +18,11 @@ const DELIVERY_CHANNELS: NotificationChannel[] = [
   NotificationChannel.SLACK,
   NotificationChannel.DISCORD,
   NotificationChannel.WEBHOOK,
+  NotificationChannel.TELEGRAM,
 ];
 
 const FETCH_TIMEOUT_MS = 10_000;
+const TELEGRAM_API_BASE = 'https://api.telegram.org';
 
 // Milestone 04d - delivers one already-written Notification row to every
 // SLACK/DISCORD/WEBHOOK destination the recipient has both enabled (a
@@ -60,13 +63,38 @@ export function createNotificationDeliveryWorker(): Worker<NotificationDeliveryJ
       if (webhooks.length === 0) return;
 
       for (const webhook of webhooks) {
-        const url = decryptWebhookUrl(webhook.url);
+        // Milestone 04e - a TELEGRAM row can be enabled+configured-as-a-
+        // preference while still pending chat_id discovery (the bot token
+        // was saved, but the user hasn't messaged their bot yet). That's
+        // "not ready yet," not a delivery failure - skip silently rather
+        // than throwing, same posture as the worker's own "does nothing
+        // when enabled but no destination configured" check above, one
+        // level deeper.
+        if (webhook.channel === NotificationChannel.TELEGRAM && webhook.chatId === null) {
+          logger.info('skipping telegram delivery - chat_id not yet discovered', {
+            notificationId,
+            userId: notification.userId,
+          });
+          continue;
+        }
+
+        const secret = decryptWebhookUrl(webhook.url);
+        // For every other channel the decrypted secret IS the POST target.
+        // For TELEGRAM it's a bot token that BUILDS the request URL - the
+        // one place this loop must genuinely branch, not just pick a
+        // different payload formatter.
+        const url =
+          webhook.channel === NotificationChannel.TELEGRAM
+            ? `${TELEGRAM_API_BASE}/bot${secret}/sendMessage`
+            : secret;
         const payload =
           webhook.channel === NotificationChannel.SLACK
             ? formatSlackPayload(notification)
             : webhook.channel === NotificationChannel.DISCORD
               ? formatDiscordPayload(notification)
-              : formatGenericWebhookPayload(notification);
+              : webhook.channel === NotificationChannel.TELEGRAM
+                ? formatTelegramPayload(notification, webhook.chatId as string)
+                : formatGenericWebhookPayload(notification);
 
         const response = await fetch(url, {
           method: 'POST',

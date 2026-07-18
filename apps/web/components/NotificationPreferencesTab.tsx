@@ -2,13 +2,19 @@
 
 import { useState } from 'react';
 import useSWR from 'swr';
-import { NotificationChannel, NotificationType, type NotificationPreferenceDto } from '@speedora/shared';
+import {
+  NotificationChannel,
+  NotificationType,
+  type NotificationPreferenceDto,
+  type NotificationWebhookDto,
+} from '@speedora/shared';
 import {
   deleteNotificationWebhook,
   getNotificationPreferences,
   getNotificationWebhooks,
   updateNotificationPreference,
   upsertNotificationWebhook,
+  upsertTelegramWebhook,
 } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { NOTIFICATION_TYPE_LABELS } from '@/lib/notification-definitions';
@@ -133,6 +139,111 @@ function DestinationRow({
   );
 }
 
+// Milestone 04e - a genuinely different flow from DestinationRow, not a
+// generalized merge: a bot token (not a URL) input, and a distinct
+// "pending" in-between state (token saved, waiting for the user to message
+// their own bot) neither "not configured" nor "configured" captures. Not
+// folded into OUTBOUND_CHANNELS's array, same "fixed small set, not
+// data-driven" reasoning that array's own component choice already uses.
+function TelegramDestinationRow({
+  webhook,
+  onSaved,
+}: {
+  webhook: NotificationWebhookDto | undefined;
+  onSaved: () => void;
+}) {
+  const [token, setToken] = useState('');
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const configured = webhook?.configured ?? false;
+  const pending = webhook?.pending ?? false;
+
+  async function handleSave() {
+    setError(null);
+    setSaving(true);
+    try {
+      await upsertTelegramWebhook(token);
+      setToken('');
+      setEditing(false);
+      onSaved();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Gagal menyimpan token bot');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleRemove() {
+    setSaving(true);
+    try {
+      await deleteNotificationWebhook(NotificationChannel.TELEGRAM);
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const showInput = editing || (!configured && !pending);
+
+  return (
+    <div className="flex items-center gap-2 rounded-md border border-border px-3 py-2.5">
+      <span className="w-28 shrink-0 font-body text-sm text-foreground">Telegram</span>
+      <span
+        className={cn(
+          'shrink-0 font-mono text-[10px] uppercase tracking-wide',
+          configured
+            ? 'text-emerald-400'
+            : pending
+              ? 'text-signal-pink'
+              : 'text-muted-foreground',
+        )}
+      >
+        {configured ? 'Terhubung' : pending ? 'Menunggu konfirmasi...' : 'Belum diatur'}
+      </span>
+
+      {showInput ? (
+        <input
+          type="text"
+          value={token}
+          onChange={(e) => setToken(e.target.value)}
+          placeholder="Token bot dari @BotFather..."
+          className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 font-body text-sm text-foreground"
+        />
+      ) : pending && webhook?.telegramBotUsername ? (
+        <a
+          href={`https://t.me/${webhook.telegramBotUsername}`}
+          target="_blank"
+          rel="noreferrer"
+          className="flex-1 font-body text-sm text-signal-pink underline"
+        >
+          Buka t.me/{webhook.telegramBotUsername} dan kirim /start
+        </a>
+      ) : (
+        <span className="flex-1" />
+      )}
+
+      {error && <span className="font-body text-xs text-destructive">{error}</span>}
+
+      {showInput ? (
+        <Button size="sm" variant="outline" disabled={saving || !token} onClick={handleSave}>
+          Simpan
+        </Button>
+      ) : (
+        <Button size="sm" variant="ghost" disabled={saving} onClick={() => setEditing(true)}>
+          Ganti token
+        </Button>
+      )}
+      {(configured || pending) && (
+        <Button size="sm" variant="ghost" disabled={saving} onClick={handleRemove}>
+          Hapus
+        </Button>
+      )}
+    </div>
+  );
+}
+
 // Fixed grid of every NotificationType x Inbox/Toast toggles (Sprint 4B),
 // plus one toggle column per configured outbound channel (Milestone 04d) -
 // immediate-effect PATCH on each click, no Save button, same posture
@@ -141,16 +252,24 @@ function DestinationRow({
 // free-text URL input, not a toggle.
 export function NotificationPreferencesTab() {
   const { data, mutate } = useSWR('notification-preferences', () => getNotificationPreferences());
+  // Milestone 04e - polls only while a TELEGRAM row is pending (token
+  // saved, chat_id not yet discovered), stopping the instant the backend's
+  // discovery poller finds it - no manual interval/effect teardown needed.
+  // 5s is faster than the backend's own 15s discovery tick, cheap against a
+  // plain Postgres-row GET, so onboarding still feels responsive.
   const { data: webhooksData, mutate: mutateWebhooks } = useSWR(
     'notification-webhooks',
     getNotificationWebhooks,
+    { refreshInterval: (latest) => (latest?.webhooks.some((w) => w.pending) ? 5000 : 0) },
   );
   const preferences = data?.preferences ?? [];
   const webhooks = webhooksData?.webhooks ?? [];
 
-  // Fixed, known set of 3 outbound channels - not a dynamic list, so 3
+  // Fixed, known set of 4 outbound channels - not a dynamic list, so 4
   // explicit useSWR calls (each null-keyed until its destination is
-  // configured) rather than looping useSWR, which hooks can't do.
+  // configured) rather than looping useSWR, which hooks can't do. Gated on
+  // `configured` (not `pending` for TELEGRAM) - the per-type toggle column
+  // should only appear once delivery can actually happen.
   const slack = useSWR(
     webhooks.find((w) => w.channel === NotificationChannel.SLACK)?.configured
       ? ['notification-preferences', NotificationChannel.SLACK]
@@ -169,11 +288,18 @@ export function NotificationPreferencesTab() {
       : null,
     () => getNotificationPreferences(NotificationChannel.WEBHOOK),
   );
+  const telegram = useSWR(
+    webhooks.find((w) => w.channel === NotificationChannel.TELEGRAM)?.configured
+      ? ['notification-preferences', NotificationChannel.TELEGRAM]
+      : null,
+    () => getNotificationPreferences(NotificationChannel.TELEGRAM),
+  );
 
   const channelColumns = [
     { channel: NotificationChannel.SLACK, label: 'Slack', swr: slack },
     { channel: NotificationChannel.DISCORD, label: 'Discord', swr: discord },
     { channel: NotificationChannel.WEBHOOK, label: 'Webhook', swr: webhook },
+    { channel: NotificationChannel.TELEGRAM, label: 'Telegram', swr: telegram },
   ].filter((c) => webhooks.find((w) => w.channel === c.channel)?.configured);
 
   async function toggle(type: NotificationType, field: 'enabled' | 'toast', value: boolean) {
@@ -217,6 +343,10 @@ export function NotificationPreferencesTab() {
             onSaved={() => mutateWebhooks()}
           />
         ))}
+        <TelegramDestinationRow
+          webhook={webhooks.find((w) => w.channel === NotificationChannel.TELEGRAM)}
+          onSaved={() => mutateWebhooks()}
+        />
       </div>
 
       <div className="space-y-2">

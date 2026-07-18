@@ -14,7 +14,13 @@ const notificationPreferenceFindManyMock = jest.fn();
 const notificationWebhookFindManyMock = jest.fn();
 jest.mock('@speedora/database', () => ({
   decryptWebhookUrl: (...args: unknown[]) => decryptWebhookUrlMock(...args),
-  NotificationChannel: { IN_APP: 'IN_APP', SLACK: 'SLACK', DISCORD: 'DISCORD', WEBHOOK: 'WEBHOOK' },
+  NotificationChannel: {
+    IN_APP: 'IN_APP',
+    SLACK: 'SLACK',
+    DISCORD: 'DISCORD',
+    WEBHOOK: 'WEBHOOK',
+    TELEGRAM: 'TELEGRAM',
+  },
 }));
 jest.mock('../prisma', () => ({
   prisma: {
@@ -72,7 +78,7 @@ describe('notification-delivery worker', () => {
       where: {
         userId: 'user-1',
         type: 'CLIP_READY',
-        channel: { in: ['SLACK', 'DISCORD', 'WEBHOOK'] },
+        channel: { in: ['SLACK', 'DISCORD', 'WEBHOOK', 'TELEGRAM'] },
         enabled: true,
       },
       select: { channel: true },
@@ -144,5 +150,57 @@ describe('notification-delivery worker', () => {
       /failed with status 500/,
     );
     expect(captureExceptionMock).toHaveBeenCalled();
+  });
+
+  describe('TELEGRAM (Milestone 04e)', () => {
+    it('skips silently (zero fetch calls) when chatId has not been discovered yet', async () => {
+      notificationPreferenceFindManyMock.mockResolvedValue([{ channel: 'TELEGRAM' }]);
+      notificationWebhookFindManyMock.mockResolvedValue([
+        { channel: 'TELEGRAM', url: 'encrypted-bot-token', chatId: null },
+      ]);
+      const processor = getProcessor();
+
+      await processor({ data: { notificationId: 'notif-1' } });
+
+      expect(decryptWebhookUrlMock).not.toHaveBeenCalled();
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('constructs the sendMessage URL from the decrypted bot token and posts {chat_id, text}', async () => {
+      notificationPreferenceFindManyMock.mockResolvedValue([{ channel: 'TELEGRAM' }]);
+      notificationWebhookFindManyMock.mockResolvedValue([
+        { channel: 'TELEGRAM', url: 'encrypted-bot-token', chatId: '999888777' },
+      ]);
+      const processor = getProcessor();
+
+      await processor({ data: { notificationId: 'notif-1' } });
+
+      expect(decryptWebhookUrlMock).toHaveBeenCalledWith('encrypted-bot-token');
+      expect(fetchMock).toHaveBeenCalledWith(
+        'https://api.telegram.org/botdecrypted:encrypted-bot-token/sendMessage',
+        expect.objectContaining({
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: '999888777',
+            text: 'Klip siap!\n\nKlip Anda sudah siap ditonton.',
+          }),
+        }),
+      );
+    });
+
+    it('throws and reports to Sentry on a non-2xx sendMessage response', async () => {
+      notificationPreferenceFindManyMock.mockResolvedValue([{ channel: 'TELEGRAM' }]);
+      notificationWebhookFindManyMock.mockResolvedValue([
+        { channel: 'TELEGRAM', url: 'encrypted-bot-token', chatId: '999888777' },
+      ]);
+      fetchMock.mockResolvedValue({ ok: false, status: 403 });
+      const processor = getProcessor();
+
+      await expect(processor({ data: { notificationId: 'notif-1' } })).rejects.toThrow(
+        /failed with status 403/,
+      );
+      expect(captureExceptionMock).toHaveBeenCalled();
+    });
   });
 });

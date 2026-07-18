@@ -21,6 +21,7 @@ import { NotificationSubscriberService } from '../redis-pubsub/notification-subs
 import { matchesUser, toMessageEvent } from '../redis-pubsub/notification-realtime.util';
 import { UpdateNotificationPreferenceDto } from './dto/update-notification-preference.dto';
 import { UpsertNotificationWebhookDto } from './dto/upsert-notification-webhook.dto';
+import { UpsertTelegramWebhookDto } from './dto/upsert-telegram-webhook.dto';
 import { NotificationsService } from './notifications.service';
 
 const MIN_LIMIT = 1;
@@ -126,6 +127,19 @@ export class NotificationsController {
   @Delete('webhooks/:channel')
   deleteWebhook(@CurrentUser() user: SafeUser, @Param('channel') channel: string) {
     return this.notificationsService.deleteWebhook(user.id, this.requireChannel(channel));
+  }
+
+  // Milestone 04e - a dedicated route rather than reusing PUT
+  // /webhooks/:channel: a bot token isn't a URL (different DTO/validation),
+  // and saving one has a real external side effect (Telegram's getMe call)
+  // plus a response that must carry telegramBotUsername for the "message
+  // your bot" onboarding UI - forcing this through the generic path would
+  // need a discriminated-union DTO and touch 3 unaffected channels for no
+  // reason. Declared before @Patch(':id/read') for the same
+  // specific-before-dynamic reason as every other named route above.
+  @Put('telegram')
+  upsertTelegram(@CurrentUser() user: SafeUser, @Body() dto: UpsertTelegramWebhookDto) {
+    return this.notificationsService.upsertTelegramWebhook(user.id, dto.botToken);
   }
 
   @Patch(':id/read')

@@ -36,6 +36,11 @@ export enum QueueName {
   // apps/worker/src/workers/notification-delivery.worker.ts. Same "apps/api
   // is sole producer, apps/worker sole consumer" shape as EXPORT_GENERATE.
   NOTIFICATION_DELIVERY = 'notification-delivery',
+  // Milestone 04e (Telegram) - a repeatable trigger (no per-firing payload),
+  // same shape as ALERT_ENGINE above, that polls Telegram's getUpdates for
+  // every NotificationWebhook row still awaiting chat_id discovery; see
+  // apps/worker/src/workers/telegram-chat-discovery.worker.ts.
+  TELEGRAM_CHAT_DISCOVERY = 'telegram-chat-discovery',
 }
 
 // videoId is created (status IMPORTING, placeholder sourceUrl) by

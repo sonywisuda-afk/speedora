@@ -42,6 +42,7 @@ async function main() {
     renderClipQueue,
     schedulePublishClipQueue,
     syncPublishStatsQueue,
+    telegramChatDiscoveryQueue,
     transcribeQueue,
   } = await import('./queues');
   const { createImportYoutubeWorker } = await import('./workers/import-youtube.worker');
@@ -62,6 +63,10 @@ async function main() {
     await import('./workers/alert-engine.worker');
   const { createNotificationDeliveryWorker } =
     await import('./workers/notification-delivery.worker');
+  const {
+    createTelegramChatDiscoveryWorker,
+    scheduleRepeatingTrigger: scheduleTelegramChatDiscoveryTrigger,
+  } = await import('./workers/telegram-chat-discovery.worker');
   const { closeNotificationPublisher } = await import('./notificationPublisher');
   const { prisma } = await import('./prisma');
   const { forStage } = await import('./logger');
@@ -73,6 +78,7 @@ async function main() {
   await scheduleSchedulePublishClipTrigger();
   await scheduleSyncPublishStatsTrigger();
   await scheduleAlertEngineTrigger();
+  await scheduleTelegramChatDiscoveryTrigger();
 
   const workers = [
     createImportYoutubeWorker(),
@@ -85,6 +91,7 @@ async function main() {
     createExportGenerateWorker(),
     createAlertEngineWorker(),
     createNotificationDeliveryWorker(),
+    createTelegramChatDiscoveryWorker(),
   ];
 
   logger.info('worker started', { queueCount: workers.length });
@@ -124,6 +131,7 @@ async function main() {
         syncPublishStatsQueue.close(),
         alertEngineQueue.close(),
         notificationDeliveryQueue.close(),
+        telegramChatDiscoveryQueue.close(),
       ]);
       // Milestone 04c - the shared publish-only Redis connection, closed
       // after every worker is done touching it (each worker's own

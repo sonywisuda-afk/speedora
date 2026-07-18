@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { encryptWebhookUrl, type Notification } from '@speedora/database';
+import { encryptWebhookUrl, getTelegramBotInfo, type Notification } from '@speedora/database';
 import {
   NotificationChannel,
   NotificationType,
@@ -14,14 +14,15 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import type { UpdateNotificationPreferenceDto } from './dto/update-notification-preference.dto';
 
-// Milestone 04d - the 3 outbound channels a NotificationWebhook destination
-// can exist for. IN_APP is rejected wherever a channel comes from
-// client input (upsertWebhook/deleteWebhook) - it has no external
+// Milestone 04d/04e - the 4 outbound channels a NotificationWebhook
+// destination can exist for. IN_APP is rejected wherever a channel comes
+// from client input (upsertWebhook/deleteWebhook) - it has no external
 // destination to configure.
 const WEBHOOK_CHANNELS = [
   NotificationChannel.SLACK,
   NotificationChannel.DISCORD,
   NotificationChannel.WEBHOOK,
+  NotificationChannel.TELEGRAM,
 ];
 
 // Notification Center Sprint 4A - shaped like ExportService: ownership via a
@@ -138,27 +139,44 @@ export class NotificationsService {
     };
   }
 
-  // Milestone 04d - one entry per SLACK/DISCORD/WEBHOOK, `configured`
-  // computed from row presence. Never returns the decrypted url - write-only
-  // field, same posture as a password input.
+  // Milestone 04d/04e - one entry per SLACK/DISCORD/WEBHOOK/TELEGRAM. Never
+  // returns the decrypted url/token - write-only field, same posture as a
+  // password input. For TELEGRAM specifically, `configured` means "chatId
+  // is known" (a message can actually be sent), not merely "a bot token was
+  // saved" - `pending: true` is the distinct in-between state a saved-but-
+  // not-yet-discovered row is in, so the UI can render a t.me/<username>
+  // deep link + "waiting" status instead of collapsing that into either
+  // "not configured" or "configured".
   async getWebhooks(userId: string): Promise<NotificationWebhookListDto> {
     const rows = await this.prisma.notificationWebhook.findMany({
       where: { userId, channel: { in: WEBHOOK_CHANNELS } },
-      select: { channel: true },
+      select: { channel: true, chatId: true, telegramBotUsername: true },
     });
-    const configuredChannels = new Set(rows.map((row) => row.channel));
+    const rowByChannel = new Map(rows.map((row) => [row.channel, row]));
 
-    const webhooks: NotificationWebhookDto[] = WEBHOOK_CHANNELS.map((channel) => ({
-      channel,
-      configured: configuredChannels.has(channel),
-    }));
+    const webhooks: NotificationWebhookDto[] = WEBHOOK_CHANNELS.map((channel) => {
+      const row = rowByChannel.get(channel);
+      if (channel === NotificationChannel.TELEGRAM) {
+        return {
+          channel,
+          configured: row?.chatId != null,
+          pending: row != null && row.chatId == null,
+          telegramBotUsername: row?.telegramBotUsername ?? undefined,
+        };
+      }
+      return { channel, configured: row != null };
+    });
 
     return { webhooks };
   }
 
-  // Rejects IN_APP at the service level (not just the DTO/route) - same
-  // service-level-enum-validation convention as updatePreference's
-  // NotificationType check above. Create-on-first-write (upsert), same
+  // Rejects IN_APP and TELEGRAM at the service level (not just the
+  // DTO/route) - same service-level-enum-validation convention as
+  // updatePreference's NotificationType check above. TELEGRAM is rejected
+  // here because its save path needs external validation (getTelegramBotInfo)
+  // and a distinct response shape (telegramBotUsername) this generic
+  // URL-only path has neither the DTO nor the behavior for - see
+  // upsertTelegramWebhook below. Create-on-first-write (upsert), same
   // posture as updatePreference - a user re-saving the same channel just
   // replaces the stored ciphertext.
   async upsertWebhook(
@@ -166,8 +184,8 @@ export class NotificationsService {
     channel: NotificationChannel,
     url: string,
   ): Promise<NotificationWebhookDto> {
-    if (channel === NotificationChannel.IN_APP) {
-      throw new BadRequestException('IN_APP has no external destination to configure');
+    if (channel === NotificationChannel.IN_APP || channel === NotificationChannel.TELEGRAM) {
+      throw new BadRequestException(`${channel} cannot be configured through this endpoint`);
     }
 
     await this.prisma.notificationWebhook.upsert({
@@ -179,6 +197,46 @@ export class NotificationsService {
     return { channel, configured: true };
   }
 
+  // Milestone 04e - validates the token against the real Telegram API
+  // before persisting anything (getTelegramBotInfo throws on an invalid
+  // token, which becomes a clean BadRequestException here - nothing is ever
+  // saved for a token that doesn't work). chatId/telegramUpdateOffset are
+  // explicitly nulled on every save, including a resave of an
+  // already-connected row - a rotated token may belong to a different bot,
+  // so a stale chat_id must never carry over; the user goes through /start
+  // again, which is the safe behavior.
+  async upsertTelegramWebhook(userId: string, botToken: string): Promise<NotificationWebhookDto> {
+    let username: string;
+    try {
+      ({ username } = await getTelegramBotInfo(botToken));
+    } catch {
+      throw new BadRequestException('Token bot Telegram tidak valid');
+    }
+
+    await this.prisma.notificationWebhook.upsert({
+      where: { userId_channel: { userId, channel: NotificationChannel.TELEGRAM } },
+      create: {
+        userId,
+        channel: NotificationChannel.TELEGRAM,
+        url: encryptWebhookUrl(botToken),
+        telegramBotUsername: username,
+      },
+      update: {
+        url: encryptWebhookUrl(botToken),
+        telegramBotUsername: username,
+        chatId: null,
+        telegramUpdateOffset: null,
+      },
+    });
+
+    return {
+      channel: NotificationChannel.TELEGRAM,
+      configured: false,
+      pending: true,
+      telegramBotUsername: username,
+    };
+  }
+
   async deleteWebhook(userId: string, channel: NotificationChannel): Promise<void> {
     if (channel === NotificationChannel.IN_APP) {
       throw new BadRequestException('IN_APP has no external destination to configure');
@@ -186,7 +244,9 @@ export class NotificationsService {
 
     // Same "absence is a fine, ordinary end state" posture as every other
     // delete in this codebase - not an error if there was nothing to
-    // delete (deleteMany, not delete, so a missing row never 404s).
+    // delete (deleteMany, not delete, so a missing row never 404s). TELEGRAM
+    // goes through this same generic path unchanged - clears the whole row,
+    // including chatId/telegramBotUsername/telegramUpdateOffset.
     await this.prisma.notificationWebhook.deleteMany({ where: { userId, channel } });
   }
 
