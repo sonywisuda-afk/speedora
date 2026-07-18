@@ -31,6 +31,7 @@ describe('ClipsService', () => {
       findMany: jest.Mock;
       findUnique: jest.Mock;
     };
+    clipPlatformCopy: { create: jest.Mock; count: jest.Mock; findMany: jest.Mock };
     auditLogEntry: { create: jest.Mock };
     $transaction: jest.Mock;
   };
@@ -41,6 +42,7 @@ describe('ClipsService', () => {
   let recurringSchedules: { resolveSlotForQueue: jest.Mock };
   let renderClipQueue: { add: jest.Mock };
   let publishClipQueue: { add: jest.Mock };
+  let generatePlatformCopyQueue: { add: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -59,6 +61,12 @@ describe('ClipsService', () => {
         findMany: jest.fn(),
         findUnique: jest.fn(),
       },
+      // Publishing Expansion Phase 7B (AI SEO).
+      clipPlatformCopy: {
+        create: jest.fn(),
+        count: jest.fn().mockResolvedValue(0),
+        findMany: jest.fn(),
+      },
       auditLogEntry: { create: jest.fn().mockResolvedValue({}) },
       $transaction: jest.fn(),
     };
@@ -73,6 +81,7 @@ describe('ClipsService', () => {
     recurringSchedules = { resolveSlotForQueue: jest.fn() };
     renderClipQueue = { add: jest.fn() };
     publishClipQueue = { add: jest.fn() };
+    generatePlatformCopyQueue = { add: jest.fn() };
     service = new ClipsService(
       prisma as unknown as PrismaService,
       socialAccounts as unknown as SocialAccountsService,
@@ -82,6 +91,7 @@ describe('ClipsService', () => {
       recurringSchedules as unknown as RecurringSchedulesService,
       renderClipQueue as unknown as Queue,
       publishClipQueue as unknown as Queue,
+      generatePlatformCopyQueue as unknown as Queue,
     );
   });
 
@@ -447,6 +457,140 @@ describe('ClipsService', () => {
       workspaceAccess.assertMinRole.mockRejectedValueOnce(new NotFoundException());
 
       await expect(service.getPlatformFit('clip-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('generatePlatformCopy', () => {
+    const clip = { id: 'clip-1', video: { workspaceId: 'ws-1' }, hookText: 'Wait for it' };
+
+    it('creates a new row and enqueues the LLM generation job', async () => {
+      prisma.clip.findUnique.mockResolvedValue(clip);
+      prisma.clipPlatformCopy.create.mockResolvedValue({
+        id: 'copy-1',
+        clipId: 'clip-1',
+        platform: 'TIKTOK',
+        status: 'PENDING',
+        caption: null,
+        hashtags: [],
+        description: null,
+        failReason: null,
+        createdAt: new Date('2026-07-19T00:00:00Z'),
+      });
+
+      const result = await service.generatePlatformCopy('clip-1', 'user-1', 'TIKTOK' as never);
+
+      expect(workspaceAccess.assertMinRole).toHaveBeenCalledWith('user-1', 'ws-1', 'EDITOR');
+      expect(prisma.clipPlatformCopy.create).toHaveBeenCalledWith({
+        data: { clipId: 'clip-1', platform: 'TIKTOK' },
+      });
+      expect(generatePlatformCopyQueue.add).toHaveBeenCalledWith(QueueName.GENERATE_PLATFORM_COPY, {
+        clipPlatformCopyId: 'copy-1',
+      });
+      expect(result).toEqual(
+        expect.objectContaining({ id: 'copy-1', clipId: 'clip-1', status: 'PENDING' }),
+      );
+    });
+
+    it('throws BadRequestException when the clip has no hookText yet, and does not enqueue', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, hookText: null });
+
+      await expect(
+        service.generatePlatformCopy('clip-1', 'user-1', 'TIKTOK' as never),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.clipPlatformCopy.create).not.toHaveBeenCalled();
+      expect(generatePlatformCopyQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException at the daily rate cap, and does not enqueue', async () => {
+      prisma.clip.findUnique.mockResolvedValue(clip);
+      prisma.clipPlatformCopy.count.mockResolvedValue(5);
+
+      await expect(
+        service.generatePlatformCopy('clip-1', 'user-1', 'TIKTOK' as never),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.clipPlatformCopy.create).not.toHaveBeenCalled();
+      expect(generatePlatformCopyQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('allows generating when under the daily rate cap', async () => {
+      prisma.clip.findUnique.mockResolvedValue(clip);
+      prisma.clipPlatformCopy.count.mockResolvedValue(4);
+      prisma.clipPlatformCopy.create.mockResolvedValue({
+        id: 'copy-2',
+        clipId: 'clip-1',
+        platform: 'TIKTOK',
+        status: 'PENDING',
+        caption: null,
+        hashtags: [],
+        description: null,
+        failReason: null,
+        createdAt: new Date('2026-07-19T00:00:00Z'),
+      });
+
+      await service.generatePlatformCopy('clip-1', 'user-1', 'TIKTOK' as never);
+
+      expect(generatePlatformCopyQueue.add).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws NotFoundException when the requester has no workspace access', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, video: { workspaceId: 'ws-1' } });
+      workspaceAccess.assertMinRole.mockRejectedValueOnce(new NotFoundException());
+
+      await expect(
+        service.generatePlatformCopy('clip-1', 'user-1', 'TIKTOK' as never),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.clipPlatformCopy.create).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('listPlatformCopies', () => {
+    const clip = { id: 'clip-1', video: { ownerId: 'user-1' } };
+
+    it('returns every row for the clip, newest first', async () => {
+      prisma.clip.findUnique.mockResolvedValue(clip);
+      const rows = [
+        {
+          id: 'copy-2',
+          clipId: 'clip-1',
+          platform: 'TIKTOK',
+          status: 'READY',
+          caption: 'a',
+          hashtags: ['x'],
+          description: null,
+          failReason: null,
+          createdAt: new Date('2026-07-19T01:00:00Z'),
+        },
+        {
+          id: 'copy-1',
+          clipId: 'clip-1',
+          platform: 'TIKTOK',
+          status: 'FAILED',
+          caption: null,
+          hashtags: [],
+          description: null,
+          failReason: 'boom',
+          createdAt: new Date('2026-07-19T00:00:00Z'),
+        },
+      ];
+      prisma.clipPlatformCopy.findMany.mockResolvedValue(rows);
+
+      const result = await service.listPlatformCopies('clip-1', 'user-1');
+
+      expect(prisma.clipPlatformCopy.findMany).toHaveBeenCalledWith({
+        where: { clipId: 'clip-1' },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(result.copies).toHaveLength(2);
+      expect(result.copies[0].id).toBe('copy-2');
+    });
+
+    it('throws NotFoundException when the requester has no workspace access', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, video: { workspaceId: 'ws-1' } });
+      workspaceAccess.assertMinRole.mockRejectedValueOnce(new NotFoundException());
+
+      await expect(service.listPlatformCopies('clip-1', 'user-1')).rejects.toThrow(
         NotFoundException,
       );
     });

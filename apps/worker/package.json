@@ -42,6 +42,7 @@
     "@speedora/reframe": "workspace:*",
     "@speedora/report-builder": "workspace:*",
     "@speedora/scene-intelligence": "workspace:*",
+    "@speedora/seo-copy": "workspace:*",
     "@speedora/shared": "workspace:*",
     "@speedora/social": "workspace:*",
     "@speedora/speaker-diarization": "workspace:*",

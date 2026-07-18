@@ -59,6 +59,8 @@ async function main() {
     scheduleRepeatingTrigger: scheduleSyncPublishStatsTrigger,
   } = await import('./workers/sync-publish-stats.worker');
   const { createExportGenerateWorker } = await import('./export-generate/export-generate.worker');
+  const { createGeneratePlatformCopyWorker } =
+    await import('./workers/generate-platform-copy.worker');
   const { createAlertEngineWorker, scheduleRepeatingTrigger: scheduleAlertEngineTrigger } =
     await import('./workers/alert-engine.worker');
   const { createNotificationDeliveryWorker } =
@@ -89,6 +91,7 @@ async function main() {
     createSchedulePublishClipWorker(),
     createSyncPublishStatsWorker(),
     createExportGenerateWorker(),
+    createGeneratePlatformCopyWorker(),
     createAlertEngineWorker(),
     createNotificationDeliveryWorker(),
     createTelegramChatDiscoveryWorker(),

@@ -9,14 +9,19 @@ import {
   type Prisma,
 } from '@speedora/database';
 import {
+  ClipPlatformCopyStatus as SharedClipPlatformCopyStatus,
   filterSegmentsForClip,
   PUBLISH_RETRY_OPTIONS,
   QueueName,
   sanitizeHashtags,
+  SocialPlatform,
   type ClipExplainabilityDto,
+  type ClipPlatformCopyDto,
+  type ClipPlatformCopyListDto,
   type ClipPlatformFitDto,
   type ClipVersionDto,
   type ClipVersionListDto,
+  type GeneratePlatformCopyJobData,
   type PublishClipJobData,
   type PublishRecord,
   type RenderClipJobData,
@@ -24,6 +29,7 @@ import {
 } from '@speedora/shared';
 import { computePlatformFit } from '@speedora/platform-fit';
 import type { Queue } from 'bullmq';
+import type { ClipPlatformCopy } from '@speedora/database';
 import { CampaignsService } from '../campaigns/campaigns.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RecurringSchedulesService } from '../recurring-schedules/recurring-schedules.service';
@@ -99,6 +105,31 @@ function toVersionDto(version: ClipVersion & { createdBy: { email: string } }): 
   };
 }
 
+// Publishing Expansion Phase 7B (AI SEO) - the user's own explicit choice
+// this pass: there's no other spend guardrail to reuse for a fully
+// discretionary, per-click LLM call (ThrottlerModule only guards auth;
+// PremiumCredit is a purchase-and-consume model, not a limiter).
+const MAX_PLATFORM_COPY_GENERATIONS_PER_DAY = 5;
+const PLATFORM_COPY_RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+function toSharedPlatformCopy(row: ClipPlatformCopy): ClipPlatformCopyDto {
+  return {
+    id: row.id,
+    clipId: row.clipId,
+    // Prisma's own SocialPlatform enum and @speedora/shared's are nominally
+    // distinct TS enum types even though they share the same runtime string
+    // values (same "narrow via a cast at the one call site that needs it"
+    // convention used across this codebase, e.g. ExportService.toDto).
+    platform: row.platform as unknown as SocialPlatform,
+    status: row.status as unknown as SharedClipPlatformCopyStatus,
+    caption: row.caption,
+    hashtags: row.hashtags,
+    description: row.description,
+    failReason: row.failReason,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
 @Injectable()
 export class ClipsService {
   constructor(
@@ -111,6 +142,8 @@ export class ClipsService {
     @InjectQueue(QueueName.RENDER_CLIP) private readonly renderClipQueue: Queue<RenderClipJobData>,
     @InjectQueue(QueueName.PUBLISH_CLIP)
     private readonly publishClipQueue: Queue<PublishClipJobData>,
+    @InjectQueue(QueueName.GENERATE_PLATFORM_COPY)
+    private readonly generatePlatformCopyQueue: Queue<GeneratePlatformCopyJobData>,
   ) {}
 
   // Explicit return type (rather than inferred) - a Clip row now includes
@@ -261,6 +294,57 @@ export class ClipsService {
         ? (computePlatformFit(scores).rankings as unknown as ClipPlatformFitDto['rankings'])
         : [],
     };
+  }
+
+  // Publishing Expansion Phase 7B (AI SEO) - creates a new ClipPlatformCopy
+  // row (append-only, see the schema's own comment - never upserts an
+  // existing row in place) and enqueues the LLM generation job, same
+  // "create synchronously so the client can poll immediately, then
+  // enqueue" shape as ExportService.create()/this.render(). A brand-new,
+  // standalone LLM call - never reads/writes Clip.scores/viralityScore/
+  // highlightScore or the frozen detect-clips prompt.
+  async generatePlatformCopy(
+    id: string,
+    requesterId: string,
+    platform: SocialPlatform,
+  ): Promise<ClipPlatformCopyDto> {
+    const clip = await this.findOwnedOrThrow(id, requesterId, WorkspaceRole.EDITOR);
+
+    if (!clip.hookText) {
+      throw new BadRequestException(
+        'This clip has no AI-generated hook/topics yet - nothing to build SEO copy from.',
+      );
+    }
+
+    const since = new Date(Date.now() - PLATFORM_COPY_RATE_LIMIT_WINDOW_MS);
+    const recentCount = await this.prisma.clipPlatformCopy.count({
+      where: { clipId: id, platform, createdAt: { gte: since } },
+    });
+    if (recentCount >= MAX_PLATFORM_COPY_GENERATIONS_PER_DAY) {
+      throw new BadRequestException(
+        `Generate limit reached for this platform (${MAX_PLATFORM_COPY_GENERATIONS_PER_DAY}/24h) - try again later.`,
+      );
+    }
+
+    const row = await this.prisma.clipPlatformCopy.create({
+      data: { clipId: id, platform },
+    });
+    await this.generatePlatformCopyQueue.add(QueueName.GENERATE_PLATFORM_COPY, {
+      clipPlatformCopyId: row.id,
+    });
+
+    return toSharedPlatformCopy(row);
+  }
+
+  async listPlatformCopies(id: string, requesterId: string): Promise<ClipPlatformCopyListDto> {
+    await this.findOwnedOrThrow(id, requesterId);
+
+    const rows = await this.prisma.clipPlatformCopy.findMany({
+      where: { clipId: id },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return { copies: rows.map(toSharedPlatformCopy) };
   }
 
   // Permanently deletes one clip (its publish records cascade via the

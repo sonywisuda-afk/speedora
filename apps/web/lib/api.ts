@@ -12,6 +12,8 @@ import type {
   CampaignListDto,
   Clip,
   ClipExplainabilityDto,
+  ClipPlatformCopyDto,
+  ClipPlatformCopyListDto,
   ClipPlatformFitDto,
   ClipVersionListDto,
   CommentAttachmentDto,
@@ -375,6 +377,27 @@ export async function getClipExplainability(clipId: string): Promise<ClipExplain
 export async function getClipPlatformFit(clipId: string): Promise<ClipPlatformFitDto> {
   const res = await apiFetch(`/clips/${clipId}/platform-fit`);
   return parseJsonOrThrow<ClipPlatformFitDto>(res);
+}
+
+// Publishing Expansion Phase 7B (AI SEO) - append-only: every call (whether
+// the user is clicking "Generate" for the first time or "Regenerate") is
+// the exact same POST, creating a new ClipPlatformCopy row rather than
+// updating one in place - see ClipsService.generatePlatformCopy.
+export async function generatePlatformCopy(
+  clipId: string,
+  platform: SocialPlatform,
+): Promise<ClipPlatformCopyDto> {
+  const res = await apiFetch(`/clips/${clipId}/platform-copy`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ platform }),
+  });
+  return parseJsonOrThrow<ClipPlatformCopyDto>(res);
+}
+
+export async function listClipPlatformCopies(clipId: string): Promise<ClipPlatformCopyListDto> {
+  const res = await apiFetch(`/clips/${clipId}/platform-copy`);
+  return parseJsonOrThrow<ClipPlatformCopyListDto>(res);
 }
 
 // Permanently deletes one clip (not the parent video or its sibling clips).

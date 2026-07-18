@@ -802,11 +802,12 @@ model Clip {
   createdAt               DateTime     @default(now())
   updatedAt               DateTime     @updatedAt
 
-  publishRecords PublishRecord[]
-  jobExecutions  JobExecution[]
-  comments       Comment[]
-  approvals      Approval[]
-  versions       ClipVersion[]
+  publishRecords  PublishRecord[]
+  jobExecutions   JobExecution[]
+  comments        Comment[]
+  approvals       Approval[]
+  versions        ClipVersion[]
+  platformCopies  ClipPlatformCopy[]
 
   @@index([videoId])
 }
@@ -1492,6 +1493,48 @@ model ExportJob {
   // (ExportService.listRecent's `WHERE videoId = ? ORDER BY createdAt DESC
   // LIMIT 10`), a real repeated query this feature introduces.
   @@index([videoId, createdAt])
+}
+
+// Publishing Expansion Phase 7B (AI SEO - per-platform LLM-generated copy).
+// A brand-new, standalone LLM call (caption/hashtags/description for one
+// clip+platform) - explicitly NOT part of the frozen detect-clips
+// selection/scoring call or the Fusion Engine; never reads or writes
+// Clip.scores/viralityScore/highlightScore. Only reads already-stored
+// Clip.hookText/topics/keywords/ctaText/reason.
+enum ClipPlatformCopyStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+}
+
+// Append-only, same "on-demand generated artifact" shape as ExportJob
+// (deliberately NOT PublishRecord's ownership/execution-unit shape) - every
+// Generate/Regenerate click creates a NEW row rather than updating one in
+// place. This is what makes the worker's atomic status-claim step
+// sufficient on its own: there is never contention over one row between two
+// concurrent generations, only the ordinary "BullMQ redelivers a stalled
+// job" case. "Current" copy for a platform is resolved client-side as the
+// latest row by createdAt (apps/web/lib/platform-copy.ts's
+// latestPlatformCopy(), mirroring lib/export.ts's latestJobByType()) -
+// mirroring ExportTypeRow's own regenerate-creates-a-new-row precedent.
+model ClipPlatformCopy {
+  id          String                 @id @default(cuid())
+  clipId      String
+  clip        Clip                   @relation(fields: [clipId], references: [id], onDelete: Cascade)
+  platform    SocialPlatform
+  status      ClipPlatformCopyStatus @default(PENDING)
+  caption     String?
+  hashtags    String[]               @default([])
+  description String?
+  failReason  String?
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+
+  // Backs both "does this platform already have copy?" and the 24h
+  // regenerate rate-cap count (ClipsService.generatePlatformCopy) -
+  // WHERE clipId = ? AND platform = ? AND createdAt >= ?.
+  @@index([clipId, platform, createdAt])
 }
 
 // Sprint 5B (Shared Clips) - a lightweight share-link grant, deliberately

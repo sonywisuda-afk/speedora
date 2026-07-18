@@ -20,6 +20,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
 import { ClipsService } from './clips.service';
+import { CreatePlatformCopyDto } from './dto/create-platform-copy.dto';
 import { PublishClipDto } from './dto/publish-clip.dto';
 import { ReschedulePublishDto } from './dto/reschedule-publish.dto';
 import { UpdateClipDto } from './dto/update-clip.dto';
@@ -173,6 +174,25 @@ export class ClipsController {
   @Get(':id/platform-fit')
   getPlatformFit(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.clipsService.getPlatformFit(id, user.id);
+  }
+
+  // Publishing Expansion Phase 7B (AI SEO) - on-demand, LLM-generated
+  // per-platform caption/hashtags/description. Append-only: every call
+  // creates a NEW row (see ClipPlatformCopy's schema comment) rather than
+  // updating one in place, so "Generate" and "Regenerate" are the exact
+  // same call. See ClipsService.generatePlatformCopy.
+  @Post(':id/platform-copy')
+  generatePlatformCopy(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Body() dto: CreatePlatformCopyDto,
+  ) {
+    return this.clipsService.generatePlatformCopy(id, user.id, dto.platform);
+  }
+
+  @Get(':id/platform-copy')
+  listPlatformCopies(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    return this.clipsService.listPlatformCopies(id, user.id);
   }
 
   // Manual trim from the timeline editor - does not trigger a re-render.

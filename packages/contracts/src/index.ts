@@ -21,6 +21,7 @@ export * from './platform-fit';
 export * from './primary-subject';
 export * from './reframe';
 export * from './scene-intelligence';
+export * from './seo-copy';
 export * from './speaker-diarization';
 export * from './speaker-quality';
 export * from './speaker-scoring';

@@ -41,6 +41,12 @@ export enum QueueName {
   // every NotificationWebhook row still awaiting chat_id discovery; see
   // apps/worker/src/workers/telegram-chat-discovery.worker.ts.
   TELEGRAM_CHAT_DISCOVERY = 'telegram-chat-discovery',
+  // Publishing Expansion Phase 7B (AI SEO) - produced exclusively by
+  // apps/api's POST /clips/:id/platform-copy, same "apps/api sole producer,
+  // apps/worker sole consumer" shape as EXPORT_GENERATE/NOTIFICATION_DELIVERY.
+  // A brand-new, standalone LLM call - never touches Clip.scores/
+  // viralityScore/highlightScore or the frozen detect-clips prompt.
+  GENERATE_PLATFORM_COPY = 'generate-platform-copy',
 }
 
 // videoId is created (status IMPORTING, placeholder sourceUrl) by
@@ -170,3 +176,16 @@ export const NOTIFICATION_DELIVERY_RETRY_OPTIONS = {
   attempts: 3,
   backoff: { type: 'exponential' as const, delay: 10_000 },
 };
+
+// Publishing Expansion Phase 7B (AI SEO) - generate-platform-copy enqueues
+// by clipPlatformCopyId only, not clip/platform details - the
+// ClipPlatformCopy row (created synchronously by
+// ClipsService.generatePlatformCopy() before enqueueing, so it exists
+// immediately for the client to poll) is the single source of truth, same
+// "id-only, DB row is truth" convention as ExportGenerateJobData/
+// PublishClipJobData. No retry options - a failed generation just marks the
+// row FAILED; the user re-triggers via a new POST, same as
+// ExportGenerateJobData's own "no automatic retry" convention.
+export interface GeneratePlatformCopyJobData {
+  clipPlatformCopyId: string;
+}

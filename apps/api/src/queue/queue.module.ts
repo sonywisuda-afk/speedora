@@ -47,6 +47,12 @@ const exportGenerateQueue = BullModule.registerQueue({ name: QueueName.EXPORT_GE
 const notificationDeliveryQueue = BullModule.registerQueue({
   name: QueueName.NOTIFICATION_DELIVERY,
 });
+// Publishing Expansion Phase 7B (AI SEO) - apps/api is sole producer (POST
+// /clips/:id/platform-copy), apps/worker's generate-platform-copy.worker.ts
+// the sole consumer - same shape as exportGenerateQueue above.
+const generatePlatformCopyQueue = BullModule.registerQueue({
+  name: QueueName.GENERATE_PLATFORM_COPY,
+});
 
 @Module({
   imports: [
@@ -66,6 +72,7 @@ const notificationDeliveryQueue = BullModule.registerQueue({
     syncPublishStatsQueue,
     exportGenerateQueue,
     notificationDeliveryQueue,
+    generatePlatformCopyQueue,
   ],
   providers: [NotificationDeliveryProducer],
   exports: [
@@ -78,6 +85,7 @@ const notificationDeliveryQueue = BullModule.registerQueue({
     syncPublishStatsQueue,
     exportGenerateQueue,
     notificationDeliveryQueue,
+    generatePlatformCopyQueue,
     NotificationDeliveryProducer,
   ],
 })
