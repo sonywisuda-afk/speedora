@@ -15,11 +15,13 @@ const uploadTikTokVideoMock = jest.fn();
 const uploadInstagramReelMock = jest.fn();
 const uploadFacebookReelMock = jest.fn();
 const uploadThreadsVideoMock = jest.fn();
+const uploadLinkedInVideoMock = jest.fn();
 class FakeYouTubeOAuthClient {}
 class FakeTikTokOAuthClient {}
 class FakeInstagramOAuthClient {}
 class FakeFacebookOAuthClient {}
 class FakeThreadsOAuthClient {}
+class FakeLinkedInOAuthClient {}
 jest.mock('@speedora/social', () => ({
   resolveAccessToken: (...args: unknown[]) => resolveAccessTokenMock(...args),
   uploadYouTubeVideo: (...args: unknown[]) => uploadYouTubeVideoMock(...args),
@@ -27,11 +29,13 @@ jest.mock('@speedora/social', () => ({
   uploadInstagramReel: (...args: unknown[]) => uploadInstagramReelMock(...args),
   uploadFacebookReel: (...args: unknown[]) => uploadFacebookReelMock(...args),
   uploadThreadsVideo: (...args: unknown[]) => uploadThreadsVideoMock(...args),
+  uploadLinkedInVideo: (...args: unknown[]) => uploadLinkedInVideoMock(...args),
   YouTubeOAuthClient: FakeYouTubeOAuthClient,
   TikTokOAuthClient: FakeTikTokOAuthClient,
   InstagramOAuthClient: FakeInstagramOAuthClient,
   FacebookOAuthClient: FakeFacebookOAuthClient,
   ThreadsOAuthClient: FakeThreadsOAuthClient,
+  LinkedInOAuthClient: FakeLinkedInOAuthClient,
 }));
 
 const getObjectStreamMock = jest.fn();
@@ -405,6 +409,59 @@ describe('publish-clip worker', () => {
       expect(resolveAccessTokenMock).toHaveBeenCalledWith(
         instagramRecord.socialAccount,
         expect.any(FakeInstagramOAuthClient),
+      );
+    });
+  });
+
+  describe('LinkedIn accounts', () => {
+    const linkedinRecord = {
+      ...baseRecord,
+      socialAccount: {
+        ...baseRecord.socialAccount,
+        platform: SocialPlatform.LINKEDIN,
+        platformAccountId: 'urn:li:person:abc123',
+      },
+    };
+
+    beforeEach(() => {
+      uploadLinkedInVideoMock.mockResolvedValue({ postUrn: 'urn:li:share:1' });
+    });
+
+    it('streams the clip bytes (not a presigned URL), publishes to LinkedIn, and marks PUBLISHED with the post urn', async () => {
+      publishRecordFindUniqueOrThrowMock.mockResolvedValue(linkedinRecord);
+
+      const processor = getProcessor();
+      const result = await processor(baseJob());
+
+      expect(getObjectStreamMock).toHaveBeenCalledWith('renders/clip-1.mp4');
+      expect(uploadLinkedInVideoMock).toHaveBeenCalledWith({
+        accessToken: 'plaintext-access',
+        personUrn: 'urn:li:person:abc123',
+        videoStream: { fake: 'readable' },
+        title: 'Wait for it',
+        commentary: 'Wait for it\n\n#viral #fyp',
+      });
+      expect(getPresignedDownloadUrlMock).not.toHaveBeenCalled();
+      expect(publishRecordUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'record-1' },
+        data: {
+          status: PublishStatus.PUBLISHED,
+          platformPostId: 'urn:li:share:1',
+          publishedAt: expect.any(Date),
+        },
+      });
+      expect(result).toEqual({ publishRecordId: 'record-1', platformPostId: 'urn:li:share:1' });
+    });
+
+    it('resolves the access token via the LinkedIn client, not any other platform', async () => {
+      publishRecordFindUniqueOrThrowMock.mockResolvedValue(linkedinRecord);
+
+      const processor = getProcessor();
+      await processor(baseJob());
+
+      expect(resolveAccessTokenMock).toHaveBeenCalledWith(
+        linkedinRecord.socialAccount,
+        expect.any(FakeLinkedInOAuthClient),
       );
     });
   });

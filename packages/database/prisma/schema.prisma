@@ -93,13 +93,16 @@ model PremiumCredit {
 // second; INSTAGRAM added third - see CLAUDE.md's "Publish Center" section
 // for all three. FACEBOOK/THREADS added in Multi-Platform Publishing
 // Expansion, Phase 1 - both Meta Graph API products, following Instagram's
-// container-create -> poll -> publish pattern.
+// container-create -> poll -> publish pattern. LINKEDIN added in Phase 2 -
+// a genuinely different multi-part byte-upload model (LinkedIn's Videos
+// API), not the Meta "fetch from a URL" pattern.
 enum SocialPlatform {
   YOUTUBE
   TIKTOK
   INSTAGRAM
   FACEBOOK
   THREADS
+  LINKEDIN
 }
 
 // Mirrors PublishStatus in packages/shared/src/types/social.ts. SCHEDULED

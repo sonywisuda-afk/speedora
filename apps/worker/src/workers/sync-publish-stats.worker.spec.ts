@@ -17,12 +17,14 @@ const fetchTikTokPublishStatusMock = jest.fn();
 const fetchTikTokVideoStatsMock = jest.fn();
 const fetchFacebookVideoStatsMock = jest.fn();
 const fetchThreadsPostStatsMock = jest.fn();
+const fetchLinkedInPostStatsMock = jest.fn();
 const computeEngagementScoreMock = jest.fn();
 class FakeYouTubeOAuthClient {}
 class FakeInstagramOAuthClient {}
 class FakeTikTokOAuthClient {}
 class FakeFacebookOAuthClient {}
 class FakeThreadsOAuthClient {}
+class FakeLinkedInOAuthClient {}
 jest.mock('@speedora/social', () => ({
   resolveAccessToken: (...args: unknown[]) => resolveAccessTokenMock(...args),
   fetchYouTubeVideoStats: (...args: unknown[]) => fetchYouTubeVideoStatsMock(...args),
@@ -31,12 +33,14 @@ jest.mock('@speedora/social', () => ({
   fetchTikTokVideoStats: (...args: unknown[]) => fetchTikTokVideoStatsMock(...args),
   fetchFacebookVideoStats: (...args: unknown[]) => fetchFacebookVideoStatsMock(...args),
   fetchThreadsPostStats: (...args: unknown[]) => fetchThreadsPostStatsMock(...args),
+  fetchLinkedInPostStats: (...args: unknown[]) => fetchLinkedInPostStatsMock(...args),
   computeEngagementScore: (...args: unknown[]) => computeEngagementScoreMock(...args),
   YouTubeOAuthClient: FakeYouTubeOAuthClient,
   InstagramOAuthClient: FakeInstagramOAuthClient,
   TikTokOAuthClient: FakeTikTokOAuthClient,
   FacebookOAuthClient: FakeFacebookOAuthClient,
   ThreadsOAuthClient: FakeThreadsOAuthClient,
+  LinkedInOAuthClient: FakeLinkedInOAuthClient,
 }));
 
 const publishRecordFindManyMock = jest.fn();
@@ -112,6 +116,19 @@ const tiktokRecord = {
   },
 };
 
+const linkedinRecord = {
+  id: 'record-4',
+  socialAccountId: 'account-4',
+  platformPostId: 'urn:li:share:1',
+  socialAccount: {
+    id: 'account-4',
+    platform: SocialPlatform.LINKEDIN,
+    accessToken: 'encrypted-access-4',
+    refreshToken: 'encrypted-refresh-4',
+    tokenExpiresAt: new Date('2099-01-01'),
+  },
+};
+
 describe('sync-publish-stats worker', () => {
   beforeEach(() => {
     jest.clearAllMocks();
@@ -142,6 +159,13 @@ describe('sync-publish-stats worker', () => {
       likeCount: 30,
       commentCount: 6,
       shareCount: 9,
+    });
+    fetchLinkedInPostStatsMock.mockResolvedValue({
+      viewCount: null,
+      likeCount: 40,
+      commentCount: 8,
+      shareCount: null,
+      watchTimeSeconds: null,
     });
   });
 
@@ -177,11 +201,11 @@ describe('sync-publish-stats worker', () => {
         },
         include: { socialAccount: true },
       });
-      // Also includes FACEBOOK/THREADS (Phase 1) since both define
-      // syncStats - platformsWithStatsSync() derives this list rather than
-      // a second hand-maintained platform array.
+      // Also includes FACEBOOK/THREADS (Phase 1) and LINKEDIN (Phase 2)
+      // since all define syncStats - platformsWithStatsSync() derives this
+      // list rather than a second hand-maintained platform array.
       const inArg = publishRecordFindManyMock.mock.calls[0][0].where.socialAccount.platform.in;
-      expect(inArg).toHaveLength(5);
+      expect(inArg).toHaveLength(6);
     });
 
     it('fetches and persists YouTube stats via the YouTube client', async () => {
@@ -382,6 +406,43 @@ describe('sync-publish-stats worker', () => {
       expect(publishRecordUpdateMock).not.toHaveBeenCalled();
       expect(publishRecordStatsSnapshotCreateMock).not.toHaveBeenCalled();
       expect(captureExceptionMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('LinkedIn records', () => {
+    it('fetches and persists LinkedIn stats via the LinkedIn client', async () => {
+      publishRecordFindManyMock.mockResolvedValue([linkedinRecord]);
+
+      const processor = getProcessor();
+      await processor({});
+
+      expect(resolveAccessTokenMock).toHaveBeenCalledWith(
+        linkedinRecord.socialAccount,
+        expect.any(FakeLinkedInOAuthClient),
+      );
+      expect(fetchLinkedInPostStatsMock).toHaveBeenCalledWith('plaintext-access', 'urn:li:share:1');
+      expect(publishRecordUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'record-4' },
+        data: {
+          viewCount: null,
+          likeCount: 40,
+          commentCount: 8,
+          statsUpdatedAt: expect.any(Date),
+        },
+      });
+      // LinkedIn's Community Management API tier has no view/share/watch-time
+      // metrics available for organic posts.
+      expect(publishRecordStatsSnapshotCreateMock).toHaveBeenCalledWith({
+        data: {
+          publishRecordId: 'record-4',
+          viewCount: null,
+          likeCount: 40,
+          commentCount: 8,
+          shareCount: null,
+          watchTimeSeconds: null,
+          engagementScore: 0.5,
+        },
+      });
     });
   });
 });

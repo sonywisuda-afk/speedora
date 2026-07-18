@@ -37,7 +37,12 @@ export function encryptToken(plaintext: string): string {
 
 export function decryptToken(stored: string): string {
   const [ivHex, authTagHex, ciphertextHex] = stored.split(':');
-  if (!ivHex || !authTagHex || !ciphertextHex) {
+  // ciphertextHex legitimately IS the empty string when the original
+  // plaintext was '' (e.g. LinkedInOAuthClient's null refreshToken,
+  // Multi-Platform Publishing Expansion Phase 2) - AES-GCM still produces a
+  // real (non-empty) iv/authTag for zero-length plaintext, so only ivHex/
+  // authTagHex being falsy indicates a genuinely malformed token.
+  if (!ivHex || !authTagHex || ciphertextHex === undefined) {
     throw new Error('Malformed encrypted token');
   }
   const decipher = createDecipheriv(ALGORITHM, getKey(), Buffer.from(ivHex, 'hex'));

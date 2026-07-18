@@ -6,6 +6,7 @@ import {
   resolveAccessToken,
   FacebookOAuthClient,
   InstagramOAuthClient,
+  LinkedInOAuthClient,
   ThreadsOAuthClient,
   TikTokOAuthClient,
   YouTubeOAuthClient,
@@ -13,6 +14,8 @@ import {
   type FacebookTokens,
   type InstagramAccount,
   type InstagramTokens,
+  type LinkedInMember,
+  type LinkedInTokens,
   type ThreadsTokens,
   type ThreadsUser,
   type TikTokTokens,
@@ -33,6 +36,7 @@ export class SocialAccountsService {
     private readonly instagram: InstagramOAuthClient,
     private readonly facebook: FacebookOAuthClient,
     private readonly threads: ThreadsOAuthClient,
+    private readonly linkedin: LinkedInOAuthClient,
   ) {}
 
   // Both revokeToken() and resolveAccessToken() (via OAuthRefreshClient)
@@ -41,7 +45,13 @@ export class SocialAccountsService {
   // the concrete OAuth client that owns it.
   private clientFor(
     platform: SocialPlatform,
-  ): YouTubeOAuthClient | TikTokOAuthClient | InstagramOAuthClient | FacebookOAuthClient | ThreadsOAuthClient {
+  ):
+    | YouTubeOAuthClient
+    | TikTokOAuthClient
+    | InstagramOAuthClient
+    | FacebookOAuthClient
+    | ThreadsOAuthClient
+    | LinkedInOAuthClient {
     switch (platform) {
       case SocialPlatform.YOUTUBE:
         return this.youtube;
@@ -53,6 +63,8 @@ export class SocialAccountsService {
         return this.facebook;
       case SocialPlatform.THREADS:
         return this.threads;
+      case SocialPlatform.LINKEDIN:
+        return this.linkedin;
     }
   }
 
@@ -254,6 +266,46 @@ export class SocialAccountsService {
         displayName: user.username,
         accessToken: encryptToken(tokens.accessToken),
         refreshToken: encryptToken(tokens.accessToken),
+        tokenExpiresAt: tokens.expiresAt,
+      },
+    });
+    return toDto(row);
+  }
+
+  // Upserts on (userId, platform, personUrn). Unlike Instagram/Facebook,
+  // there's no Page-token indirection - the member's own access token is
+  // used directly for API calls, so it's stored as accessToken; refreshToken
+  // is only non-empty for apps LinkedIn has enrolled in its Programmatic
+  // Refresh Tokens program (see LinkedInOAuthClient's SCOPES comment) - most
+  // connections will have an empty refreshToken, and resolveAccessToken()'s
+  // eventual refresh attempt will simply fail with a clear LinkedIn API
+  // error once the 60-day access token actually expires.
+  async connectLinkedIn(
+    userId: string,
+    tokens: LinkedInTokens,
+    member: LinkedInMember,
+  ): Promise<SocialAccount> {
+    const row = await this.prisma.socialAccount.upsert({
+      where: {
+        userId_platform_platformAccountId: {
+          userId,
+          platform: SocialPlatform.LINKEDIN,
+          platformAccountId: member.personUrn,
+        },
+      },
+      create: {
+        userId,
+        platform: SocialPlatform.LINKEDIN,
+        platformAccountId: member.personUrn,
+        displayName: member.name,
+        accessToken: encryptToken(tokens.accessToken),
+        refreshToken: encryptToken(tokens.refreshToken ?? ''),
+        tokenExpiresAt: tokens.expiresAt,
+      },
+      update: {
+        displayName: member.name,
+        accessToken: encryptToken(tokens.accessToken),
+        refreshToken: encryptToken(tokens.refreshToken ?? ''),
         tokenExpiresAt: tokens.expiresAt,
       },
     });

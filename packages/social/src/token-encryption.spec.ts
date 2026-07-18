@@ -37,6 +37,13 @@ describe('token-encryption', () => {
     expect(parts.every((p) => /^[0-9a-f]+$/.test(p))).toBe(true);
   });
 
+  it('round-trips an empty-string plaintext (e.g. a platform with no refresh token issued)', () => {
+    const encrypted = encryptToken('');
+
+    expect(encrypted.split(':')).toHaveLength(3);
+    expect(decryptToken(encrypted)).toBe('');
+  });
+
   it('throws when TOKEN_ENCRYPTION_KEY is not configured', () => {
     delete process.env.TOKEN_ENCRYPTION_KEY;
 

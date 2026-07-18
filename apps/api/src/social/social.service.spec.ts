@@ -6,6 +6,7 @@ import {
   encryptToken,
   type FacebookOAuthClient,
   type InstagramOAuthClient,
+  type LinkedInOAuthClient,
   type ThreadsOAuthClient,
   type TikTokOAuthClient,
   type YouTubeOAuthClient,
@@ -30,6 +31,7 @@ describe('SocialAccountsService', () => {
   let instagram: { revokeToken: jest.Mock; refreshAccessToken: jest.Mock };
   let facebook: { revokeToken: jest.Mock; refreshAccessToken: jest.Mock };
   let threads: { revokeToken: jest.Mock; refreshAccessToken: jest.Mock };
+  let linkedin: { revokeToken: jest.Mock; refreshAccessToken: jest.Mock };
 
   beforeEach(() => {
     process.env = { ...originalEnv, TOKEN_ENCRYPTION_KEY: randomBytes(32).toString('hex') };
@@ -47,6 +49,7 @@ describe('SocialAccountsService', () => {
     instagram = { revokeToken: jest.fn(), refreshAccessToken: jest.fn() };
     facebook = { revokeToken: jest.fn(), refreshAccessToken: jest.fn() };
     threads = { revokeToken: jest.fn(), refreshAccessToken: jest.fn() };
+    linkedin = { revokeToken: jest.fn(), refreshAccessToken: jest.fn() };
     service = new SocialAccountsService(
       prisma as unknown as PrismaService,
       youtube as unknown as YouTubeOAuthClient,
@@ -54,6 +57,7 @@ describe('SocialAccountsService', () => {
       instagram as unknown as InstagramOAuthClient,
       facebook as unknown as FacebookOAuthClient,
       threads as unknown as ThreadsOAuthClient,
+      linkedin as unknown as LinkedInOAuthClient,
     );
   });
 
@@ -439,6 +443,58 @@ describe('SocialAccountsService', () => {
       expect(call.create.displayName).toBe('my_threads');
       expect(result.id).toBe('acc-1');
       expect(result.displayName).toBe('my_threads');
+    });
+  });
+
+  describe('connectLinkedIn', () => {
+    it('upserts on (userId, platform, personUrn), storing the member token directly (no Page indirection)', async () => {
+      prisma.socialAccount.upsert.mockImplementation(({ create }) =>
+        Promise.resolve({
+          id: 'acc-1',
+          ...create,
+          tokenExpiresAt: create.tokenExpiresAt,
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
+      );
+
+      const result = await service.connectLinkedIn(
+        'user-1',
+        {
+          accessToken: 'plain-access',
+          refreshToken: 'plain-refresh',
+          expiresAt: new Date('2026-03-01T00:00:00.000Z'),
+        },
+        { personUrn: 'urn:li:person:abc123', name: 'Jane Doe' },
+      );
+
+      const call = prisma.socialAccount.upsert.mock.calls[0][0];
+      expect(call.where).toEqual({
+        userId_platform_platformAccountId: {
+          userId: 'user-1',
+          platform: SocialPlatform.LINKEDIN,
+          platformAccountId: 'urn:li:person:abc123',
+        },
+      });
+      expect(decryptToken(call.create.accessToken)).toBe('plain-access');
+      expect(decryptToken(call.create.refreshToken)).toBe('plain-refresh');
+      expect(call.create.displayName).toBe('Jane Doe');
+      expect(result.id).toBe('acc-1');
+      expect(result.displayName).toBe('Jane Doe');
+    });
+
+    it('stores an empty refreshToken when LinkedIn does not issue one', async () => {
+      prisma.socialAccount.upsert.mockImplementation(({ create }) =>
+        Promise.resolve({ id: 'acc-1', ...create, createdAt: new Date('2026-01-01T00:00:00.000Z') }),
+      );
+
+      await service.connectLinkedIn(
+        'user-1',
+        { accessToken: 'plain-access', refreshToken: null, expiresAt: new Date('2026-03-01T00:00:00.000Z') },
+        { personUrn: 'urn:li:person:abc123', name: 'Jane Doe' },
+      );
+
+      const call = prisma.socialAccount.upsert.mock.calls[0][0];
+      expect(decryptToken(call.create.refreshToken)).toBe('');
     });
   });
 });

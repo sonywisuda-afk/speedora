@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import {
   FacebookOAuthClient,
   InstagramOAuthClient,
+  LinkedInOAuthClient,
   ThreadsOAuthClient,
   TikTokOAuthClient,
   YouTubeOAuthClient,
@@ -31,6 +32,7 @@ import { SocialAccountsService } from './social.service';
     InstagramOAuthClient,
     FacebookOAuthClient,
     ThreadsOAuthClient,
+    LinkedInOAuthClient,
   ],
   // ClipsModule (Fase 6b) needs SocialAccountsService.findOwnedOrThrow() to
   // validate the target account before enqueueing a publish-clip job.

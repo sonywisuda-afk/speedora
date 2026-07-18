@@ -8,6 +8,7 @@ export enum SocialPlatform {
   INSTAGRAM = 'INSTAGRAM',
   FACEBOOK = 'FACEBOOK',
   THREADS = 'THREADS',
+  LINKEDIN = 'LINKEDIN',
 }
 
 // Multi-Platform Publishing Expansion, Phase 0 - the single source of truth
@@ -30,6 +31,7 @@ export const PLATFORM_METADATA: Record<SocialPlatform, PlatformMetadata> = {
   [SocialPlatform.INSTAGRAM]: { label: 'Instagram', iconKey: 'instagram', colorHex: '#E1306C' },
   [SocialPlatform.FACEBOOK]: { label: 'Facebook Reels', iconKey: 'facebook', colorHex: '#1877F2' },
   [SocialPlatform.THREADS]: { label: 'Threads', iconKey: 'threads', colorHex: '#000000' },
+  [SocialPlatform.LINKEDIN]: { label: 'LinkedIn', iconKey: 'linkedin', colorHex: '#0A66C2' },
 };
 
 // API/UI-facing DTO for a connected account - deliberately never includes

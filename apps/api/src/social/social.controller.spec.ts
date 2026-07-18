@@ -3,6 +3,7 @@ import {
   OAuthNotConfiguredError,
   type FacebookOAuthClient,
   type InstagramOAuthClient,
+  type LinkedInOAuthClient,
   type ThreadsOAuthClient,
   type TikTokOAuthClient,
   type YouTubeOAuthClient,
@@ -21,6 +22,7 @@ describe('SocialController', () => {
     connectInstagram: jest.Mock;
     connectFacebook: jest.Mock;
     connectThreads: jest.Mock;
+    connectLinkedIn: jest.Mock;
   };
   let youtube: {
     buildAuthorizeUrl: jest.Mock;
@@ -47,6 +49,11 @@ describe('SocialController', () => {
     exchangeCode: jest.Mock;
     fetchAccountInfo: jest.Mock;
   };
+  let linkedin: {
+    buildAuthorizeUrl: jest.Mock;
+    exchangeCode: jest.Mock;
+    fetchAccountInfo: jest.Mock;
+  };
   let jwt: { sign: jest.Mock; verify: jest.Mock };
   const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
 
@@ -63,6 +70,7 @@ describe('SocialController', () => {
       connectInstagram: jest.fn(),
       connectFacebook: jest.fn(),
       connectThreads: jest.fn(),
+      connectLinkedIn: jest.fn(),
     };
     youtube = {
       buildAuthorizeUrl: jest.fn(),
@@ -89,6 +97,11 @@ describe('SocialController', () => {
       exchangeCode: jest.fn(),
       fetchAccountInfo: jest.fn(),
     };
+    linkedin = {
+      buildAuthorizeUrl: jest.fn(),
+      exchangeCode: jest.fn(),
+      fetchAccountInfo: jest.fn(),
+    };
     jwt = { sign: jest.fn(), verify: jest.fn() };
     controller = new SocialController(
       socialAccounts as unknown as SocialAccountsService,
@@ -97,6 +110,7 @@ describe('SocialController', () => {
       instagram as unknown as InstagramOAuthClient,
       facebook as unknown as FacebookOAuthClient,
       threads as unknown as ThreadsOAuthClient,
+      linkedin as unknown as LinkedInOAuthClient,
       jwt as never,
     );
     process.env.WEB_ORIGIN = 'http://localhost:3000';
@@ -311,6 +325,27 @@ describe('SocialController', () => {
         { threadsUserId: 'threads-user-1', username: 'my_threads' },
       );
       expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/social?connected=threads');
+    });
+
+    it('exchanges the code, fetches the member, connects the account, and redirects on success (LinkedIn)', async () => {
+      jwt.verify.mockReturnValue({ sub: 'user-1' });
+      linkedin.exchangeCode.mockResolvedValue({ accessToken: 'access-1', refreshToken: null });
+      linkedin.fetchAccountInfo.mockResolvedValue({
+        personUrn: 'urn:li:person:abc123',
+        name: 'Jane Doe',
+      });
+      const res = fakeResponse();
+
+      await controller.callback('linkedin', 'the-code', 'signed-state', undefined, res);
+
+      expect(linkedin.exchangeCode).toHaveBeenCalledWith('the-code');
+      expect(linkedin.fetchAccountInfo).toHaveBeenCalledWith('access-1');
+      expect(socialAccounts.connectLinkedIn).toHaveBeenCalledWith(
+        'user-1',
+        { accessToken: 'access-1', refreshToken: null },
+        { personUrn: 'urn:li:person:abc123', name: 'Jane Doe' },
+      );
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/social?connected=linkedin');
     });
   });
 });

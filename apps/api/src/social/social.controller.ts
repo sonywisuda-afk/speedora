@@ -13,6 +13,7 @@ import { JwtService } from '@nestjs/jwt';
 import {
   FacebookOAuthClient,
   InstagramOAuthClient,
+  LinkedInOAuthClient,
   OAuthNotConfiguredError,
   ThreadsOAuthClient,
   TikTokOAuthClient,
@@ -21,6 +22,8 @@ import {
   type FacebookTokens,
   type InstagramAccount,
   type InstagramTokens,
+  type LinkedInMember,
+  type LinkedInTokens,
   type ThreadsTokens,
   type ThreadsUser,
   type TikTokTokens,
@@ -88,6 +91,7 @@ export class SocialController {
     private readonly instagram: InstagramOAuthClient,
     private readonly facebook: FacebookOAuthClient,
     private readonly threads: ThreadsOAuthClient,
+    private readonly linkedin: LinkedInOAuthClient,
     // Separate JwtModule instance from AuthModule's (see social.module.ts) -
     // same JWT_SECRET, unrelated purpose (signing the OAuth `state` param,
     // not session auth), short-lived (10m) so a state token can't be
@@ -144,6 +148,17 @@ export class SocialController {
             userId,
             tokens as ThreadsTokens,
             profile as ThreadsUser,
+          ),
+      },
+      [SocialPlatform.LINKEDIN]: {
+        buildAuthorizeUrl: (state) => this.linkedin.buildAuthorizeUrl(state),
+        exchangeCode: (code) => this.linkedin.exchangeCode(code),
+        fetchProfile: (token) => this.linkedin.fetchAccountInfo(token),
+        connect: (userId, tokens, profile) =>
+          this.socialAccounts.connectLinkedIn(
+            userId,
+            tokens as LinkedInTokens,
+            profile as LinkedInMember,
           ),
       },
     };

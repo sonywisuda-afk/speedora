@@ -3,15 +3,18 @@ import {
   FacebookOAuthClient,
   fetchFacebookVideoStats,
   fetchInstagramMediaStats,
+  fetchLinkedInPostStats,
   fetchThreadsPostStats,
   fetchTikTokPublishStatus,
   fetchTikTokVideoStats,
   fetchYouTubeVideoStats,
   InstagramOAuthClient,
+  LinkedInOAuthClient,
   ThreadsOAuthClient,
   TikTokOAuthClient,
   uploadFacebookReel,
   uploadInstagramReel,
+  uploadLinkedInVideo,
   uploadThreadsVideo,
   uploadTikTokVideo,
   uploadYouTubeVideo,
@@ -78,6 +81,7 @@ const tiktokOAuth = new TikTokOAuthClient();
 const instagramOAuth = new InstagramOAuthClient();
 const facebookOAuth = new FacebookOAuthClient();
 const threadsOAuth = new ThreadsOAuthClient();
+const linkedinOAuth = new LinkedInOAuthClient();
 
 // How long the presigned URL handed to Meta's servers (Instagram Reels,
 // Facebook Reels, and Threads video posts - all fetch-from-URL rather than
@@ -216,6 +220,29 @@ export const platformRegistry: Record<SocialPlatform, PlatformPublishAdapter> = 
     },
     async syncStats({ accessToken, platformPostId }) {
       return { kind: 'stats', stats: await fetchThreadsPostStats(accessToken, platformPostId) };
+    },
+  },
+  [SocialPlatform.LINKEDIN]: {
+    oauth: linkedinOAuth,
+    async publish({ record, outputUrl, accessToken }) {
+      // LinkedIn's Videos API requires the actual bytes (its own fixed
+      // 4MiB-part multi-part upload), not a fetch-from-URL hosted model
+      // like Meta's platforms - see uploadLinkedInVideo's own comment.
+      const videoStream = await getObjectStream(outputUrl);
+      const upload = await uploadLinkedInVideo({
+        accessToken,
+        personUrn: record.socialAccount.platformAccountId,
+        videoStream,
+        title: record.clip.hookText || `Clip ${record.clip.id}`,
+        commentary: buildCaption(record.clip.hookText, record.clip.hashtags),
+      });
+      return {
+        platformPostId: upload.postUrn,
+        logDetail: `published to LinkedIn, post urn ${upload.postUrn}`,
+      };
+    },
+    async syncStats({ accessToken, platformPostId }) {
+      return { kind: 'stats', stats: await fetchLinkedInPostStats(accessToken, platformPostId) };
     },
   },
 };
