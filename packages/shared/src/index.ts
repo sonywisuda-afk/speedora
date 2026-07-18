@@ -11,6 +11,7 @@ export * from './types/payment';
 export * from './types/user';
 export * from './types/ops-ai';
 export * from './types/workspace';
+export * from './types/share';
 export * from './utils/alert-conditions';
 export * from './utils/duration';
 export * from './utils/export-format';

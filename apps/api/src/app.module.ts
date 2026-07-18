@@ -18,6 +18,7 @@ import { PaymentsModule } from './payments/payments.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisPubSubModule } from './redis-pubsub/redis-pubsub.module';
 import { SearchModule } from './search/search.module';
+import { ShareModule } from './share/share.module';
 import { SocialModule } from './social/social.module';
 import { VideosModule } from './videos/videos.module';
 import { WorkspaceModule } from './workspace/workspace.module';
@@ -47,6 +48,7 @@ import { WorkspaceModule } from './workspace/workspace.module';
     DashboardModule,
     SearchModule,
     WorkspaceModule,
+    ShareModule,
     ExportModule,
     BrandKitModule,
     NotificationsModule,

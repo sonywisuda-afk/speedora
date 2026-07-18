@@ -100,8 +100,16 @@ export class VideosController {
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string,
     @Query('workspaceId') workspaceId?: string,
+    @Query('projectId') projectId?: string,
+    @Query('folderId') folderId?: string,
   ) {
-    return this.videosService.findAll(user.id, { cursor, limit: parseLimit(limit), workspaceId });
+    return this.videosService.findAll(user.id, {
+      cursor,
+      limit: parseLimit(limit),
+      workspaceId,
+      projectId,
+      folderId,
+    });
   }
 
   @Get(':id')

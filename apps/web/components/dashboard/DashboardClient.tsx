@@ -15,6 +15,7 @@ import { ProgressSteps } from '@/components/ProgressSteps';
 import { ScoreGauge } from '@/components/ScoreGauge';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { ShareDialog } from '@/components/dashboard/ShareDialog';
 import {
   cancelScheduledPublish,
   clipDownloadUrl,
@@ -495,6 +496,7 @@ export function DashboardClient({
                         AI Explainability
                       </Link>
                     )}
+                    <ShareDialog videoId={video.id} />
                     {confirmDeleteId === video.id ? (
                       <span className="flex items-center gap-2">
                         <span className="font-body text-xs text-muted-foreground">Hapus?</span>

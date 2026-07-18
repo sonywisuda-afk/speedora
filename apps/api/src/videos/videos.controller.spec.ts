@@ -103,6 +103,18 @@ describe('VideosController', () => {
       });
     });
 
+    it('forwards workspaceId/projectId/folderId filters (Sprint 5A) unchanged', () => {
+      controller.findAll(user, undefined, undefined, 'ws-1', 'project-1', 'folder-1');
+
+      expect(videosService.findAll).toHaveBeenCalledWith('user-1', {
+        cursor: undefined,
+        limit: 20,
+        workspaceId: 'ws-1',
+        projectId: 'project-1',
+        folderId: 'folder-1',
+      });
+    });
+
     it('forwards an explicit cursor and clamps an out-of-range limit rather than passing it through raw', () => {
       controller.findAll(user, 'video-9', '9999');
 

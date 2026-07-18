@@ -334,12 +334,38 @@ export class VideosService {
   // workspace's videos; omitted defaults to the requester's own personal
   // workspace, which for every user who has never created/joined a team
   // workspace is exactly the same set of videos this returned before.
+  // projectId/folderId further narrow within that workspace - passing
+  // projectId alone resolves its owning workspace automatically (the
+  // frontend's Project/Folder panel never needs to pass both).
   async findAll(
     requesterId: string,
-    { cursor, limit, workspaceId }: { cursor?: string; limit: number; workspaceId?: string },
+    {
+      cursor,
+      limit,
+      workspaceId,
+      projectId,
+      folderId,
+    }: {
+      cursor?: string;
+      limit: number;
+      workspaceId?: string;
+      projectId?: string;
+      folderId?: string;
+    },
   ) {
     let targetWorkspaceId: string;
-    if (workspaceId) {
+    if (projectId) {
+      const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+      if (!project) {
+        throw new NotFoundException(`Project ${projectId} not found`);
+      }
+      targetWorkspaceId = project.workspaceId;
+      await this.workspaceAccess.assertMinRole(
+        requesterId,
+        targetWorkspaceId,
+        WorkspaceRole.VIEWER,
+      );
+    } else if (workspaceId) {
       await this.workspaceAccess.assertMinRole(requesterId, workspaceId, WorkspaceRole.VIEWER);
       targetWorkspaceId = workspaceId;
     } else {
@@ -347,7 +373,11 @@ export class VideosService {
     }
 
     const videos = await this.prisma.video.findMany({
-      where: { workspaceId: targetWorkspaceId },
+      where: {
+        workspaceId: targetWorkspaceId,
+        ...(projectId ? { projectId } : {}),
+        ...(folderId ? { folderId } : {}),
+      },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       take: limit + 1,
       ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),

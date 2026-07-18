@@ -24,6 +24,7 @@ describe('VideosService', () => {
     activityEvent: { create: jest.Mock };
     notification: { create: jest.Mock };
     notificationPreference: { findUnique: jest.Mock };
+    project: { findUnique: jest.Mock };
     $transaction: jest.Mock;
   };
   let workspaceAccess: {
@@ -57,6 +58,7 @@ describe('VideosService', () => {
       activityEvent: { create: jest.fn().mockResolvedValue({}) },
       notification: { create: jest.fn().mockResolvedValue({ id: 'notif-1' }) },
       notificationPreference: { findUnique: jest.fn().mockResolvedValue(null) },
+      project: { findUnique: jest.fn() },
       // Supports both call shapes used by VideosService: the interactive
       // form (upload/importFromYoutube, which need the just-created video's
       // id before writing its first VideoStatusEvent) and the array form
@@ -495,6 +497,45 @@ describe('VideosService', () => {
       expect(result.videos[0].clips[0].thumbnailBlurDataUrl).toBe(
         'data:image/webp;base64,Y2xpcA==',
       );
+    });
+
+    it('resolves the workspace from projectId and filters by both (Sprint 5A)', async () => {
+      prisma.project.findUnique.mockResolvedValue({ id: 'project-1', workspaceId: 'ws-1' });
+      prisma.video.findMany.mockResolvedValue([]);
+
+      await service.findAll('user-1', { limit: 20, projectId: 'project-1' });
+
+      expect(prisma.project.findUnique).toHaveBeenCalledWith({ where: { id: 'project-1' } });
+      expect(workspaceAccess.assertMinRole).toHaveBeenCalledWith('user-1', 'ws-1', 'VIEWER');
+      expect(prisma.video.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { workspaceId: 'ws-1', projectId: 'project-1' } }),
+      );
+    });
+
+    it('also filters by folderId when given alongside projectId', async () => {
+      prisma.project.findUnique.mockResolvedValue({ id: 'project-1', workspaceId: 'ws-1' });
+      prisma.video.findMany.mockResolvedValue([]);
+
+      await service.findAll('user-1', {
+        limit: 20,
+        projectId: 'project-1',
+        folderId: 'folder-1',
+      });
+
+      expect(prisma.video.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { workspaceId: 'ws-1', projectId: 'project-1', folderId: 'folder-1' },
+        }),
+      );
+    });
+
+    it('throws NotFoundException when projectId does not exist', async () => {
+      prisma.project.findUnique.mockResolvedValue(null);
+
+      await expect(service.findAll('user-1', { limit: 20, projectId: 'missing' })).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.video.findMany).not.toHaveBeenCalled();
     });
 
     it('paginates via cursor and reports nextCursor when there are more rows than the limit', async () => {

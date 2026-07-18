@@ -32,6 +32,10 @@ import type {
   PremiumCreditAvailability,
   PublishRecord,
   SearchResultsDto,
+  ShareLinkCreatedDto,
+  ShareLinkListDto,
+  ShareRole,
+  SharedVideoDto,
   SocialAccount,
   SocialPlatform,
   TranscriptionProvider,
@@ -830,6 +834,46 @@ export async function uploadBrandLogo(file: File): Promise<BrandKitDto> {
 
 export function brandKitLogoUrl(): string {
   return `${API_URL}/brand-kit/logo`;
+}
+
+// Sprint 5B (Shared Clips) - a link holder needs no Speedora account, so
+// getSharedVideo/sharedVideoStreamUrl/sharedClipStreamUrl below are called
+// against a public route (no auth cookie required, though apiFetch's
+// credentials: 'include' is harmless to keep for consistency - it just
+// means an already-logged-in creator previewing their own share link still
+// works the same way).
+export async function createShareLink(
+  videoId: string,
+  input: { role?: ShareRole; expiresInDays?: number },
+): Promise<ShareLinkCreatedDto> {
+  const res = await apiFetch(`/videos/${videoId}/share-links`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return parseJsonOrThrow<ShareLinkCreatedDto>(res);
+}
+
+export async function listShareLinks(videoId: string): Promise<ShareLinkListDto> {
+  const res = await apiFetch(`/videos/${videoId}/share-links`);
+  return parseJsonOrThrow<ShareLinkListDto>(res);
+}
+
+export async function revokeShareLink(id: string): Promise<void> {
+  await apiFetch(`/share-links/${id}`, { method: 'DELETE' });
+}
+
+export async function getSharedVideo(token: string): Promise<SharedVideoDto> {
+  const res = await apiFetch(`/share/${token}`);
+  return parseJsonOrThrow<SharedVideoDto>(res);
+}
+
+export function sharedVideoStreamUrl(sourceStreamUrl: string): string {
+  return `${API_URL}${sourceStreamUrl}`;
+}
+
+export function sharedThumbnailUrl(thumbnailUrl: string): string {
+  return `${API_URL}${thumbnailUrl}`;
 }
 
 export { API_URL };

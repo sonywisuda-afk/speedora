@@ -156,6 +156,8 @@ model User {
   // workspaceMemberships row (their own isPersonal workspace, role OWNER).
   ownedWorkspaces          Workspace[]               @relation("WorkspaceCreator")
   workspaceMemberships     WorkspaceMembership[]
+  // Sprint 5B (Shared Clips)
+  createdShareLinks        ShareLink[]
 }
 
 model Video {
@@ -338,6 +340,7 @@ model Video {
   premiumCredit      PremiumCredit?
   statusEvents       VideoStatusEvent[]
   exportJobs         ExportJob[]
+  shareLinks         ShareLink[]
 
   @@index([ownerId])
   @@index([workspaceId])
@@ -1322,4 +1325,38 @@ model ExportJob {
   // (ExportService.listRecent's `WHERE videoId = ? ORDER BY createdAt DESC
   // LIMIT 10`), a real repeated query this feature introduces.
   @@index([videoId, createdAt])
+}
+
+// Sprint 5B (Shared Clips) - a lightweight share-link grant, deliberately
+// separate from WorkspaceMembership: the holder of a valid link gets
+// read-only (or REVIEWER) access to exactly one Video without becoming a
+// real workspace member (no membership row, no workspace-switcher
+// visibility, no invite lifecycle). Video-scoped only for V1 - a shared
+// video's own clips are visible as part of viewing it, so this covers the
+// common case without also needing a separate Clip-scoped share flow yet.
+enum ShareRole {
+  VIEWER
+  REVIEWER
+}
+
+model ShareLink {
+  id          String     @id @default(cuid())
+  // Same "hash at rest, raw token only ever in the shareable URL" convention
+  // as User.resetPasswordTokenHash/PendingInvite.tokenHash.
+  tokenHash   String     @unique
+  videoId     String
+  video       Video      @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  createdById String
+  createdBy   User       @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  role        ShareRole  @default(VIEWER)
+  // Null = never expires. Distinct from revokedAt below - an expiry is a
+  // passive time-based check at read time; a revocation is an explicit,
+  // immediate "the creator turned this off" action, same distinction
+  // PendingInviteStatus draws between its own states.
+  expiresAt   DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime   @default(now())
+
+  @@index([videoId])
+  @@index([createdById, createdAt])
 }
