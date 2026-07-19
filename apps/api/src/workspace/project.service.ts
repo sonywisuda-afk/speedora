@@ -53,6 +53,8 @@ export class ProjectService {
     const projects = await this.prisma.project.findMany({
       where: { workspaceId },
       orderBy: { createdAt: 'asc' },
+      // Stabilization Pass (API Contract Audit) - was fully unbounded.
+      take: 200,
     });
     return { projects: projects.map(toDto) };
   }

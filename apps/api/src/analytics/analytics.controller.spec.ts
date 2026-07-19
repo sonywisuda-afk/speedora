@@ -91,7 +91,7 @@ describe('AnalyticsController', () => {
 
       expect(analyticsService.getPerformanceClips).toHaveBeenCalledWith(
         'user-1',
-        expect.objectContaining({ limit: 100 }),
+        expect.objectContaining({ limit: 50 }),
       );
     });
   });

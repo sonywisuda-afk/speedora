@@ -119,6 +119,8 @@ export class CampaignsService {
       include: {
         publishRecords: { select: { status: true, clipId: true, socialAccount: { select: { platform: true } } } },
       },
+      // Stabilization Pass (API Contract Audit) - was fully unbounded.
+      take: 200,
     });
     return { campaigns: campaigns.map((c) => toDto(c, c.publishRecords)) };
   }

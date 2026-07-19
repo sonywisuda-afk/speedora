@@ -83,6 +83,8 @@ export class ShareService {
     const links = await this.prisma.shareLink.findMany({
       where: { videoId },
       orderBy: { createdAt: 'desc' },
+      // Stabilization Pass (API Contract Audit) - was fully unbounded.
+      take: 200,
     });
     return { links: links.map(toDto) };
   }

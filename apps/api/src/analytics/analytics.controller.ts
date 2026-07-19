@@ -18,7 +18,11 @@ import { AnalyticsService } from './analytics.service';
 const VALID_DAYS = [7, 30, 90, 180, 365];
 const DEFAULT_DAYS = 30;
 const MIN_LIMIT = 1;
-const MAX_LIMIT = 100;
+// Stabilization Pass - aligned to the same 1-50 ceiling as VideosController/
+// WorkspaceController's own parseLimit (previously 100). The 50 default
+// passed at each call site below is unchanged, so this only tightens what a
+// client can explicitly request past that.
+const MAX_LIMIT = 50;
 const VALID_GRANULARITIES: TrendGranularity[] = ['daily', 'weekly', 'monthly', 'yearly'];
 const DEFAULT_GRANULARITY: TrendGranularity = 'daily';
 

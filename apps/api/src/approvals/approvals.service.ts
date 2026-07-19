@@ -214,6 +214,8 @@ export class ApprovalsService {
       where: { videoId },
       orderBy: { createdAt: 'desc' },
       include: APPROVAL_INCLUDE,
+      // Stabilization Pass (API Contract Audit) - was fully unbounded.
+      take: 200,
     });
     return { approvals: approvals.map(toDto) };
   }

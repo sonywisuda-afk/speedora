@@ -216,6 +216,7 @@ export class ClipsController {
   // where Sprint 5E's ClipVersion snapshot gets created - see
   // ClipsService.render().
   @Post(':id/render')
+  @HttpCode(200)
   render(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.clipsService.render(id, user.id);
   }
@@ -288,6 +289,7 @@ export class ClipsController {
   // Cancel a publish that hasn't fired yet (Fase 6c) - only while it's still
   // SCHEDULED, see ClipsService.cancelScheduledPublish.
   @Delete(':id/publish/:recordId')
+  @HttpCode(204)
   async cancelPublish(
     @CurrentUser() user: SafeUser,
     @Param('id') id: string,

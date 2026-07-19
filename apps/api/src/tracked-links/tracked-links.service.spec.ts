@@ -210,6 +210,7 @@ describe('TrackedLinksService', () => {
       expect(prisma.trackedLink.findMany).toHaveBeenCalledWith({
         where: { workspaceId: 'ws-1' },
         orderBy: { createdAt: 'desc' },
+        take: 200,
       });
       expect(result.links).toHaveLength(1);
       expect(result.links[0].id).toBe('link-1');

@@ -25,7 +25,10 @@ import { UpsertTelegramWebhookDto } from './dto/upsert-telegram-webhook.dto';
 import { NotificationsService } from './notifications.service';
 
 const MIN_LIMIT = 1;
-const MAX_LIMIT = 100;
+// Stabilization Pass - aligned to the same 1-50 ceiling as VideosController/
+// WorkspaceController's own parseLimit (previously 100, an unexplained third
+// ceiling alongside those two).
+const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 20;
 const HEARTBEAT_MS = 20000;
 

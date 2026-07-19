@@ -249,6 +249,7 @@ export class VideosController {
   }
 
   @Post(':id/retry')
+  @HttpCode(200)
   retry(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.videosService.retry(id, user.id);
   }

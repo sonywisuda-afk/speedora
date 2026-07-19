@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -30,6 +30,7 @@ export class TrackedLinksController {
   }
 
   @Delete('tracked-links/:id')
+  @HttpCode(204)
   async remove(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     await this.trackedLinks.remove(user.id, id);
   }

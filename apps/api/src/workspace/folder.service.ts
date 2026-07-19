@@ -85,6 +85,8 @@ export class FolderService {
     const folders = await this.prisma.folder.findMany({
       where: { projectId },
       orderBy: { createdAt: 'asc' },
+      // Stabilization Pass (API Contract Audit) - was fully unbounded.
+      take: 200,
     });
     return { folders: folders.map(toDto) };
   }

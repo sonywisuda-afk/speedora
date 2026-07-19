@@ -1,8 +1,10 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   Patch,
   Post,
@@ -30,6 +32,22 @@ function parseLimit(raw: string | undefined): number {
   const parsed = Number(raw);
   if (!raw || !Number.isFinite(parsed)) return DEFAULT_LIMIT;
   return Math.min(MAX_LIMIT, Math.max(MIN_LIMIT, Math.round(parsed)));
+}
+
+// Unlike parseLimit above, there's no sane default to silently fall back to
+// for a missing/malformed calendar bound - returning the wrong date range
+// silently would be worse than a clear 400. This is a controlled
+// BadRequestException instead of letting an Invalid Date reach Prisma's
+// gte/lt filter, which throws an unhandled PrismaClientValidationError (500).
+function parseRequiredDate(raw: string | undefined, paramName: string): Date {
+  if (!raw) {
+    throw new BadRequestException(`${paramName} is required and must be an ISO 8601 date`);
+  }
+  const parsed = new Date(raw);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new BadRequestException(`${paramName} must be a valid ISO 8601 date`);
+  }
+  return parsed;
 }
 
 // Sprint 5A (Collaboration Foundation). Every route here is scoped by the
@@ -89,6 +107,7 @@ export class WorkspaceController {
   }
 
   @Delete(':id/members/:userId')
+  @HttpCode(204)
   removeMember(
     @CurrentUser() user: SafeUser,
     @Param('id') id: string,
@@ -117,9 +136,14 @@ export class WorkspaceController {
   getCalendar(
     @CurrentUser() user: SafeUser,
     @Param('id') id: string,
-    @Query('start') start: string,
-    @Query('end') end: string,
+    @Query('start') start: string | undefined,
+    @Query('end') end: string | undefined,
   ) {
-    return this.workspaceService.getCalendar(user.id, id, new Date(start), new Date(end));
+    return this.workspaceService.getCalendar(
+      user.id,
+      id,
+      parseRequiredDate(start, 'start'),
+      parseRequiredDate(end, 'end'),
+    );
   }
 }

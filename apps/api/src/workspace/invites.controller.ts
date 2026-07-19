@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Controller, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -23,6 +23,7 @@ export class InvitesController {
   }
 
   @Post(':token/accept')
+  @HttpCode(200)
   @UseGuards(JwtAuthGuard)
   accept(@CurrentUser() user: SafeUser, @Param('token') token: string) {
     return this.workspaceService.acceptInvite(user.id, user.email, token);

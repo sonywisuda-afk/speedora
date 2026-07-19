@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { PublishStatus, WorkspaceRole, type SocialPlatform } from '@speedora/database';
+import { PublishStatus, WorkspaceRole } from '@speedora/database';
 import type {
   AnalyticsHeatmapDto,
   FollowersDto,
@@ -17,6 +17,7 @@ import {
   type LeaderboardCandidate,
 } from '@speedora/analytics-report';
 import { MIN_SAMPLES_FOR_CORRELATION, pearsonCorrelation } from '@speedora/dataset-quality';
+import { toFollowerAccountSeries } from '../analytics/follower-series.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceAccessService } from '../workspace/workspace-access.service';
 
@@ -228,21 +229,3 @@ export class WorkspaceAnalyticsService {
   }
 }
 
-function toFollowerAccountSeries(account: {
-  id: string;
-  platform: SocialPlatform;
-  displayName: string;
-  followerSnapshots: Array<{ capturedAt: Date; followerCount: number }>;
-}): FollowersDto['accounts'][number] {
-  const history = account.followerSnapshots.map((snapshot) => ({
-    capturedAt: snapshot.capturedAt.toISOString(),
-    followerCount: snapshot.followerCount,
-  }));
-  return {
-    socialAccountId: account.id,
-    platform: account.platform as unknown as SharedSocialPlatform,
-    displayName: account.displayName,
-    latestFollowerCount: history.length > 0 ? history[history.length - 1].followerCount : null,
-    history,
-  };
-}

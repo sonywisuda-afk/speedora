@@ -7,7 +7,10 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { DashboardService } from './dashboard.service';
 
 const MIN_LIMIT = 1;
-const MAX_LIMIT = 100;
+// Stabilization Pass - aligned to the same 1-50 ceiling as VideosController/
+// WorkspaceController's own parseLimit (previously 100, an unexplained third
+// ceiling alongside those two).
+const MAX_LIMIT = 50;
 const DEFAULT_ACTIVITY_LIMIT = 20;
 
 // Same "invalid/missing query param falls back to a sane default rather

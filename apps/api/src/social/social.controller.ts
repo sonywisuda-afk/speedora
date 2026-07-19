@@ -2,6 +2,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   NotFoundException,
   Param,
   Query,
@@ -204,6 +205,7 @@ export class SocialController {
   }
 
   @Delete('accounts/:id')
+  @HttpCode(204)
   @UseGuards(JwtAuthGuard)
   async disconnect(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     await this.socialAccounts.disconnect(id, user.id);

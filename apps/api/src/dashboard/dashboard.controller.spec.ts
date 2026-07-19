@@ -42,7 +42,7 @@ describe('DashboardController', () => {
     it('clamps an out-of-range limit rather than passing it through raw', async () => {
       await controller.getActivity(user, '9999');
 
-      expect(dashboardService.getActivity).toHaveBeenCalledWith('user-1', 100);
+      expect(dashboardService.getActivity).toHaveBeenCalledWith('user-1', 50);
     });
   });
 

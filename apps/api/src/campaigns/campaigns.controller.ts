@@ -1,4 +1,14 @@
-import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import type { TrendGranularity } from '@speedora/shared';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -57,6 +67,7 @@ export class CampaignsController {
   }
 
   @Post('campaigns/:id/cancel')
+  @HttpCode(200)
   cancel(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.campaigns.cancel(user.id, id);
   }

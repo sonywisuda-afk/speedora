@@ -1,6 +1,6 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { WorkspaceRole, type ExportJob } from '@speedora/database';
+import { ExportJobStatus, WorkspaceRole, type ExportJob } from '@speedora/database';
 import {
   ExportType,
   QueueName,
@@ -113,7 +113,10 @@ export class ExportService {
       videoId: job.videoId,
       type: job.type as unknown as ExportJobDto['type'],
       status: job.status as unknown as ExportJobDto['status'],
-      resultUrl: job.status === 'READY' && job.resultUrl ? `/export/${job.id}/download` : null,
+      resultUrl:
+        job.status === ExportJobStatus.READY && job.resultUrl
+          ? `/export/${job.id}/download`
+          : null,
       failReason: job.failReason,
       createdAt: job.createdAt.toISOString(),
       updatedAt: job.updatedAt.toISOString(),

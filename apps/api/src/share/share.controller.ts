@@ -4,6 +4,7 @@ import {
   Delete,
   Get,
   Headers,
+  HttpCode,
   NotFoundException,
   Param,
   Post,
@@ -51,6 +52,7 @@ export class ShareController {
   }
 
   @Delete('share-links/:id')
+  @HttpCode(204)
   @UseGuards(JwtAuthGuard)
   async revoke(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     await this.shareService.revoke(user.id, id);

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Param, Patch, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, HttpCode, Param, Patch, UseGuards } from '@nestjs/common';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -16,6 +16,7 @@ export class FolderController {
   }
 
   @Delete(':id')
+  @HttpCode(204)
   remove(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.folderService.remove(user.id, id);
   }

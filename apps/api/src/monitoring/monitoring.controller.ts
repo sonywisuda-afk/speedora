@@ -1,5 +1,5 @@
 import { InjectQueue } from '@nestjs/bullmq';
-import { Controller, Get } from '@nestjs/common';
+import { Controller, Get, Logger, ServiceUnavailableException } from '@nestjs/common';
 import {
   DEFAULT_ALERT_THRESHOLDS,
   hasLikelyStalledJobs,
@@ -53,6 +53,8 @@ interface QueueCounts {
 
 @Controller()
 export class MonitoringController {
+  private readonly logger = new Logger(MonitoringController.name);
+
   // Every queue in the system, including the two apps/api never produces
   // into (SCHEDULE_PUBLISH_CLIP/SYNC_PUBLISH_STATS - see queue.module.ts)
   // - /queues and /workers report on the whole pipeline, not just the
@@ -211,30 +213,40 @@ export class MonitoringController {
     return Object.fromEntries(entries);
   }
 
-  @Get('storage')
-  async storageSummary() {
+  // Non-throwing internal checks - shared by the public @Get routes below
+  // (which throw a 503, matching HealthController's posture) and by
+  // alerts() (which must observe a down dependency without the whole
+  // /alerts response failing). Neither path exposes the raw driver/Prisma/
+  // S3-client error string to the client; it's logged server-side instead.
+  private async checkStorage(): Promise<
+    ({ reachable: true } & Awaited<ReturnType<typeof getBucketUsage>>) | { reachable: false }
+  > {
     try {
       await checkStorageConnection();
     } catch (error) {
-      return { reachable: false, error: error instanceof Error ? error.message : 'unknown error' };
+      this.logger.warn(`storage unreachable: ${error instanceof Error ? error.message : error}`);
+      return { reachable: false };
     }
     const usage = await getBucketUsage();
     return { reachable: true, ...usage };
   }
 
-  @Get('database')
-  async databaseSummary() {
+  private async checkDatabase(): Promise<
+    { reachable: true; latencyMs: number } | { reachable: false }
+  > {
     try {
       const start = Date.now();
       await this.prisma.$queryRaw`SELECT 1`;
       return { reachable: true, latencyMs: Date.now() - start };
     } catch (error) {
-      return { reachable: false, error: error instanceof Error ? error.message : 'unknown error' };
+      this.logger.warn(`database unreachable: ${error instanceof Error ? error.message : error}`);
+      return { reachable: false };
     }
   }
 
-  @Get('redis')
-  async redisSummary() {
+  private async checkRedis(): Promise<
+    { reachable: true; latencyMs: number; usedMemoryBytes: number } | { reachable: false }
+  > {
     try {
       // Any one of the injected queues works here - they all share the same
       // underlying Redis connection, same reasoning as HealthController.
@@ -253,8 +265,36 @@ export class MonitoringController {
       const usedMemoryBytes = Number(/used_memory:(\d+)/.exec(info)?.[1] ?? 0);
       return { reachable: true, latencyMs, usedMemoryBytes };
     } catch (error) {
-      return { reachable: false, error: error instanceof Error ? error.message : 'unknown error' };
+      this.logger.warn(`redis unreachable: ${error instanceof Error ? error.message : error}`);
+      return { reachable: false };
     }
+  }
+
+  @Get('storage')
+  async storageSummary() {
+    const result = await this.checkStorage();
+    if (!result.reachable) {
+      throw new ServiceUnavailableException('Object storage is unreachable');
+    }
+    return result;
+  }
+
+  @Get('database')
+  async databaseSummary() {
+    const result = await this.checkDatabase();
+    if (!result.reachable) {
+      throw new ServiceUnavailableException('Database is unreachable');
+    }
+    return result;
+  }
+
+  @Get('redis')
+  async redisSummary() {
+    const result = await this.checkRedis();
+    if (!result.reachable) {
+      throw new ServiceUnavailableException('Redis is unreachable');
+    }
+    return result;
   }
 
   // Evaluates every alert condition (packages/shared/src/utils/alert-conditions.ts)
@@ -269,9 +309,9 @@ export class MonitoringController {
     const [queues, workers, database, redis, storage, backups] = await Promise.all([
       this.queueSummary(),
       this.workerSummary(),
-      this.databaseSummary(),
-      this.redisSummary(),
-      this.storageSummary(),
+      this.checkDatabase(),
+      this.checkRedis(),
+      this.checkStorage(),
       getBackupStatus(),
     ]);
 

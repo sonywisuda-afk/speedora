@@ -97,6 +97,8 @@ export class RecurringSchedulesService {
     const schedules = await this.prisma.recurringSchedule.findMany({
       where: { workspaceId },
       orderBy: { createdAt: 'asc' },
+      // Stabilization Pass (API Contract Audit) - was fully unbounded.
+      take: 200,
     });
     return { recurringSchedules: schedules.map(toDto) };
   }

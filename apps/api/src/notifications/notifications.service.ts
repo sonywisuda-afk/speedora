@@ -210,7 +210,7 @@ export class NotificationsService {
     try {
       ({ username } = await getTelegramBotInfo(botToken));
     } catch {
-      throw new BadRequestException('Token bot Telegram tidak valid');
+      throw new BadRequestException('Invalid Telegram bot token');
     }
 
     await this.prisma.notificationWebhook.upsert({

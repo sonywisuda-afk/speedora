@@ -1,4 +1,14 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  Patch,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -40,6 +50,7 @@ export class RecurringSchedulesController {
   }
 
   @Delete('recurring-schedules/:id')
+  @HttpCode(204)
   remove(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.recurringSchedules.remove(user.id, id);
   }

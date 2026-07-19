@@ -153,6 +153,14 @@ export class CommentsService {
       where: { videoId },
       orderBy: { createdAt: 'asc' },
       include: COMMENT_INCLUDE,
+      // Stabilization Pass (API Contract Audit) - this was the highest-risk
+      // unbounded list in the audit: it eager-loads reactions/attachments/
+      // mentions per row and comment volume grows unboundedly per video. A
+      // hard cap here is a stopgap, not a fix - if a video's comment count
+      // realistically approaches this, this list needs real cursor
+      // pagination (see docs/backend.md's Pagination convention section),
+      // not just a higher number.
+      take: 500,
     });
     return { comments: comments.map((c) => toDto(c, userId)) };
   }
@@ -162,6 +170,12 @@ export class CommentsService {
     if (comment.authorId !== userId) {
       throw new ForbiddenException('Only the author can edit this comment');
     }
+    const video = await this.prisma.video.findUniqueOrThrow({ where: { id: comment.videoId } });
+    // Author-only isn't enough on its own - a member removed from the
+    // workspace still has authorId === userId on their old comments, so we
+    // also require they still hold at least the REVIEWER write floor (same
+    // membership check every sibling write method below enforces).
+    await this.workspaceAccess.assertMinRole(userId, video.workspaceId, WorkspaceRole.REVIEWER);
     const updated = await this.prisma.comment.update({
       where: { id: commentId },
       data: { body, editedAt: new Date() },
@@ -172,10 +186,15 @@ export class CommentsService {
 
   async remove(userId: string, commentId: string): Promise<void> {
     const comment = await this.findCommentOrThrow(commentId);
-    if (comment.authorId !== userId) {
-      const video = await this.prisma.video.findUniqueOrThrow({ where: { id: comment.videoId } });
-      await this.workspaceAccess.assertMinRole(userId, video.workspaceId, WorkspaceRole.ADMIN);
-    }
+    const video = await this.prisma.video.findUniqueOrThrow({ where: { id: comment.videoId } });
+    // Same membership requirement as update() above - deleting your own
+    // comment still requires you to still be a REVIEWER+ member, not just
+    // the historical author; anyone else needs ADMIN.
+    await this.workspaceAccess.assertMinRole(
+      userId,
+      video.workspaceId,
+      comment.authorId !== userId ? WorkspaceRole.ADMIN : WorkspaceRole.REVIEWER,
+    );
     await this.prisma.comment.delete({ where: { id: commentId } });
   }
 

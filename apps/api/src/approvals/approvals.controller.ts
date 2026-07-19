@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, Post, UseGuards } from '@nestjs/common';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -30,11 +30,13 @@ export class ApprovalsController {
   }
 
   @Post('approvals/:id/decide')
+  @HttpCode(200)
   decide(@CurrentUser() user: SafeUser, @Param('id') id: string, @Body() dto: DecideApprovalDto) {
     return this.approvalsService.decide(user.id, id, dto);
   }
 
   @Post('approvals/:id/resubmit')
+  @HttpCode(200)
   resubmit(
     @CurrentUser() user: SafeUser,
     @Param('id') id: string,

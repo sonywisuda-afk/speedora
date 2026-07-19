@@ -111,6 +111,8 @@ export class WorkspaceService {
       where: { userId },
       include: { workspace: true },
       orderBy: { workspace: { createdAt: 'asc' } },
+      // Stabilization Pass (API Contract Audit) - was fully unbounded.
+      take: 200,
     });
 
     const workspaces = await Promise.all(
@@ -149,10 +151,14 @@ export class WorkspaceService {
     return { ...dto, members };
   }
 
-  async update(userId: string, workspaceId: string, name: string): Promise<WorkspaceDto> {
+  // Returns WorkspaceDetailDto (not the narrower WorkspaceDto) so this
+  // matches the shape WorkspaceController.update() returns on its no-op
+  // branch (`dto.name === undefined` -> getDetail()) - PATCH /workspaces/:id
+  // must return the same shape regardless of which fields were in the body.
+  async update(userId: string, workspaceId: string, name: string): Promise<WorkspaceDetailDto> {
     await this.access.assertMinRole(userId, workspaceId, WorkspaceRole.ADMIN);
     await this.prisma.workspace.update({ where: { id: workspaceId }, data: { name } });
-    return this.toDto(workspaceId, userId);
+    return this.getDetail(userId, workspaceId);
   }
 
   async createInvite(
@@ -220,6 +226,8 @@ export class WorkspaceService {
     const invites = await this.prisma.pendingInvite.findMany({
       where: { workspaceId },
       orderBy: { createdAt: 'desc' },
+      // Stabilization Pass (API Contract Audit) - was fully unbounded.
+      take: 200,
     });
     return { invites: invites.map((i) => this.toInviteDto(i)) };
   }

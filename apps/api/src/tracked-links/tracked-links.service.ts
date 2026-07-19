@@ -1,4 +1,9 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import { Prisma, WorkspaceRole, type TrackedLink } from '@speedora/database';
 import type { TrackedLinkDto, TrackedLinkListDto } from '@speedora/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -125,8 +130,10 @@ export class TrackedLinksService {
       }
     }
     // Unreachable (the loop above always throws or returns), but keeps
-    // this function's return type honest without a non-null assertion.
-    throw new Error('Failed to generate a unique tracked-link slug');
+    // this function's return type honest without a non-null assertion. A
+    // real HttpException subclass (not a plain Error) so it's still a
+    // controlled, correctly-formatted 500 rather than an unhandled crash.
+    throw new InternalServerErrorException('Failed to generate a unique tracked-link slug');
   }
 
   async listByWorkspace(userId: string, workspaceId: string): Promise<TrackedLinkListDto> {
@@ -134,6 +141,8 @@ export class TrackedLinksService {
     const links = await this.prisma.trackedLink.findMany({
       where: { workspaceId },
       orderBy: { createdAt: 'desc' },
+      // Stabilization Pass (API Contract Audit) - was fully unbounded.
+      take: 200,
     });
     return { links: links.map(toDto) };
   }

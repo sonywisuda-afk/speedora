@@ -35,6 +35,7 @@ import {
   toSharedHighlightExplainability,
 } from '../videos/transcript-segment.util';
 import { PrismaService } from '../prisma/prisma.service';
+import { toFollowerAccountSeries } from './follower-series.util';
 
 const UPLOAD_TREND_DAYS = 30;
 // All 8 supported platforms, matching parsePlatform()'s own
@@ -485,21 +486,3 @@ export class AnalyticsService {
   }
 }
 
-function toFollowerAccountSeries(account: {
-  id: string;
-  platform: SocialPlatform;
-  displayName: string;
-  followerSnapshots: Array<{ capturedAt: Date; followerCount: number }>;
-}): FollowersDto['accounts'][number] {
-  const history = account.followerSnapshots.map((snapshot) => ({
-    capturedAt: snapshot.capturedAt.toISOString(),
-    followerCount: snapshot.followerCount,
-  }));
-  return {
-    socialAccountId: account.id,
-    platform: account.platform as unknown as SharedSocialPlatform,
-    displayName: account.displayName,
-    latestFollowerCount: history.length > 0 ? history[history.length - 1].followerCount : null,
-    history,
-  };
-}

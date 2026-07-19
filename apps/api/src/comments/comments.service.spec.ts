@@ -214,7 +214,7 @@ describe('CommentsService', () => {
   });
 
   describe('update', () => {
-    it('allows the author to edit their own comment', async () => {
+    it('allows the author to edit their own comment when still a REVIEWER+ member', async () => {
       prisma.comment.findUnique.mockResolvedValue(BASE_COMMENT);
       prisma.comment.update.mockResolvedValue({
         ...BASE_COMMENT,
@@ -224,6 +224,7 @@ describe('CommentsService', () => {
 
       const result = await service.update('user-1', 'comment-1', 'edited');
 
+      expect(workspaceAccess.assertMinRole).toHaveBeenCalledWith('user-1', 'ws-1', 'REVIEWER');
       expect(prisma.comment.update).toHaveBeenCalledWith({
         where: { id: 'comment-1' },
         data: { body: 'edited', editedAt: expect.any(Date) },
@@ -239,15 +240,25 @@ describe('CommentsService', () => {
         ForbiddenException,
       );
     });
+
+    it('rejects an author who is no longer a workspace member', async () => {
+      prisma.comment.findUnique.mockResolvedValue(BASE_COMMENT);
+      workspaceAccess.assertMinRole.mockRejectedValue(new NotFoundException('Workspace ws-1 not found'));
+
+      await expect(service.update('user-1', 'comment-1', 'edited')).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.comment.update).not.toHaveBeenCalled();
+    });
   });
 
   describe('remove', () => {
-    it('allows the author to delete without a role check', async () => {
+    it('requires the author to still be a REVIEWER+ member', async () => {
       prisma.comment.findUnique.mockResolvedValue(BASE_COMMENT);
 
       await service.remove('user-1', 'comment-1');
 
-      expect(workspaceAccess.assertMinRole).not.toHaveBeenCalled();
+      expect(workspaceAccess.assertMinRole).toHaveBeenCalledWith('user-1', 'ws-1', 'REVIEWER');
       expect(prisma.comment.delete).toHaveBeenCalledWith({ where: { id: 'comment-1' } });
     });
 
@@ -258,6 +269,14 @@ describe('CommentsService', () => {
 
       expect(workspaceAccess.assertMinRole).toHaveBeenCalledWith('admin-user', 'ws-1', 'ADMIN');
       expect(prisma.comment.delete).toHaveBeenCalled();
+    });
+
+    it('rejects an author who is no longer a workspace member', async () => {
+      prisma.comment.findUnique.mockResolvedValue(BASE_COMMENT);
+      workspaceAccess.assertMinRole.mockRejectedValue(new NotFoundException('Workspace ws-1 not found'));
+
+      await expect(service.remove('user-1', 'comment-1')).rejects.toThrow(NotFoundException);
+      expect(prisma.comment.delete).not.toHaveBeenCalled();
     });
   });
 

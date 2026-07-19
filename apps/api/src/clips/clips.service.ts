@@ -120,6 +120,12 @@ const PLATFORM_COPY_RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 // more than the +/-15% band needs to be meaningful.
 const HISTORICAL_ENGAGEMENT_SAMPLE_BOUND = 500;
 
+// Stabilization Pass (API Contract Audit) - listVersions/listPlatformCopies
+// had no bound at all; this caps the pathological case (a clip re-rendered
+// or copy-generated hundreds of times) without adding cursor pagination
+// these two low-cardinality-in-practice lists don't otherwise need.
+const MAX_UNBOUNDED_LIST_ROWS = 200;
+
 function toSharedPlatformCopy(row: ClipPlatformCopy): ClipPlatformCopyDto {
   return {
     id: row.id,
@@ -402,6 +408,7 @@ export class ClipsService {
     const rows = await this.prisma.clipPlatformCopy.findMany({
       where: { clipId: id },
       orderBy: { createdAt: 'desc' },
+      take: MAX_UNBOUNDED_LIST_ROWS,
     });
 
     return { copies: rows.map(toSharedPlatformCopy) };
@@ -537,6 +544,7 @@ export class ClipsService {
       where: { clipId },
       orderBy: { versionNumber: 'desc' },
       include: { createdBy: { select: { email: true } } },
+      take: MAX_UNBOUNDED_LIST_ROWS,
     });
     return { versions: versions.map(toVersionDto) };
   }

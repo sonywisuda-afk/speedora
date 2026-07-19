@@ -858,6 +858,7 @@ describe('ClipsService', () => {
       expect(prisma.clipPlatformCopy.findMany).toHaveBeenCalledWith({
         where: { clipId: 'clip-1' },
         orderBy: { createdAt: 'desc' },
+        take: 200,
       });
       expect(result.copies).toHaveLength(2);
       expect(result.copies[0].id).toBe('copy-2');
@@ -1270,6 +1271,7 @@ describe('ClipsService', () => {
           where: { clipId: 'clip-1' },
           orderBy: { versionNumber: 'desc' },
           include: { createdBy: { select: { email: true } } },
+          take: 200,
         });
         expect(result.versions[0]).toMatchObject({
           id: 'version-1',

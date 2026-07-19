@@ -50,12 +50,12 @@ describe('NotificationsController', () => {
       expect(notificationsService.list).toHaveBeenCalledWith('user-1', 20);
     });
 
-    it('clamps an out-of-range limit into [1, 100]', async () => {
+    it('clamps an out-of-range limit into [1, 50]', async () => {
       notificationsService.list.mockResolvedValue({ notifications: [] });
 
       await controller.list(user, '500');
 
-      expect(notificationsService.list).toHaveBeenCalledWith('user-1', 100);
+      expect(notificationsService.list).toHaveBeenCalledWith('user-1', 50);
     });
   });
 

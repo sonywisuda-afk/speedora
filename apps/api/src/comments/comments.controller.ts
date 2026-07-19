@@ -3,6 +3,7 @@ import {
   Controller,
   Delete,
   Get,
+  HttpCode,
   Param,
   ParseFilePipeBuilder,
   Patch,
@@ -54,16 +55,19 @@ export class CommentsController {
   }
 
   @Delete('comments/:id')
+  @HttpCode(204)
   async remove(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     await this.commentsService.remove(user.id, id);
   }
 
   @Post('comments/:id/resolve')
+  @HttpCode(200)
   resolve(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.commentsService.setResolved(user.id, id, true);
   }
 
   @Post('comments/:id/unresolve')
+  @HttpCode(200)
   unresolve(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.commentsService.setResolved(user.id, id, false);
   }
@@ -73,7 +77,11 @@ export class CommentsController {
     return this.commentsService.addReaction(user.id, id, dto.emoji);
   }
 
+  // 200, not 204 - unlike remove() above, this DELETE returns the updated
+  // CommentDto (reaction counts) so the client can refresh without a
+  // follow-up GET, so it can't be a body-less 204 response.
   @Delete('comments/:id/reactions/:emoji')
+  @HttpCode(200)
   removeReaction(
     @CurrentUser() user: SafeUser,
     @Param('id') id: string,
