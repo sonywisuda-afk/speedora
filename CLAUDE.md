@@ -85,6 +85,7 @@ pattern itself and its "add a new module" checklist.
 | [`docs/production-hardening-report.md`](docs/production-hardening-report.md) | Final engineering report for the backup/rate-limiter/monitoring/alerting initiative — every change by phase, files touched, remaining tech debt, deferred items, roadmap, readiness score |
 | [`docs/testing.md`](docs/testing.md) | Module vs. adapter test split, real-Postgres verification, known verification gaps |
 | [`docs/export-center-manual-verification.md`](docs/export-center-manual-verification.md) | Manual pre-merge checklist for Export Center download routes (Sprint 03b) — real-browser download behavior, Excel/VLC compatibility, UTF-8/BOM correctness; complements the automated suite, doesn't replace it |
+| [`docs/performance-evaluation.md`](docs/performance-evaluation.md) | Stabilization Pass Area 5 — real `EXPLAIN ANALYZE`/index review/N+1 audit, worker throughput, redirect latency, and frontend bundle impact of Recharts, evidence-backed at seeded scale |
 | [`docs/ai/llm.md`](docs/ai/llm.md) | The `detect-clips` LLM call — clip selection, `ClipScores`, hooks/hashtags, emoji suggestions |
 | [`docs/ai/vision.md`](docs/ai/vision.md) | Face detection/reframe, Face Intelligence (23 sub-features), Gesture Intelligence, Scene Intelligence |
 | [`docs/ai/audio.md`](docs/ai/audio.md) | Loudness/RMS/speaking-rate, Speaker Diarization, Vocal Emotion Detection |
@@ -258,6 +259,21 @@ High-level state of each major initiative (see the linked docs for what's actual
   6G has no corresponding artifact anywhere in the codebase — likely renumbered or merged into an
   adjacent sub-sprint, not a gap in what shipped.) See `analytics-architecture.md`,
   `conversion-architecture.md`, `capability-matrix.md`, `data-ownership.md`, `ai/fusion-to-insight.md`.
+- **Stabilization Pass** — a 5-area post-Sprint-6A-6K hardening pass, all done: API Contract Audit
+  (Area 1), bounded-context Architecture Documentation (Area 2), Cross-Feature E2E Verification
+  (Area 3 — a real-Postgres/Redis proof that Upload→Processing→Publish→Snapshot→Overview→Trend→
+  Campaign→Followers→Heatmap→Insight→Prediction→Tracked Link→Conversion actually works end to end,
+  plus 6 explicit failure scenarios; `apps/worker/src/scripts/cross-feature-e2e/`, see
+  `testing.md`), Visual QA (Area 4 — a code-level audit given no browser automation is available
+  here; dark mode confirmed absent, tooltips/empty/loading states pass by construction, 2
+  responsive-layout gaps flagged as backlog), and Performance Evaluation (Area 5 — real `EXPLAIN
+  ANALYZE`/index review/N+1 audit plus worker throughput, redirect latency, and Recharts bundle
+  impact, see `performance-evaluation.md`). Three tech-debt findings are deliberately left open and
+  documented rather than fixed in this pass (none block production-readiness): a dotenv/module-load
+  env-read ordering risk in `apps/worker/src/redis.ts`, an unbounded `capturedAt`-less query in
+  `AnalyticsService.getOverview`, and a silent no-retry/no-alerting failure mode in
+  `sync-publish-stats.worker.ts`/`sync-follower-count.worker.ts` — each has a `TODO` at its exact
+  location. The Sprint 6A-6K analytics module is considered production-ready as of this pass.
 
 For new feature work: check whether it's an extension of an existing signal/module first (extend,
 don't rebuild — this has been an explicit recurring instruction across the AI Fusion roadmap), and

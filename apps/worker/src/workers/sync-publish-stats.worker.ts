@@ -48,6 +48,16 @@ export function createSyncPublishStatsWorker(): Worker {
         // One clip's stats failing (token revoked, video deleted on the
         // platform, transient API error) shouldn't stop the rest of the
         // batch from syncing - isolated per record, not per-batch.
+        //
+        // TODO(tech debt, Stabilization Pass Area 5 Performance Evaluation):
+        // this try/catch never rethrows, so the BullMQ job itself always
+        // "succeeds" regardless of how many records failed - there is no
+        // BullMQ-level retry for a failed sync at all, and no backoff/
+        // circuit-breaker/alerting after N consecutive failures on the same
+        // record. A permanently broken account (e.g. a revoked token) is
+        // silently re-attempted every SYNC_INTERVAL_MS forever with no
+        // escalation. Not fixed - flagging only. Same shape of gap exists in
+        // sync-follower-count.worker.ts's per-account loop below.
         try {
           if (!record.platformPostId) continue;
 

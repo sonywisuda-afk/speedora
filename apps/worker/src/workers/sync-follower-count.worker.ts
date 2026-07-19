@@ -49,6 +49,12 @@ export function createSyncFollowerCountWorker(): Worker {
         // per-record isolation. No snapshot row is created for a failed
         // account this run - absence of recent rows is itself the "not
         // available" signal (see platform-capability.util.ts).
+        //
+        // TODO(tech debt, Stabilization Pass Area 5): same no-retry/no-
+        // alerting gap as sync-publish-stats.worker.ts's matching TODO -
+        // this try/catch never rethrows, so a permanently broken account is
+        // silently retried every SYNC_INTERVAL_MS forever with no
+        // escalation after N consecutive failures.
         try {
           const adapter = platformRegistry[account.platform];
           if (!adapter.fetchFollowerCount) continue;

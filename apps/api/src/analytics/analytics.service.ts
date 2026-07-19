@@ -85,6 +85,15 @@ export class AnalyticsService {
             publishRecords: { some: { status: PublishStatus.PUBLISHED } },
           },
         }),
+        // TODO(tech debt, Stabilization Pass Area 5 Performance Evaluation):
+        // unlike getFollowers()/getHeatmap() below, this has no
+        // capturedAt-window bound - it fetches an owner's entire snapshot
+        // history just to average one engagementScore. EXPLAIN ANALYZE at
+        // seeded scale confirmed near-linear growth (16ms at 5k rows, 64ms
+        // at 35k) - fine today, a real cost at a year+ of real publish
+        // history. Not fixed - flagging only; the fix is the same
+        // `capturedAt: { gte: windowStart }` bound the sibling endpoints
+        // already use.
         this.prisma.publishRecordStatsSnapshot.findMany({
           where: { publishRecord: { clip: { video: { ownerId: userId } } } },
           select: { publishRecordId: true, capturedAt: true, engagementScore: true },

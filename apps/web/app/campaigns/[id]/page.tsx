@@ -104,6 +104,9 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
                     )}
                 </div>
 
+                {/* TODO(UI backlog, Stabilization Pass Area 4 Visual QA): fixed grid-cols-3
+                    with no mobile breakpoint, unlike this app's other stat grids (see
+                    apps/web/components/processing/ProcessingStatus.tsx's matching TODO). */}
                 <div className="mt-6 grid grid-cols-3 gap-3">
                   <div className="rounded-lg border border-border bg-slate-panel p-4 text-center">
                     <p className="font-display text-xl text-foreground">{campaign.clipCount}</p>

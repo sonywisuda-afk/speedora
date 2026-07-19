@@ -187,6 +187,13 @@ export function ProcessingStatus({
             </div>
 
             {!failedDuringImport && (
+              // TODO(UI backlog, Stabilization Pass Area 4 Visual QA): fixed
+              // grid-cols-3 with no mobile breakpoint - unlike the rest of
+              // this app's stat/summary grids (e.g. apps/web/app/analytics/
+              // page.tsx's `sm:grid-cols-2 lg:grid-cols-4`), this squeezes on
+              // a narrow phone viewport instead of stacking. Same issue at
+              // line ~260 below and in apps/web/app/campaigns/[id]/page.tsx.
+              // Not fixed yet - flagged only, approved to stay as backlog.
               <div className="mt-12 grid w-full grid-cols-3 gap-4">
                 {STAGES.map((stage, i) => (
                   <StagePanel
@@ -257,6 +264,7 @@ export function ProcessingStatus({
               />
             </div>
 
+            {/* TODO(UI backlog, Stabilization Pass Area 4): same missing-breakpoint issue as line ~190 above. */}
             <div className="mt-12 grid grid-cols-3 gap-4">
               {STAGES.map((stage, i) => (
                 <StagePanel
