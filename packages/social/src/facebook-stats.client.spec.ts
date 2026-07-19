@@ -1,4 +1,39 @@
-import { fetchFacebookVideoStats } from './facebook-stats.client';
+import { fetchFacebookFollowerCount, fetchFacebookVideoStats } from './facebook-stats.client';
+
+describe('fetchFacebookFollowerCount', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('fetches followers_count on the Page node', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ followers_count: 5432 }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const count = await fetchFacebookFollowerCount('page-token', 'page-1');
+
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(url.pathname).toBe('/v21.0/page-1');
+    expect(url.searchParams.get('fields')).toBe('followers_count');
+    expect(count).toBe(5432);
+  });
+
+  it('throws on a Graph API error response', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: { message: 'Invalid OAuth access token' } }),
+    }) as unknown as typeof fetch;
+
+    await expect(fetchFacebookFollowerCount('bad-token', 'page-1')).rejects.toThrow(
+      /Facebook followers_count fetch failed/,
+    );
+  });
+});
 
 describe('fetchFacebookVideoStats', () => {
   const originalFetch = global.fetch;

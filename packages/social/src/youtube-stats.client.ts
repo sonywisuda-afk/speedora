@@ -38,3 +38,26 @@ export async function fetchYouTubeVideoStats(
     commentCount: stats.commentCount !== undefined ? Number(stats.commentCount) : null,
   };
 }
+
+// Sprint 6F (Followers) - account-level, unlike fetchYouTubeVideoStats
+// above (post-level). Reuses the exact same channels.list call
+// fetchChannelInfo() (youtube-oauth.client.ts) already makes at connect
+// time, just requesting the `statistics` part instead of `snippet` - no new
+// OAuth scope needed (youtube.readonly already covers this).
+export async function fetchYouTubeFollowerCount(accessToken: string): Promise<number> {
+  const url = new URL('https://www.googleapis.com/youtube/v3/channels');
+  url.searchParams.set('part', 'statistics');
+  url.searchParams.set('mine', 'true');
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  if (!res.ok) {
+    throw new Error(`YouTube channels.list (statistics) failed: ${res.status} ${await res.text()}`);
+  }
+  const body = (await res.json()) as {
+    items?: Array<{ statistics?: { subscriberCount?: string } }>;
+  };
+  const subscriberCount = body.items?.[0]?.statistics?.subscriberCount;
+  if (subscriberCount === undefined) {
+    throw new Error('No YouTube channel/subscriberCount found for this account');
+  }
+  return Number(subscriberCount);
+}

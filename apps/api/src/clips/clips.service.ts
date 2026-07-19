@@ -16,6 +16,7 @@ import {
   sanitizeHashtags,
   SocialPlatform,
   type ClipExplainabilityDto,
+  type ClipPerformanceDto,
   type ClipPlatformCopyDto,
   type ClipPlatformCopyListDto,
   type ClipPlatformFitDto,
@@ -80,6 +81,7 @@ import {
   toSharedTrackingQualityMetrics,
   toSharedTranscriptSegment,
 } from '../videos/transcript-segment.util';
+import { CLIP_WITH_PERFORMANCE, toClipPerformanceDto } from './clip-performance.util';
 import type { PublishClipDto } from './dto/publish-clip.dto';
 import type { UpdateClipDto } from './dto/update-clip.dto';
 
@@ -111,6 +113,12 @@ function toVersionDto(version: ClipVersion & { createdBy: { email: string } }): 
 // PremiumCredit is a purchase-and-consume model, not a limiter).
 const MAX_PLATFORM_COPY_GENERATIONS_PER_DAY = 5;
 const PLATFORM_COPY_RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+// Sprint 6I (AI Insight) - "bounded so this endpoint can never itself
+// become a slow query" (same reasoning as AnalyticsService's own
+// MAX_CANDIDATE_ROWS) - a median over this many samples is already far
+// more than the +/-15% band needs to be meaningful.
+const HISTORICAL_ENGAGEMENT_SAMPLE_BOUND = 500;
 
 function toSharedPlatformCopy(row: ClipPlatformCopy): ClipPlatformCopyDto {
   return {
@@ -270,6 +278,58 @@ export class ClipsService {
         },
       ],
     };
+  }
+
+  // Sprint 6C (Analytics Dashboard Expansion - Per-Clip Performance). One
+  // query (CLIP_WITH_PERFORMANCE's nested `include`), not a loop that
+  // queries per PublishRecord - see clip-performance.util.ts's own comment.
+  // Deliberately NOT reusing findOwnedOrThrow here since that only includes
+  // `video` - this needs the fuller publishRecords/statsSnapshots/campaign/
+  // recurringSchedule graph in the same round trip, so the not-found/access
+  // check is inlined against this richer fetch instead of calling
+  // findOwnedOrThrow and then querying again.
+  async getPerformance(id: string, requesterId: string): Promise<ClipPerformanceDto> {
+    const clip = await this.prisma.clip.findUnique({
+      where: { id },
+      ...CLIP_WITH_PERFORMANCE,
+    });
+
+    if (!clip) {
+      throw new NotFoundException(`Clip ${id} not found`);
+    }
+    await this.workspaceAccess.assertMinRole(requesterId, clip.video.workspaceId, WorkspaceRole.VIEWER);
+
+    // Sprint 6I/6J (AI Insight narrative + prediction) - a second,
+    // deliberate query: both classifying this clip's outcome against its
+    // owner's OTHER clips (6I) and projecting a prediction from their
+    // (highlightScore, engagementScore) correlation (6J) need those other
+    // clips' own highlightScore + latest stats, which can't be folded into
+    // CLIP_WITH_PERFORMANCE's single-clip query above (a genuinely
+    // different, cross-record concern, same as every other sprint's own
+    // separate aggregate query - e.g. WorkspaceAnalyticsService's
+    // getLeaderboard). One query serves both features rather than two.
+    // Bounded the same way every other cross-record aggregate in this app
+    // is.
+    const historicalRecords = await this.prisma.publishRecord.findMany({
+      where: {
+        status: PublishStatus.PUBLISHED,
+        clipId: { not: id },
+        clip: { video: { ownerId: clip.video.ownerId } },
+      },
+      select: {
+        statsSnapshots: { orderBy: { capturedAt: 'desc' }, take: 1 },
+        clip: { select: { highlightScore: true } },
+      },
+      take: HISTORICAL_ENGAGEMENT_SAMPLE_BOUND,
+    });
+
+    return toClipPerformanceDto(
+      clip,
+      historicalRecords.map((r) => ({
+        highlightScore: r.clip.highlightScore,
+        engagementScore: r.statsSnapshots[0]?.engagementScore ?? null,
+      })),
+    );
   }
 
   // Publishing Expansion Phase 7A (AI SEO - Platform-Fit Recommendation).

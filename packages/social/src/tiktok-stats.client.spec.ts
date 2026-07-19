@@ -1,4 +1,43 @@
-import { fetchTikTokPublishStatus, fetchTikTokVideoStats } from './tiktok-stats.client';
+import {
+  fetchTikTokFollowerCount,
+  fetchTikTokPublishStatus,
+  fetchTikTokVideoStats,
+} from './tiktok-stats.client';
+
+describe('fetchTikTokFollowerCount', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('fetches follower_count via user/info with the fields param', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { user: { follower_count: 111 } } }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const count = await fetchTikTokFollowerCount('access-token');
+
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(url.origin + url.pathname).toBe('https://open.tiktokapis.com/v2/user/info/');
+    expect(url.searchParams.get('fields')).toBe('follower_count');
+    expect(count).toBe(111);
+  });
+
+  it('throws when the account has not reconnected to grant user.info.stats yet', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 403,
+      json: async () => ({ error: { code: 'scope_not_authorized', message: 'missing scope' } }),
+    }) as unknown as typeof fetch;
+
+    await expect(fetchTikTokFollowerCount('access-token')).rejects.toThrow(
+      /TikTok user\/info \(stats\) failed/,
+    );
+  });
+});
 
 describe('fetchTikTokPublishStatus', () => {
   const originalFetch = global.fetch;

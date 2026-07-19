@@ -7,14 +7,30 @@ import {
   type PublishRecord as PublishRecordRow,
   type SocialAccount as SocialAccountRow,
 } from '@speedora/database';
-import type { CampaignDetailDto, CampaignDto, CampaignProgress } from '@speedora/shared';
+import type {
+  CampaignAnalyticsDto,
+  CampaignDetailDto,
+  CampaignDto,
+  CampaignProgress,
+  SocialPlatform as SharedSocialPlatform,
+  TrendGranularity,
+} from '@speedora/shared';
 import { CampaignStatus } from '@speedora/shared';
+import {
+  bucketByPublishPeriod,
+  computeCampaignPlatformBreakdown,
+  computeCampaignTotals,
+  periodsForGranularity,
+  type CampaignAnalyticsRecord,
+} from '@speedora/analytics-report';
 import { toSharedPublishRecord } from '../social/publish-record.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceAccessService } from '../workspace/workspace-access.service';
 import { computeCampaignStatus } from './campaign-status.util';
 import type { CreateCampaignDto } from './dto/create-campaign.dto';
 import type { UpdateCampaignDto } from './dto/update-campaign.dto';
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 type JobSummaryInput = Pick<PublishRecordRow, 'status' | 'clipId'> & {
   socialAccount: Pick<SocialAccountRow, 'platform'>;
@@ -124,6 +140,116 @@ export class CampaignsService {
       orderBy: { createdAt: 'desc' },
     });
     return { ...toDto(campaign, jobs), publishRecords: jobs.map(toSharedPublishRecord) };
+  }
+
+  // Sprint 6E (Campaign-level analytics rollup). One query - the campaign
+  // row and every one of its PublishRecords (with each record's latest
+  // stats snapshot) come back via a single nested `include`, same "nested
+  // include, not a loop that queries per record" pattern as
+  // ClipsService.getPerformance / WorkspaceAnalyticsService.getLeaderboard.
+  //
+  // CampaignStatus (derived below via the same computeCampaignStatus()
+  // every other campaign endpoint uses) is purely informational on the
+  // response - it never filters or changes any aggregated number. The only
+  // status that gates the aggregation is PublishRecord.status === PUBLISHED
+  // (the sole status with real PublishRecordStatsSnapshot data) - a
+  // CANCELLED or still-RUNNING campaign reports the exact same kind of real
+  // numbers, just for however many jobs have actually published so far.
+  //
+  // "No campaign" publish records are structurally out of scope here (the
+  // query is `where: { campaignId: id }`), not a case this endpoint needs
+  // to decide about - that question belongs to Sprint 6D's Leaderboard,
+  // which already made an explicit call (excluded from Top Campaign, not
+  // shown as a synthetic "No Campaign" bucket).
+  async getAnalytics(
+    userId: string,
+    id: string,
+    options: { granularity: TrendGranularity },
+  ): Promise<CampaignAnalyticsDto> {
+    const campaign = await this.prisma.campaign.findUnique({
+      where: { id },
+      include: {
+        publishRecords: {
+          include: {
+            socialAccount: { select: { platform: true } },
+            statsSnapshots: { orderBy: { capturedAt: 'desc' }, take: 1 },
+          },
+        },
+        // Sprint 6K (Conversion) - only the denormalized clickCount, same
+        // "O(1) read per TrackedLink, never a COUNT() scan" reasoning as
+        // ClipsService.getPerformance's own trackedLinks select.
+        trackedLinks: { select: { clickCount: true } },
+      },
+    });
+    if (!campaign) {
+      throw new NotFoundException(`Campaign ${id} not found`);
+    }
+    await this.access.assertMinRole(userId, campaign.workspaceId, WorkspaceRole.VIEWER);
+
+    const status = computeCampaignStatus(campaign.cancelledAt, campaign.publishRecords);
+
+    const publishedJobs = campaign.publishRecords.filter(
+      (job): job is typeof job & { publishedAt: Date } =>
+        job.status === PublishStatus.PUBLISHED && job.publishedAt !== null,
+    );
+    // Single enriched list - analyticsRecords (totals/platform breakdown)
+    // and the trend input both read from this same array rather than two
+    // separately-derived lists that would need to stay index-aligned.
+    const enrichedRecords = publishedJobs.map((job) => {
+      const snapshot = job.statsSnapshots[0];
+      return {
+        platform: job.socialAccount.platform as unknown as SharedSocialPlatform,
+        publishedAt: job.publishedAt,
+        viewCount: snapshot?.viewCount ?? null,
+        likeCount: snapshot?.likeCount ?? null,
+        commentCount: snapshot?.commentCount ?? null,
+        shareCount: snapshot?.shareCount ?? null,
+        engagementScore: snapshot?.engagementScore ?? null,
+      };
+    });
+    const analyticsRecords: CampaignAnalyticsRecord[] = enrichedRecords;
+
+    // The trend window is the campaign's own date range, not an arbitrary
+    // "last N days" - clamped to `now` for a still-running campaign so it
+    // never shows empty future buckets, and to the campaign's own endDate
+    // for one that already finished.
+    const now = new Date();
+    const referenceNow = campaign.endDate < now ? campaign.endDate : now;
+    // bucketByPublishPeriod's daily bucketing already keys by calendar day
+    // (ignoring time-of-day), so ceil() alone gives the exact inclusive
+    // day count from campaign.startDate through referenceNow - an extra +1
+    // here would pad in one bucket before the campaign's actual start date
+    // (caught via live verification: a campaign starting 2026-07-01 was
+    // showing a spurious 2026-06-30 bucket).
+    const spanDays = Math.max(
+      1,
+      Math.ceil((referenceNow.getTime() - campaign.startDate.getTime()) / MS_PER_DAY),
+    );
+    const engagementTrend = bucketByPublishPeriod(
+      enrichedRecords.map((r) => ({
+        publishedAt: r.publishedAt,
+        viewCount: r.viewCount,
+        engagementScore: r.engagementScore,
+      })),
+      options.granularity,
+      periodsForGranularity(spanDays, options.granularity),
+      referenceNow,
+    );
+
+    return {
+      campaignId: campaign.id,
+      status,
+      totals: computeCampaignTotals(analyticsRecords),
+      platformBreakdown: computeCampaignPlatformBreakdown(analyticsRecords),
+      engagementTrend,
+      granularity: options.granularity,
+      // Sprint 6K (Conversion) - null means "no TrackedLink created for
+      // this campaign yet," never a fabricated 0.
+      conversionCount:
+        campaign.trackedLinks.length > 0
+          ? campaign.trackedLinks.reduce((sum, link) => sum + link.clickCount, 0)
+          : null,
+    };
   }
 
   async update(userId: string, id: string, dto: UpdateCampaignDto): Promise<CampaignDto> {

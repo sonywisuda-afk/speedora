@@ -1,5 +1,6 @@
 const STATUS_FETCH_URL = 'https://open.tiktokapis.com/v2/post/publish/status/fetch/';
 const QUERY_VIDEO_URL = 'https://open.tiktokapis.com/v2/video/query/';
+const USER_INFO_URL = 'https://open.tiktokapis.com/v2/user/info/';
 
 export interface TikTokPublishStatus {
   status: string;
@@ -99,4 +100,29 @@ export async function fetchTikTokVideoStats(
     commentCount: video?.comment_count ?? null,
     shareCount: video?.share_count ?? null,
   };
+}
+
+// Sprint 6F (Followers) - account-level, unlike fetchTikTokVideoStats
+// above (per-video). Requires the user.info.stats scope (see
+// tiktok-oauth.client.ts's SCOPES) - an account connected before that scope
+// was added will get a real API error here (insufficient scope) until it
+// reconnects; sync-follower-count.worker.ts's per-account isolated
+// try/catch already treats that as "skip this account, no snapshot
+// created," which is exactly the right "needs-reconnect" signal (see
+// platform-capability.util.ts).
+export async function fetchTikTokFollowerCount(accessToken: string): Promise<number> {
+  const url = new URL(USER_INFO_URL);
+  url.searchParams.set('fields', 'follower_count');
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const body = (await res.json()) as {
+    data?: { user?: { follower_count?: number } };
+  } & TikTokErrorBody;
+  if (!res.ok || isTikTokError(body)) {
+    throw new Error(`TikTok user/info (stats) failed: ${res.status} ${body.error?.message ?? ''}`.trim());
+  }
+  const followerCount = body.data?.user?.follower_count;
+  if (followerCount === undefined) {
+    throw new Error('TikTok user/info did not return a follower_count');
+  }
+  return followerCount;
 }

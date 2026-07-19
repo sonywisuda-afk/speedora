@@ -47,6 +47,12 @@ export enum QueueName {
   // A brand-new, standalone LLM call - never touches Clip.scores/
   // viralityScore/highlightScore or the frozen detect-clips prompt.
   GENERATE_PLATFORM_COPY = 'generate-platform-copy',
+  // Sprint 6F (Analytics Dashboard Expansion - Followers) - a repeatable
+  // trigger (no per-firing payload), same shape as SYNC_PUBLISH_STATS above
+  // but daily (not every 6h - follower counts don't need that freshness)
+  // and keyed on SocialAccount, not PublishRecord; see
+  // apps/worker/src/workers/sync-follower-count.worker.ts.
+  SYNC_FOLLOWER_COUNT = 'sync-follower-count',
 }
 
 // videoId is created (status IMPORTING, placeholder sourceUrl) by

@@ -33,30 +33,43 @@ describe('AnalyticsController', () => {
   });
 
   describe('getPerformance', () => {
-    it('parses days/platform and delegates to the service', async () => {
-      await controller.getPerformance(user, '7', SocialPlatform.TIKTOK);
+    it('parses days/platform/granularity and delegates to the service', async () => {
+      await controller.getPerformance(user, '7', SocialPlatform.TIKTOK, 'weekly');
 
       expect(analyticsService.getPerformance).toHaveBeenCalledWith('user-1', {
         days: 7,
         platform: SocialPlatform.TIKTOK,
+        granularity: 'weekly',
       });
     });
 
     it('falls back to the default days when given an invalid value, instead of throwing', async () => {
-      await controller.getPerformance(user, 'not-a-number', undefined);
+      await controller.getPerformance(user, 'not-a-number', undefined, undefined);
 
       expect(analyticsService.getPerformance).toHaveBeenCalledWith('user-1', {
         days: 30,
         platform: undefined,
+        granularity: 'daily',
       });
     });
 
     it('falls back to undefined platform when given an unrecognized value', async () => {
-      await controller.getPerformance(user, '30', 'not-a-real-platform');
+      await controller.getPerformance(user, '30', 'not-a-real-platform', undefined);
 
       expect(analyticsService.getPerformance).toHaveBeenCalledWith('user-1', {
         days: 30,
         platform: undefined,
+        granularity: 'daily',
+      });
+    });
+
+    it('falls back to the default granularity when given an unrecognized value', async () => {
+      await controller.getPerformance(user, '30', undefined, 'hourly');
+
+      expect(analyticsService.getPerformance).toHaveBeenCalledWith('user-1', {
+        days: 30,
+        platform: undefined,
+        granularity: 'daily',
       });
     });
   });

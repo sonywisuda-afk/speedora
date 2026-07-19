@@ -9,8 +9,13 @@ import type { OAuthRefreshClient } from './resolve-access-token';
 // what sync-publish-stats.worker.ts (Fase 6e) needs to query view/like/
 // comment counts, once a post actually goes public (see CLAUDE.md's Fase
 // 6e section) - accounts connected before this scope was added need to
-// reconnect to pick it up.
-const SCOPES = ['user.info.basic', 'video.upload', 'video.list'];
+// reconnect to pick it up. user.info.stats (Sprint 6F) is what
+// sync-follower-count.worker.ts needs for follower_count - same
+// "reconnect to pick up a scope added after they first connected" caveat
+// applies; an account that hasn't reconnected yet just gets no follower
+// snapshots (platform-capability.util.ts already models this as
+// 'needs-reconnect', not a hard failure).
+const SCOPES = ['user.info.basic', 'video.upload', 'video.list', 'user.info.stats'];
 
 const AUTHORIZE_URL = 'https://www.tiktok.com/v2/auth/authorize/';
 const TOKEN_URL = 'https://open.tiktokapis.com/v2/oauth/token/';

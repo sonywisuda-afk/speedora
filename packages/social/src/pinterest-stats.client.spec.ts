@@ -1,4 +1,40 @@
-import { fetchPinterestPinStats } from './pinterest-stats.client';
+import { fetchPinterestFollowerCount, fetchPinterestPinStats } from './pinterest-stats.client';
+
+describe('fetchPinterestFollowerCount', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('fetches follower_count from /user_account, no board/pin id needed', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ follower_count: 321 }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const count = await fetchPinterestFollowerCount('access-token');
+
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.pinterest.com/v5/user_account');
+    expect(fetchMock.mock.calls[0][1]).toEqual({
+      headers: { Authorization: 'Bearer access-token' },
+    });
+    expect(count).toBe(321);
+  });
+
+  it('throws when the response is not ok', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ message: 'invalid token' }),
+    }) as unknown as typeof fetch;
+
+    await expect(fetchPinterestFollowerCount('bad-token')).rejects.toThrow(
+      /Pinterest user_account fetch failed/,
+    );
+  });
+});
 
 describe('fetchPinterestPinStats', () => {
   const originalFetch = global.fetch;

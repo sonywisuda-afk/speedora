@@ -54,3 +54,30 @@ export async function fetchInstagramMediaStats(
     watchTimeSeconds: valueFor('ig_reels_avg_watch_time'),
   };
 }
+
+interface GraphErrorResponse {
+  error?: { message?: string };
+}
+
+// Sprint 6F (Followers) - account-level (the IG Business account node
+// itself), unlike fetchInstagramMediaStats above (per-Reel). Requires only
+// instagram_basic, already granted - no new scope needed.
+export async function fetchInstagramFollowerCount(
+  accessToken: string,
+  igUserId: string,
+): Promise<number> {
+  const url = new URL(`${GRAPH_BASE_URL}/${igUserId}`);
+  url.searchParams.set('fields', 'followers_count');
+  url.searchParams.set('access_token', accessToken);
+  const res = await fetch(url);
+  const body = (await res.json()) as { followers_count?: number } & GraphErrorResponse;
+  if (!res.ok || body.error) {
+    throw new Error(
+      `Instagram followers_count fetch failed: ${res.status} ${body.error?.message ?? ''}`.trim(),
+    );
+  }
+  if (body.followers_count === undefined) {
+    throw new Error(`Instagram account ${igUserId} did not return a followers_count`);
+  }
+  return body.followers_count;
+}

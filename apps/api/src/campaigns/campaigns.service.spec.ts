@@ -26,6 +26,9 @@ describe('CampaignsService', () => {
     createdById: 'user-1',
     createdAt: new Date('2026-07-01T00:00:00.000Z'),
     updatedAt: new Date('2026-07-01T00:00:00.000Z'),
+    // Sprint 6K (Conversion) - only getAnalytics reads this; harmless on
+    // every other test's fixture.
+    trackedLinks: [] as Array<{ clickCount: number }>,
   };
 
   beforeEach(() => {
@@ -151,6 +154,157 @@ describe('CampaignsService', () => {
       prisma.campaign.findUnique.mockResolvedValue(null);
 
       await expect(service.get('user-1', 'missing')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('getAnalytics', () => {
+    function publishedJob(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'record-1',
+        status: PublishStatus.PUBLISHED,
+        publishedAt: new Date('2026-07-10T00:00:00.000Z'),
+        socialAccount: { platform: SocialPlatform.YOUTUBE },
+        statsSnapshots: [
+          { viewCount: 100, likeCount: 10, commentCount: 2, shareCount: 1, engagementScore: 0.19 },
+        ],
+        ...overrides,
+      };
+    }
+
+    it('checks workspace access before returning data', async () => {
+      prisma.campaign.findUnique.mockResolvedValue({ ...baseCampaign, publishRecords: [] });
+
+      await service.getAnalytics('user-1', 'campaign-1', { granularity: 'daily' });
+
+      expect(access.assertMinRole).toHaveBeenCalledWith('user-1', 'ws-1', 'VIEWER');
+    });
+
+    it('fetches the campaign and its full publish-record graph in a single query', async () => {
+      prisma.campaign.findUnique.mockResolvedValue({ ...baseCampaign, publishRecords: [] });
+
+      await service.getAnalytics('user-1', 'campaign-1', { granularity: 'daily' });
+
+      expect(prisma.campaign.findUnique).toHaveBeenCalledTimes(1);
+      expect(prisma.publishRecord.findMany).not.toHaveBeenCalled();
+    });
+
+    it('handles a campaign with no publish records - real zeros, not an error', async () => {
+      prisma.campaign.findUnique.mockResolvedValue({ ...baseCampaign, publishRecords: [] });
+
+      const result = await service.getAnalytics('user-1', 'campaign-1', { granularity: 'daily' });
+
+      expect(result.totals).toEqual({
+        publishCount: 0,
+        totalViews: 0,
+        totalLikes: 0,
+        totalComments: 0,
+        totalShares: 0,
+        averageEngagementScore: null,
+      });
+      expect(result.platformBreakdown).toEqual([]);
+      expect(result.engagementTrend.length).toBeGreaterThan(0); // still zero-filled, not empty
+      expect(result.engagementTrend.every((p) => p.publishCount === 0)).toBe(true);
+    });
+
+    it('only counts PUBLISHED jobs - a QUEUED or FAILED job contributes no stats', async () => {
+      prisma.campaign.findUnique.mockResolvedValue({
+        ...baseCampaign,
+        publishRecords: [
+          publishedJob({ id: 'record-published' }),
+          publishedJob({
+            id: 'record-queued',
+            status: PublishStatus.QUEUED,
+            publishedAt: null,
+            statsSnapshots: [],
+          }),
+          publishedJob({
+            id: 'record-failed',
+            status: PublishStatus.FAILED,
+            publishedAt: null,
+            statsSnapshots: [],
+          }),
+        ],
+      });
+
+      const result = await service.getAnalytics('user-1', 'campaign-1', { granularity: 'daily' });
+
+      expect(result.totals.publishCount).toBe(1);
+      expect(result.totals.totalViews).toBe(100);
+    });
+
+    it('reports real totals for a CANCELLED campaign that already had PUBLISHED jobs - status never gates the aggregation', async () => {
+      prisma.campaign.findUnique.mockResolvedValue({
+        ...baseCampaign,
+        cancelledAt: new Date('2026-07-15T00:00:00.000Z'),
+        publishRecords: [publishedJob()],
+      });
+
+      const result = await service.getAnalytics('user-1', 'campaign-1', { granularity: 'daily' });
+
+      expect(result.status).toBe(CampaignStatus.CANCELLED);
+      expect(result.totals.publishCount).toBe(1);
+      expect(result.totals.totalViews).toBe(100);
+    });
+
+    it("platformBreakdown's totals are consistent with the top-level totals - same aggregation source", async () => {
+      prisma.campaign.findUnique.mockResolvedValue({
+        ...baseCampaign,
+        publishRecords: [
+          publishedJob({ id: 'record-yt', socialAccount: { platform: SocialPlatform.YOUTUBE } }),
+          publishedJob({ id: 'record-tt', socialAccount: { platform: SocialPlatform.TIKTOK } }),
+        ],
+      });
+
+      const result = await service.getAnalytics('user-1', 'campaign-1', { granularity: 'daily' });
+
+      const breakdownTotalViews = result.platformBreakdown.reduce((sum, row) => sum + row.totalViews, 0);
+      expect(breakdownTotalViews).toBe(result.totals.totalViews);
+      expect(result.platformBreakdown.map((r) => r.platform).sort()).toEqual(['TIKTOK', 'YOUTUBE']);
+    });
+
+    it('reports conversionCount: null when no TrackedLink exists for this campaign - never a fabricated 0', async () => {
+      prisma.campaign.findUnique.mockResolvedValue({ ...baseCampaign, publishRecords: [] });
+
+      const result = await service.getAnalytics('user-1', 'campaign-1', { granularity: 'daily' });
+
+      expect(result.conversionCount).toBeNull();
+    });
+
+    it('sums real clickCount across every TrackedLink attached to this campaign', async () => {
+      prisma.campaign.findUnique.mockResolvedValue({
+        ...baseCampaign,
+        publishRecords: [],
+        trackedLinks: [{ clickCount: 8 }, { clickCount: 3 }],
+      });
+
+      const result = await service.getAnalytics('user-1', 'campaign-1', { granularity: 'daily' });
+
+      expect(result.conversionCount).toBe(11);
+    });
+
+    it('never buckets the trend before the campaign\'s own startDate (regression: off-by-one padded in an extra day)', async () => {
+      prisma.campaign.findUnique.mockResolvedValue({ ...baseCampaign, publishRecords: [] });
+
+      const result = await service.getAnalytics('user-1', 'campaign-1', { granularity: 'daily' });
+
+      const startDateKey = baseCampaign.startDate.toISOString().slice(0, 10);
+      expect(result.engagementTrend[0].date >= startDateKey).toBe(true);
+    });
+
+    it('echoes back the requested granularity', async () => {
+      prisma.campaign.findUnique.mockResolvedValue({ ...baseCampaign, publishRecords: [] });
+
+      const result = await service.getAnalytics('user-1', 'campaign-1', { granularity: 'weekly' });
+
+      expect(result.granularity).toBe('weekly');
+    });
+
+    it('throws NotFoundException for a missing campaign', async () => {
+      prisma.campaign.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.getAnalytics('user-1', 'missing', { granularity: 'daily' }),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 

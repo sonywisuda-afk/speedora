@@ -1,4 +1,37 @@
-import { fetchXTweetStats } from './x-stats.client';
+import { fetchXFollowerCount, fetchXTweetStats } from './x-stats.client';
+
+describe('fetchXFollowerCount', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('fetches public_metrics.followers_count from /2/users/me', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: { public_metrics: { followers_count: 654 } } }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const count = await fetchXFollowerCount('access-token');
+
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(url.pathname).toBe('/2/users/me');
+    expect(url.searchParams.get('user.fields')).toBe('public_metrics');
+    expect(count).toBe(654);
+  });
+
+  it('throws when the response is not ok', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      json: async () => ({ errors: [{ title: 'Unauthorized', detail: 'bad token' }] }),
+    }) as unknown as typeof fetch;
+
+    await expect(fetchXFollowerCount('bad-token')).rejects.toThrow(/X users\/me fetch failed/);
+  });
+});
 
 describe('fetchXTweetStats', () => {
   const originalFetch = global.fetch;

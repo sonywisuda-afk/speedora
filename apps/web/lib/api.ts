@@ -1,4 +1,5 @@
 import type {
+  AnalyticsHeatmapDto,
   AnalyticsOverviewDto,
   AnalyticsPerformanceClipsDto,
   AnalyticsPerformanceDto,
@@ -8,11 +9,13 @@ import type {
   AuditLogListDto,
   BrandKitDto,
   CalendarDto,
+  CampaignAnalyticsDto,
   CampaignDetailDto,
   CampaignDto,
   CampaignListDto,
   Clip,
   ClipExplainabilityDto,
+  ClipPerformanceDto,
   ClipPlatformCopyDto,
   ClipPlatformCopyListDto,
   ClipPlatformFitDto,
@@ -25,6 +28,8 @@ import type {
   ExportJobDto,
   ExportJobListDto,
   ExportType,
+  FollowersDto,
+  LeaderboardMetric,
   NotificationChannel,
   NotificationListDto,
   NotificationPreferenceDto,
@@ -54,8 +59,11 @@ import type {
   SharedVideoDto,
   SocialAccount,
   SocialPlatform,
+  TrackedLinkDto,
+  TrackedLinkListDto,
   TranscriptionProvider,
   TranscriptSegment,
+  TrendGranularity,
   UpdateClipInput,
   UpdateNotificationPreferenceDto,
   UserRole,
@@ -63,7 +71,9 @@ import type {
   VideoWithClips,
   WorkspaceDetailDto,
   WorkspaceDto,
+  WorkspaceLeaderboardDto,
   WorkspaceListDto,
+  WorkspacePredictionModelDto,
   WorkspaceRole,
 } from '@speedora/shared';
 
@@ -372,6 +382,14 @@ export async function getClipExplainability(clipId: string): Promise<ClipExplain
   return parseJsonOrThrow<ClipExplainabilityDto>(res);
 }
 
+// Sprint 6C (Analytics Dashboard Expansion - Per-Clip Performance) - same
+// "per-clip round trip only when the user actually looks" reasoning as
+// getClipExplainability above.
+export async function getClipPerformance(clipId: string): Promise<ClipPerformanceDto> {
+  const res = await apiFetch(`/clips/${clipId}/performance`);
+  return parseJsonOrThrow<ClipPerformanceDto>(res);
+}
+
 // Publishing Expansion Phase 7A (AI SEO - Platform-Fit Recommendation) -
 // same "per-clip round trip only when the user actually looks" reasoning as
 // getClipExplainability above.
@@ -484,6 +502,39 @@ export async function listCampaigns(workspaceId: string): Promise<CampaignListDt
 export async function getCampaign(id: string): Promise<CampaignDetailDto> {
   const res = await apiFetch(`/campaigns/${id}`);
   return parseJsonOrThrow<CampaignDetailDto>(res);
+}
+
+// Sprint 6E (Campaign-level analytics rollup).
+export async function getCampaignAnalytics(
+  id: string,
+  params: { granularity?: TrendGranularity } = {},
+): Promise<CampaignAnalyticsDto> {
+  const res = await apiFetch(
+    `/campaigns/${id}/analytics${toQueryString(params as Record<string, string | number | undefined>)}`,
+  );
+  return parseJsonOrThrow<CampaignAnalyticsDto>(res);
+}
+
+// Sprint 6K (Conversion) - creates a Speedora-owned trackable short link
+// attributed to exactly one publishRecordId or campaignId (server-enforced,
+// see TrackedLinksService). destinationUrl is the creator's own landing
+// page/product link, not the platform post URL itself - see
+// TrackedLinksService.assertNotSelfRedirect's own comment.
+export async function createTrackedLink(
+  workspaceId: string,
+  input: { destinationUrl: string; publishRecordId?: string; campaignId?: string },
+): Promise<TrackedLinkDto> {
+  const res = await apiFetch(`/workspaces/${workspaceId}/tracked-links`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return parseJsonOrThrow<TrackedLinkDto>(res);
+}
+
+export async function listTrackedLinks(workspaceId: string): Promise<TrackedLinkListDto> {
+  const res = await apiFetch(`/workspaces/${workspaceId}/tracked-links`);
+  return parseJsonOrThrow<TrackedLinkListDto>(res);
 }
 
 export async function createCampaign(
@@ -618,8 +669,13 @@ export async function getAnalyticsOverview(): Promise<AnalyticsOverviewDto> {
 
 // Milestone 5B (Analytics Dashboard - Performance).
 export interface PerformanceFilterParams {
-  days?: 7 | 30 | 90;
+  days?: 7 | 30 | 90 | 180 | 365;
   platform?: SocialPlatform;
+  // Sprint 6B (Trend granularity) - only meaningful to getAnalyticsPerformance
+  // (the other two performance endpoints don't return a trend), but kept on
+  // the shared param interface rather than a one-off extension since every
+  // caller already spreads PerformanceFilterParams.
+  granularity?: TrendGranularity;
 }
 
 // Named param interfaces (PerformanceFilterParams etc.) have no index
@@ -747,6 +803,73 @@ export async function createWorkspace(name: string): Promise<WorkspaceDto> {
 export async function getWorkspace(id: string): Promise<WorkspaceDetailDto> {
   const res = await apiFetch(`/workspaces/${id}`);
   return parseJsonOrThrow<WorkspaceDetailDto>(res);
+}
+
+// Sprint 6D (Leaderboard) - workspace-scoped, parallel to
+// getAnalyticsPerformance's owner-scoped fetch (never merged with it).
+export interface WorkspaceLeaderboardParams {
+  metric?: LeaderboardMetric;
+  days?: 7 | 30 | 90 | 180 | 365;
+  limit?: number;
+}
+
+export async function getWorkspaceLeaderboard(
+  workspaceId: string,
+  params: WorkspaceLeaderboardParams = {},
+): Promise<WorkspaceLeaderboardDto> {
+  const res = await apiFetch(
+    `/workspaces/${workspaceId}/analytics/leaderboard${toQueryString(params as Record<string, string | number | undefined>)}`,
+  );
+  return parseJsonOrThrow<WorkspaceLeaderboardDto>(res);
+}
+
+// Sprint 6F (Followers).
+export async function getAnalyticsFollowers(
+  params: { days?: 7 | 30 | 90 | 180 | 365 } = {},
+): Promise<FollowersDto> {
+  const res = await apiFetch(
+    `/analytics/followers${toQueryString(params as Record<string, string | number | undefined>)}`,
+  );
+  return parseJsonOrThrow<FollowersDto>(res);
+}
+
+export async function getWorkspaceFollowers(
+  workspaceId: string,
+  params: { days?: 7 | 30 | 90 | 180 | 365 } = {},
+): Promise<FollowersDto> {
+  const res = await apiFetch(
+    `/workspaces/${workspaceId}/analytics/followers${toQueryString(params as Record<string, string | number | undefined>)}`,
+  );
+  return parseJsonOrThrow<FollowersDto>(res);
+}
+
+// Sprint 6H (Heatmap).
+export async function getAnalyticsHeatmap(
+  params: { days?: 7 | 30 | 90 | 180 | 365 } = {},
+): Promise<AnalyticsHeatmapDto> {
+  const res = await apiFetch(
+    `/analytics/heatmap${toQueryString(params as Record<string, string | number | undefined>)}`,
+  );
+  return parseJsonOrThrow<AnalyticsHeatmapDto>(res);
+}
+
+export async function getWorkspaceHeatmap(
+  workspaceId: string,
+  params: { days?: 7 | 30 | 90 | 180 | 365 } = {},
+): Promise<AnalyticsHeatmapDto> {
+  const res = await apiFetch(
+    `/workspaces/${workspaceId}/analytics/heatmap${toQueryString(params as Record<string, string | number | undefined>)}`,
+  );
+  return parseJsonOrThrow<AnalyticsHeatmapDto>(res);
+}
+
+// Sprint 6J (Predicted performance) - workspace-level transparency
+// diagnostic, echoing /ops/ai/correlation's shape.
+export async function getWorkspacePredictionModel(
+  workspaceId: string,
+): Promise<WorkspacePredictionModelDto> {
+  const res = await apiFetch(`/workspaces/${workspaceId}/analytics/prediction-model`);
+  return parseJsonOrThrow<WorkspacePredictionModelDto>(res);
 }
 
 // Sprint 5F (Audit Log) - ADMIN+-only server-side.

@@ -9,6 +9,7 @@ describe('AnalyticsService', () => {
     clip: { count: jest.Mock };
     publishRecordStatsSnapshot: { findMany: jest.Mock };
     publishRecord: { findMany: jest.Mock };
+    socialAccount: { findMany: jest.Mock };
   };
 
   beforeEach(() => {
@@ -17,6 +18,7 @@ describe('AnalyticsService', () => {
       clip: { count: jest.fn() },
       publishRecordStatsSnapshot: { findMany: jest.fn() },
       publishRecord: { findMany: jest.fn() },
+      socialAccount: { findMany: jest.fn() },
     };
     service = new AnalyticsService(prisma as unknown as PrismaService);
   });
@@ -232,7 +234,7 @@ describe('AnalyticsService', () => {
   });
 
   describe('getPerformance', () => {
-    it('computes engagement trend, platform comparison (all 3 platforms, even with 0 data), and AI summary', async () => {
+    it('computes engagement trend, platform comparison (all supported platforms, even with 0 data), and AI summary', async () => {
       const today = new Date();
       prisma.publishRecord.findMany
         .mockResolvedValueOnce([fixtureRecord({ id: 'pr-current', publishedAt: today })]) // current window
@@ -243,7 +245,10 @@ describe('AnalyticsService', () => {
       const result = await service.getPerformance('user-1', { days: 30 });
 
       expect(result.engagementTrend.reduce((sum, d) => sum + d.publishCount, 0)).toBe(1);
-      expect(result.platformComparison).toHaveLength(3);
+      // All 8 supported platforms, not just YouTube/TikTok/Instagram -
+      // Sprint 6A fixed platformComparison silently dropping
+      // Facebook/Threads/LinkedIn/Pinterest/X.
+      expect(result.platformComparison).toHaveLength(Object.values(SocialPlatform).length);
       const youtube = result.platformComparison.find((p) => p.platform === SocialPlatform.YOUTUBE)!;
       expect(youtube.publishCount).toBe(1);
       // 0 previous-period records -> no baseline to compare against.
@@ -295,6 +300,32 @@ describe('AnalyticsService', () => {
 
       // Same clip-1 on both platforms - AI summary counts it once.
       expect(result.aiSummary.mostCommonSignals).toEqual([{ signal: 'audio', count: 1 }]);
+    });
+
+    it('defaults to daily granularity and echoes it back on the response', async () => {
+      prisma.publishRecord.findMany.mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+      prisma.video.count.mockResolvedValue(0);
+      prisma.clip.count.mockResolvedValue(0);
+
+      const result = await service.getPerformance('user-1', { days: 30 });
+
+      expect(result.granularity).toBe('daily');
+    });
+
+    it("buckets engagementTrend by ISO week when granularity is 'weekly'", async () => {
+      const today = new Date();
+      prisma.publishRecord.findMany
+        .mockResolvedValueOnce([fixtureRecord({ id: 'pr-current', publishedAt: today })])
+        .mockResolvedValueOnce([]);
+      prisma.video.count.mockResolvedValue(0);
+      prisma.clip.count.mockResolvedValue(0);
+
+      const result = await service.getPerformance('user-1', { days: 90, granularity: 'weekly' });
+
+      expect(result.granularity).toBe('weekly');
+      expect(result.engagementTrend.reduce((sum, d) => sum + d.publishCount, 0)).toBe(1);
+      // days=90 -> ~13 weekly buckets, not 90 daily ones.
+      expect(result.engagementTrend.length).toBeLessThan(90);
     });
 
     it('computes a non-null growthPct when a prior-period baseline exists', async () => {
@@ -357,6 +388,97 @@ describe('AnalyticsService', () => {
       expect(result.growthSummary.engagementScore.growthPct).toBe(0);
       expect(result.growthSummary.videos).toEqual({ current: 8, previous: 5, growthPct: 60 });
       expect(result.growthSummary.clips).toEqual({ current: 20, previous: 10, growthPct: 100 });
+    });
+  });
+
+  describe('getFollowers', () => {
+    it('scopes the query to the requesting user', async () => {
+      prisma.socialAccount.findMany.mockResolvedValue([]);
+
+      await service.getFollowers('user-1', 30);
+
+      expect(prisma.socialAccount.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: 'user-1' } }),
+      );
+    });
+
+    it("derives latestFollowerCount from the newest snapshot, and returns real history oldest-first", async () => {
+      prisma.socialAccount.findMany.mockResolvedValue([
+        {
+          id: 'account-1',
+          platform: SocialPlatform.YOUTUBE,
+          displayName: 'My Channel',
+          followerSnapshots: [
+            { capturedAt: new Date('2026-07-01T00:00:00.000Z'), followerCount: 100 },
+            { capturedAt: new Date('2026-07-02T00:00:00.000Z'), followerCount: 110 },
+          ],
+        },
+      ]);
+
+      const result = await service.getFollowers('user-1', 30);
+
+      expect(result.accounts).toHaveLength(1);
+      expect(result.accounts[0].latestFollowerCount).toBe(110);
+      expect(result.accounts[0].history).toEqual([
+        { capturedAt: '2026-07-01T00:00:00.000Z', followerCount: 100 },
+        { capturedAt: '2026-07-02T00:00:00.000Z', followerCount: 110 },
+      ]);
+    });
+
+    it('reports latestFollowerCount: null and empty history for an account with no snapshots yet (unavailable platform or not-yet-reconnected)', async () => {
+      prisma.socialAccount.findMany.mockResolvedValue([
+        {
+          id: 'account-2',
+          platform: SocialPlatform.LINKEDIN,
+          displayName: 'My LinkedIn',
+          followerSnapshots: [],
+        },
+      ]);
+
+      const result = await service.getFollowers('user-1', 30);
+
+      expect(result.accounts[0].latestFollowerCount).toBeNull();
+      expect(result.accounts[0].history).toEqual([]);
+    });
+  });
+
+  describe('getHeatmap', () => {
+    it('returns 168 zero-filled cells for an account with no published records', async () => {
+      prisma.publishRecord.findMany.mockResolvedValue([]);
+
+      const result = await service.getHeatmap('user-1', 30);
+
+      expect(result.cells).toHaveLength(168);
+      expect(result.cells.every((c) => c.publishCount === 0)).toBe(true);
+    });
+
+    it('buckets a real published record by its publishedAt day/hour', async () => {
+      prisma.publishRecord.findMany.mockResolvedValue([
+        fixtureRecord({
+          publishedAt: new Date('2026-07-19T14:00:00.000Z'), // Sunday 14:00 UTC
+          statsSnapshots: [
+            { viewCount: 100, likeCount: 10, commentCount: 2, shareCount: 1, engagementScore: 0.19 },
+          ],
+        }),
+      ]);
+
+      const result = await service.getHeatmap('user-1', 30);
+
+      const cell = result.cells.find((c) => c.dayOfWeek === 0 && c.hour === 14)!;
+      expect(cell.publishCount).toBe(1);
+      expect(cell.totalViews).toBe(100);
+      expect(cell.averageEngagementScore).toBeCloseTo(0.19);
+    });
+
+    it('always reports retention/dropOff/replay as unavailable, honestly, in v1', async () => {
+      prisma.publishRecord.findMany.mockResolvedValue([]);
+
+      const result = await service.getHeatmap('user-1', 30);
+
+      expect(result.retention.available).toBe(false);
+      expect(result.retention.reason).toBeTruthy();
+      expect(result.dropOff.available).toBe(false);
+      expect(result.replay.available).toBe(false);
     });
   });
 });

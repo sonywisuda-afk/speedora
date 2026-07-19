@@ -4,9 +4,11 @@ import { CampaignStatus } from '@speedora/shared';
 import Link from 'next/link';
 import { useState } from 'react';
 import useSWR from 'swr';
+import { CampaignAnalyticsTab } from '@/components/analytics/CampaignAnalyticsTab';
 import { Nav } from '@/components/Nav';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cancelCampaign, getCampaign } from '@/lib/api';
 import { platformIcon, platformLabel } from '@/lib/platform-metadata';
 import {
@@ -127,54 +129,67 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
                   </div>
                 </div>
 
-                <h2 className="mt-8 font-display text-lg uppercase tracking-wide text-foreground">
-                  Publish Jobs
-                </h2>
-                {campaign.publishRecords.length === 0 ? (
-                  <p className="mt-2 font-body text-sm text-muted-foreground">
-                    Belum ada publish job pada campaign ini.
-                  </p>
-                ) : (
-                  <ul className="mt-3 space-y-2">
-                    {campaign.publishRecords.map((record) => {
-                      const Icon = platformIcon(record.platform);
-                      return (
-                        <li
-                          key={record.id}
-                          className="flex items-center justify-between gap-3 rounded-md border border-border bg-slate-panel p-3"
-                        >
-                          <div className="flex min-w-0 items-center gap-2">
-                            <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                            <span className="font-body text-sm text-foreground">
-                              {platformLabel(record.platform)}
-                            </span>
-                            <span className="truncate font-mono text-xs text-muted-foreground">
-                              clip {record.clipId}
-                            </span>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-2">
-                            {record.status === 'FAILED' && record.errorMessage && (
-                              <span
-                                className="max-w-[16rem] truncate font-mono text-xs text-destructive"
-                                title={record.errorMessage}
-                              >
-                                {record.errorMessage}
-                              </span>
-                            )}
-                            <span className="font-mono text-xs text-muted-foreground">
-                              {record.publishedAt
-                                ? new Date(record.publishedAt).toLocaleString()
-                                : record.scheduledAt
-                                  ? new Date(record.scheduledAt).toLocaleString()
-                                  : ''}
-                            </span>
-                            <Badge variant="outline">{PUBLISH_STATUS_LABELS[record.status]}</Badge>
-                          </div>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                )}
+                <Tabs defaultValue="jobs" className="mt-8">
+                  <TabsList>
+                    <TabsTrigger value="jobs">Publish Jobs</TabsTrigger>
+                    <TabsTrigger value="analytics">Analytics</TabsTrigger>
+                  </TabsList>
+
+                  <TabsContent value="jobs">
+                    {campaign.publishRecords.length === 0 ? (
+                      <p className="font-body text-sm text-muted-foreground">
+                        Belum ada publish job pada campaign ini.
+                      </p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {campaign.publishRecords.map((record) => {
+                          const Icon = platformIcon(record.platform);
+                          return (
+                            <li
+                              key={record.id}
+                              className="flex items-center justify-between gap-3 rounded-md border border-border bg-slate-panel p-3"
+                            >
+                              <div className="flex min-w-0 items-center gap-2">
+                                <Icon
+                                  className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                                  aria-hidden="true"
+                                />
+                                <span className="font-body text-sm text-foreground">
+                                  {platformLabel(record.platform)}
+                                </span>
+                                <span className="truncate font-mono text-xs text-muted-foreground">
+                                  clip {record.clipId}
+                                </span>
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2">
+                                {record.status === 'FAILED' && record.errorMessage && (
+                                  <span
+                                    className="max-w-[16rem] truncate font-mono text-xs text-destructive"
+                                    title={record.errorMessage}
+                                  >
+                                    {record.errorMessage}
+                                  </span>
+                                )}
+                                <span className="font-mono text-xs text-muted-foreground">
+                                  {record.publishedAt
+                                    ? new Date(record.publishedAt).toLocaleString()
+                                    : record.scheduledAt
+                                      ? new Date(record.scheduledAt).toLocaleString()
+                                      : ''}
+                                </span>
+                                <Badge variant="outline">{PUBLISH_STATUS_LABELS[record.status]}</Badge>
+                              </div>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    )}
+                  </TabsContent>
+
+                  <TabsContent value="analytics">
+                    <CampaignAnalyticsTab campaignId={params.id} workspaceId={campaign.workspaceId} />
+                  </TabsContent>
+                </Tabs>
               </>
             )}
           </>

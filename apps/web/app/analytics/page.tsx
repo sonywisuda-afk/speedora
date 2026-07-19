@@ -1,17 +1,23 @@
 'use client';
 
 import type {
+  AnalyticsHeatmapDto,
   AnalyticsOverviewDto,
   AnalyticsPerformanceDto,
+  FollowersDto,
   TopClipRow,
   TopVideoRow,
+  TrendGranularity,
 } from '@speedora/shared';
 import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { AiPerformanceSummary } from '../../components/analytics/AiPerformanceSummary';
+import { AnalyticsCard } from '../../components/analytics/AnalyticsCard';
 import { AnalyticsReportExport } from '../../components/analytics/AnalyticsReportExport';
 import { DateRangeFilter } from '../../components/analytics/DateRangeFilter';
+import { EngagementHeatmap } from '../../components/analytics/EngagementHeatmap';
 import { EngagementTrendChart } from '../../components/analytics/EngagementTrendChart';
+import { FollowersPanel } from '../../components/analytics/FollowersPanel';
 import { GrowthSummary } from '../../components/analytics/GrowthSummary';
 import { PlatformBreakdown } from '../../components/analytics/PlatformBreakdown';
 import { PlatformComparisonTable } from '../../components/analytics/PlatformComparisonTable';
@@ -19,10 +25,14 @@ import { ProcessingStatusBreakdown } from '../../components/analytics/Processing
 import { StatTile } from '../../components/analytics/StatTile';
 import { TopClipsTable } from '../../components/analytics/TopClipsTable';
 import { TopVideosTable } from '../../components/analytics/TopVideosTable';
+import { TrendChart } from '../../components/analytics/TrendChart';
+import { UnavailableMetric } from '../../components/analytics/UnavailableMetric';
 import { UploadTrendChart } from '../../components/analytics/UploadTrendChart';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Nav } from '../../components/Nav';
 import {
+  getAnalyticsFollowers,
+  getAnalyticsHeatmap,
   getAnalyticsOverview,
   getAnalyticsPerformance,
   getAnalyticsPerformanceClips,
@@ -38,9 +48,12 @@ import { useAuth } from '../../lib/useAuth';
 export default function AnalyticsPage() {
   const { user, checkingAuth, logout } = useAuth();
   const [overview, setOverview] = useState<AnalyticsOverviewDto | null>(null);
+  const [followers, setFollowers] = useState<FollowersDto | null>(null);
+  const [heatmap, setHeatmap] = useState<AnalyticsHeatmapDto | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [days, setDays] = useState<7 | 30 | 90>(30);
+  const [granularity, setGranularity] = useState<TrendGranularity>('daily');
   const [performance, setPerformance] = useState<AnalyticsPerformanceDto | null>(null);
   const [topClips, setTopClips] = useState<TopClipRow[] | null>(null);
   const [topVideos, setTopVideos] = useState<TopVideoRow[] | null>(null);
@@ -58,6 +71,26 @@ export default function AnalyticsPage() {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Gagal memuat analytics');
       });
 
+    // Sprint 6F (Followers) - loads once alongside Overview, same lifecycle
+    // (not tied to the Performance section's days/granularity filters).
+    getAnalyticsFollowers()
+      .then((data) => {
+        if (!cancelled) setFollowers(data);
+      })
+      .catch(() => {
+        // Best-effort - a Followers fetch failure shouldn't block the rest
+        // of the page (already covered by the Overview error above).
+      });
+
+    // Sprint 6H (Heatmap) - same "loads once, best-effort" lifecycle.
+    getAnalyticsHeatmap()
+      .then((data) => {
+        if (!cancelled) setHeatmap(data);
+      })
+      .catch(() => {
+        // Best-effort, same reasoning as Followers above.
+      });
+
     return () => {
       cancelled = true;
     };
@@ -68,7 +101,7 @@ export default function AnalyticsPage() {
     let cancelled = false;
 
     Promise.all([
-      getAnalyticsPerformance({ days }),
+      getAnalyticsPerformance({ days, granularity }),
       getAnalyticsPerformanceClips({ days }),
       getAnalyticsPerformanceVideos({ days }),
     ])
@@ -87,7 +120,7 @@ export default function AnalyticsPage() {
     return () => {
       cancelled = true;
     };
-  }, [user, days]);
+  }, [user, days, granularity]);
 
   return (
     <main className="min-h-screen bg-background px-6 py-6">
@@ -154,6 +187,26 @@ export default function AnalyticsPage() {
                     <UploadTrendChart uploadTrend={overview.uploadTrend} />
                   </CardContent>
                 </Card>
+
+                {followers ? (
+                  <AnalyticsCard title="Followers">
+                    <FollowersPanel accounts={followers.accounts} />
+                  </AnalyticsCard>
+                ) : null}
+
+                {heatmap ? (
+                  <>
+                    <AnalyticsCard title="Heatmap — Waktu Publikasi vs Engagement">
+                      <EngagementHeatmap cells={heatmap.cells} />
+                    </AnalyticsCard>
+
+                    <div className="grid gap-4 sm:grid-cols-3">
+                      <UnavailableMetric label="Audience Retention" reason={heatmap.retention.reason} />
+                      <UnavailableMetric label="Drop Off" reason={heatmap.dropOff.reason} />
+                      <UnavailableMetric label="Replay" reason={heatmap.replay.reason} />
+                    </div>
+                  </>
+                ) : null}
               </div>
             ) : null}
 
@@ -178,6 +231,19 @@ export default function AnalyticsPage() {
                   </CardHeader>
                   <CardContent>
                     <EngagementTrendChart engagementTrend={performance.engagementTrend} />
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Tren Views</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <TrendChart
+                      data={performance.engagementTrend}
+                      granularity={granularity}
+                      onGranularityChange={setGranularity}
+                    />
                   </CardContent>
                 </Card>
 

@@ -1,4 +1,39 @@
-import { fetchYouTubeVideoStats } from './youtube-stats.client';
+import { fetchYouTubeFollowerCount, fetchYouTubeVideoStats } from './youtube-stats.client';
+
+describe('fetchYouTubeFollowerCount', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('fetches channels.list?part=statistics&mine=true and parses subscriberCount', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [{ statistics: { subscriberCount: '4321' } }] }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const count = await fetchYouTubeFollowerCount('access-token');
+
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(url.origin + url.pathname).toBe('https://www.googleapis.com/youtube/v3/channels');
+    expect(url.searchParams.get('part')).toBe('statistics');
+    expect(url.searchParams.get('mine')).toBe('true');
+    expect(count).toBe(4321);
+  });
+
+  it('throws when no channel/subscriberCount is found', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ items: [] }),
+    }) as unknown as typeof fetch;
+
+    await expect(fetchYouTubeFollowerCount('access-token')).rejects.toThrow(
+      /No YouTube channel\/subscriberCount found/,
+    );
+  });
+});
 
 describe('fetchYouTubeVideoStats', () => {
   const originalFetch = global.fetch;

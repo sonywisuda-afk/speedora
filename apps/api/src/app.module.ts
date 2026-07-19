@@ -24,8 +24,10 @@ import { RedisPubSubModule } from './redis-pubsub/redis-pubsub.module';
 import { SearchModule } from './search/search.module';
 import { ShareModule } from './share/share.module';
 import { SocialModule } from './social/social.module';
+import { TrackedLinksModule } from './tracked-links/tracked-links.module';
 import { VideosModule } from './videos/videos.module';
 import { WorkspaceModule } from './workspace/workspace.module';
+import { WorkspaceAnalyticsModule } from './workspace-analytics/workspace-analytics.module';
 
 @Module({
   imports: [
@@ -60,6 +62,8 @@ import { WorkspaceModule } from './workspace/workspace.module';
     NotificationsModule,
     CampaignsModule,
     RecurringSchedulesModule,
+    WorkspaceAnalyticsModule,
+    TrackedLinksModule,
   ],
   controllers: [AppController],
   providers: [AppService],

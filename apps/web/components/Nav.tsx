@@ -13,6 +13,7 @@ const LINKS = [
   { href: '/analytics', label: 'Analytics' },
   { href: '/social', label: 'Social Media' },
   { href: '/campaigns', label: 'Campaigns' },
+  { href: '/leaderboard', label: 'Leaderboard' },
   { href: '/schedules', label: 'Schedules' },
   { href: '/calendar', label: 'Calendar' },
   { href: '/accounts', label: 'Accounts' },

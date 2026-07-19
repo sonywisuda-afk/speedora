@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@speedora/contracts": "workspace:*",
+    "@speedora/dataset-quality": "workspace:*",
     "@speedora/shared": "workspace:*"
   },
   "devDependencies": {

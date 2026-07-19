@@ -24,6 +24,7 @@ describe('ClipsService', () => {
       deleteMany: jest.Mock;
       updateMany: jest.Mock;
       findUniqueOrThrow: jest.Mock;
+      findMany: jest.Mock;
     };
     clipVersion: {
       count: jest.Mock;
@@ -53,6 +54,7 @@ describe('ClipsService', () => {
         deleteMany: jest.fn(),
         updateMany: jest.fn(),
         findUniqueOrThrow: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
       },
       // Sprint 5E (Version Compare & History).
       clipVersion: {
@@ -404,6 +406,281 @@ describe('ClipsService', () => {
       await expect(service.getExplainability('clip-1', 'user-1')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe('getPerformance', () => {
+    const clipWithPerformance = {
+      id: 'clip-1',
+      videoId: 'video-1',
+      video: { workspaceId: 'ws-1', ownerId: 'owner-1' },
+      highlightScore: 74,
+      highlightConfidence: 0.82,
+      highlightReason: 'Strong hook and high energy throughout.',
+      highlightBreakdown: null,
+      highlightExplainability: null,
+      highlightPrediction: null,
+      highlightRecommendation: null,
+      highlightRank: 1,
+      publishRecords: [
+        {
+          id: 'pr-1',
+          status: 'PUBLISHED',
+          publishedAt: new Date('2026-01-05T00:00:00.000Z'),
+          scheduledAt: null,
+          socialAccount: { platform: 'YOUTUBE' },
+          campaign: { id: 'campaign-1', name: 'Launch Week' },
+          recurringSchedule: null,
+          trackedLinks: [],
+          statsSnapshots: [
+            {
+              capturedAt: new Date('2026-01-05T06:00:00.000Z'),
+              viewCount: 100,
+              likeCount: 10,
+              commentCount: 2,
+              shareCount: 1,
+              watchTimeSeconds: null,
+              engagementScore: 0.19,
+            },
+            {
+              capturedAt: new Date('2026-01-06T06:00:00.000Z'),
+              viewCount: 500,
+              likeCount: 50,
+              commentCount: 5,
+              shareCount: 3,
+              watchTimeSeconds: null,
+              engagementScore: 0.236,
+            },
+          ],
+        },
+      ],
+    };
+
+    it('fetches the clip and its performance graph in a single query', async () => {
+      prisma.clip.findUnique.mockResolvedValue(clipWithPerformance);
+
+      await service.getPerformance('clip-1', 'user-1');
+
+      expect(prisma.clip.findUnique).toHaveBeenCalledTimes(1);
+      expect(prisma.clip.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'clip-1' } }),
+      );
+    });
+
+    it('checks workspace access against the fetched clip', async () => {
+      prisma.clip.findUnique.mockResolvedValue(clipWithPerformance);
+
+      await service.getPerformance('clip-1', 'user-1');
+
+      expect(workspaceAccess.assertMinRole).toHaveBeenCalledWith('user-1', 'ws-1', 'VIEWER');
+    });
+
+    it("maps each PublishRecord's full stats history into performance, oldest first", async () => {
+      prisma.clip.findUnique.mockResolvedValue(clipWithPerformance);
+
+      const result = await service.getPerformance('clip-1', 'user-1');
+
+      expect(result.performance).toHaveLength(1);
+      const series = result.performance[0];
+      expect(series.publishRecordId).toBe('pr-1');
+      expect(series.platform).toBe('YOUTUBE');
+      expect(series.history).toHaveLength(2);
+      expect(series.history[0].viewCount).toBe(100);
+      expect(series.history[1].viewCount).toBe(500);
+    });
+
+    it('reflects the same real numbers a dashboard reading the same snapshot would show - no recomputation', async () => {
+      prisma.clip.findUnique.mockResolvedValue(clipWithPerformance);
+
+      const result = await service.getPerformance('clip-1', 'user-1');
+
+      const latest = result.performance[0].history[1];
+      expect(latest.engagementScore).toBe(0.236);
+      expect(latest.likeCount).toBe(50);
+      expect(latest.shareCount).toBe(3);
+    });
+
+    it('surfaces campaign/recurringSchedule as independent, non-mutually-exclusive fields in traffic', async () => {
+      prisma.clip.findUnique.mockResolvedValue(clipWithPerformance);
+
+      const result = await service.getPerformance('clip-1', 'user-1');
+
+      expect(result.traffic).toHaveLength(1);
+      expect(result.traffic[0].campaign).toEqual({ id: 'campaign-1', name: 'Launch Week' });
+      expect(result.traffic[0].recurringSchedule).toBeNull();
+    });
+
+    it("reuses the same score mapping getExplainability uses, so the two endpoints can't drift", async () => {
+      prisma.clip.findUnique.mockResolvedValue(clipWithPerformance);
+
+      const result = await service.getPerformance('clip-1', 'user-1');
+
+      expect(result.score).toEqual([
+        {
+          engine: 'v2',
+          highlightScore: 74,
+          highlightConfidence: 0.82,
+          highlightReason: 'Strong hook and high energy throughout.',
+          highlightBreakdown: [],
+          highlightExplainability: { topFactors: [] },
+          highlightPrediction: null,
+          highlightRecommendation: null,
+          highlightRank: 1,
+        },
+      ]);
+    });
+
+    it('always reports audience as unavailable, honestly, in v1', async () => {
+      prisma.clip.findUnique.mockResolvedValue(clipWithPerformance);
+
+      const result = await service.getPerformance('clip-1', 'user-1');
+
+      expect(result.audience.available).toBe(false);
+      expect(result.audience.reason).toBeTruthy();
+    });
+
+    it('reports conversionCount: null when no TrackedLink exists for a publish record - never a fabricated 0', async () => {
+      prisma.clip.findUnique.mockResolvedValue(clipWithPerformance);
+
+      const result = await service.getPerformance('clip-1', 'user-1');
+
+      expect(result.traffic[0].conversionCount).toBeNull();
+    });
+
+    it('sums real clickCount across every TrackedLink attached to a publish record', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        ...clipWithPerformance,
+        publishRecords: [
+          {
+            ...clipWithPerformance.publishRecords[0],
+            trackedLinks: [{ clickCount: 12 }, { clickCount: 5 }],
+          },
+        ],
+      });
+
+      const result = await service.getPerformance('clip-1', 'user-1');
+
+      expect(result.traffic[0].conversionCount).toBe(17);
+    });
+
+    it("queries the owner's OTHER published clips for the insight baseline, excluding this clip", async () => {
+      prisma.clip.findUnique.mockResolvedValue(clipWithPerformance);
+
+      await service.getPerformance('clip-1', 'user-1');
+
+      expect(prisma.publishRecord.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            status: 'PUBLISHED',
+            clipId: { not: 'clip-1' },
+            clip: { video: { ownerId: 'owner-1' } },
+          }),
+        }),
+      );
+    });
+
+    it("reports 'not_enough_data' when the owner has too little publish history to compare against", async () => {
+      prisma.clip.findUnique.mockResolvedValue(clipWithPerformance);
+      prisma.publishRecord.findMany.mockResolvedValue([]);
+
+      const result = await service.getPerformance('clip-1', 'user-1');
+
+      expect(result.insight.classification).toBe('not_enough_data');
+      expect(result.insight.comparedAgainst).toBe(0);
+    });
+
+    it("classifies against a real historical baseline built from the owner's other clips' latest snapshots", async () => {
+      prisma.clip.findUnique.mockResolvedValue(clipWithPerformance);
+      // This clip's own latest engagementScore is 0.236 (from clipWithPerformance's
+      // fixture history) - a baseline well below that should classify as over-performed.
+      prisma.publishRecord.findMany.mockResolvedValue([
+        { clip: { highlightScore: 40 }, statsSnapshots: [{ engagementScore: 0.05 }] },
+        { clip: { highlightScore: 42 }, statsSnapshots: [{ engagementScore: 0.04 }] },
+        { clip: { highlightScore: 38 }, statsSnapshots: [{ engagementScore: 0.06 }] },
+        { clip: { highlightScore: 41 }, statsSnapshots: [{ engagementScore: 0.05 }] },
+        { clip: { highlightScore: 39 }, statsSnapshots: [{ engagementScore: 0.04 }] },
+      ]);
+
+      const result = await service.getPerformance('clip-1', 'user-1');
+
+      expect(result.insight.classification).toBe('over_performed');
+      expect(result.insight.comparedAgainst).toBe(5);
+    });
+
+    it("reports prediction.available: false when the owner has fewer than 20 other published clips", async () => {
+      prisma.clip.findUnique.mockResolvedValue(clipWithPerformance);
+      prisma.publishRecord.findMany.mockResolvedValue([
+        { clip: { highlightScore: 40 }, statsSnapshots: [{ engagementScore: 0.05 }] },
+      ]);
+
+      const result = await service.getPerformance('clip-1', 'user-1');
+
+      expect(result.insight.prediction.available).toBe(false);
+      expect(result.insight.prediction.sampleCount).toBe(1);
+      expect(result.insight.prediction.minSamplesRequired).toBe(20);
+    });
+
+    it('produces a real prediction from >= 20 correlated (highlightScore, engagementScore) pairs', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clipWithPerformance, highlightScore: 76 });
+      prisma.publishRecord.findMany.mockResolvedValue(
+        Array.from({ length: 20 }, (_, i) => ({
+          clip: { highlightScore: i * 4 },
+          statsSnapshots: [{ engagementScore: 0.01 * (i * 4) + 0.05 }],
+        })),
+      );
+
+      const result = await service.getPerformance('clip-1', 'user-1');
+
+      expect(result.insight.prediction.available).toBe(true);
+      expect(result.insight.prediction.correlation).toBeCloseTo(1, 5);
+      // engagementScore = 0.01 * 76 + 0.05 = 0.81
+      expect(result.insight.prediction.predictedEngagementScore).toBeCloseTo(0.81, 5);
+    });
+
+    it('excludes records with a null highlightScore from the prediction pairs, but still counts them for the narrative baseline', async () => {
+      prisma.clip.findUnique.mockResolvedValue(clipWithPerformance);
+      prisma.publishRecord.findMany.mockResolvedValue([
+        { clip: { highlightScore: null }, statsSnapshots: [{ engagementScore: 0.05 }] },
+        { clip: { highlightScore: 40 }, statsSnapshots: [{ engagementScore: 0.05 }] },
+        { clip: { highlightScore: 42 }, statsSnapshots: [{ engagementScore: 0.04 }] },
+        { clip: { highlightScore: 38 }, statsSnapshots: [{ engagementScore: 0.06 }] },
+      ]);
+
+      const result = await service.getPerformance('clip-1', 'user-1');
+
+      // The narrative baseline (engagementScore-only) still counts all 4.
+      expect(result.insight.comparedAgainst).toBe(4);
+      // The prediction baseline (highlightScore, engagementScore) only has 3
+      // usable pairs - well below the 20 minimum either way, but exercises
+      // that the null-highlightScore record was excluded, not crashed on.
+      expect(result.insight.prediction.sampleCount).toBe(3);
+    });
+
+    it('has exactly the 5 documented sections - insight is the only deliberate cross-clip comparison', async () => {
+      prisma.clip.findUnique.mockResolvedValue(clipWithPerformance);
+
+      const result = await service.getPerformance('clip-1', 'user-1');
+
+      expect(result.clipId).toBe('clip-1');
+      expect(result.videoId).toBe('video-1');
+      expect(Object.keys(result).sort()).toEqual(
+        ['audience', 'clipId', 'insight', 'performance', 'score', 'traffic', 'videoId'].sort(),
+      );
+    });
+
+    it('throws NotFoundException when the clip does not exist', async () => {
+      prisma.clip.findUnique.mockResolvedValue(null);
+
+      await expect(service.getPerformance('missing', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws when the requester has no workspace access', async () => {
+      prisma.clip.findUnique.mockResolvedValue(clipWithPerformance);
+      workspaceAccess.assertMinRole.mockRejectedValueOnce(new NotFoundException());
+
+      await expect(service.getPerformance('clip-1', 'user-1')).rejects.toThrow(NotFoundException);
     });
   });
 

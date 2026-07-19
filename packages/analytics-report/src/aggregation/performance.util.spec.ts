@@ -1,9 +1,11 @@
 import {
   bucketByPublishDate,
+  bucketByPublishPeriod,
   computeConfidenceDistribution,
   computeGrowthPct,
   computeGrowthSummary,
   computeMostCommonSignals,
+  periodsForGranularity,
 } from './performance.util';
 
 describe('computeConfidenceDistribution', () => {
@@ -185,5 +187,88 @@ describe('computeGrowthSummary', () => {
     expect(result.engagementScore.current).toBe(0.9);
     expect(result.engagementScore.previous).toBeNull();
     expect(result.engagementScore.growthPct).toBeNull();
+  });
+});
+
+describe('bucketByPublishPeriod', () => {
+  const now = new Date('2026-01-10T12:00:00.000Z');
+
+  it("with granularity 'daily' reproduces bucketByPublishDate's own bucket keys exactly", () => {
+    const records = [
+      { publishedAt: new Date('2026-01-09T01:00:00.000Z'), viewCount: 100, engagementScore: 0.2 },
+      { publishedAt: new Date('2026-01-10T00:00:00.000Z'), viewCount: 10, engagementScore: null },
+    ];
+    expect(bucketByPublishPeriod(records, 'daily', 3, now)).toEqual(
+      bucketByPublishDate(records, 3, now),
+    );
+  });
+
+  it("zero-fills every ISO week with 'weekly' granularity", () => {
+    const result = bucketByPublishPeriod([], 'weekly', 3, now);
+    expect(result).toHaveLength(3);
+    expect(result.every((r) => r.publishCount === 0 && r.averageEngagementScore === null)).toBe(
+      true,
+    );
+    // 2026-01-10 falls in ISO week 2026-W02.
+    expect(result[result.length - 1].date).toBe('2026-W02');
+  });
+
+  it("aggregates records into the correct ISO week with 'weekly' granularity", () => {
+    const result = bucketByPublishPeriod(
+      [
+        // 2026-01-05 and 2026-01-08 are both in ISO week 2026-W02.
+        { publishedAt: new Date('2026-01-05T00:00:00.000Z'), viewCount: 100, engagementScore: 0.2 },
+        { publishedAt: new Date('2026-01-08T00:00:00.000Z'), viewCount: 50, engagementScore: 0.4 },
+      ],
+      'weekly',
+      2,
+      now,
+    );
+    const week = result.find((r) => r.date === '2026-W02')!;
+    expect(week.publishCount).toBe(2);
+    expect(week.totalViews).toBe(150);
+    expect(week.averageEngagementScore).toBeCloseTo(0.3);
+  });
+
+  it("does not skip a short month (day-of-month overflow) with 'monthly' granularity", () => {
+    // Naively doing "March 31 minus 1 month" via Date.setMonth lands on a
+    // nonexistent "Feb 31", which JS normalizes forward into early March -
+    // this test guards against that regressing and silently dropping
+    // February from the trend.
+    const marchEnd = new Date('2026-03-31T12:00:00.000Z');
+    const result = bucketByPublishPeriod([], 'monthly', 2, marchEnd);
+    expect(result.map((r) => r.date)).toEqual(['2026-02', '2026-03']);
+  });
+
+  it("zero-fills every calendar year with 'yearly' granularity", () => {
+    const midYear = new Date('2026-06-15T00:00:00.000Z');
+    const result = bucketByPublishPeriod([], 'yearly', 2, midYear);
+    expect(result.map((r) => r.date)).toEqual(['2025', '2026']);
+  });
+
+  it("drops records outside the window with 'monthly' granularity", () => {
+    const result = bucketByPublishPeriod(
+      [{ publishedAt: new Date('2020-01-01'), viewCount: 999, engagementScore: 1 }],
+      'monthly',
+      2,
+      now,
+    );
+    expect(result.reduce((sum, r) => sum + r.publishCount, 0)).toBe(0);
+  });
+});
+
+describe('periodsForGranularity', () => {
+  it('returns the day count unchanged for daily', () => {
+    expect(periodsForGranularity(90, 'daily')).toBe(90);
+  });
+
+  it('converts a day window into a bucket count for coarser granularities', () => {
+    expect(periodsForGranularity(90, 'weekly')).toBe(13);
+    expect(periodsForGranularity(90, 'monthly')).toBe(3);
+    expect(periodsForGranularity(90, 'yearly')).toBe(1);
+  });
+
+  it('never returns fewer than 1 bucket for a small window', () => {
+    expect(periodsForGranularity(7, 'yearly')).toBe(1);
   });
 });

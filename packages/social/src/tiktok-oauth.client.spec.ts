@@ -39,7 +39,9 @@ describe('TikTokOAuthClient', () => {
       expect(url.origin + url.pathname).toBe('https://www.tiktok.com/v2/auth/authorize/');
       expect(url.searchParams.get('client_key')).toBe('client-key');
       expect(url.searchParams.get('response_type')).toBe('code');
-      expect(url.searchParams.get('scope')).toBe('user.info.basic,video.upload,video.list');
+      expect(url.searchParams.get('scope')).toBe(
+        'user.info.basic,video.upload,video.list,user.info.stats',
+      );
       expect(url.searchParams.get('redirect_uri')).toBe(
         'http://localhost:3001/social/tiktok/callback',
       );

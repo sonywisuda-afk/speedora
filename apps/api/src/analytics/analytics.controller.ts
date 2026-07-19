@@ -1,5 +1,6 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { SocialPlatform } from '@speedora/database';
+import type { TrendGranularity } from '@speedora/shared';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -10,10 +11,16 @@ import { AnalyticsService } from './analytics.service';
 // level, same convention as ClipsController/VideosController. Not modeled
 // on MonitoringModule (docs/monitoring.md), which is deliberately
 // unauthenticated/system-wide operational data.
-const VALID_DAYS = [7, 30, 90];
+// Sprint 6B added 180/365 - a coarser granularity (monthly/yearly) over a
+// 7/30/90-day window would only ever show 1-3 buckets, which isn't a useful
+// trend. days still just bounds the same fetchPublishedRecords() window
+// platformComparison/growthSummary/aiSummary all share.
+const VALID_DAYS = [7, 30, 90, 180, 365];
 const DEFAULT_DAYS = 30;
 const MIN_LIMIT = 1;
 const MAX_LIMIT = 100;
+const VALID_GRANULARITIES: TrendGranularity[] = ['daily', 'weekly', 'monthly', 'yearly'];
+const DEFAULT_GRANULARITY: TrendGranularity = 'daily';
 
 // Invalid/missing query params fall back to a sane default rather than
 // throwing a 400 - these are display filters, not data-integrity-critical
@@ -36,6 +43,12 @@ function parsePlatform(raw: string | undefined): SocialPlatform | undefined {
     : undefined;
 }
 
+function parseGranularity(raw: string | undefined): TrendGranularity {
+  return raw && (VALID_GRANULARITIES as string[]).includes(raw)
+    ? (raw as TrendGranularity)
+    : DEFAULT_GRANULARITY;
+}
+
 @Controller('analytics')
 @UseGuards(JwtAuthGuard)
 export class AnalyticsController {
@@ -51,10 +64,12 @@ export class AnalyticsController {
     @CurrentUser() user: SafeUser,
     @Query('days') days?: string,
     @Query('platform') platform?: string,
+    @Query('granularity') granularity?: string,
   ) {
     return this.analyticsService.getPerformance(user.id, {
       days: parseDays(days),
       platform: parsePlatform(platform),
+      granularity: parseGranularity(granularity),
     });
   }
 
@@ -86,5 +101,15 @@ export class AnalyticsController {
       platform: parsePlatform(platform),
       limit: parseLimit(limit, 50),
     });
+  }
+
+  @Get('followers')
+  getFollowers(@CurrentUser() user: SafeUser, @Query('days') days?: string) {
+    return this.analyticsService.getFollowers(user.id, parseDays(days));
+  }
+
+  @Get('heatmap')
+  getHeatmap(@CurrentUser() user: SafeUser, @Query('days') days?: string) {
+    return this.analyticsService.getHeatmap(user.id, parseDays(days));
   }
 }

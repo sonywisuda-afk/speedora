@@ -86,3 +86,12 @@ export const telegramChatDiscoveryQueue = new Queue(QueueName.TELEGRAM_CHAT_DISC
   connection: createRedisConnection(),
   defaultJobOptions,
 });
+
+// The repeatable trigger queue for sync-follower-count.worker.ts (Sprint
+// 6F) - self-contained (fetches follower counts and writes
+// SocialAccountFollowerSnapshot rows directly, no further job to hand off
+// to), same shape as syncPublishStatsQueue above.
+export const syncFollowerCountQueue = new Queue(QueueName.SYNC_FOLLOWER_COUNT, {
+  connection: createRedisConnection(),
+  defaultJobOptions,
+});

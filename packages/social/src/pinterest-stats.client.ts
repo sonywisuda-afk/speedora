@@ -61,3 +61,20 @@ export async function fetchPinterestPinStats(
     watchTimeSeconds: null,
   };
 }
+
+// Sprint 6F (Followers) - account-level ("whoami" style, no boardId/pinId
+// needed - follower count belongs to the connected user account itself, not
+// a specific board or Pin). Requires only user_accounts:read, already
+// granted specifically for this - no new scope needed.
+export async function fetchPinterestFollowerCount(accessToken: string): Promise<number> {
+  const url = `${PINTEREST_API_BASE_URL}/user_account`;
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const body = (await res.json()) as { follower_count?: number } & PinterestErrorBody;
+  if (!res.ok) {
+    throw new Error(`Pinterest user_account fetch failed: ${res.status} ${body.message ?? ''}`.trim());
+  }
+  if (body.follower_count === undefined) {
+    throw new Error('Pinterest user_account did not return a follower_count');
+  }
+  return body.follower_count;
+}

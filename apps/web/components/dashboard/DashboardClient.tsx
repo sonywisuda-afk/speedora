@@ -568,6 +568,14 @@ export function DashboardClient({
                         AI Explainability
                       </Link>
                     )}
+                    {video.clips.some((clip) => clip.publishRecords.length > 0) && (
+                      <Link
+                        href={`/videos/${video.id}/performance`}
+                        className="font-body text-sm text-foreground underline underline-offset-2 hover:text-signal-pink"
+                      >
+                        Performance
+                      </Link>
+                    )}
                     <ShareDialog videoId={video.id} />
                     {confirmDeleteId === video.id ? (
                       <span className="flex items-center gap-2">
@@ -692,6 +700,13 @@ export function DashboardClient({
                                         href={`/videos/${video.id}/explainability?clip=${clip.id}`}
                                       >
                                         AI Explainability
+                                      </Link>
+                                    </Button>
+                                  )}
+                                  {clip.publishRecords.length > 0 && (
+                                    <Button size="sm" variant="outline" asChild>
+                                      <Link href={`/videos/${video.id}/performance?clip=${clip.id}`}>
+                                        Performance
                                       </Link>
                                     </Button>
                                   )}

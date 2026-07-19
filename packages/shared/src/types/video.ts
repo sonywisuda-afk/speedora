@@ -883,6 +883,11 @@ export interface ClipCandidate {
 export interface Video {
   id: string;
   ownerId: string;
+  // Sprint 6K (Conversion) - already present on every API response (the
+  // backend never selected it out), just never typed until a client needed
+  // it: the clip-performance page needs this to call the workspace-scoped
+  // POST /workspaces/:workspaceId/tracked-links.
+  workspaceId: string;
   sourceUrl: string;
   // Sprint 1-2 (Dashboard Redesign) - display name only, null for rows
   // created before this field existed (see schema.prisma's comment on

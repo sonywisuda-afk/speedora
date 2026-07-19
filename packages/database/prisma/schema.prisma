@@ -189,6 +189,8 @@ model User {
   auditLogEntries          AuditLogEntry[]
   // Publishing Expansion Phase 6 (Scheduling)
   campaignsCreated         Campaign[]
+  // Sprint 6K (Conversion - first-party click-tracking)
+  createdTrackedLinks      TrackedLink[]
 }
 
 model Video {
@@ -917,6 +919,8 @@ model SocialAccount {
   publishRecords     PublishRecord[]
   // Publishing Expansion Phase 6 (Scheduling)
   recurringSchedules RecurringSchedule[]
+  // Sprint 6F (Analytics Dashboard Expansion - Followers)
+  followerSnapshots  SocialAccountFollowerSnapshot[]
 
   @@unique([userId, platform, platformAccountId])
   @@index([userId])
@@ -967,6 +971,13 @@ model PublishRecord {
   recurringScheduleId String?
   recurringSchedule   RecurringSchedule? @relation(fields: [recurringScheduleId], references: [id], onDelete: SetNull)
 
+  // Sprint 6K (Conversion) - a PublishRecord can have zero, one, or more
+  // TrackedLinks attached (a creator may want more than one trackable link
+  // for the same publish) - onDelete: Cascade here (unlike campaignId/
+  // recurringScheduleId's SetNull above) since a TrackedLink scoped to one
+  // specific publish has no meaning once that publish record is gone.
+  trackedLinks TrackedLink[]
+
   @@index([clipId])
   @@index([socialAccountId])
   // schedule-publish-clip.worker.ts's poller runs this exact
@@ -1000,6 +1011,26 @@ model PublishRecordStatsSnapshot {
   engagementScore  Float?
 
   @@index([publishRecordId, capturedAt])
+}
+
+// Sprint 6F (Analytics Dashboard Expansion - Followers). Same append-only-
+// snapshot shape as PublishRecordStatsSnapshot, but account-level rather
+// than per-post - one row per sync-follower-count run for one SocialAccount.
+// No row is ever created for a platform/account this app can't fetch a
+// follower count for (LinkedIn/Threads have no public API for it at all;
+// TikTok needs the user.info.stats scope, so accounts connected before that
+// scope was added get no rows until they reconnect) - absence of recent
+// rows *is* the "not available" signal here, same posture
+// PublishRecordStatsSnapshot.watchTimeSeconds already has for non-Instagram
+// platforms. See packages/analytics-report's platform-capability.util.ts.
+model SocialAccountFollowerSnapshot {
+  id              String        @id @default(cuid())
+  socialAccountId String
+  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  capturedAt      DateTime      @default(now())
+  followerCount   Int
+
+  @@index([socialAccountId, capturedAt])
 }
 
 // Publishing Expansion Phase 6 (Scheduling). Mirrors CampaignStatus in
@@ -1042,6 +1073,10 @@ model Campaign {
   updatedAt   DateTime  @updatedAt
 
   publishRecords PublishRecord[]
+  // Sprint 6K (Conversion) - a campaign-wide trackable link (as opposed to
+  // TrackedLink.publishRecordId's single-publish scope) - same Cascade
+  // reasoning as PublishRecord's own trackedLinks relation.
+  trackedLinks   TrackedLink[]
 
   @@index([workspaceId])
 }
@@ -1349,6 +1384,8 @@ model Workspace {
   // Publishing Expansion Phase 6 (Scheduling)
   campaigns          Campaign[]
   recurringSchedules RecurringSchedule[]
+  // Sprint 6K (Conversion - first-party click-tracking)
+  trackedLinks       TrackedLink[]
 
   @@index([ownerId])
 }
@@ -1815,4 +1852,79 @@ model AuditLogEntry {
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, action])
+}
+
+// Sprint 6K (Conversion - first-party click-tracking). A Speedora-owned
+// trackable redirect link (GET /r/:slug), replacing the idea of a
+// self-reported Conversion number with a real, first-party measurement -
+// see the project's "no fabricated business KPIs, ever" rule. Exactly one
+// of publishRecordId/campaignId is set - never both, never neither -
+// enforced both here (application-level guard in
+// tracked-links.service.ts, for a friendly error message) AND by a
+// database CHECK constraint hand-added to this model's own migration.sql
+// (the real guarantee, since app-level checks can be bypassed by a bug or
+// direct DB access). clickCount is a denormalized running total,
+// atomically incremented alongside every real (non-bot, non-deduped)
+// TrackedLinkClick insert - click volume can run far higher than publish
+// volume, so every read (GET /clips/:id/performance,
+// GET /campaigns/:id/analytics) stays O(1) against this counter rather
+// than scanning/counting the full click-detail table.
+model TrackedLink {
+  id          String    @id @default(cuid())
+  workspaceId String
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  // Short (8-char, URL-safe) and unique - see slug.util.ts. This IS the
+  // public path segment creators share; never regenerated once created.
+  slug        String    @unique
+  // Validated at creation time only (http(s) protocol only, and rejected
+  // if it would redirect back into this app's own /r/ path - see
+  // tracked-links.service.ts's validateDestinationUrl()). Never
+  // re-validated at redirect time.
+  destinationUrl String
+
+  publishRecordId String?
+  publishRecord   PublishRecord? @relation(fields: [publishRecordId], references: [id], onDelete: Cascade)
+  campaignId      String?
+  campaign        Campaign?      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  clickCount Int @default(0)
+
+  createdById String
+  createdBy   User     @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
+
+  clicks TrackedLinkClick[]
+
+  @@index([workspaceId])
+  @@index([publishRecordId])
+  @@index([campaignId])
+}
+
+// Append-only detail history behind TrackedLink.clickCount's denormalized
+// total - kept for the redirect handler's own short duplicate-click
+// lookback (see redirect.service.ts) and for a possible future time-series
+// drill-down, not read on every performance-page load (that reads the
+// O(1) counter instead). Deliberately minimal fields - no IP address, no
+// raw User-Agent string, no cookies, no fingerprinting. A short-lived
+// Redis key is used for duplicate-click debouncing instead of an IP
+// column, and is never written to durable storage - see the project's
+// "only store what's genuinely needed for analytics and attribution"
+// rule.
+model TrackedLinkClick {
+  id            String      @id @default(cuid())
+  trackedLinkId String
+  trackedLink   TrackedLink @relation(fields: [trackedLinkId], references: [id], onDelete: Cascade)
+  clickedAt     DateTime    @default(now())
+  // From the Referer header, if present - a real attribution signal (did
+  // this click come from the actual published post, or somewhere else) -
+  // truncated defensively against an oversized header at ingestion time.
+  referrer String?
+  // Derived once from the User-Agent at ingestion (bot-detection.util.ts) -
+  // the raw User-Agent string itself is never persisted. isBot: true rows
+  // still exist (a real hit happened) but are excluded from
+  // TrackedLink.clickCount and from every conversionCount this app reports -
+  // an honest, bot-filtered number, not a raw hit count.
+  isBot Boolean @default(false)
+
+  @@index([trackedLinkId, clickedAt])
 }

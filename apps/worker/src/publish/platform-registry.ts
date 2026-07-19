@@ -1,12 +1,18 @@
 import { SocialPlatform, type Clip, type PublishRecord, type SocialAccount } from '@speedora/database';
 import {
   FacebookOAuthClient,
+  fetchFacebookFollowerCount,
   fetchFacebookVideoStats,
+  fetchInstagramFollowerCount,
   fetchInstagramMediaStats,
   fetchLinkedInPostStats,
+  fetchPinterestFollowerCount,
   fetchThreadsPostStats,
+  fetchTikTokFollowerCount,
   fetchTikTokPublishStatus,
   fetchTikTokVideoStats,
+  fetchXFollowerCount,
+  fetchYouTubeFollowerCount,
   fetchYouTubeVideoStats,
   fetchPinterestPinStats,
   fetchXTweetStats,
@@ -73,6 +79,17 @@ export interface StatsContext {
   platformPostId: string;
 }
 
+// Sprint 6F (Followers) - platformAccountId is only actually used by the
+// Meta platforms (Instagram/Facebook need a specific node id); the
+// "whoami"-style platforms (YouTube/Pinterest/X/TikTok) ignore it and just
+// read the access token's own identity. Always passing both keeps this
+// symmetric with StatsContext rather than branching the adapter interface
+// per platform.
+export interface FollowerContext {
+  accessToken: string;
+  platformAccountId: string;
+}
+
 export interface PlatformPublishAdapter {
   oauth: OAuthRefreshClient;
   publish(ctx: PublishContext): Promise<PublishResult>;
@@ -80,6 +97,12 @@ export interface PlatformPublishAdapter {
   // sync-publish-stats.worker.ts filters on this rather than a second
   // hand-maintained platform list.
   syncStats?(ctx: StatsContext): Promise<StatsResult>;
+  // Absent for LinkedIn/Threads (no public API exposes a follower count at
+  // all) - sync-follower-count.worker.ts filters on this the same way
+  // syncStats above does. Present but liable to throw for TikTok until an
+  // account reconnects to grant user.info.stats - see
+  // fetchTikTokFollowerCount's own comment.
+  fetchFollowerCount?(ctx: FollowerContext): Promise<number>;
 }
 
 const youtubeOAuth = new YouTubeOAuthClient();
@@ -134,6 +157,9 @@ export const platformRegistry: Record<SocialPlatform, PlatformPublishAdapter> = 
     async syncStats({ accessToken, platformPostId }) {
       return { kind: 'stats', stats: await fetchYouTubeVideoStats(accessToken, platformPostId) };
     },
+    async fetchFollowerCount({ accessToken }) {
+      return fetchYouTubeFollowerCount(accessToken);
+    },
   },
   [SocialPlatform.TIKTOK]: {
     oauth: tiktokOAuth,
@@ -164,6 +190,9 @@ export const platformRegistry: Record<SocialPlatform, PlatformPublishAdapter> = 
       }
       return { kind: 'stats', stats: await fetchTikTokVideoStats(accessToken, publishStatus.videoId) };
     },
+    async fetchFollowerCount({ accessToken }) {
+      return fetchTikTokFollowerCount(accessToken);
+    },
   },
   [SocialPlatform.INSTAGRAM]: {
     oauth: instagramOAuth,
@@ -187,6 +216,9 @@ export const platformRegistry: Record<SocialPlatform, PlatformPublishAdapter> = 
     async syncStats({ accessToken, platformPostId }) {
       return { kind: 'stats', stats: await fetchInstagramMediaStats(accessToken, platformPostId) };
     },
+    async fetchFollowerCount({ accessToken, platformAccountId }) {
+      return fetchInstagramFollowerCount(accessToken, platformAccountId);
+    },
   },
   [SocialPlatform.FACEBOOK]: {
     oauth: facebookOAuth,
@@ -207,6 +239,9 @@ export const platformRegistry: Record<SocialPlatform, PlatformPublishAdapter> = 
     },
     async syncStats({ accessToken, platformPostId }) {
       return { kind: 'stats', stats: await fetchFacebookVideoStats(accessToken, platformPostId) };
+    },
+    async fetchFollowerCount({ accessToken, platformAccountId }) {
+      return fetchFacebookFollowerCount(accessToken, platformAccountId);
     },
   },
   [SocialPlatform.THREADS]: {
@@ -283,6 +318,9 @@ export const platformRegistry: Record<SocialPlatform, PlatformPublishAdapter> = 
     async syncStats({ accessToken, platformPostId }) {
       return { kind: 'stats', stats: await fetchPinterestPinStats(accessToken, platformPostId) };
     },
+    async fetchFollowerCount({ accessToken }) {
+      return fetchPinterestFollowerCount(accessToken);
+    },
   },
   [SocialPlatform.X]: {
     oauth: xOAuth,
@@ -304,11 +342,25 @@ export const platformRegistry: Record<SocialPlatform, PlatformPublishAdapter> = 
     async syncStats({ accessToken, platformPostId }) {
       return { kind: 'stats', stats: await fetchXTweetStats(accessToken, platformPostId) };
     },
+    async fetchFollowerCount({ accessToken }) {
+      return fetchXFollowerCount(accessToken);
+    },
   },
 };
 
 export function platformsWithStatsSync(): SocialPlatform[] {
   return (Object.entries(platformRegistry) as Array<[SocialPlatform, PlatformPublishAdapter]>)
     .filter(([, adapter]) => adapter.syncStats)
+    .map(([platform]) => platform);
+}
+
+// Sprint 6F (Followers) - same "filter on adapter capability, not a second
+// hand-maintained platform list" pattern as platformsWithStatsSync above.
+// LinkedIn/Threads are naturally excluded (no fetchFollowerCount defined on
+// their adapters) - TikTok IS included even though individual accounts may
+// still fail until they reconnect (see fetchTikTokFollowerCount).
+export function platformsWithFollowerSync(): SocialPlatform[] {
+  return (Object.entries(platformRegistry) as Array<[SocialPlatform, PlatformPublishAdapter]>)
+    .filter(([, adapter]) => adapter.fetchFollowerCount)
     .map(([platform]) => platform);
 }

@@ -17,6 +17,7 @@ describe('ClipsController', () => {
     findHoverPreviewOrThrow: jest.Mock;
     findStoryboardFrameOrThrow: jest.Mock;
     getExplainability: jest.Mock;
+    getPerformance: jest.Mock;
     update: jest.Mock;
     render: jest.Mock;
     remove: jest.Mock;
@@ -35,6 +36,7 @@ describe('ClipsController', () => {
       findHoverPreviewOrThrow: jest.fn(),
       findStoryboardFrameOrThrow: jest.fn(),
       getExplainability: jest.fn(),
+      getPerformance: jest.fn(),
       update: jest.fn(),
       render: jest.fn(),
       remove: jest.fn().mockResolvedValue(undefined),
@@ -214,6 +216,23 @@ describe('ClipsController', () => {
 
     expect(clipsService.getExplainability).toHaveBeenCalledWith('clip-1', 'user-1');
     expect(result).toBe(explainability);
+  });
+
+  it('delegates GET :id/performance to ClipsService.getPerformance', async () => {
+    const performance = {
+      clipId: 'clip-1',
+      videoId: 'video-1',
+      performance: [],
+      score: [],
+      traffic: [],
+      audience: { available: false, reason: 'not available' },
+    };
+    clipsService.getPerformance.mockResolvedValue(performance);
+
+    const result = await controller.getPerformance(user, 'clip-1');
+
+    expect(clipsService.getPerformance).toHaveBeenCalledWith('clip-1', 'user-1');
+    expect(result).toBe(performance);
   });
 
   it('delegates PATCH to ClipsService.update', async () => {

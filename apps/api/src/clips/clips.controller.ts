@@ -168,6 +168,16 @@ export class ClipsController {
     return this.clipsService.getExplainability(id, user.id);
   }
 
+  // Sprint 6C (Analytics Dashboard Expansion) - a read-only, single-clip
+  // view of real per-platform engagement history, distribution metadata,
+  // and the same frozen AI score getExplainability returns - never an
+  // aggregate across other clips (that's GET /analytics/*'s job). See
+  // ClipsService.getPerformance.
+  @Get(':id/performance')
+  getPerformance(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    return this.clipsService.getPerformance(id, user.id);
+  }
+
   // Publishing Expansion Phase 7A (AI SEO) - a read-only ranking of which
   // SocialPlatform this clip suits best, computed from its already-stored
   // ClipScores breakdown. See ClipsService.getPlatformFit.

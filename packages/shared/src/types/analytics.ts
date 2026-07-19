@@ -152,8 +152,20 @@ export interface GrowthSummary {
   clips: GrowthMetric;
 }
 
+// Sprint 6B (Analytics Dashboard Expansion - Trend granularity). 'daily'
+// buckets by calendar day (EngagementTrendPoint.date is a YYYY-MM-DD key,
+// unchanged from Milestone 5B); 'weekly' by ISO 8601 week (YYYY-Www);
+// 'monthly' by calendar month (YYYY-MM); 'yearly' by calendar year (YYYY).
+// EngagementTrendPoint's `date` field is reused as the generic period label
+// for all four rather than adding a parallel field per granularity.
+export type TrendGranularity = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
 export interface AnalyticsPerformanceDto {
   engagementTrend: EngagementTrendPoint[];
+  // Optional so existing callers/fixtures built before Sprint 6B still
+  // typecheck - absent is equivalent to 'daily', matching the API's own
+  // default when `?granularity=` isn't passed.
+  granularity?: TrendGranularity;
   platformComparison: PlatformComparisonRow[];
   aiSummary: AiPerformanceSummary;
   growthSummary: GrowthSummary;

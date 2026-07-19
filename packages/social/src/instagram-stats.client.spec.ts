@@ -1,4 +1,39 @@
-import { fetchInstagramMediaStats } from './instagram-stats.client';
+import { fetchInstagramFollowerCount, fetchInstagramMediaStats } from './instagram-stats.client';
+
+describe('fetchInstagramFollowerCount', () => {
+  const originalFetch = global.fetch;
+
+  afterEach(() => {
+    global.fetch = originalFetch;
+  });
+
+  it('fetches followers_count on the IG Business account node', async () => {
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ followers_count: 9876 }),
+    });
+    global.fetch = fetchMock as unknown as typeof fetch;
+
+    const count = await fetchInstagramFollowerCount('page-token', 'ig-user-1');
+
+    const url = new URL(String(fetchMock.mock.calls[0][0]));
+    expect(url.pathname).toBe('/v21.0/ig-user-1');
+    expect(url.searchParams.get('fields')).toBe('followers_count');
+    expect(count).toBe(9876);
+  });
+
+  it('throws on a Graph API error response', async () => {
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: false,
+      status: 400,
+      json: async () => ({ error: { message: 'Invalid OAuth access token' } }),
+    }) as unknown as typeof fetch;
+
+    await expect(fetchInstagramFollowerCount('bad-token', 'ig-user-1')).rejects.toThrow(
+      /Instagram followers_count fetch failed/,
+    );
+  });
+});
 
 describe('fetchInstagramMediaStats', () => {
   const originalFetch = global.fetch;

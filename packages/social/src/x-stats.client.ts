@@ -47,3 +47,25 @@ export async function fetchXTweetStats(accessToken: string, tweetId: string): Pr
     watchTimeSeconds: null,
   };
 }
+
+// Sprint 6F (Followers) - account-level ("whoami" style via /2/users/me),
+// unlike fetchXTweetStats above (per-tweet). Requires only users.read,
+// already granted - no new scope needed.
+export async function fetchXFollowerCount(accessToken: string): Promise<number> {
+  const url = new URL(`${X_API_BASE_URL}/users/me`);
+  url.searchParams.set('user.fields', 'public_metrics');
+  const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  const body = (await res.json()) as {
+    data?: { public_metrics?: { followers_count?: number } };
+    errors?: XErrorBody[];
+  };
+  if (!res.ok) {
+    const first = body.errors?.[0];
+    throw new Error(`X users/me fetch failed: ${res.status} ${first?.detail ?? first?.title ?? ''}`.trim());
+  }
+  const followersCount = body.data?.public_metrics?.followers_count;
+  if (followersCount === undefined) {
+    throw new Error('X users/me did not return a followers_count');
+  }
+  return followersCount;
+}

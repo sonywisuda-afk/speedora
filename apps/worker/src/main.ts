@@ -41,6 +41,7 @@ async function main() {
     publishClipQueue,
     renderClipQueue,
     schedulePublishClipQueue,
+    syncFollowerCountQueue,
     syncPublishStatsQueue,
     telegramChatDiscoveryQueue,
     transcribeQueue,
@@ -58,6 +59,10 @@ async function main() {
     createSyncPublishStatsWorker,
     scheduleRepeatingTrigger: scheduleSyncPublishStatsTrigger,
   } = await import('./workers/sync-publish-stats.worker');
+  const {
+    createSyncFollowerCountWorker,
+    scheduleRepeatingTrigger: scheduleSyncFollowerCountTrigger,
+  } = await import('./workers/sync-follower-count.worker');
   const { createExportGenerateWorker } = await import('./export-generate/export-generate.worker');
   const { createGeneratePlatformCopyWorker } =
     await import('./workers/generate-platform-copy.worker');
@@ -79,6 +84,7 @@ async function main() {
   // before anything is listening.
   await scheduleSchedulePublishClipTrigger();
   await scheduleSyncPublishStatsTrigger();
+  await scheduleSyncFollowerCountTrigger();
   await scheduleAlertEngineTrigger();
   await scheduleTelegramChatDiscoveryTrigger();
 
@@ -90,6 +96,7 @@ async function main() {
     createPublishClipWorker(),
     createSchedulePublishClipWorker(),
     createSyncPublishStatsWorker(),
+    createSyncFollowerCountWorker(),
     createExportGenerateWorker(),
     createGeneratePlatformCopyWorker(),
     createAlertEngineWorker(),
@@ -132,6 +139,7 @@ async function main() {
         publishClipQueue.close(),
         schedulePublishClipQueue.close(),
         syncPublishStatsQueue.close(),
+        syncFollowerCountQueue.close(),
         alertEngineQueue.close(),
         notificationDeliveryQueue.close(),
         telegramChatDiscoveryQueue.close(),

@@ -1,25 +1,34 @@
 import { Injectable } from '@nestjs/common';
-import { PublishStatus, type SocialPlatform, type VideoStatus } from '@speedora/database';
+import { PublishStatus, SocialPlatform, type VideoStatus } from '@speedora/database';
 import type {
+  AnalyticsHeatmapDto,
   AnalyticsOverviewDto,
   AnalyticsPerformanceClipsDto,
   AnalyticsPerformanceDto,
   AnalyticsPerformanceVideosDto,
+  FollowersDto,
   SocialPlatform as SharedSocialPlatform,
   TopClipRow,
   TopVideoRow,
+  TrendGranularity,
   VideoStatus as SharedVideoStatus,
 } from '@speedora/shared';
 import {
   bucketByPublishDate,
+  bucketByPublishPeriod,
   bucketUploadsByDay,
   computeAverageEngagementScore,
   computeConfidenceDistribution,
   computeGrowthPct,
   computeGrowthSummary,
   computeMostCommonSignals,
+  computePublishTimeHeatmap,
   computeScoreDistribution,
   computeSignalContributions,
+  DROP_OFF_UNAVAILABLE,
+  periodsForGranularity,
+  REPLAY_UNAVAILABLE,
+  RETENTION_UNAVAILABLE,
 } from '@speedora/analytics-report';
 import {
   toSharedHighlightBreakdown,
@@ -28,7 +37,11 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 
 const UPLOAD_TREND_DAYS = 30;
-const ALL_PLATFORMS: SocialPlatform[] = ['YOUTUBE', 'TIKTOK', 'INSTAGRAM'] as SocialPlatform[];
+// All 8 supported platforms, matching parsePlatform()'s own
+// Object.values(SocialPlatform) convention in the controller - was
+// previously hardcoded to only YOUTUBE/TIKTOK/INSTAGRAM, which silently
+// dropped Facebook/Threads/LinkedIn/Pinterest/X from platformComparison.
+const ALL_PLATFORMS: SocialPlatform[] = Object.values(SocialPlatform) as SocialPlatform[];
 // "Bounded so this endpoint can never itself become a slow query" - same
 // reasoning docs/monitoring.md's /queues endpoint already documents. Per-user
 // data is realistically far below this; if a user ever has more published
@@ -169,7 +182,7 @@ export class AnalyticsService {
   // the page, no independent pagination needed (design decision #1).
   async getPerformance(
     userId: string,
-    options: { days: number; platform?: SocialPlatform },
+    options: { days: number; platform?: SocialPlatform; granularity?: TrendGranularity },
   ): Promise<AnalyticsPerformanceDto> {
     const now = new Date();
     const windowStart = new Date(now);
@@ -217,15 +230,26 @@ export class AnalyticsService {
     const withPublishedAt = currentRecords.filter(
       (r): r is typeof r & { publishedAt: Date } => r.publishedAt !== null,
     );
-    const engagementTrend = bucketByPublishDate(
-      withPublishedAt.map((r) => ({
-        publishedAt: r.publishedAt,
-        viewCount: r.statsSnapshots[0]?.viewCount ?? null,
-        engagementScore: r.statsSnapshots[0]?.engagementScore ?? null,
-      })),
-      options.days,
-      now,
-    );
+    const trendRecords = withPublishedAt.map((r) => ({
+      publishedAt: r.publishedAt,
+      viewCount: r.statsSnapshots[0]?.viewCount ?? null,
+      engagementScore: r.statsSnapshots[0]?.engagementScore ?? null,
+    }));
+    // Sprint 6B (Trend granularity) - 'daily' keeps using the original,
+    // already-tested bucketByPublishDate untouched (also still used
+    // independently by apps/worker's Analytics Report PDF adapter);
+    // weekly/monthly/yearly use the new generalized bucketByPublishPeriod,
+    // which produces identical output to bucketByPublishDate for 'daily'.
+    const granularity = options.granularity ?? 'daily';
+    const engagementTrend =
+      granularity === 'daily'
+        ? bucketByPublishDate(trendRecords, options.days, now)
+        : bucketByPublishPeriod(
+            trendRecords,
+            granularity,
+            periodsForGranularity(options.days, granularity),
+            now,
+          );
 
     const platformComparison = ALL_PLATFORMS.map((platform) => {
       const current = currentRecords.filter((r) => r.socialAccount.platform === platform);
@@ -284,6 +308,7 @@ export class AnalyticsService {
 
     return {
       engagementTrend,
+      granularity,
       platformComparison,
       growthSummary,
       aiSummary: {
@@ -401,4 +426,80 @@ export class AnalyticsService {
     );
     return { videos: sorted.slice(0, options.limit ?? DEFAULT_PERFORMANCE_LIMIT) };
   }
+
+  // Sprint 6F (Followers) - one query per caller (nested `select`, not a
+  // loop that queries per account). A platform with no fetchFollowerCount
+  // adapter (LinkedIn/Threads) or an account that hasn't reconnected to
+  // grant a newly-required scope (TikTok) simply has zero
+  // SocialAccountFollowerSnapshot rows - that absence is the "not
+  // available" signal itself, not a special case this method needs to
+  // detect (see packages/analytics-report's platform-capability.util.ts).
+  async getFollowers(userId: string, days: number): Promise<FollowersDto> {
+    const windowStart = new Date();
+    windowStart.setDate(windowStart.getDate() - days);
+
+    const accounts = await this.prisma.socialAccount.findMany({
+      where: { userId },
+      select: {
+        id: true,
+        platform: true,
+        displayName: true,
+        followerSnapshots: {
+          where: { capturedAt: { gte: windowStart } },
+          orderBy: { capturedAt: 'asc' },
+        },
+      },
+    });
+
+    return { accounts: accounts.map(toFollowerAccountSeries) };
+  }
+
+  // Sprint 6H (Heatmap) - reuses fetchPublishedRecords, the exact same
+  // fetch getPerformance/getPerformanceClips/getPerformanceVideos already
+  // use, so this can never disagree with those endpoints about what counts
+  // as "published" or what a record's latest stats are. Only the real
+  // publish-time-vs-engagement grid is computed from real data;
+  // retention/dropOff/replay are always the same honest, shared
+  // "unavailable" constants - never fabricated.
+  async getHeatmap(userId: string, days: number): Promise<AnalyticsHeatmapDto> {
+    const windowStart = new Date();
+    windowStart.setDate(windowStart.getDate() - days);
+
+    const records = await this.fetchPublishedRecords(userId, { publishedAfter: windowStart });
+    const withPublishedAt = records.filter(
+      (r): r is typeof r & { publishedAt: Date } => r.publishedAt !== null,
+    );
+
+    return {
+      cells: computePublishTimeHeatmap(
+        withPublishedAt.map((r) => ({
+          publishedAt: r.publishedAt,
+          viewCount: r.statsSnapshots[0]?.viewCount ?? null,
+          engagementScore: r.statsSnapshots[0]?.engagementScore ?? null,
+        })),
+      ),
+      retention: RETENTION_UNAVAILABLE,
+      dropOff: DROP_OFF_UNAVAILABLE,
+      replay: REPLAY_UNAVAILABLE,
+    };
+  }
+}
+
+function toFollowerAccountSeries(account: {
+  id: string;
+  platform: SocialPlatform;
+  displayName: string;
+  followerSnapshots: Array<{ capturedAt: Date; followerCount: number }>;
+}): FollowersDto['accounts'][number] {
+  const history = account.followerSnapshots.map((snapshot) => ({
+    capturedAt: snapshot.capturedAt.toISOString(),
+    followerCount: snapshot.followerCount,
+  }));
+  return {
+    socialAccountId: account.id,
+    platform: account.platform as unknown as SharedSocialPlatform,
+    displayName: account.displayName,
+    latestFollowerCount: history.length > 0 ? history[history.length - 1].followerCount : null,
+    history,
+  };
 }

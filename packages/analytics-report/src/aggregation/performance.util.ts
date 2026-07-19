@@ -1,4 +1,4 @@
-import type { EngagementTrendPoint, GrowthSummary } from '@speedora/shared';
+import type { EngagementTrendPoint, GrowthSummary, TrendGranularity } from '@speedora/shared';
 
 // Milestone 5B (Analytics Dashboard - Performance) - pure aggregation
 // helpers, no Prisma access here, same module/adapter split as
@@ -90,6 +90,141 @@ export function bucketByPublishDate(
         : b.engagementScores.reduce((sum, v) => sum + v, 0) / b.engagementScores.length,
     publishCount: b.publishCount,
   }));
+}
+
+// Sprint 6B (Analytics Dashboard Expansion - Trend granularity). Generalizes
+// bucketByPublishDate's day-only bucketing to also support week/month/year,
+// reusing that function's zero-filled, "bucket by publish date not
+// snapshot-capture date" design. bucketByPublishDate itself is left
+// untouched (still used by apps/worker's Analytics Report PDF adapter) -
+// this is a new, additive sibling, not a replacement.
+
+function dayKey(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+// Standard ISO 8601 week algorithm (Thursday-of-the-week trick): the week
+// containing a date's Thursday determines both the week's year and number,
+// which is what makes "week 1" well-defined even when Jan 1 falls in the
+// last week of the previous ISO year.
+function isoWeekKey(date: Date): string {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = (d.getUTCDay() + 6) % 7; // Monday = 0 .. Sunday = 6
+  d.setUTCDate(d.getUTCDate() - dayNum + 3); // Thursday of this ISO week
+  const firstThursday = new Date(Date.UTC(d.getUTCFullYear(), 0, 4));
+  const firstDayNum = (firstThursday.getUTCDay() + 6) % 7;
+  firstThursday.setUTCDate(firstThursday.getUTCDate() - firstDayNum + 3);
+  const weekNum =
+    1 + Math.round((d.getTime() - firstThursday.getTime()) / (7 * 24 * 60 * 60 * 1000));
+  return `${d.getUTCFullYear()}-W${String(weekNum).padStart(2, '0')}`;
+}
+
+function monthKey(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function yearKey(date: Date): string {
+  return String(date.getFullYear());
+}
+
+function periodKey(date: Date, granularity: TrendGranularity): string {
+  switch (granularity) {
+    case 'daily':
+      return dayKey(date);
+    case 'weekly':
+      return isoWeekKey(date);
+    case 'monthly':
+      return monthKey(date);
+    case 'yearly':
+      return yearKey(date);
+  }
+}
+
+// Steps back n whole periods from `date`, anchored to the start of the
+// current period before subtracting - avoids JS's day-of-month overflow
+// (e.g. naively doing "March 31 minus 1 month" lands on a nonexistent
+// "Feb 31", which Date normalizes forward into early March instead of
+// February).
+function stepBackToPeriodStart(date: Date, granularity: TrendGranularity, n: number): Date {
+  switch (granularity) {
+    case 'daily': {
+      const d = new Date(date);
+      d.setDate(d.getDate() - n);
+      return d;
+    }
+    case 'weekly': {
+      const d = new Date(date);
+      d.setDate(d.getDate() - n * 7);
+      return d;
+    }
+    case 'monthly': {
+      const d = new Date(date.getFullYear(), date.getMonth(), 1);
+      d.setMonth(d.getMonth() - n);
+      return d;
+    }
+    case 'yearly': {
+      const d = new Date(date.getFullYear(), 0, 1);
+      d.setFullYear(d.getFullYear() - n);
+      return d;
+    }
+  }
+}
+
+// periods=30 + granularity='daily' reproduces bucketByPublishDate's own
+// bucket keys exactly (same dayKey computation) - this function is a strict
+// superset, not a divergent reimplementation.
+export function bucketByPublishPeriod(
+  records: Array<{ publishedAt: Date; viewCount: number | null; engagementScore: number | null }>,
+  granularity: TrendGranularity,
+  periods: number,
+  now: Date = new Date(),
+): EngagementTrendPoint[] {
+  const buckets = new Map<
+    string,
+    { totalViews: number; engagementScores: number[]; publishCount: number }
+  >();
+  for (let i = periods - 1; i >= 0; i--) {
+    const key = periodKey(stepBackToPeriodStart(now, granularity, i), granularity);
+    if (!buckets.has(key)) {
+      buckets.set(key, { totalViews: 0, engagementScores: [], publishCount: 0 });
+    }
+  }
+
+  for (const record of records) {
+    const bucket = buckets.get(periodKey(record.publishedAt, granularity));
+    if (!bucket) continue;
+    bucket.publishCount += 1;
+    bucket.totalViews += record.viewCount ?? 0;
+    if (record.engagementScore !== null) bucket.engagementScores.push(record.engagementScore);
+  }
+
+  return Array.from(buckets.entries()).map(([date, b]) => ({
+    date,
+    totalViews: b.totalViews,
+    averageEngagementScore:
+      b.engagementScores.length === 0
+        ? null
+        : b.engagementScores.reduce((sum, v) => sum + v, 0) / b.engagementScores.length,
+    publishCount: b.publishCount,
+  }));
+}
+
+// Translates the existing `days` window filter into a bucket count for a
+// given granularity, so callers don't need a second "how many buckets"
+// query param - e.g. days=90 + granularity='weekly' shows ~13 weekly
+// buckets covering the same 90-day window platformComparison/growthSummary
+// already use.
+export function periodsForGranularity(days: number, granularity: TrendGranularity): number {
+  switch (granularity) {
+    case 'daily':
+      return days;
+    case 'weekly':
+      return Math.max(1, Math.ceil(days / 7));
+    case 'monthly':
+      return Math.max(1, Math.ceil(days / 30));
+    case 'yearly':
+      return Math.max(1, Math.ceil(days / 365));
+  }
 }
 
 export interface GrowthSummaryRecord {

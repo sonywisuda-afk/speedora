@@ -69,3 +69,26 @@ export async function fetchFacebookVideoStats(
     watchTimeSeconds: null,
   };
 }
+
+// Sprint 6F (Followers) - account-level (the Page node itself), unlike
+// fetchFacebookVideoStats above (per-video). Requires only
+// pages_read_engagement, already granted - no new scope needed.
+export async function fetchFacebookFollowerCount(
+  accessToken: string,
+  pageId: string,
+): Promise<number> {
+  const url = new URL(`${GRAPH_BASE_URL}/${pageId}`);
+  url.searchParams.set('fields', 'followers_count');
+  url.searchParams.set('access_token', accessToken);
+  const res = await fetch(url);
+  const body = (await res.json()) as { followers_count?: number } & GraphErrorResponse;
+  if (!res.ok || body.error) {
+    throw new Error(
+      `Facebook followers_count fetch failed: ${res.status} ${body.error?.message ?? ''}`.trim(),
+    );
+  }
+  if (body.followers_count === undefined) {
+    throw new Error(`Facebook Page ${pageId} did not return a followers_count`);
+  }
+  return body.followers_count;
+}
