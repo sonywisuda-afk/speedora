@@ -1,3 +1,7 @@
+# DEPRECATED (2026-07-22) - see watchdog.ps1's banner. Use `pnpm dev:status`
+# (ops/dev-server/status.mjs) going forward, which covers web too and reads
+# the new supervisor's pidstore instead of this legacy pid-file layout.
+#
 # Reports whether each watchdog and its supervised app process is actually
 # alive right now - the source of truth is Get-Process against the PIDs
 # each watchdog/start.ps1 recorded, not just "a pid file exists" (a stale

@@ -1,3 +1,37 @@
+# ============================================================================
+# DEPRECATED (2026-07-22) - retired in favor of the unified dev supervisor at
+# ops/dev-server/. Do not start this manually and do not re-register its
+# autostart task.
+#
+# Why it was retired: this watchdog supervises a COMPILED, non-watching
+# `node dist/main.js` copy of api/worker - it never picks up source changes,
+# so whatever build happened to be on disk when it last (re)started keeps
+# running indefinitely. Combined with the separate AtLogOn autostart task
+# (install-autostart.ps1) and ad-hoc `pnpm dev`/`corepack pnpm --filter dev`
+# invocations from unrelated sessions never checking whether this was already
+# running, this became a SECOND, independent supervisor for the same
+# services with no coordination between the two - the direct cause of a
+# 2026-07-22 incident where a worker instance running 12-day-stale compiled
+# code was silently alive via this watchdog the whole time, while everyone
+# believed only the `pnpm dev`-started instance was active, plus ~20 orphaned
+# duplicate Next.js/NestJS/worker processes accumulated from repeated
+# uncoordinated restarts.
+#
+# What replaced it: ops/dev-server/dev.mjs is now the single authoritative
+# process manager for web/api/worker/packages. It reuses this file's own
+# ideas - single-instance guard via pidfile, and crash-loop-backoff restart -
+# but as ONE in-process mechanism (`pnpm dev --supervise`) instead of a
+# separate detached PowerShell tree per service, and it runs the actual
+# dev/watch scripts (`next dev`, `nest start --watch`, `tsx watch`) so code
+# changes are always picked up, never a stale compiled snapshot.
+#
+# The AtLogOn Scheduled Task (`SpeedoraDevWatchdogAutostart`) that used to
+# invoke start.ps1 -> this file has been disabled by neutering start.ps1
+# into a no-op (see start.ps1's own banner) - full removal of the task
+# registration itself requires an elevated shell, see
+# ops/dev-server/MIGRATION.md for the one command to run.
+# ============================================================================
+#
 # Keeps one Speedora backend process (apps/api or apps/worker) alive on this
 # dev machine. Not part of the deployable app - a local dev-machine
 # convenience only, same spirit as .dev-storage/.

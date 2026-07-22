@@ -46,8 +46,15 @@ coverage/
 
 # Local dev process supervisor (.dev-scripts/watchdog.ps1) state - PIDs and
 # logs are specific to this machine's running processes, not portable.
+# NOTE: this legacy system is deprecated - see watchdog.ps1's banner and
+# ops/dev-server/MIGRATION.md. Its state dir is still ignored here in case a
+# pre-migration pid/log file is still on disk on some machine.
 .dev-scripts/*.pid
 .dev-scripts/logs/
+
+# ops/dev-server's unified dev supervisor state (pidstore + supervise logs) -
+# machine-specific, replaces .dev-scripts/ above.
+.dev/
 
 # One-off local migration scripts (e.g. migrate-r2-to-minio.cjs) - these
 # tend to carry hardcoded credentials for a one-time run and are never meant

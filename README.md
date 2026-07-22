@@ -62,6 +62,18 @@ npm install -g pnpm@9
 export PATH="$HOME/.npm-global:$PATH"   # tambahkan ke ~/.bashrc atau profile shell kamu
 ```
 
+Kalau langkah di atas sudah pernah dilakukan tapi `pnpm` (tanpa `corepack`) masih belum
+resolve — gejala paling umum: `pnpm --version` gagal padahal `corepack pnpm --version` jalan
+normal — itu tandanya prefix custom di atas tidak pernah benar-benar ditambahkan ke PATH yang
+persisten (`export` di satu shell session tidak cukup di Windows). Jalankan:
+
+```bash
+pnpm doctor        # diagnosa: pnpm, PATH, Node version, Docker, Postgres/Redis/MinIO, port, deps
+pnpm doctor:fix    # + perbaiki otomatis yang bisa (termasuk menambahkan prefix ke User PATH)
+```
+
+lalu buka terminal baru (perubahan PATH tidak berlaku di shell yang sedang berjalan).
+
 ## Setup
 
 1. Clone repo dan install dependencies:
@@ -88,7 +100,7 @@ export PATH="$HOME/.npm-global:$PATH"   # tambahkan ke ~/.bashrc atau profile sh
    pnpm --filter @speedora/database db:migrate:dev
    ```
 
-5. Jalankan semua service dalam mode dev (build `packages/shared` + `packages/database` dalam watch mode, lalu `apps/web`, `apps/api`, `apps/worker` paralel):
+5. Jalankan semua service dalam mode dev:
 
    ```bash
    pnpm dev
@@ -98,6 +110,14 @@ export PATH="$HOME/.npm-global:$PATH"   # tambahkan ke ~/.bashrc atau profile sh
    - `apps/api` → http://localhost:3001 (default `API_PORT`, lihat `.env.example`)
    - `apps/worker` → tidak melayani HTTP, hanya konsumsi job dari BullMQ/Redis
 
+   `pnpm dev` (`ops/dev-server/dev.mjs`) sekarang jadi satu-satunya entrypoint dev, dan setiap
+   kali dijalankan otomatis: memastikan Postgres/Redis/MinIO sehat (start otomatis kalau belum),
+   menemukan semua package/app dengan script `dev` (bukan daftar hardcoded lagi), mendeteksi &
+   membersihkan proses duplikat/orphan dari sesi sebelumnya, lalu memverifikasi port sebelum
+   spawn. Aman dijalankan berulang kali — instance yang sudah sehat di-reuse, bukan di-duplikasi.
+   Lihat [`ops/dev-server/MIGRATION.md`](ops/dev-server/MIGRATION.md) untuk latar belakang
+   kenapa sistem ini dibuat dan apa yang digantikannya (`.dev-scripts/` sudah **deprecated**).
+
 > Kalau port default Postgres/Redis (`5432`/`6379`) sudah dipakai proses lain di mesin kamu, ubah `POSTGRES_PORT`/`REDIS_PORT` (dan `DATABASE_URL`/`REDIS_URL` yang cocok) di `.env` lokal sebelum `pnpm docker:up`.
 
 ## Scripts
@@ -106,7 +126,14 @@ Dijalankan dari root, berlaku untuk seluruh workspace kecuali disebutkan lain:
 
 | Script | Keterangan |
 |---|---|
-| `pnpm dev` | Jalankan `packages/shared` (watch build) + `apps/web` + `apps/api` + `apps/worker` secara paralel |
+| `pnpm dev` | Jalankan seluruh workspace (semua `packages/*` watch build + `apps/web` + `apps/api` + `apps/worker`) lewat `ops/dev-server/dev.mjs` — auto-discover, auto-cleanup duplikat, auto-check Docker/port. Idempotent. |
+| `pnpm dev:restart` | Sama seperti `pnpm dev`, tapi paksa restart bersih semua service (bukan reuse yang sudah jalan) |
+| `pnpm dev:supervise` | Sama seperti `pnpm dev`, tapi service yang crash di-restart otomatis (crash-loop backoff) — pengganti `.dev-scripts/watchdog.ps1` lama |
+| `pnpm dev:stop` | Hentikan semua service dev (tracked maupun yang ditemukan lewat sweep) |
+| `pnpm dev:status` | Lihat status tiap service (running/duplicate/not running) + kesehatan Docker infra |
+| `pnpm doctor` | Diagnosa lingkungan dev: pnpm, PATH, Node version, Docker, Postgres/Redis/MinIO, port, workspace deps |
+| `pnpm doctor:fix` | Sama seperti `pnpm doctor`, plus perbaiki otomatis yang bisa (PATH, `docker compose up -d`, `pnpm install`) |
+| `pnpm setup:path` | Perbaiki permanen masalah "pnpm tidak ada di PATH" (lihat bagian "Install pnpm" di atas) |
 | `pnpm build` | Build semua package secara berurutan (`shared` dulu, karena app lain bergantung padanya) |
 | `pnpm lint` | Jalankan ESLint di semua app/package |
 | `pnpm typecheck` | Jalankan `tsc --noEmit` di semua app/package |

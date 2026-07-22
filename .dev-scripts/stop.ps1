@@ -1,3 +1,8 @@
+# DEPRECATED (2026-07-22) - see watchdog.ps1's banner. Retained only in case
+# a watchdog instance from before the migration is somehow still alive on
+# this machine; the supported way to stop dev processes going forward is
+# `pnpm dev:stop` (ops/dev-server/stop.mjs).
+#
 # Stops both watchdogs AND the app processes they supervise - stopping only
 # the watchdog would leave api/worker running unsupervised (harmless but
 # confusing), and stopping only the app would just have the watchdog

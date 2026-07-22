@@ -1,3 +1,12 @@
+# DEPRECATED (2026-07-22) - do not run this. See watchdog.ps1's banner for
+# why the legacy watchdog system was retired. The Scheduled Task this
+# registers is being removed as part of that migration - see
+# ops/dev-server/MIGRATION.md. If you're looking for "start dev tools
+# automatically," there is deliberately no replacement for this at the
+# Scheduled-Task/reboot level in the new system - `pnpm dev` is a single
+# explicit command precisely so there is one obvious way to start things and
+# no silent background process a future session might forget about.
+#
 # Registers a Windows Scheduled Task that runs start.ps1 automatically at
 # user logon, so a machine reboot doesn't silently leave apps/api and
 # apps/worker down until someone remembers to run start.ps1 by hand.
