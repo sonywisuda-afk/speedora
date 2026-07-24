@@ -1234,6 +1234,12 @@ export async function updateBrandKit(input: {
   secondaryColor?: string;
   // Brand Kit roadmap (P3a) - one of FONT_FAMILIES's curated keys.
   fontFamily?: string;
+  // Watermark roadmap (P3c) - opacity/scale/margin are 0-1 fractions;
+  // scale/margin are fractions of the OUTPUT video's width.
+  watermarkOpacity?: number;
+  watermarkScale?: number;
+  watermarkMargin?: number;
+  watermarkPosition?: string;
 }): Promise<BrandKitDto> {
   const res = await apiFetch('/brand-kit', {
     method: 'PUT',
@@ -1255,6 +1261,22 @@ export async function uploadBrandLogo(file: File): Promise<BrandKitDto> {
 
 export function brandKitLogoUrl(): string {
   return `${API_URL}/brand-kit/logo`;
+}
+
+// Watermark roadmap (P3c) - same upload/download shape as the logo above.
+export async function uploadBrandWatermark(file: File): Promise<BrandKitDto> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await apiFetch('/brand-kit/watermark', { method: 'POST', body: formData });
+  return parseJsonOrThrow<BrandKitDto>(res);
+}
+
+export function brandKitWatermarkUrl(): string {
+  return `${API_URL}/brand-kit/watermark`;
+}
+
+export async function removeBrandWatermark(): Promise<void> {
+  await apiFetch('/brand-kit/watermark', { method: 'DELETE' });
 }
 
 // Subtitle Presets roadmap (P3b) - a named, user-saved bundle of

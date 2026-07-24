@@ -1,7 +1,9 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
+  HttpCode,
   NotFoundException,
   ParseFilePipeBuilder,
   Post,
@@ -24,13 +26,16 @@ import { UpdateBrandKitDto } from './dto/update-brand-kit.dto';
 // A logo, not a video - same MAX_UPLOAD_SIZE_BYTES-style constant as
 // VideosController, just a much smaller cap.
 const MAX_LOGO_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+// Watermark roadmap (P3c) - same small-image cap as the logo.
+const MAX_WATERMARK_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
 
 // getObjectStream returns just a Readable, no stored Content-Type metadata
 // (same reason VideosController/ClipsController derive thumbnailContentType
 // from the key's own extension rather than trusting S3 metadata) - a brand
-// logo can be any common image type the user uploaded, not just webp/jpeg,
-// so this covers a wider set than thumbnailContentType does.
-function logoContentType(key: string): string {
+// logo/watermark can be any common image type the user uploaded, not just
+// webp/jpeg, so this covers a wider set than thumbnailContentType does.
+// Shared by both the logo and watermark download endpoints below.
+function imageContentType(key: string): string {
   const ext = key.split('.').pop()?.toLowerCase();
   switch (ext) {
     case 'png':
@@ -93,8 +98,49 @@ export class BrandKitController {
     }
 
     const stream = await getObjectStream(logoKey);
-    res.setHeader('Content-Type', logoContentType(logoKey));
+    res.setHeader('Content-Type', imageContentType(logoKey));
     res.setHeader('Cache-Control', 'private, max-age=86400');
     stream.pipe(res);
+  }
+
+  // Watermark roadmap (P3c) - same upload/download shape as logo above.
+  // SVG is accepted here (unlike logo, which never needed it) - the actual
+  // SVG-to-PNG rasterization happens in StorageService.saveBrandWatermark,
+  // not here, so this endpoint stays a thin multipart-handling layer.
+  @Post('watermark')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_WATERMARK_SIZE_BYTES } }))
+  async uploadWatermark(
+    @CurrentUser() user: SafeUser,
+    @UploadedFile(
+      new ParseFilePipeBuilder()
+        .addFileTypeValidator({ fileType: /^image\/(png|jpe?g|webp|svg\+xml)$/ })
+        .build({ fileIsRequired: true }),
+    )
+    file: Express.Multer.File,
+  ) {
+    const watermarkKey = await this.storage.saveBrandWatermark(file);
+    return this.brandKit.saveWatermark(user.id, watermarkKey);
+  }
+
+  @Get('watermark')
+  async downloadWatermark(@CurrentUser() user: SafeUser, @Res() res: Response) {
+    const { watermarkKey } = await this.brandKit.findWatermarkKeyOrThrow(user.id);
+    if (!watermarkKey) {
+      throw new NotFoundException('No brand watermark has been uploaded yet');
+    }
+
+    const stream = await getObjectStream(watermarkKey);
+    res.setHeader('Content-Type', imageContentType(watermarkKey));
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    stream.pipe(res);
+  }
+
+  // Not a 1:1 mirror of logo (which has no delete endpoint) - a user will
+  // want to remove a watermark outright, not just fight its opacity down
+  // to 0.
+  @Delete('watermark')
+  @HttpCode(204)
+  removeWatermark(@CurrentUser() user: SafeUser) {
+    return this.brandKit.removeWatermark(user.id);
   }
 }

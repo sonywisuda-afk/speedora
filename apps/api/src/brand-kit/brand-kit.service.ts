@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { BrandKitDto } from '@speedora/shared';
+import type { BrandKitDto, WatermarkPosition } from '@speedora/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import type { UpdateBrandKitDto } from './dto/update-brand-kit.dto';
 
@@ -8,6 +8,11 @@ interface BrandKitRow {
   brandPrimaryColor: string | null;
   brandSecondaryColor: string | null;
   brandFontFamily: string | null;
+  brandWatermarkUrl: string | null;
+  brandWatermarkOpacity: number | null;
+  brandWatermarkScale: number | null;
+  brandWatermarkMargin: number | null;
+  brandWatermarkPosition: string | null;
 }
 
 const BRAND_KIT_SELECT = {
@@ -15,6 +20,11 @@ const BRAND_KIT_SELECT = {
   brandPrimaryColor: true,
   brandSecondaryColor: true,
   brandFontFamily: true,
+  brandWatermarkUrl: true,
+  brandWatermarkOpacity: true,
+  brandWatermarkScale: true,
+  brandWatermarkMargin: true,
+  brandWatermarkPosition: true,
 } as const;
 
 @Injectable()
@@ -39,6 +49,16 @@ export class BrandKitService {
         ...(dto.primaryColor !== undefined ? { brandPrimaryColor: dto.primaryColor } : {}),
         ...(dto.secondaryColor !== undefined ? { brandSecondaryColor: dto.secondaryColor } : {}),
         ...(dto.fontFamily !== undefined ? { brandFontFamily: dto.fontFamily } : {}),
+        ...(dto.watermarkOpacity !== undefined
+          ? { brandWatermarkOpacity: dto.watermarkOpacity }
+          : {}),
+        ...(dto.watermarkScale !== undefined ? { brandWatermarkScale: dto.watermarkScale } : {}),
+        ...(dto.watermarkMargin !== undefined
+          ? { brandWatermarkMargin: dto.watermarkMargin }
+          : {}),
+        ...(dto.watermarkPosition !== undefined
+          ? { brandWatermarkPosition: dto.watermarkPosition }
+          : {}),
       },
       select: BRAND_KIT_SELECT,
     });
@@ -65,12 +85,43 @@ export class BrandKitService {
     return { logoKey: user.brandLogoUrl };
   }
 
+  // Watermark roadmap (P3c) - same shape as saveLogo/findLogoKeyOrThrow
+  // above.
+  async saveWatermark(userId: string, watermarkKey: string): Promise<BrandKitDto> {
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: { brandWatermarkUrl: watermarkKey },
+      select: BRAND_KIT_SELECT,
+    });
+    return this.toDto(user);
+  }
+
+  async findWatermarkKeyOrThrow(userId: string): Promise<{ watermarkKey: string | null }> {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { brandWatermarkUrl: true },
+    });
+    return { watermarkKey: user.brandWatermarkUrl };
+  }
+
+  async removeWatermark(userId: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { brandWatermarkUrl: null },
+    });
+  }
+
   private toDto(user: BrandKitRow): BrandKitDto {
     return {
       logoUrl: user.brandLogoUrl ? '/brand-kit/logo' : null,
       primaryColor: user.brandPrimaryColor,
       secondaryColor: user.brandSecondaryColor,
       fontFamily: user.brandFontFamily,
+      watermarkUrl: user.brandWatermarkUrl ? '/brand-kit/watermark' : null,
+      watermarkOpacity: user.brandWatermarkOpacity,
+      watermarkScale: user.brandWatermarkScale,
+      watermarkMargin: user.brandWatermarkMargin,
+      watermarkPosition: (user.brandWatermarkPosition as WatermarkPosition | null) ?? null,
     };
   }
 }

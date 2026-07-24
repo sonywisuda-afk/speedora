@@ -10,6 +10,17 @@ export interface BrandKitDto {
   // if unset (Brand Report/render-enqueue both fall back to build-ass.ts's
   // own default, Inter).
   fontFamily: string | null;
+  // Watermark roadmap (P3c) - watermarkUrl is a `/brand-kit/watermark`
+  // endpoint path, same "never the raw storage key" convention as logoUrl.
+  // opacity/scale/margin are 0-1 fractions (scale/margin are fractions of
+  // the OUTPUT video's width, resolution-independent by construction);
+  // null fields mean "not set yet" - render-enqueue time falls back to
+  // ClipsService.resolveWatermark's own code-level defaults.
+  watermarkUrl: string | null;
+  watermarkOpacity: number | null;
+  watermarkScale: number | null;
+  watermarkMargin: number | null;
+  watermarkPosition: WatermarkPosition | null;
 }
 
 // Brand Kit roadmap (P3a) - apps/web's own copy of packages/contracts's
@@ -28,3 +39,18 @@ export const FONT_FAMILIES = [
   'Lato',
 ] as const;
 export type FontFamily = (typeof FONT_FAMILIES)[number];
+
+// Watermark roadmap (P3c) - a small closed anchor set for ffmpeg's overlay
+// position, single copy (unlike FONT_FAMILIES, no packages/contracts
+// duplicate needed - nothing here needs Zod runtime validation the way
+// build-ass.ts needed for fonts; apps/api validates via class-validator's
+// @IsIn() importing straight from this package, apps/worker's ffmpeg.ts
+// just uses this as a plain TS type).
+export const WATERMARK_POSITIONS = [
+  'TOP_LEFT',
+  'TOP_RIGHT',
+  'BOTTOM_LEFT',
+  'BOTTOM_RIGHT',
+  'CENTER',
+] as const;
+export type WatermarkPosition = (typeof WATERMARK_POSITIONS)[number];

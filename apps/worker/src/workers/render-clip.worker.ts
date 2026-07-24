@@ -395,6 +395,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             speakerColorCaptions,
             captionLanguage,
             fontFamily,
+            watermark,
             keywords,
             scores,
           } = job.data;
@@ -438,6 +439,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           let trimmedPath: string | null = null;
           let sendCmdPath: string | null = null;
           let brollPaths: string[] = [];
+          let watermarkPath: string | null = null;
           let thumbPath: string | null = null;
           let blurPath: string | null = null;
           let animatedThumbnailPath: string | null = null;
@@ -501,6 +503,26 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             );
             brollPaths = finalPaths;
 
+            // Watermark roadmap (P3c) - same "getObjectStream + scratch path
+            // + pipeline" idiom as the source video download above, and the
+            // same "best-effort, never fail the job" posture as the
+            // thumbnail/blur-placeholder/animated-preview extractions below -
+            // a watermark that fails to download just renders without one,
+            // rather than failing an otherwise-successful render.
+            if (watermark) {
+              try {
+                watermarkPath = await reserveScratchPath(
+                  'watermark',
+                  path.extname(watermark.key) || '.png',
+                );
+                const watermarkStream = await getObjectStream(watermark.key);
+                await pipeline(watermarkStream, createWriteStream(watermarkPath));
+              } catch (error) {
+                logger.warn('watermark download failed, rendering without one', { clipId }, error);
+                watermarkPath = null;
+              }
+            }
+
             const assContent = buildAss({
               segments: toSubtitleSegments(transcript, captionLanguage),
               clipStart: startTime,
@@ -544,6 +566,16 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               outputPath,
               reframe,
               broll,
+              watermark:
+                watermarkPath && watermark
+                  ? {
+                      filePath: watermarkPath,
+                      opacity: watermark.opacity,
+                      scale: watermark.scale,
+                      margin: watermark.margin,
+                      position: watermark.position,
+                    }
+                  : null,
             });
 
             // Second pass (see computeClipCuts's comment) - skipped entirely
@@ -914,6 +946,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             if (hoverPreviewPath) await cleanupTempFile(hoverPreviewPath);
             for (const storyboardPath of storyboardPaths) await cleanupTempFile(storyboardPath);
             for (const brollPath of brollPaths) await cleanupTempFile(brollPath);
+            if (watermarkPath) await cleanupTempFile(watermarkPath);
           }
         },
         RENDER_CLIP_JOB_TIMEOUT_MS,

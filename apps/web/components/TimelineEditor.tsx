@@ -157,6 +157,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
   const setCaptionLanguage = useTimelineStore((s) => s.setCaptionLanguage);
   const setFontFamily = useTimelineStore((s) => s.setFontFamily);
   const applyPreset = useTimelineStore((s) => s.applyPreset);
+  const setWatermarkEnabled = useTimelineStore((s) => s.setWatermarkEnabled);
   const setHookText = useTimelineStore((s) => s.setHookText);
   const setHashtags = useTimelineStore((s) => s.setHashtags);
   const saveClip = useTimelineStore((s) => s.saveClip);
@@ -681,6 +682,16 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
                 className="h-3.5 w-3.5"
               />
               Warna per pembicara
+            </label>
+
+            <label className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={selectedClip.watermarkEnabled}
+                onChange={(e) => setWatermarkEnabled(selectedClip.id, e.target.checked)}
+                className="h-3.5 w-3.5"
+              />
+              Terapkan watermark
             </label>
 
             <div className="flex flex-col gap-1">

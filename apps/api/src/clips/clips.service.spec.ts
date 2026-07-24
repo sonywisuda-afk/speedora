@@ -1180,6 +1180,7 @@ describe('ClipsService', () => {
         ],
         captionStyle: CaptionStyle.KARAOKE,
         fontFamily: null,
+        watermark: null,
         keywords: [],
         scores: null,
       });
@@ -1297,6 +1298,97 @@ describe('ClipsService', () => {
       expect(renderClipQueue.add).toHaveBeenCalledWith(
         QueueName.RENDER_CLIP,
         expect.objectContaining({ fontFamily: 'Roboto' }),
+      );
+    });
+
+    // Watermark roadmap (P3c).
+    it('does not resolve a watermark (or look up the owner) when watermarkEnabled is false', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, watermarkEnabled: false });
+      prisma.transcriptSegment.findMany.mockResolvedValue([]);
+      prisma.clip.update.mockResolvedValue({ ...clip, outputUrl: null });
+
+      await service.render('clip-1', 'user-1');
+
+      expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
+      expect(renderClipQueue.add).toHaveBeenCalledWith(
+        QueueName.RENDER_CLIP,
+        expect.objectContaining({ watermark: null }),
+      );
+    });
+
+    it('resolves the Brand Kit watermark with code-level defaults when opacity/scale/margin/position are unset', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, watermarkEnabled: true });
+      prisma.transcriptSegment.findMany.mockResolvedValue([]);
+      prisma.clip.update.mockResolvedValue({ ...clip, outputUrl: null });
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        brandWatermarkUrl: 'watermarks/abc.png',
+        brandWatermarkOpacity: null,
+        brandWatermarkScale: null,
+        brandWatermarkMargin: null,
+        brandWatermarkPosition: null,
+      });
+
+      await service.render('clip-1', 'user-1');
+
+      expect(renderClipQueue.add).toHaveBeenCalledWith(
+        QueueName.RENDER_CLIP,
+        expect.objectContaining({
+          watermark: {
+            key: 'watermarks/abc.png',
+            opacity: 0.8,
+            scale: 0.15,
+            margin: 0.03,
+            position: 'BOTTOM_RIGHT',
+          },
+        }),
+      );
+    });
+
+    it('resolves the Brand Kit watermark with explicit custom values when set', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, watermarkEnabled: true });
+      prisma.transcriptSegment.findMany.mockResolvedValue([]);
+      prisma.clip.update.mockResolvedValue({ ...clip, outputUrl: null });
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        brandWatermarkUrl: 'watermarks/abc.png',
+        brandWatermarkOpacity: 0.5,
+        brandWatermarkScale: 0.25,
+        brandWatermarkMargin: 0.05,
+        brandWatermarkPosition: 'TOP_LEFT',
+      });
+
+      await service.render('clip-1', 'user-1');
+
+      expect(renderClipQueue.add).toHaveBeenCalledWith(
+        QueueName.RENDER_CLIP,
+        expect.objectContaining({
+          watermark: {
+            key: 'watermarks/abc.png',
+            opacity: 0.5,
+            scale: 0.25,
+            margin: 0.05,
+            position: 'TOP_LEFT',
+          },
+        }),
+      );
+    });
+
+    it('resolves null when watermarkEnabled is true but no Brand Kit watermark is configured', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, watermarkEnabled: true });
+      prisma.transcriptSegment.findMany.mockResolvedValue([]);
+      prisma.clip.update.mockResolvedValue({ ...clip, outputUrl: null });
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        brandWatermarkUrl: null,
+        brandWatermarkOpacity: null,
+        brandWatermarkScale: null,
+        brandWatermarkMargin: null,
+        brandWatermarkPosition: null,
+      });
+
+      await service.render('clip-1', 'user-1');
+
+      expect(renderClipQueue.add).toHaveBeenCalledWith(
+        QueueName.RENDER_CLIP,
+        expect.objectContaining({ watermark: null }),
       );
     });
   });

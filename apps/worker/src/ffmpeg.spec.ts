@@ -742,6 +742,134 @@ describe('renderClip', () => {
       expect(args).not.toContain('-map');
     });
   });
+
+  describe('Watermark overlay (P3c)', () => {
+    it('switches to -filter_complex (with -loop 1) even when there is no B-roll', async () => {
+      await renderClip({
+        inputPath: '/tmp/source.mp4',
+        startTime: 5,
+        endTime: 15,
+        subtitlesPath: null,
+        outputPath: '/tmp/output.mp4',
+        reframe: null,
+        watermark: {
+          filePath: '/tmp/watermark.png',
+          opacity: 0.8,
+          scale: 0.15,
+          margin: 0.03,
+          position: 'BOTTOM_RIGHT',
+        },
+      });
+
+      const [, args] = execFileMock.mock.calls[0];
+      expect(args).toEqual(expect.arrayContaining(['-loop', '1', '-i', '/tmp/watermark.png']));
+      const fc = args[args.indexOf('-filter_complex') + 1];
+      expect(fc).toBe(
+        '[1:v]format=rgba,colorchannelmixer=aa=0.8[wm_prepped];' +
+          '[wm_prepped][0:v]scale2ref=w=main_w*0.15:h=ow/mdar[wm_scaled][wm_main];' +
+          '[wm_main][wm_scaled]overlay=x=main_w-overlay_w-(main_w*0.03):y=main_h-overlay_h-(main_w*0.03)[withwatermark]',
+      );
+      expect(args).toEqual(expect.arrayContaining(['-map', '[withwatermark]', '-map', '0:a']));
+      expect(args).not.toContain('-vf');
+    });
+
+    it.each([
+      ['TOP_LEFT', 'x=main_w*0.03:y=main_w*0.03'],
+      ['TOP_RIGHT', 'x=main_w-overlay_w-(main_w*0.03):y=main_w*0.03'],
+      ['BOTTOM_LEFT', 'x=main_w*0.03:y=main_h-overlay_h-(main_w*0.03)'],
+      ['BOTTOM_RIGHT', 'x=main_w-overlay_w-(main_w*0.03):y=main_h-overlay_h-(main_w*0.03)'],
+      ['CENTER', 'x=(main_w-overlay_w)/2:y=(main_h-overlay_h)/2'],
+    ] as const)('positions %s correctly', async (position, expectedXY) => {
+      await renderClip({
+        inputPath: '/tmp/source.mp4',
+        startTime: 5,
+        endTime: 15,
+        subtitlesPath: null,
+        outputPath: '/tmp/output.mp4',
+        reframe: null,
+        watermark: {
+          filePath: '/tmp/watermark.png',
+          opacity: 0.8,
+          scale: 0.15,
+          margin: 0.03,
+          position,
+        },
+      });
+
+      const [, args] = execFileMock.mock.calls[0];
+      const fc = args[args.indexOf('-filter_complex') + 1];
+      expect(fc).toContain(`overlay=${expectedXY}[withwatermark]`);
+    });
+
+    it('is inserted LAST - after crop, B-roll, and subtitles', async () => {
+      await renderClip({
+        inputPath: '/tmp/source.mp4',
+        startTime: 5,
+        endTime: 15,
+        subtitlesPath: '/tmp/captions.ass',
+        outputPath: '/tmp/output.mp4',
+        reframe: {
+          outputWidth: 136,
+          outputHeight: 240,
+          width: 136,
+          height: 240,
+          x: 92,
+          y: 0,
+          sendCmdPath: null,
+        },
+        broll: [{ filePath: '/tmp/broll0.mov', startTime: 2, endTime: 4.5 }],
+        watermark: {
+          filePath: '/tmp/watermark.png',
+          opacity: 0.8,
+          scale: 0.15,
+          margin: 0.03,
+          position: 'BOTTOM_RIGHT',
+        },
+      });
+
+      const [, args] = execFileMock.mock.calls[0];
+      // watermark is input index 2 - main(0) + broll(1) + watermark(2).
+      expect(args).toEqual(
+        expect.arrayContaining([
+          '-i',
+          '/tmp/broll0.mov',
+          '-loop',
+          '1',
+          '-i',
+          '/tmp/watermark.png',
+        ]),
+      );
+      const fc = args[args.indexOf('-filter_complex') + 1];
+      expect(fc).toBe(
+        '[0:v]crop=w=136:h=240:x=92:y=0[main0];' +
+          '[1:v]setpts=PTS-STARTPTS+2/TB[broll0];' +
+          "[main0][broll0]overlay=enable='between(t,2,4.5)'[main1];" +
+          "[main1]subtitles='/tmp/captions.ass'[withsubs];" +
+          '[2:v]format=rgba,colorchannelmixer=aa=0.8[wm_prepped];' +
+          '[wm_prepped][withsubs]scale2ref=w=main_w*0.15:h=ow/mdar[wm_scaled][wm_main];' +
+          '[wm_main][wm_scaled]overlay=x=main_w-overlay_w-(main_w*0.03):y=main_h-overlay_h-(main_w*0.03)[withwatermark]',
+      );
+      expect(args).toEqual(expect.arrayContaining(['-map', '[withwatermark]', '-map', '0:a']));
+    });
+
+    it('omits the watermark stage entirely when watermark is null', async () => {
+      await renderClip({
+        inputPath: '/tmp/source.mp4',
+        startTime: 5,
+        endTime: 15,
+        subtitlesPath: null,
+        outputPath: '/tmp/output.mp4',
+        reframe: null,
+        broll: [{ filePath: '/tmp/broll0.mov', startTime: 2, endTime: 4.5 }],
+        watermark: null,
+      });
+
+      const [, args] = execFileMock.mock.calls[0];
+      expect(args).not.toContain('-loop');
+      const fc = args[args.indexOf('-filter_complex') + 1];
+      expect(fc).not.toContain('wm_scaled');
+    });
+  });
 });
 
 describe('trimAndFadeInBRoll', () => {

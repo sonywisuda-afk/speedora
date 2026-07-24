@@ -31,6 +31,7 @@ import {
   type PublishRecord,
   type RenderClipJobData,
   type ThumbnailFallbackLevel,
+  type WatermarkPosition,
 } from '@speedora/shared';
 import { computePlatformFit } from '@speedora/platform-fit';
 import type { Queue } from 'bullmq';
@@ -129,6 +130,17 @@ const HISTORICAL_ENGAGEMENT_SAMPLE_BOUND = 500;
 // or copy-generated hundreds of times) without adding cursor pagination
 // these two low-cardinality-in-practice lists don't otherwise need.
 const MAX_UNBOUNDED_LIST_ROWS = 200;
+
+// Watermark roadmap (P3c) - code-level defaults applied when a Brand Kit
+// has a watermark image but hasn't set (or has cleared) one of these
+// control fields - same "null means use the sensible default" posture
+// brandFontFamily uses. Not stored in the DB as the column default so a
+// user can tell "never touched this" apart from "explicitly chose these
+// exact values" if that distinction ever matters later.
+const DEFAULT_WATERMARK_OPACITY = 0.8;
+const DEFAULT_WATERMARK_SCALE = 0.15;
+const DEFAULT_WATERMARK_MARGIN = 0.03;
+const DEFAULT_WATERMARK_POSITION: WatermarkPosition = 'BOTTOM_RIGHT';
 
 function toSharedPlatformCopy(row: ClipPlatformCopy): ClipPlatformCopyDto {
   return {
@@ -609,6 +621,7 @@ export class ClipsService {
     const captionStyle = input.captionStyle ?? clip.captionStyle;
     const speakerColorCaptions = input.speakerColorCaptions ?? clip.speakerColorCaptions;
     const applyBrandKit = input.applyBrandKit ?? clip.applyBrandKit;
+    const watermarkEnabled = input.watermarkEnabled ?? clip.watermarkEnabled;
     const hookText = input.hookText ?? clip.hookText;
     const hashtags = input.hashtags ? sanitizeHashtags(input.hashtags) : clip.hashtags;
 
@@ -625,6 +638,7 @@ export class ClipsService {
         captionStyle,
         speakerColorCaptions,
         applyBrandKit,
+        watermarkEnabled,
         // Explicit undefined check (not ??) - null is a real, distinct
         // value here (clears back to the original/untranslated text), same
         // "omitted vs. explicitly null" distinction MoveVideoDto's own
@@ -660,6 +674,7 @@ export class ClipsService {
       clip.applyBrandKit,
       clip.fontFamily,
     );
+    const watermark = await this.resolveWatermark(clip.video.ownerId, clip.watermarkEnabled);
 
     // Sprint 5E (Version Compare & History) + cleared-before-enqueueing, in
     // one transaction: the pre-render state is snapshotted into ClipVersion
@@ -713,6 +728,7 @@ export class ClipsService {
       speakerColorCaptions: clip.speakerColorCaptions,
       captionLanguage: clip.captionLanguage,
       fontFamily,
+      watermark,
       keywords: clip.keywords,
       scores: toSharedClipScores(clip.scores),
     });
@@ -744,6 +760,40 @@ export class ClipsService {
       select: { brandFontFamily: true },
     });
     return owner.brandFontFamily;
+  }
+
+  // Watermark roadmap (P3c) - resolves the video owner's Brand Kit
+  // watermark once at enqueue time, same "resolve once" shape as
+  // resolveFontFamily. clipWatermarkEnabled is a plain on/off gate (not a
+  // per-clip value override the way clipFontFamily is) - a disabled clip
+  // never even reads the owner row, same reasoning resolveFontFamily's own
+  // comment documents for applyBrandKit. Returns null (not just "no
+  // watermark configured") when brandWatermarkUrl itself is unset, so a
+  // clip with watermarkEnabled=true but no Brand Kit watermark uploaded
+  // renders exactly as if it had none - no error, no placeholder.
+  private async resolveWatermark(
+    ownerId: string,
+    clipWatermarkEnabled: boolean,
+  ): Promise<RenderClipJobData['watermark']> {
+    if (!clipWatermarkEnabled) return null;
+    const owner = await this.prisma.user.findUniqueOrThrow({
+      where: { id: ownerId },
+      select: {
+        brandWatermarkUrl: true,
+        brandWatermarkOpacity: true,
+        brandWatermarkScale: true,
+        brandWatermarkMargin: true,
+        brandWatermarkPosition: true,
+      },
+    });
+    if (!owner.brandWatermarkUrl) return null;
+    return {
+      key: owner.brandWatermarkUrl,
+      opacity: owner.brandWatermarkOpacity ?? DEFAULT_WATERMARK_OPACITY,
+      scale: owner.brandWatermarkScale ?? DEFAULT_WATERMARK_SCALE,
+      margin: owner.brandWatermarkMargin ?? DEFAULT_WATERMARK_MARGIN,
+      position: (owner.brandWatermarkPosition as WatermarkPosition | null) ?? DEFAULT_WATERMARK_POSITION,
+    };
   }
 
   async listVersions(userId: string, clipId: string): Promise<ClipVersionListDto> {
@@ -944,6 +994,7 @@ export class ClipsService {
     captionLanguage: string | null;
     applyBrandKit: boolean;
     fontFamily: string | null;
+    watermarkEnabled: boolean;
     hookText: string | null;
     hashtags: string[];
     scores: unknown;
@@ -1022,6 +1073,7 @@ export class ClipsService {
       captionLanguage: clip.captionLanguage,
       applyBrandKit: clip.applyBrandKit,
       fontFamily: clip.fontFamily,
+      watermarkEnabled: clip.watermarkEnabled,
       hookText: clip.hookText,
       hashtags: clip.hashtags,
       scores: toSharedClipScores(clip.scores),

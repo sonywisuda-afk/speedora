@@ -163,6 +163,22 @@ model User {
   // ('Inter') when null, same as an unset Clip.captionLanguage falling back
   // to the original (untranslated) transcript text.
   brandFontFamily              String?
+  // Watermark roadmap (P3c) - brandWatermarkUrl is a raw storage key
+  // (watermarks/<uuid>.png, same convention as brandLogoUrl - SVG uploads
+  // are rasterized to PNG at upload time since ffmpeg can't decode SVG
+  // directly). opacity/scale/margin are 0-1 fractions - scale/margin are
+  // fractions of the OUTPUT video's width, resolution-independent by
+  // construction rather than a fixed pixel size. position is one of
+  // @speedora/shared's WATERMARK_POSITIONS. All null until set; render-
+  // enqueue time (ClipsService.resolveWatermark) falls back to code-level
+  // defaults (opacity 0.8, scale 0.15, margin 0.03, position BOTTOM_RIGHT)
+  // - same "null means use the sensible default" posture brandFontFamily
+  // above already uses.
+  brandWatermarkUrl           String?
+  brandWatermarkOpacity       Float?
+  brandWatermarkScale         Float?
+  brandWatermarkMargin        Float?
+  brandWatermarkPosition      String?
   createdAt                   DateTime  @default(now())
   updatedAt                   DateTime  @updatedAt
 
@@ -580,6 +596,13 @@ model Clip {
   // (e.g. picking a Subtitle Preset) is a deliberate override, not a brand
   // default the user might not have meant to touch.
   fontFamily              String?
+  // Watermark roadmap (P3c) - per-clip on/off gate for the owner's Brand Kit
+  // watermark, same shape as applyBrandKit (a per-clip boolean opt-out, not
+  // a full per-clip watermark asset/opacity/position override) - composable
+  // with applyBrandKit: a clip can use the Brand Kit's font while skipping
+  // its watermark, or vice versa. True by default, same "brand gives a good
+  // default, user opts out per clip" posture as applyBrandKit.
+  watermarkEnabled        Boolean      @default(true)
   // Suggested 3-second-opener hook line and social hashtags (without a
   // leading '#') from the same detect-clips LLM call that scores virality -
   // not baked into the rendered video, purely metadata for the

@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process';
 import { rename, unlink } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { computeCutJunctionTimestamps, type CutRange } from '@speedora/cutlist';
+import type { WatermarkPosition } from '@speedora/shared';
 import { limitExecFile } from './subprocessLimiter';
 
 const execFileAsync = limitExecFile(promisify(execFile));
@@ -399,6 +400,44 @@ export interface BRollOverlay {
   endTime: number;
 }
 
+// Watermark roadmap (P3c) - opacity/scale/margin are 0-1 fractions.
+// scale/margin are fractions of the MAIN video's own width (via ffmpeg's
+// scale2ref/main_w expressions below), not a fixed pixel size - resolution-
+// independent by construction, same reasoning FONT_FAMILY_CSS-adjacent
+// resolution-independence decisions elsewhere in this roadmap use.
+export interface WatermarkOverlay {
+  filePath: string;
+  opacity: number;
+  scale: number;
+  margin: number;
+  position: WatermarkPosition;
+}
+
+// No existing ffmpeg filter in this codebase does named-anchor positioning
+// (B-roll's own overlay=, ffmpeg.ts:500-ish, never sets x/y - it always
+// fills the whole frame at the default 0:0). Uses ffmpeg's own main_w/
+// main_h/overlay_w/overlay_h expression variables (not precomputed pixel
+// values in JS) so the position math travels with the filtergraph itself,
+// same "let ffmpeg's own expression language do it" idiom the crop/scale
+// filters elsewhere in this file already use.
+function watermarkOverlayXY(
+  position: WatermarkPosition,
+  marginExpr: string,
+): { x: string; y: string } {
+  switch (position) {
+    case 'TOP_LEFT':
+      return { x: marginExpr, y: marginExpr };
+    case 'TOP_RIGHT':
+      return { x: `main_w-overlay_w-(${marginExpr})`, y: marginExpr };
+    case 'BOTTOM_LEFT':
+      return { x: marginExpr, y: `main_h-overlay_h-(${marginExpr})` };
+    case 'BOTTOM_RIGHT':
+      return { x: `main_w-overlay_w-(${marginExpr})`, y: `main_h-overlay_h-(${marginExpr})` };
+    case 'CENTER':
+      return { x: '(main_w-overlay_w)/2', y: '(main_h-overlay_h)/2' };
+  }
+}
+
 export async function renderClip(options: {
   // Local file path - ffmpeg can't operate on an object storage key
   // directly, so the caller must download the source first.
@@ -419,8 +458,13 @@ export async function renderClip(options: {
   // null/empty for the common case (no B-roll moment found, or B-roll
   // unavailable/not configured) - see broll.ts's findBRollMoments.
   broll?: BRollOverlay[] | null;
+  // Watermark roadmap (P3c) - null for the common case (no Brand Kit
+  // watermark configured, or this clip opted out via Clip.watermarkEnabled -
+  // see ClipsService.resolveWatermark).
+  watermark?: WatermarkOverlay | null;
 }): Promise<void> {
-  const { inputPath, startTime, endTime, subtitlesPath, outputPath, reframe, broll } = options;
+  const { inputPath, startTime, endTime, subtitlesPath, outputPath, reframe, broll, watermark } =
+    options;
   const duration = endTime - startTime;
 
   const args = ['-y', '-ss', startTime.toString(), '-i', inputPath, '-t', duration.toString()];
@@ -455,7 +499,8 @@ export async function renderClip(options: {
     }
   }
 
-  if (!broll || broll.length === 0) {
+  const hasBroll = Boolean(broll && broll.length > 0);
+  if (!hasBroll && !watermark) {
     // The common case: a single simple filter chain on the one input
     // stream, exactly as before Fase 15 - -vf's shorthand syntax needs no
     // input/output labels at all, unlike -filter_complex below.
@@ -471,11 +516,21 @@ export async function renderClip(options: {
   } else {
     // -filter_complex is needed as soon as there's more than one input
     // stream to combine (the main clip plus one extra `-i` per B-roll
-    // cutaway) - -vf's shorthand only ever operates on a single implicit
+    // cutaway, plus the watermark image if configured - watermark roadmap,
+    // P3c) - -vf's shorthand only ever operates on a single implicit
     // input. Each stage gets an explicit bracketed label rather than
     // relying on -vf's implicit chaining.
-    for (const overlay of broll) {
+    for (const overlay of broll ?? []) {
       args.push('-i', overlay.filePath);
+    }
+    // -loop 1 treats the still image as a continuous stream for overlay to
+    // read from - the OUTPUT's actual duration is still governed by input
+    // 0's own `-t duration` above (same as B-roll's shorter cutaways never
+    // truncating/extending the overall output today), so no `-shortest`
+    // flag is needed here either.
+    const watermarkInputIndex = 1 + (broll?.length ?? 0);
+    if (watermark) {
+      args.push('-loop', '1', '-i', watermark.filePath);
     }
 
     const complexParts: string[] = [];
@@ -485,7 +540,7 @@ export async function renderClip(options: {
       currentLabel = 'main0';
     }
 
-    broll.forEach((overlay, i) => {
+    (broll ?? []).forEach((overlay, i) => {
       const inputIndex = i + 1; // input 0 is the main clip
       const brollLabel = `broll${i}`;
       const nextLabel = `main${i + 1}`;
@@ -509,9 +564,31 @@ export async function renderClip(options: {
       currentLabel = 'withsubs';
     }
 
+    if (watermark) {
+      // A brand watermark sits on top of everything, including captions -
+      // inserted LAST in the chain, matching how creator tools
+      // conventionally treat it. format=rgba+colorchannelmixer applies a
+      // constant opacity (not a fade over time, unlike B-roll's own
+      // fade=...:alpha=1 - a watermark's opacity never changes mid-clip).
+      // scale2ref scales the watermark relative to the MAIN stream's own
+      // width (main_w) - the ffmpeg-correct way to express "N% of the
+      // video's width" regardless of the watermark image's own native
+      // resolution, rather than a fixed pixel size.
+      complexParts.push(
+        `[${watermarkInputIndex}:v]format=rgba,colorchannelmixer=aa=${watermark.opacity}[wm_prepped]`,
+      );
+      complexParts.push(
+        `[wm_prepped][${currentLabel}]scale2ref=w=main_w*${watermark.scale}:h=ow/mdar[wm_scaled][wm_main]`,
+      );
+      const { x, y } = watermarkOverlayXY(watermark.position, `main_w*${watermark.margin}`);
+      complexParts.push(`[wm_main][wm_scaled]overlay=x=${x}:y=${y}[withwatermark]`);
+      currentLabel = 'withwatermark';
+    }
+
     args.push('-filter_complex', complexParts.join(';'));
     // Audio always comes from the main input - none of the B-roll cutaway
-    // inputs' own audio (if any) is ever referenced/mapped.
+    // inputs' (or the watermark image's) own audio (if any) is ever
+    // referenced/mapped.
     args.push('-map', `[${currentLabel}]`, '-map', '0:a');
   }
 

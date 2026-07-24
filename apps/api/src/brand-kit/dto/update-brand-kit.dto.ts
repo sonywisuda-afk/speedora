@@ -1,5 +1,6 @@
 import { FONT_FAMILIES } from '@speedora/contracts';
-import { IsHexColor, IsIn, IsOptional } from 'class-validator';
+import { WATERMARK_POSITIONS } from '@speedora/shared';
+import { IsHexColor, IsIn, IsNumber, IsOptional, Max, Min } from 'class-validator';
 
 export class UpdateBrandKitDto {
   @IsOptional()
@@ -17,4 +18,29 @@ export class UpdateBrandKitDto {
   @IsOptional()
   @IsIn(FONT_FAMILIES)
   fontFamily?: string;
+
+  // Watermark roadmap (P3c) - opacity/scale/margin are 0-1 fractions;
+  // scale/margin are fractions of the OUTPUT video's width, resolution-
+  // independent by construction (see ffmpeg.ts's buildWatermarkOverlay).
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  watermarkOpacity?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  watermarkScale?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  watermarkMargin?: number;
+
+  @IsOptional()
+  @IsIn(WATERMARK_POSITIONS)
+  watermarkPosition?: string;
 }

@@ -1012,6 +1012,10 @@ export interface Clip {
   // caption font; null means "use Brand Kit resolution" (see
   // ClipsService.resolveFontFamily's precedence).
   fontFamily: string | null;
+  // Watermark roadmap (P3c) - per-clip on/off gate for the owner's Brand
+  // Kit watermark, same shape as applyBrandKit (composable with it - a clip
+  // can use the Brand Kit's font while skipping its watermark).
+  watermarkEnabled: boolean;
   hookText: string | null;
   hashtags: string[];
   // Fase 8 (Content Intelligence) - see ClipCandidate/ClipScores above.
@@ -1194,6 +1198,9 @@ export interface UpdateClipInput {
   // caption font; null clears it back to Brand Kit resolution, same
   // omitted-vs-null convention as captionLanguage above.
   fontFamily?: string | null;
+  // Watermark roadmap (P3c) - per-clip on/off gate, same shape as
+  // applyBrandKit; plain boolean, no omitted-vs-null distinction needed.
+  watermarkEnabled?: boolean;
   hookText?: string;
   hashtags?: string[];
 }

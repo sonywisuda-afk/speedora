@@ -23,6 +23,7 @@ import {
   type ThumbnailFallbackLevel,
   type TranscribeJobData,
   type TranslateTranscriptJobData,
+  type WatermarkPosition,
 } from '@speedora/shared';
 import { Queue } from 'bullmq';
 import { PaymentsService } from '../payments/payments.service';
@@ -98,6 +99,17 @@ const CLIPS_WITH_PUBLISH_RECORDS = {
   orderBy: { viralityScore: 'desc' },
   include: { publishRecords: { include: { socialAccount: true } } },
 } as const;
+
+// Watermark roadmap (P3c) - same defaults as ClipsService's own
+// DEFAULT_WATERMARK_* constants, duplicated here rather than exported/
+// shared - same "each render-enqueue site inlines its own resolution"
+// convention the fontFamily precedence already established across these
+// three call sites (ClipsService.render(), this retry(), detect-clips.
+// worker.ts's initial render).
+const DEFAULT_WATERMARK_OPACITY = 0.8;
+const DEFAULT_WATERMARK_SCALE = 0.15;
+const DEFAULT_WATERMARK_MARGIN = 0.03;
+const DEFAULT_WATERMARK_POSITION: WatermarkPosition = 'BOTTOM_RIGHT';
 
 type VideoWithClips = Prisma.VideoGetPayload<{
   include: { clips: typeof CLIPS_WITH_PUBLISH_RECORDS };
@@ -495,6 +507,32 @@ export class VideosService {
             })
           ).brandFontFamily
         : null;
+      // Watermark roadmap (P3c) - same "one owner lookup shared by every
+      // clip, skipped entirely when nothing needs it" shape as
+      // ownerBrandFontFamily above.
+      const ownerWatermark = unrendered.some((clip) => clip.watermarkEnabled)
+        ? await this.prisma.user.findUniqueOrThrow({
+            where: { id: video.ownerId },
+            select: {
+              brandWatermarkUrl: true,
+              brandWatermarkOpacity: true,
+              brandWatermarkScale: true,
+              brandWatermarkMargin: true,
+              brandWatermarkPosition: true,
+            },
+          })
+        : null;
+      const resolvedWatermark: RenderClipJobData['watermark'] = ownerWatermark?.brandWatermarkUrl
+        ? {
+            key: ownerWatermark.brandWatermarkUrl,
+            opacity: ownerWatermark.brandWatermarkOpacity ?? DEFAULT_WATERMARK_OPACITY,
+            scale: ownerWatermark.brandWatermarkScale ?? DEFAULT_WATERMARK_SCALE,
+            margin: ownerWatermark.brandWatermarkMargin ?? DEFAULT_WATERMARK_MARGIN,
+            position:
+              (ownerWatermark.brandWatermarkPosition as WatermarkPosition | null) ??
+              DEFAULT_WATERMARK_POSITION,
+          }
+        : null;
       await Promise.all(
         unrendered.map((clip) =>
           this.renderClipQueue.add(QueueName.RENDER_CLIP, {
@@ -512,6 +550,7 @@ export class VideosService {
             speakerColorCaptions: clip.speakerColorCaptions,
             captionLanguage: clip.captionLanguage,
             fontFamily: clip.fontFamily ?? (clip.applyBrandKit ? ownerBrandFontFamily : null),
+            watermark: clip.watermarkEnabled ? resolvedWatermark : null,
             keywords: clip.keywords,
             scores: toSharedClipScores(clip.scores),
           }),

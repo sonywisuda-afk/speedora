@@ -10,7 +10,9 @@ import {
   type ClipScores,
   type DetectClipsJobData,
   type DetectClipsJobResult,
+  type RenderClipJobData,
   type TranscriptSegment,
+  type WatermarkPosition,
 } from '@speedora/shared';
 import { Worker, type Job } from 'bullmq';
 import { withJobTimeout } from '../jobTimeout';
@@ -27,6 +29,15 @@ import { createRedisConnection } from '../redis';
 // default request timeout; generous headroom above that for the
 // scoring/filtering/DB-write work around it.
 const DETECT_CLIPS_JOB_TIMEOUT_MS = 15 * 60 * 1000;
+
+// Watermark roadmap (P3c) - same defaults as ClipsService's own
+// DEFAULT_WATERMARK_* constants, duplicated here rather than shared - same
+// "each render-enqueue site inlines its own resolution" convention the
+// fontFamily precedence already established.
+const DEFAULT_WATERMARK_OPACITY = 0.8;
+const DEFAULT_WATERMARK_SCALE = 0.15;
+const DEFAULT_WATERMARK_MARGIN = 0.03;
+const DEFAULT_WATERMARK_POSITION: WatermarkPosition = 'BOTTOM_RIGHT';
 
 const logger = forStage('detect-clips');
 
@@ -175,8 +186,26 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
               // for consistency with ClipsService.render()/VideosService.retry.
               const owner = await prisma.user.findUniqueOrThrow({
                 where: { id: video.ownerId },
-                select: { brandFontFamily: true },
+                select: {
+                  brandFontFamily: true,
+                  brandWatermarkUrl: true,
+                  brandWatermarkOpacity: true,
+                  brandWatermarkScale: true,
+                  brandWatermarkMargin: true,
+                  brandWatermarkPosition: true,
+                },
               });
+              const ownerWatermark: RenderClipJobData['watermark'] = owner.brandWatermarkUrl
+                ? {
+                    key: owner.brandWatermarkUrl,
+                    opacity: owner.brandWatermarkOpacity ?? DEFAULT_WATERMARK_OPACITY,
+                    scale: owner.brandWatermarkScale ?? DEFAULT_WATERMARK_SCALE,
+                    margin: owner.brandWatermarkMargin ?? DEFAULT_WATERMARK_MARGIN,
+                    position:
+                      (owner.brandWatermarkPosition as WatermarkPosition | null) ??
+                      DEFAULT_WATERMARK_POSITION,
+                  }
+                : null;
               await Promise.all(
                 candidates.map((candidate, index) =>
                   renderClipQueue.add(QueueName.RENDER_CLIP, {
@@ -202,6 +231,12 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
                     fontFamily:
                       clips[index].fontFamily ??
                       (clips[index].applyBrandKit ? owner.brandFontFamily : null),
+                    // Watermark roadmap (P3c) - clips[index].watermarkEnabled
+                    // is always true for a brand-new clip (schema default),
+                    // so this is Brand-Kit-driven in practice here, same
+                    // "always true, written for precedence consistency
+                    // anyway" reasoning as fontFamily's own comment above.
+                    watermark: clips[index].watermarkEnabled ? ownerWatermark : null,
                     keywords: candidate.keywords,
                     scores: candidate.scores,
                   }),

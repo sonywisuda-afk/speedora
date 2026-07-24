@@ -45,6 +45,12 @@ export class UpdateClipDto {
   @IsIn(FONT_FAMILIES)
   fontFamily?: string | null;
 
+  // Watermark roadmap (P3c) - per-clip on/off gate for the owner's Brand
+  // Kit watermark, same shape as applyBrandKit above (composable with it).
+  @IsOptional()
+  @IsBoolean()
+  watermarkEnabled?: boolean;
+
   // Suggested opener line/hashtags from the detect-clips LLM call - purely
   // metadata (not baked into the rendered video), user-editable same as
   // everything else on this DTO.

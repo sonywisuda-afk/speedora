@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { deleteObject, uploadObject } from '@speedora/storage';
 import { randomUUID } from 'node:crypto';
 import * as path from 'node:path';
+import sharp from 'sharp';
 
 export interface StoredFile {
   // Object storage key stored as Video.sourceUrl (not a local path or a
@@ -29,6 +30,25 @@ export class StorageService {
     const ext = path.extname(file.originalname).toLowerCase();
     const key = `brand-logos/${randomUUID()}${ext}`;
     await uploadObject(key, file.buffer, file.mimetype);
+
+    return key;
+  }
+
+  // Watermark roadmap (P3c) - same shape as saveBrandLogo above, but SVG
+  // uploads are rasterized to PNG first (stock ffmpeg builds have no SVG
+  // decoder - apps/worker's renderClip() must always be able to hand a
+  // plain raster image to its overlay filter). A raster upload (PNG/JPEG/
+  // WebP) passes through untouched, same as saveBrandLogo. Rasterizing
+  // once here at upload time (not per-render in the worker) is a one-time
+  // cost rather than a repeated one.
+  async saveBrandWatermark(file: Express.Multer.File): Promise<string> {
+    const isSvg = file.mimetype === 'image/svg+xml';
+    const buffer = isSvg
+      ? await sharp(file.buffer, { density: 300 }).png().toBuffer()
+      : file.buffer;
+    const ext = isSvg ? '.png' : path.extname(file.originalname).toLowerCase();
+    const key = `watermarks/${randomUUID()}${ext}`;
+    await uploadObject(key, buffer, isSvg ? 'image/png' : file.mimetype);
 
     return key;
   }
