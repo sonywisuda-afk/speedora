@@ -279,8 +279,17 @@ High-level state of each major initiative (see the linked docs for what's actual
   sync workers (reset on any success, incremented + timestamped on failure), and a new
   `sync-failure-warning` `AlertRule` (`apps/worker/src/workers/alert-engine.worker.ts`) notifies the
   account owner once `SYNC_FAILURE_ALERT_THRESHOLD` (default 3) consecutive failures are reached, via
-  a new `NotificationType.SYNC_FAILURE_WARNING`. The other 2 items remain open as originally
-  documented.
+  a new `NotificationType.SYNC_FAILURE_WARNING`. **Update (2026-07-24, same day)**: the second item is
+  now fixed too — `AnalyticsService.getOverview`'s separate, unbounded `publishRecordStatsSnapshot.
+  findMany()` (grew with an owner's entire sync HISTORY, forever) is gone; the platform-breakdown query
+  and the engagement-average query are merged into one `publishRecord.findMany()` with a nested
+  `statsSnapshots: { orderBy: { capturedAt: 'desc' }, take: 1 }` — the same "latest snapshot per
+  parent" pattern `fetchPublishedRecords()` and `apps/worker`'s `dataset-lib.ts`
+  (`loadUsableSamples`) already use elsewhere. Cost now scales with the owner's published-record
+  COUNT (bounded, same as `totalClips`/`publishedClips`), not sync-history length. Deliberately *not*
+  a `capturedAt`-window bound like `getFollowers`/`getHeatmap` — `averageEngagementScore` is documented
+  as an all-time figure, so windowing it would silently change its meaning, not just its performance.
+  Only `redis.ts`'s dotenv/module-load ordering risk remains open.
 
 For new feature work: check whether it's an extension of an existing signal/module first (extend,
 don't rebuild — this has been an explicit recurring instruction across the AI Fusion roadmap), and

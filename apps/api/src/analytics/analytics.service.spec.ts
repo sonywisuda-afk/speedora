@@ -7,7 +7,6 @@ describe('AnalyticsService', () => {
   let prisma: {
     video: { count: jest.Mock; findMany: jest.Mock };
     clip: { count: jest.Mock };
-    publishRecordStatsSnapshot: { findMany: jest.Mock };
     publishRecord: { findMany: jest.Mock };
     socialAccount: { findMany: jest.Mock };
   };
@@ -16,7 +15,6 @@ describe('AnalyticsService', () => {
     prisma = {
       video: { count: jest.fn(), findMany: jest.fn() },
       clip: { count: jest.fn() },
-      publishRecordStatsSnapshot: { findMany: jest.fn() },
       publishRecord: { findMany: jest.fn() },
       socialAccount: { findMany: jest.fn() },
     };
@@ -27,7 +25,6 @@ describe('AnalyticsService', () => {
     it('scopes every query to the requesting user', async () => {
       prisma.video.count.mockResolvedValue(3);
       prisma.clip.count.mockResolvedValue(10);
-      prisma.publishRecordStatsSnapshot.findMany.mockResolvedValue([]);
       prisma.video.findMany.mockResolvedValue([]);
       prisma.publishRecord.findMany.mockResolvedValue([]);
 
@@ -43,22 +40,27 @@ describe('AnalyticsService', () => {
           publishRecords: { some: { status: PublishStatus.PUBLISHED } },
         },
       });
-      expect(prisma.publishRecordStatsSnapshot.findMany).toHaveBeenCalledWith({
-        where: { publishRecord: { clip: { video: { ownerId: 'user-1' } } } },
-        select: { publishRecordId: true, capturedAt: true, engagementScore: true },
-      });
+      // Stabilization Pass Area 5 tech-debt fix - platform breakdown and
+      // engagement average are now read from a single query, using a nested
+      // `statsSnapshots: { orderBy, take: 1 }` (latest snapshot per record)
+      // instead of a second, unbounded publishRecordStatsSnapshot.findMany().
       expect(prisma.publishRecord.findMany).toHaveBeenCalledWith({
         where: { status: PublishStatus.PUBLISHED, clip: { video: { ownerId: 'user-1' } } },
-        select: { socialAccount: { select: { platform: true } } },
+        select: {
+          id: true,
+          socialAccount: { select: { platform: true } },
+          statsSnapshots: {
+            orderBy: { capturedAt: 'desc' },
+            take: 1,
+            select: { capturedAt: true, engagementScore: true },
+          },
+        },
       });
     });
 
     it('assembles totals, platform breakdown, processing status, and engagement from the fetched rows', async () => {
       prisma.video.count.mockResolvedValue(2);
       prisma.clip.count.mockResolvedValueOnce(5).mockResolvedValueOnce(1);
-      prisma.publishRecordStatsSnapshot.findMany.mockResolvedValue([
-        { publishRecordId: 'pr-1', capturedAt: new Date('2026-01-01'), engagementScore: 0.4 },
-      ]);
       // Relative to the real clock (not a hardcoded date) - getOverview()
       // doesn't accept an injected `now`, so bucketUploadsByDay's 30-day
       // window is anchored to whenever this test actually runs.
@@ -68,9 +70,15 @@ describe('AnalyticsService', () => {
         { status: VideoStatus.FAILED, createdAt: yesterday },
       ]);
       prisma.publishRecord.findMany.mockResolvedValue([
-        { socialAccount: { platform: SocialPlatform.YOUTUBE } },
-        { socialAccount: { platform: SocialPlatform.YOUTUBE } },
-        { socialAccount: { platform: SocialPlatform.TIKTOK } },
+        {
+          id: 'pr-1',
+          socialAccount: { platform: SocialPlatform.YOUTUBE },
+          statsSnapshots: [
+            { capturedAt: new Date('2026-01-01'), engagementScore: 0.4 },
+          ],
+        },
+        { id: 'pr-2', socialAccount: { platform: SocialPlatform.YOUTUBE }, statsSnapshots: [] },
+        { id: 'pr-3', socialAccount: { platform: SocialPlatform.TIKTOK }, statsSnapshots: [] },
       ]);
 
       const result = await service.getOverview('user-1');
@@ -95,10 +103,34 @@ describe('AnalyticsService', () => {
       expect(result.uploadTrend.reduce((sum, d) => sum + d.count, 0)).toBe(2);
     });
 
+    it('averages the latest snapshot per record, ignoring older snapshots from the same record', async () => {
+      prisma.video.count.mockResolvedValue(0);
+      prisma.clip.count.mockResolvedValue(0);
+      prisma.video.findMany.mockResolvedValue([]);
+      prisma.publishRecord.findMany.mockResolvedValue([
+        {
+          id: 'pr-1',
+          socialAccount: { platform: SocialPlatform.YOUTUBE },
+          // Only the latest snapshot is ever fetched (take: 1) - this test
+          // documents that expectation even though the service itself no
+          // longer has to pick "latest" out of a larger set.
+          statsSnapshots: [{ capturedAt: new Date('2026-02-01'), engagementScore: 0.8 }],
+        },
+        {
+          id: 'pr-2',
+          socialAccount: { platform: SocialPlatform.TIKTOK },
+          statsSnapshots: [{ capturedAt: new Date('2026-02-01'), engagementScore: 0.2 }],
+        },
+      ]);
+
+      const result = await service.getOverview('user-1');
+
+      expect(result.averageEngagementScore).toBe(0.5);
+    });
+
     it('returns null averageEngagementScore and empty breakdowns when the user has no data', async () => {
       prisma.video.count.mockResolvedValue(0);
       prisma.clip.count.mockResolvedValue(0);
-      prisma.publishRecordStatsSnapshot.findMany.mockResolvedValue([]);
       prisma.video.findMany.mockResolvedValue([]);
       prisma.publishRecord.findMany.mockResolvedValue([]);
 
