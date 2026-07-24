@@ -467,7 +467,19 @@ export async function renderClip(options: {
     options;
   const duration = endTime - startTime;
 
-  const args = ['-y', '-ss', startTime.toString(), '-i', inputPath, '-t', duration.toString()];
+  // `-t` is deliberately NOT placed here as an input option (immediately
+  // after `-i inputPath`) even though that reads naturally - ffmpeg binds an
+  // input option to whichever `-i` comes NEXT in the argument list, not the
+  // previous one. Once B-roll/watermark inputs are pushed after this point
+  // (`args.push('-i', ...)` below), a `-t` sitting here would silently
+  // rebind to the FIRST of those extra inputs instead of the main source,
+  // leaving the main source's own read unbounded - source.mp4 would then be
+  // read to EOF instead of stopping at `duration`, producing an output many
+  // times longer than the clip and eventually hitting RENDER_TIMEOUT_MS.
+  // Pushed as an OUTPUT option instead (below, alongside -map/-c:v), it
+  // trims the final mapped/filtered stream to `duration` regardless of how
+  // many extra inputs feed the filter graph - correct for both branches.
+  const args = ['-y', '-ss', startTime.toString(), '-i', inputPath];
 
   const mainChainFilters: string[] = [];
   if (reframe) {
@@ -592,7 +604,7 @@ export async function renderClip(options: {
     args.push('-map', `[${currentLabel}]`, '-map', '0:a');
   }
 
-  args.push('-c:v', 'libx264', '-c:a', 'aac', '-movflags', '+faststart');
+  args.push('-t', duration.toString(), '-c:v', 'libx264', '-c:a', 'aac', '-movflags', '+faststart');
 
   await execFfmpegAtomically(() => args, outputPath, RENDER_TIMEOUT_MS);
 }
