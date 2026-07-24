@@ -200,6 +200,8 @@ model User {
   campaignsCreated         Campaign[]
   // Sprint 6K (Conversion - first-party click-tracking)
   createdTrackedLinks      TrackedLink[]
+  // Subtitle Presets roadmap (P3b)
+  subtitlePresets          SubtitlePreset[]
 }
 
 model Video {
@@ -569,6 +571,15 @@ model Clip {
   // watermark/intro/outro actually needing it, rather than retrofitting a
   // migration per sub-phase.
   applyBrandKit           Boolean      @default(true)
+  // Subtitle Presets roadmap (P3b) - per-clip override of the resolved
+  // caption font, same nullable-override shape as captionLanguage above.
+  // Null means "no override" - render-enqueue time falls back to
+  // applyBrandKit/User.brandFontFamily (see ClipsService.resolveFontFamily's
+  // precedence), same as before this column existed. A non-null value here
+  // always wins, regardless of applyBrandKit - an explicit per-clip choice
+  // (e.g. picking a Subtitle Preset) is a deliberate override, not a brand
+  // default the user might not have meant to touch.
+  fontFamily              String?
   // Suggested 3-second-opener hook line and social hashtags (without a
   // leading '#') from the same detect-clips LLM call that scores virality -
   // not baked into the rendered video, purely metadata for the
@@ -1398,6 +1409,32 @@ model NotificationWebhook {
   updatedAt DateTime            @updatedAt
 
   @@unique([userId, channel])
+}
+
+// Subtitle Presets roadmap (P3b) - a named, user-saved bundle of the 3
+// "subtitle look" axes (captionStyle/speakerColorCaptions/fontFamily),
+// selectable per clip in the Timeline Editor. Directly userId-owned (not
+// workspace-scoped, like BrandKitTemplate/BrandKit itself - a personal style
+// preference, not a team-shared resource) - CRUD shape mirrors Project's
+// (the smallest full create/list/update/delete precedent in this codebase),
+// ownership check mirrors BrandKitService's direct `where: { userId }`
+// guards instead of WorkspaceAccessService. A small, fixed set of built-in
+// presets (Default/Minimal/Bold/Karaoke/Creator) also exists, but those are
+// a frontend-only constant (packages/shared's BUILT_IN_SUBTITLE_PRESETS) -
+// never persisted here, since they're just a convenience bulk-setter into
+// already-validated Clip fields.
+model SubtitlePreset {
+  id                   String       @id @default(cuid())
+  userId               String
+  user                 User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                 String
+  captionStyle         CaptionStyle @default(DEFAULT)
+  speakerColorCaptions Boolean      @default(false)
+  fontFamily           String?
+  createdAt            DateTime     @default(now())
+  updatedAt            DateTime     @updatedAt
+
+  @@index([userId])
 }
 
 // Sprint 4C (Alert Engine) - durable "is this alert instance currently

@@ -1,5 +1,6 @@
 import { CaptionStyle } from '@speedora/database';
-import { IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { FONT_FAMILIES } from '@speedora/contracts';
+import { IsArray, IsBoolean, IsEnum, IsIn, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class UpdateClipDto {
   @IsOptional()
@@ -34,6 +35,15 @@ export class UpdateClipDto {
   @IsOptional()
   @IsBoolean()
   applyBrandKit?: boolean;
+
+  // Subtitle Presets roadmap (P3b) - per-clip override of the resolved
+  // caption font (e.g. from picking a preset), same "explicit null clears
+  // it" shape as captionLanguage above. Wins over applyBrandKit/Brand Kit's
+  // own font at render time regardless of value - see
+  // ClipsService.resolveFontFamily.
+  @IsOptional()
+  @IsIn(FONT_FAMILIES)
+  fontFamily?: string | null;
 
   // Suggested opener line/hashtags from the detect-clips LLM call - purely
   // metadata (not baked into the rendered video), user-editable same as

@@ -35,6 +35,7 @@ describe('ClipsService', () => {
     };
     clipPlatformCopy: { create: jest.Mock; count: jest.Mock; findMany: jest.Mock };
     auditLogEntry: { create: jest.Mock };
+    user: { findUniqueOrThrow: jest.Mock };
     $transaction: jest.Mock;
     $queryRaw: jest.Mock;
   };
@@ -78,6 +79,7 @@ describe('ClipsService', () => {
         findMany: jest.fn(),
       },
       auditLogEntry: { create: jest.fn().mockResolvedValue({}) },
+      user: { findUniqueOrThrow: jest.fn() },
       $transaction: jest.fn(),
       $queryRaw: jest.fn(),
     };
@@ -1255,6 +1257,47 @@ describe('ClipsService', () => {
 
       await expect(service.render('clip-1', 'user-1')).rejects.toThrow(NotFoundException);
       expect(renderClipQueue.add).not.toHaveBeenCalled();
+    });
+
+    // Subtitle Presets roadmap (P3b).
+    it('prefers an explicit per-clip fontFamily override over the Brand Kit, without looking up the owner', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        ...clip,
+        applyBrandKit: true,
+        fontFamily: 'Montserrat',
+      });
+      prisma.transcriptSegment.findMany.mockResolvedValue([]);
+      prisma.clip.update.mockResolvedValue({ ...clip, outputUrl: null });
+
+      await service.render('clip-1', 'user-1');
+
+      expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
+      expect(renderClipQueue.add).toHaveBeenCalledWith(
+        QueueName.RENDER_CLIP,
+        expect.objectContaining({ fontFamily: 'Montserrat' }),
+      );
+    });
+
+    it('falls back to the Brand Kit font when the clip has no override and applyBrandKit is on', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        ...clip,
+        applyBrandKit: true,
+        fontFamily: null,
+      });
+      prisma.transcriptSegment.findMany.mockResolvedValue([]);
+      prisma.clip.update.mockResolvedValue({ ...clip, outputUrl: null });
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ brandFontFamily: 'Roboto' });
+
+      await service.render('clip-1', 'user-1');
+
+      expect(prisma.user.findUniqueOrThrow).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        select: { brandFontFamily: true },
+      });
+      expect(renderClipQueue.add).toHaveBeenCalledWith(
+        QueueName.RENDER_CLIP,
+        expect.objectContaining({ fontFamily: 'Roboto' }),
+      );
     });
   });
 

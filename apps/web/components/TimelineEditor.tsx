@@ -1,8 +1,16 @@
 'use client';
 
-import { CAPTION_STYLES, CaptionStyle, type ClipScores } from '@speedora/shared';
+import {
+  BUILT_IN_SUBTITLE_PRESETS,
+  CAPTION_STYLES,
+  CaptionStyle,
+  FONT_FAMILIES,
+  type ClipScores,
+  type FontFamily,
+} from '@speedora/shared';
 import { KEYWORD_PATTERN } from '@speedora/subtitles';
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import useSWR from 'swr';
 
 import { LetterboxBand } from '@/components/signature/LetterboxBand';
 import { LiveReel } from '@/components/signature/LiveReel';
@@ -10,7 +18,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { clipDownloadUrl, videoSourceUrl } from '@/lib/api';
+import { clipDownloadUrl, createSubtitlePreset, listSubtitlePresets, videoSourceUrl } from '@/lib/api';
+import { FONT_FAMILY_CSS } from '@/lib/subtitleFonts';
 import { cn } from '@/lib/utils';
 import { useTimelineStore, type TimelineClip } from '@/lib/timelineStore';
 
@@ -65,12 +74,39 @@ const SPEAKER_COLORS = [
   'text-emerald-400',
 ];
 
-function speakerColorClass(speaker: string): string {
+// Same palette as SPEAKER_COLORS above, as hex - build-ass.ts's own
+// SPEAKER_ASS_COLORS documents the exact same 5 hex values (signal-cyan
+// #22E6D6, signal-pink #FF3B7F, amber-400 #FBBF24, violet-400 #A78BFA,
+// emerald-400 #34D399), used here for the canvas caption preview's
+// speaker-color base fill (Subtitle Presets roadmap, P3b) so the editor and
+// the actual burned-in captions agree, same reasoning as SPEAKER_COLORS'
+// own comment.
+const SPEAKER_HEX_COLORS = ['#22E6D6', '#FF3B7F', '#FBBF24', '#A78BFA', '#34D399'];
+
+function speakerIndex(speaker: string): number {
   const letter = speaker.replace('Speaker ', '').charCodeAt(0) - 'A'.charCodeAt(0);
   const index = Number.isNaN(letter) ? 0 : letter;
-  return SPEAKER_COLORS[
-    ((index % SPEAKER_COLORS.length) + SPEAKER_COLORS.length) % SPEAKER_COLORS.length
-  ];
+  return ((index % SPEAKER_COLORS.length) + SPEAKER_COLORS.length) % SPEAKER_COLORS.length;
+}
+
+function speakerColorClass(speaker: string): string {
+  return SPEAKER_COLORS[speakerIndex(speaker)];
+}
+
+function speakerHexColor(speaker: string): string {
+  return SPEAKER_HEX_COLORS[speakerIndex(speaker)];
+}
+
+// Subtitle Presets roadmap (P3b) - resolves a per-clip fontFamily override
+// into a real, loaded CSS font-family string for the canvas preview
+// (FONT_FAMILY_CSS, from next/font/google). No per-clip override (null,
+// meaning "use Brand Kit resolution") previews as Inter - the same
+// best-effort-approximation posture this preview already has (see this
+// file's own "NOT a pixel match" comment above draw()); the actual Brand
+// Kit font isn't fetched here just for the preview.
+function previewFontCss(fontFamily: string | null | undefined): string {
+  const key = (fontFamily ?? 'Inter') as FontFamily;
+  return `${FONT_FAMILY_CSS[key] ?? FONT_FAMILY_CSS.Inter}, sans-serif`;
 }
 
 // Fase 13 (Vocal Emotion Detection) - superb/wav2vec2-base-superb-er's raw
@@ -119,10 +155,23 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
   const setCaptionStyle = useTimelineStore((s) => s.setCaptionStyle);
   const setSpeakerColorCaptions = useTimelineStore((s) => s.setSpeakerColorCaptions);
   const setCaptionLanguage = useTimelineStore((s) => s.setCaptionLanguage);
+  const setFontFamily = useTimelineStore((s) => s.setFontFamily);
+  const applyPreset = useTimelineStore((s) => s.applyPreset);
   const setHookText = useTimelineStore((s) => s.setHookText);
   const setHashtags = useTimelineStore((s) => s.setHashtags);
   const saveClip = useTimelineStore((s) => s.saveClip);
   const renderClip = useTimelineStore((s) => s.renderClip);
+
+  // Subtitle Presets roadmap (P3b) - built-ins are a fixed constant (never
+  // touch the DB); custom ones are the requester's own saved
+  // SubtitlePreset rows.
+  const { data: presetsData, mutate: mutatePresets } = useSWR(
+    'subtitle-presets',
+    listSubtitlePresets,
+  );
+  const customPresets = presetsData?.presets ?? [];
+  const [savingPresetName, setSavingPresetName] = useState<string | null>(null);
+  const [presetError, setPresetError] = useState<string | null>(null);
 
   // Set when the browser can't decode the source video (e.g. an older
   // YouTube import stored as AV1 - see youtube.ts, which now prefers H.264 -
@@ -169,12 +218,13 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
       active: (typeof transcript)[number],
       style: CaptionStyle,
       currentTime: number,
+      baseColor: string,
     ): StyledWord[] {
       if (style === 'KARAOKE' && active.words && active.words.length > 0) {
         return active.words.map((word) => ({
           text: word.word,
           bold: false,
-          color: currentTime >= word.start ? HIGHLIGHT_COLOR : 'white',
+          color: currentTime >= word.start ? HIGHLIGHT_COLOR : baseColor,
         }));
       }
       const tokens = active.text.split(/\s+/).filter(Boolean);
@@ -182,10 +232,14 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
         return tokens.map((token) => {
           const stripped = token.replace(/^[.,!?;:"'“”]+|[.,!?;:"'“”]+$/g, '');
           const isKeyword = KEYWORD_PATTERN.test(stripped);
-          return { text: token, bold: isKeyword, color: isKeyword ? HIGHLIGHT_COLOR : 'white' };
+          return {
+            text: token,
+            bold: isKeyword,
+            color: isKeyword ? HIGHLIGHT_COLOR : baseColor,
+          };
         });
       }
-      return tokens.map((token) => ({ text: token, bold: false, color: 'white' }));
+      return tokens.map((token) => ({ text: token, bold: false, color: baseColor }));
     }
 
     // Wraps styled words into lines by measuring each word with ITS OWN
@@ -197,16 +251,17 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
       words: StyledWord[],
       maxWidth: number,
       fontSize: number,
+      fontCss: string,
     ): StyledWord[][] {
       const spaceWidth = (() => {
-        ctx.font = `${fontSize}px sans-serif`;
+        ctx.font = `${fontSize}px ${fontCss}`;
         return ctx.measureText(' ').width;
       })();
       const lines: StyledWord[][] = [];
       let current: StyledWord[] = [];
       let currentWidth = 0;
       for (const word of words) {
-        ctx.font = `${word.bold ? 'bold ' : ''}${fontSize}px sans-serif`;
+        ctx.font = `${word.bold ? 'bold ' : ''}${fontSize}px ${fontCss}`;
         const wordWidth = ctx.measureText(word.text).width;
         const addedWidth = currentWidth === 0 ? wordWidth : currentWidth + spaceWidth + wordWidth;
         if (addedWidth > maxWidth && current.length > 0) {
@@ -251,10 +306,16 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
             ctx.strokeStyle = 'black';
 
             const style = selectedClip?.captionStyle ?? CaptionStyle.DEFAULT;
-            const styledWords = toStyledWords(active, style, video.currentTime);
-            const lines = wrapStyledWords(ctx, styledWords, regionWidth * 0.92, fontSize);
+            const speakerColorCaptions = selectedClip?.speakerColorCaptions ?? false;
+            const baseColor =
+              speakerColorCaptions && active.speaker
+                ? speakerHexColor(active.speaker)
+                : 'white';
+            const fontCss = previewFontCss(selectedClip?.fontFamily);
+            const styledWords = toStyledWords(active, style, video.currentTime, baseColor);
+            const lines = wrapStyledWords(ctx, styledWords, regionWidth * 0.92, fontSize, fontCss);
             const spaceWidth = (() => {
-              ctx.font = `${fontSize}px sans-serif`;
+              ctx.font = `${fontSize}px ${fontCss}`;
               return ctx.measureText(' ').width;
             })();
             const lineHeight = fontSize * 1.2;
@@ -263,12 +324,12 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
             lines.forEach((line, i) => {
               const y = bottom - (lines.length - 1 - i) * lineHeight;
               const lineWidth = line.reduce((sum, word, wi) => {
-                ctx.font = `${word.bold ? 'bold ' : ''}${fontSize}px sans-serif`;
+                ctx.font = `${word.bold ? 'bold ' : ''}${fontSize}px ${fontCss}`;
                 return sum + ctx.measureText(word.text).width + (wi > 0 ? spaceWidth : 0);
               }, 0);
               let x = centerX - lineWidth / 2;
               for (const word of line) {
-                ctx.font = `${word.bold ? 'bold ' : ''}${fontSize}px sans-serif`;
+                ctx.font = `${word.bold ? 'bold ' : ''}${fontSize}px ${fontCss}`;
                 ctx.fillStyle = word.color;
                 ctx.strokeText(word.text, x, y);
                 ctx.fillText(word.text, x, y);
@@ -283,7 +344,45 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
 
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [transcript, selectedClip?.captionStyle]);
+  }, [
+    transcript,
+    selectedClip?.captionStyle,
+    selectedClip?.speakerColorCaptions,
+    selectedClip?.fontFamily,
+  ]);
+
+  // Subtitle Presets roadmap (P3b) - option values are "built-in:<key>" or
+  // "custom:<id>" so a single <select> can address both lists without id
+  // collisions; applyPreset() bulk-sets captionStyle/speakerColorCaptions/
+  // fontFamily in one state update, same dirty/saveClip batch as every
+  // other clip field.
+  function handleApplyPreset(clipId: string, value: string) {
+    if (!value) return;
+    const [kind, key] = value.split(':', 2);
+    const preset =
+      kind === 'built-in'
+        ? BUILT_IN_SUBTITLE_PRESETS.find((p) => p.key === key)
+        : customPresets.find((p) => p.id === key);
+    if (preset) applyPreset(clipId, preset);
+  }
+
+  async function handleSaveAsPreset(clip: TimelineClip) {
+    const name = savingPresetName?.trim();
+    if (!name) return;
+    setPresetError(null);
+    try {
+      await createSubtitlePreset({
+        name,
+        captionStyle: clip.captionStyle,
+        speakerColorCaptions: clip.speakerColorCaptions,
+        fontFamily: clip.fontFamily ?? undefined,
+      });
+      await mutatePresets();
+      setSavingPresetName(null);
+    } catch (err) {
+      setPresetError(err instanceof Error ? err.message : 'Gagal menyimpan preset');
+    }
+  }
 
   function handleLoadedMetadata() {
     if (videoRef.current) setDuration(videoRef.current.duration);
@@ -476,6 +575,77 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
             <span className="text-signal-pink">{Math.round(selectedClip.viralityScore)}</span>/100
           </p>
 
+          {/* Subtitle Presets roadmap (P3b) - a convenience bulk-setter over
+              the granular Gaya Caption/Warna Per Pembicara/Font controls
+              below, not a replacement - picking one just fills those in,
+              and any of them can still be fine-tuned afterward. */}
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                Preset Subtitle
+              </Label>
+              <select
+                value=""
+                onChange={(e) => handleApplyPreset(selectedClip.id, e.target.value)}
+                className="h-8 rounded-md border border-input bg-slate-panel px-2 font-mono text-xs text-foreground"
+              >
+                <option value="">Pilih preset...</option>
+                <optgroup label="Built-in">
+                  {BUILT_IN_SUBTITLE_PRESETS.map((preset) => (
+                    <option key={preset.key} value={`built-in:${preset.key}`}>
+                      {preset.name}
+                    </option>
+                  ))}
+                </optgroup>
+                {customPresets.length > 0 && (
+                  <optgroup label="Preset Saya">
+                    {customPresets.map((preset) => (
+                      <option key={preset.id} value={`custom:${preset.id}`}>
+                        {preset.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            </div>
+
+            {savingPresetName === null ? (
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setSavingPresetName('')}
+              >
+                Simpan sebagai preset
+              </Button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Input
+                  autoFocus
+                  value={savingPresetName}
+                  onChange={(e) => setSavingPresetName(e.target.value)}
+                  placeholder="Nama preset"
+                  className="h-8 w-40 font-mono text-xs"
+                />
+                <Button size="sm" onClick={() => handleSaveAsPreset(selectedClip)}>
+                  Simpan
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() => {
+                    setSavingPresetName(null);
+                    setPresetError(null);
+                  }}
+                >
+                  Batal
+                </Button>
+              </div>
+            )}
+          </div>
+          {presetError && (
+            <p className="mt-1 font-body text-xs text-destructive">{presetError}</p>
+          )}
+
           <div className="mt-3">
             <Label className="text-xs uppercase tracking-wide text-muted-foreground">
               Gaya Caption
@@ -512,6 +682,24 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
               />
               Warna per pembicara
             </label>
+
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                Font Caption
+              </Label>
+              <select
+                value={selectedClip.fontFamily ?? ''}
+                onChange={(e) => setFontFamily(selectedClip.id, e.target.value || null)}
+                className="h-8 rounded-md border border-input bg-slate-panel px-2 font-mono text-xs text-foreground"
+              >
+                <option value="">Default (Brand Kit)</option>
+                {FONT_FAMILIES.map((font) => (
+                  <option key={font} value={font}>
+                    {font}
+                  </option>
+                ))}
+              </select>
+            </div>
 
             {availableCaptionLanguages.length > 0 && (
               <div className="flex flex-col gap-1">

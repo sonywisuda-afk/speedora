@@ -193,7 +193,15 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
                     captionStyle: clips[index].captionStyle,
                     speakerColorCaptions: clips[index].speakerColorCaptions,
                     captionLanguage: clips[index].captionLanguage,
-                    fontFamily: clips[index].applyBrandKit ? owner.brandFontFamily : null,
+                    // Subtitle Presets roadmap (P3b) - clips[index].fontFamily
+                    // is always null for a brand-new clip (schema default),
+                    // so this is Brand-Kit-driven in practice here - written
+                    // the same precedence-checking way as
+                    // ClipsService.resolveFontFamily/VideosService.retry for
+                    // consistency, not because it currently branches.
+                    fontFamily:
+                      clips[index].fontFamily ??
+                      (clips[index].applyBrandKit ? owner.brandFontFamily : null),
                     keywords: candidate.keywords,
                     scores: candidate.scores,
                   }),

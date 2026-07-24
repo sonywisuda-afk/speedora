@@ -1008,6 +1008,10 @@ export interface Clip {
   // Subtitle Studio roadmap (P2f) - which TranscriptSegment.translations key
   // to burn in; null means the original (untranslated) text.
   captionLanguage: string | null;
+  // Subtitle Presets roadmap (P3b) - per-clip override of the resolved
+  // caption font; null means "use Brand Kit resolution" (see
+  // ClipsService.resolveFontFamily's precedence).
+  fontFamily: string | null;
   hookText: string | null;
   hashtags: string[];
   // Fase 8 (Content Intelligence) - see ClipCandidate/ClipScores above.
@@ -1186,6 +1190,10 @@ export interface UpdateClipInput {
   // omitted (leave unchanged), same convention as MoveVideoDto's
   // projectId/folderId.
   captionLanguage?: string | null;
+  // Subtitle Presets roadmap (P3b) - per-clip override of the resolved
+  // caption font; null clears it back to Brand Kit resolution, same
+  // omitted-vs-null convention as captionLanguage above.
+  fontFamily?: string | null;
   hookText?: string;
   hashtags?: string[];
 }

@@ -61,6 +61,8 @@ import type {
   SharedVideoDto,
   SocialAccount,
   SocialPlatform,
+  SubtitlePresetDto,
+  SubtitlePresetListDto,
   TrackedLinkDto,
   TrackedLinkListDto,
   TranscriptionProvider,
@@ -1253,6 +1255,32 @@ export async function uploadBrandLogo(file: File): Promise<BrandKitDto> {
 
 export function brandKitLogoUrl(): string {
   return `${API_URL}/brand-kit/logo`;
+}
+
+// Subtitle Presets roadmap (P3b) - a named, user-saved bundle of
+// captionStyle/speakerColorCaptions/fontFamily, selectable per clip in the
+// Timeline Editor.
+export async function listSubtitlePresets(): Promise<SubtitlePresetListDto> {
+  const res = await apiFetch('/subtitle-presets');
+  return parseJsonOrThrow<SubtitlePresetListDto>(res);
+}
+
+export async function createSubtitlePreset(input: {
+  name: string;
+  captionStyle: string;
+  speakerColorCaptions: boolean;
+  fontFamily?: string;
+}): Promise<SubtitlePresetDto> {
+  const res = await apiFetch('/subtitle-presets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return parseJsonOrThrow<SubtitlePresetDto>(res);
+}
+
+export async function deleteSubtitlePreset(id: string): Promise<void> {
+  await apiFetch(`/subtitle-presets/${id}`, { method: 'DELETE' });
 }
 
 // Sprint 5B (Shared Clips) - a link holder needs no Speedora account, so

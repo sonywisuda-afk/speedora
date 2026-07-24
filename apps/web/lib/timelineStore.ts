@@ -1,4 +1,11 @@
-import type { CaptionStyle, Clip, ClipScores, TranscriptSegment } from '@speedora/shared';
+import type {
+  BuiltInSubtitlePreset,
+  CaptionStyle,
+  Clip,
+  ClipScores,
+  SubtitlePresetDto,
+  TranscriptSegment,
+} from '@speedora/shared';
 import { create } from 'zustand';
 import {
   getVideo,
@@ -13,6 +20,14 @@ import {
 const RENDER_POLL_INTERVAL_MS = 2000;
 const RENDER_POLL_TIMEOUT_MS = 120000;
 
+// Subtitle Presets roadmap (P3b) - the 3 fields a custom SubtitlePreset
+// actually applies; a plain Pick rather than the full SubtitlePresetDto so
+// applyPreset() doesn't need an id/name/timestamps just to bulk-set a clip.
+type SubtitlePresetFields = Pick<
+  SubtitlePresetDto,
+  'captionStyle' | 'speakerColorCaptions' | 'fontFamily'
+>;
+
 export interface TimelineClip {
   id: string;
   videoId: string;
@@ -25,6 +40,10 @@ export interface TimelineClip {
   // dirty/save flow as every other field on this row.
   speakerColorCaptions: boolean;
   captionLanguage: string | null;
+  // Subtitle Presets roadmap (P3b) - per-clip override of the resolved
+  // caption font; null means "use Brand Kit resolution", same shape as
+  // captionLanguage above.
+  fontFamily: string | null;
   // Suggested opener line/hashtags from the detect-clips LLM call - purely
   // metadata (not baked into the rendered video), editable same as
   // captionStyle below.
@@ -70,6 +89,13 @@ interface TimelineState {
   setCaptionStyle(id: string, captionStyle: CaptionStyle): void;
   setSpeakerColorCaptions(id: string, speakerColorCaptions: boolean): void;
   setCaptionLanguage(id: string, captionLanguage: string | null): void;
+  setFontFamily(id: string, fontFamily: string | null): void;
+  // Subtitle Presets roadmap (P3b) - bulk-sets captionStyle/
+  // speakerColorCaptions/fontFamily in one state update (avoids 3 separate
+  // re-renders from calling each individual setter) - a convenience layer
+  // on top of the granular setters above, not a replacement for them (the
+  // user can still fine-tune any single field after applying a preset).
+  applyPreset(id: string, preset: BuiltInSubtitlePreset | SubtitlePresetFields): void;
   setHookText(id: string, hookText: string): void;
   setHashtags(id: string, hashtags: string[]): void;
   saveClip(id: string): Promise<void>;
@@ -96,6 +122,7 @@ function toTimelineClip(clip: Clip): TimelineClip {
     captionStyle: clip.captionStyle,
     speakerColorCaptions: clip.speakerColorCaptions,
     captionLanguage: clip.captionLanguage,
+    fontFamily: clip.fontFamily,
     hookText: clip.hookText,
     hashtags: clip.hashtags,
     scores: clip.scores,
@@ -177,6 +204,31 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     }));
   },
 
+  setFontFamily(id, fontFamily) {
+    set((state) => ({
+      clips: state.clips.map((clip) =>
+        clip.id === id ? { ...clip, fontFamily, dirty: true, saveError: null } : clip,
+      ),
+    }));
+  },
+
+  applyPreset(id, preset) {
+    set((state) => ({
+      clips: state.clips.map((clip) =>
+        clip.id === id
+          ? {
+              ...clip,
+              captionStyle: preset.captionStyle,
+              speakerColorCaptions: preset.speakerColorCaptions,
+              fontFamily: preset.fontFamily,
+              dirty: true,
+              saveError: null,
+            }
+          : clip,
+      ),
+    }));
+  },
+
   setHookText(id, hookText) {
     set((state) => ({
       clips: state.clips.map((clip) =>
@@ -208,6 +260,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         captionStyle: clip.captionStyle,
         speakerColorCaptions: clip.speakerColorCaptions,
         captionLanguage: clip.captionLanguage,
+        fontFamily: clip.fontFamily,
         hookText: clip.hookText ?? undefined,
         hashtags: clip.hashtags,
       });
@@ -221,6 +274,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
                 captionStyle: updated.captionStyle,
                 speakerColorCaptions: updated.speakerColorCaptions,
                 captionLanguage: updated.captionLanguage,
+                fontFamily: updated.fontFamily,
                 hookText: updated.hookText,
                 hashtags: updated.hashtags,
                 updatedAt: updated.updatedAt,

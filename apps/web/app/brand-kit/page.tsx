@@ -1,6 +1,6 @@
 'use client';
 
-import { FONT_FAMILIES } from '@speedora/shared';
+import { CaptionStyle, FONT_FAMILIES } from '@speedora/shared';
 import Link from 'next/link';
 import { useState } from 'react';
 import useSWR from 'swr';
@@ -8,8 +8,22 @@ import { Nav } from '@/components/Nav';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { brandKitLogoUrl, getBrandKit, updateBrandKit, uploadBrandLogo } from '@/lib/api';
+import {
+  brandKitLogoUrl,
+  deleteSubtitlePreset,
+  getBrandKit,
+  listSubtitlePresets,
+  updateBrandKit,
+  uploadBrandLogo,
+} from '@/lib/api';
 import { useAuth } from '@/lib/useAuth';
+
+// Same short labels TimelineEditor.tsx uses for the CaptionStyle toggle.
+const CAPTION_STYLE_LABELS: Record<CaptionStyle, string> = {
+  DEFAULT: 'Default',
+  KARAOKE: 'Karaoke',
+  BOLD_HIGHLIGHT: 'Bold Highlight',
+};
 
 const HEX_COLOR_PATTERN = /^#[0-9a-fA-F]{6}$/;
 
@@ -28,6 +42,15 @@ export default function BrandKitPage() {
     user ? 'brand-kit' : null,
     getBrandKit,
   );
+  // Subtitle Presets roadmap (P3b) - saved from the Timeline Editor ("Simpan
+  // sebagai preset"); this page is the manage/delete view, no duplicated
+  // create form here.
+  const {
+    data: presetsData,
+    error: presetsError,
+    mutate: mutatePresets,
+  } = useSWR(user ? 'subtitle-presets' : null, listSubtitlePresets);
+  const [deletingPresetId, setDeletingPresetId] = useState<string | null>(null);
 
   const [primaryColor, setPrimaryColor] = useState('');
   const [secondaryColor, setSecondaryColor] = useState('');
@@ -81,6 +104,16 @@ export default function BrandKitPage() {
       setSaveError(err instanceof Error ? err.message : 'Gagal menyimpan Brand Kit');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDeletePreset(id: string) {
+    setDeletingPresetId(id);
+    try {
+      await deleteSubtitlePreset(id);
+      await mutatePresets();
+    } finally {
+      setDeletingPresetId(null);
     }
   }
 
@@ -214,6 +247,53 @@ export default function BrandKitPage() {
                       </option>
                     ))}
                   </select>
+                </section>
+
+                <section className="space-y-3">
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Preset Subtitle
+                  </Label>
+                  <p className="font-body text-xs text-muted-foreground">
+                    Preset yang sudah Anda simpan dari Timeline Editor (&quot;Simpan sebagai preset&quot;).
+                  </p>
+                  {presetsError && (
+                    <p className="font-body text-xs text-destructive">Gagal memuat preset</p>
+                  )}
+                  {presetsData && presetsData.presets.length === 0 && (
+                    <p className="font-body text-xs text-muted-foreground">
+                      Belum ada preset tersimpan.
+                    </p>
+                  )}
+                  {presetsData && presetsData.presets.length > 0 && (
+                    <ul className="space-y-2">
+                      {presetsData.presets.map((preset) => (
+                        <li
+                          key={preset.id}
+                          className="flex items-center justify-between gap-3 rounded-md border border-border bg-slate-panel px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate font-body text-sm text-foreground">
+                              {preset.name}
+                            </p>
+                            <p className="font-mono text-[10px] text-muted-foreground">
+                              {CAPTION_STYLE_LABELS[preset.captionStyle]} ·{' '}
+                              {preset.fontFamily ?? 'Default (Inter)'} · Warna speaker:{' '}
+                              {preset.speakerColorCaptions ? 'Ya' : 'Tidak'}
+                            </p>
+                          </div>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={deletingPresetId === preset.id}
+                            onClick={() => handleDeletePreset(preset.id)}
+                            className="shrink-0 text-destructive hover:text-destructive"
+                          >
+                            {deletingPresetId === preset.id ? 'Menghapus...' : 'Hapus'}
+                          </Button>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
                 </section>
 
                 <div className="flex items-center gap-3">

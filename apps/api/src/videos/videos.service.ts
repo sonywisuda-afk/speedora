@@ -481,8 +481,13 @@ export class VideosService {
       // Brand Kit roadmap (P3a) - one owner lookup shared by every clip in
       // this video (all belong to the same owner), same "resolve once at
       // enqueue time" shape as ClipsService.render()'s own
-      // resolveFontFamily. Skipped entirely when every clip has opted out.
-      const ownerBrandFontFamily = unrendered.some((clip) => clip.applyBrandKit)
+      // resolveFontFamily. Subtitle Presets roadmap (P3b) - a clip with its
+      // own explicit fontFamily override never needs this owner fallback at
+      // all, so the fetch is skipped when every clip either opted out of the
+      // Brand Kit or already has its own override.
+      const ownerBrandFontFamily = unrendered.some(
+        (clip) => !clip.fontFamily && clip.applyBrandKit,
+      )
         ? (
             await this.prisma.user.findUniqueOrThrow({
               where: { id: video.ownerId },
@@ -506,7 +511,7 @@ export class VideosService {
             captionStyle: toSharedCaptionStyle(clip.captionStyle),
             speakerColorCaptions: clip.speakerColorCaptions,
             captionLanguage: clip.captionLanguage,
-            fontFamily: clip.applyBrandKit ? ownerBrandFontFamily : null,
+            fontFamily: clip.fontFamily ?? (clip.applyBrandKit ? ownerBrandFontFamily : null),
             keywords: clip.keywords,
             scores: toSharedClipScores(clip.scores),
           }),

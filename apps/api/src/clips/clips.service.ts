@@ -630,6 +630,10 @@ export class ClipsService {
         // "omitted vs. explicitly null" distinction MoveVideoDto's own
         // comment documents for projectId/folderId.
         ...(input.captionLanguage !== undefined ? { captionLanguage: input.captionLanguage } : {}),
+        // Subtitle Presets roadmap (P3b) - same explicit-undefined-check
+        // reasoning as captionLanguage above - null clears the per-clip
+        // override back to Brand Kit resolution.
+        ...(input.fontFamily !== undefined ? { fontFamily: input.fontFamily } : {}),
         hookText,
         hashtags,
       },
@@ -651,7 +655,11 @@ export class ClipsService {
       where: { videoId: clip.videoId },
     });
 
-    const fontFamily = await this.resolveFontFamily(clip.video.ownerId, clip.applyBrandKit);
+    const fontFamily = await this.resolveFontFamily(
+      clip.video.ownerId,
+      clip.applyBrandKit,
+      clip.fontFamily,
+    );
 
     // Sprint 5E (Version Compare & History) + cleared-before-enqueueing, in
     // one transaction: the pre-render state is snapshotted into ClipVersion
@@ -718,10 +726,18 @@ export class ClipsService {
   // is false and when the owner has never set a font) means "use
   // build-ass.ts's own default" - not fetched at all when applyBrandKit is
   // false, since a disabled Brand Kit shouldn't need a User row read.
+  //
+  // Subtitle Presets roadmap (P3b) - clipFontFamily (the per-clip override,
+  // e.g. from picking a preset) is checked FIRST and short-circuits the
+  // Brand Kit lookup entirely when set - a deliberate per-clip choice always
+  // wins regardless of applyBrandKit, same reasoning as this method's own
+  // pre-P3b comment about not needing a User row read when disabled.
   private async resolveFontFamily(
     ownerId: string,
     applyBrandKit: boolean,
+    clipFontFamily: string | null,
   ): Promise<string | null> {
+    if (clipFontFamily) return clipFontFamily;
     if (!applyBrandKit) return null;
     const owner = await this.prisma.user.findUniqueOrThrow({
       where: { id: ownerId },
@@ -927,6 +943,7 @@ export class ClipsService {
     speakerColorCaptions: boolean;
     captionLanguage: string | null;
     applyBrandKit: boolean;
+    fontFamily: string | null;
     hookText: string | null;
     hashtags: string[];
     scores: unknown;
@@ -1004,6 +1021,7 @@ export class ClipsService {
       speakerColorCaptions: clip.speakerColorCaptions,
       captionLanguage: clip.captionLanguage,
       applyBrandKit: clip.applyBrandKit,
+      fontFamily: clip.fontFamily,
       hookText: clip.hookText,
       hashtags: clip.hashtags,
       scores: toSharedClipScores(clip.scores),
