@@ -289,7 +289,16 @@ High-level state of each major initiative (see the linked docs for what's actual
   COUNT (bounded, same as `totalClips`/`publishedClips`), not sync-history length. Deliberately *not*
   a `capturedAt`-window bound like `getFollowers`/`getHeatmap` — `averageEngagementScore` is documented
   as an all-time figure, so windowing it would silently change its meaning, not just its performance.
-  Only `redis.ts`'s dotenv/module-load ordering risk remains open.
+  **Update (2026-07-24, same day)**: the third and last item is fixed too — `apps/worker/src/redis.ts`'s
+  `REDIS_URL` is now read lazily inside `createRedisConnection()` instead of at module scope, so it's
+  no longer sensitive to import order (any dotenv-based tsx/esbuild script gets the right value
+  regardless of when this module is transitively imported relative to `config()`). Locked in by a new
+  `redis.spec.ts` (previously untested) — verified to actually catch the old bug by reverting to the
+  module-scope version and confirming 2 of 3 new tests fail against it. `cross-feature-e2e/index.ts`/
+  `run.ts`'s dynamic-import-after-`config()` split stays regardless, as defense-in-depth for other
+  transitively-imported modules with the same eager-module-scope-env-read shape (e.g.
+  `apps/worker/src/prisma.ts`'s `createPrismaClient()` call) — their comments were updated to say so.
+  All 3 Stabilization Pass Area 3/5 tech debts are now resolved.
 
 For new feature work: check whether it's an extension of an existing signal/module first (extend,
 don't rebuild — this has been an explicit recurring instruction across the AI Fusion roadmap), and

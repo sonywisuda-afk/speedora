@@ -1,10 +1,12 @@
 // Only ever imported dynamically, after index.ts's dotenv config() call has
 // already run - see index.ts's own comment for why this split exists
-// (esbuild/tsx hoists these ES `import`s ahead of a same-file config() call,
-// which broke apps/worker/src/redis.ts's module-load-time `process.env.REDIS_URL`
-// read, found the hard way: it silently connected to an unrelated
-// `umroh-redis` container on the default port 6379 instead of this repo's
-// own dev redis on 6380).
+// (esbuild/tsx hoists these ES `import`s ahead of a same-file config() call -
+// this is what originally broke apps/worker/src/redis.ts's
+// `process.env.REDIS_URL` read, found the hard way: it silently connected to
+// an unrelated `umroh-redis` container on the default port 6379 instead of
+// this repo's own dev redis on 6380. redis.ts itself is fixed now - reads
+// REDIS_URL lazily - but the split still protects other transitively-
+// imported modules with the same eager-module-scope-env-read shape).
 import { PublishStatus, SocialPlatform } from '@speedora/database';
 import { prisma } from '../../prisma';
 import { ApiClient } from './api-client';
