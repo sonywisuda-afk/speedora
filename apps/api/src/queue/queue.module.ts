@@ -53,6 +53,13 @@ const notificationDeliveryQueue = BullModule.registerQueue({
 const generatePlatformCopyQueue = BullModule.registerQueue({
   name: QueueName.GENERATE_PLATFORM_COPY,
 });
+// Subtitle Studio roadmap (P2f) - apps/api is sole producer (POST
+// /videos/:id/transcript-segments/translate), apps/worker's
+// translate-transcript.worker.ts the sole consumer - same shape as
+// exportGenerateQueue above.
+const translateTranscriptQueue = BullModule.registerQueue({
+  name: QueueName.TRANSLATE_TRANSCRIPT,
+});
 
 @Module({
   imports: [
@@ -73,6 +80,7 @@ const generatePlatformCopyQueue = BullModule.registerQueue({
     exportGenerateQueue,
     notificationDeliveryQueue,
     generatePlatformCopyQueue,
+    translateTranscriptQueue,
   ],
   providers: [NotificationDeliveryProducer],
   exports: [
@@ -86,6 +94,7 @@ const generatePlatformCopyQueue = BullModule.registerQueue({
     exportGenerateQueue,
     notificationDeliveryQueue,
     generatePlatformCopyQueue,
+    translateTranscriptQueue,
     NotificationDeliveryProducer,
   ],
 })

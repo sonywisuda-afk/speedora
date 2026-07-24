@@ -17,6 +17,12 @@ export const subtitleSegmentSchema = z.object({
   end: z.number(),
   text: z.string(),
   words: z.array(transcriptWordSchema).optional(),
+  // Subtitle Studio roadmap (P2c) - only read when BuildAssInput.
+  // speakerColorCaptions is true; otherwise ignored. "Speaker A"/"Speaker
+  // B"/... labels (see @speedora/diarization's assignSpeakerLabels) - the
+  // same friendly, order-of-first-appearance format the DB row itself
+  // stores, not the raw pyannote "SPEAKER_00" label.
+  speaker: z.string().optional(),
 });
 
 export const buildAssInputSchema = z.object({
@@ -26,6 +32,9 @@ export const buildAssInputSchema = z.object({
   style: captionStyleSchema,
   videoWidth: z.number(),
   videoHeight: z.number(),
+  // Subtitle Studio roadmap (P2c) - orthogonal to `style` (composes with
+  // any of the 3 presets rather than a combinatorial enum), defaults false.
+  speakerColorCaptions: z.boolean().default(false),
 });
 
 export type CaptionStyleValue = z.infer<typeof captionStyleSchema>;

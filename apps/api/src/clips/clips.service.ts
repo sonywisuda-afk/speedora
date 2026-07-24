@@ -607,6 +607,7 @@ export class ClipsService {
     const startTime = input.startTime ?? clip.startTime;
     const endTime = input.endTime ?? clip.endTime;
     const captionStyle = input.captionStyle ?? clip.captionStyle;
+    const speakerColorCaptions = input.speakerColorCaptions ?? clip.speakerColorCaptions;
     const hookText = input.hookText ?? clip.hookText;
     const hashtags = input.hashtags ? sanitizeHashtags(input.hashtags) : clip.hashtags;
 
@@ -621,6 +622,12 @@ export class ClipsService {
         endTime,
         durationSeconds: endTime - startTime,
         captionStyle,
+        speakerColorCaptions,
+        // Explicit undefined check (not ??) - null is a real, distinct
+        // value here (clears back to the original/untranslated text), same
+        // "omitted vs. explicitly null" distinction MoveVideoDto's own
+        // comment documents for projectId/folderId.
+        ...(input.captionLanguage !== undefined ? { captionLanguage: input.captionLanguage } : {}),
         hookText,
         hashtags,
       },
@@ -691,6 +698,8 @@ export class ClipsService {
         clip.endTime,
       ),
       captionStyle: toSharedCaptionStyle(clip.captionStyle),
+      speakerColorCaptions: clip.speakerColorCaptions,
+      captionLanguage: clip.captionLanguage,
       keywords: clip.keywords,
       scores: toSharedClipScores(clip.scores),
     });
@@ -892,6 +901,8 @@ export class ClipsService {
     hoverPreviewUrl: string | null;
     storyboardFrameUrls: unknown;
     captionStyle: CaptionStyle;
+    speakerColorCaptions: boolean;
+    captionLanguage: string | null;
     hookText: string | null;
     hashtags: string[];
     scores: unknown;
@@ -966,6 +977,8 @@ export class ClipsService {
         (_, i) => `/clips/${clip.id}/storyboard/${i}`,
       ),
       captionStyle: clip.captionStyle,
+      speakerColorCaptions: clip.speakerColorCaptions,
+      captionLanguage: clip.captionLanguage,
       hookText: clip.hookText,
       hashtags: clip.hashtags,
       scores: toSharedClipScores(clip.scores),

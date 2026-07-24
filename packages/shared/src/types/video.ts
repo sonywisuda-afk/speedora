@@ -20,6 +20,12 @@ export interface TranscriptWord {
 }
 
 export interface TranscriptSegment {
+  // Subtitle Studio roadmap (P2) - the DB row's own stable cuid, needed to
+  // address a specific segment for edit/merge/split. Optional (not every
+  // TranscriptSegment-shaped object in this codebase is a real DB row - job
+  // payloads/pre-insert Whisper output construct this shape too) - always
+  // populated by toSharedTranscriptSegment for a real row.
+  id?: string;
   start: number;
   end: number;
   text: string;
@@ -47,6 +53,11 @@ export interface TranscriptSegment {
   // count, always present once a segment has word-level data (undefined
   // only alongside a missing `words`).
   speakingRateWordsPerSecond?: number;
+  // Subtitle Studio roadmap (P2f) - sparse languageCode -> translated text
+  // map, populated one language at a time via the new translate endpoint.
+  // Undefined until at least one language has been requested for this
+  // segment.
+  translations?: Record<string, string>;
 }
 
 // Mirrors CaptionStyle in packages/database's Prisma schema.
@@ -990,6 +1001,13 @@ export interface Clip {
   // above, extracted from the RENDERED output by render-clip.worker.ts.
   storyboardFrameUrls: string[];
   captionStyle: CaptionStyle;
+  // Subtitle Studio roadmap (P2c) - orthogonal to captionStyle, composes
+  // with any preset. False by default (unchanged rendering) for every
+  // existing clip.
+  speakerColorCaptions: boolean;
+  // Subtitle Studio roadmap (P2f) - which TranscriptSegment.translations key
+  // to burn in; null means the original (untranslated) text.
+  captionLanguage: string | null;
   hookText: string | null;
   hashtags: string[];
   // Fase 8 (Content Intelligence) - see ClipCandidate/ClipScores above.
@@ -1163,6 +1181,11 @@ export interface UpdateClipInput {
   startTime?: number;
   endTime?: number;
   captionStyle?: CaptionStyle;
+  speakerColorCaptions?: boolean;
+  // null clears back to the original (untranslated) text - distinct from
+  // omitted (leave unchanged), same convention as MoveVideoDto's
+  // projectId/folderId.
+  captionLanguage?: string | null;
   hookText?: string;
   hashtags?: string[];
 }

@@ -1,6 +1,14 @@
 import type { CaptionStyle, Clip, ClipScores, TranscriptSegment } from '@speedora/shared';
 import { create } from 'zustand';
-import { getVideo, renderClip as renderClipApi, updateClip as updateClipApi } from './api';
+import {
+  getVideo,
+  mergeTranscriptSegments as mergeTranscriptSegmentsApi,
+  renderClip as renderClipApi,
+  splitTranscriptSegment as splitTranscriptSegmentApi,
+  translateTranscript as translateTranscriptApi,
+  updateClip as updateClipApi,
+  updateTranscriptSegment as updateTranscriptSegmentApi,
+} from './api';
 
 const RENDER_POLL_INTERVAL_MS = 2000;
 const RENDER_POLL_TIMEOUT_MS = 120000;
@@ -13,6 +21,10 @@ export interface TimelineClip {
   viralityScore: number;
   downloadUrl: string | null;
   captionStyle: CaptionStyle;
+  // Subtitle Studio roadmap (P2c/P2f) - orthogonal to captionStyle, same
+  // dirty/save flow as every other field on this row.
+  speakerColorCaptions: boolean;
+  captionLanguage: string | null;
   // Suggested opener line/hashtags from the detect-clips LLM call - purely
   // metadata (not baked into the rendered video), editable same as
   // captionStyle below.
@@ -41,6 +53,11 @@ interface TimelineState {
   videoId: string | null;
   duration: number;
   transcript: TranscriptSegment[];
+  // Subtitle Studio roadmap (P2) - shared across edit/merge/split/translate
+  // (one panel, one error slot at a time) rather than a per-action flag -
+  // simpler than threading per-segment saving/error state through every
+  // row for what's a single-user, one-edit-at-a-time editing surface.
+  transcriptError: string | null;
   clips: TimelineClip[];
   selectedClipId: string | null;
   playhead: number;
@@ -51,10 +68,21 @@ interface TimelineState {
   selectClip(id: string): void;
   setClipRange(id: string, startTime: number, endTime: number): void;
   setCaptionStyle(id: string, captionStyle: CaptionStyle): void;
+  setSpeakerColorCaptions(id: string, speakerColorCaptions: boolean): void;
+  setCaptionLanguage(id: string, captionLanguage: string | null): void;
   setHookText(id: string, hookText: string): void;
   setHashtags(id: string, hashtags: string[]): void;
   saveClip(id: string): Promise<void>;
   renderClip(id: string): Promise<void>;
+
+  // Subtitle Studio roadmap (P2a/P2b/P2f) - unlike setCaptionStyle/
+  // setHookText above (local-only until saveClip), these hit the API
+  // immediately (there's no separate "save transcript" step - each edit is
+  // its own persisted action) and patch `transcript` in place on success.
+  updateSegmentText(videoId: string, segmentId: string, text: string): Promise<void>;
+  mergeSegments(videoId: string, firstSegmentId: string, secondSegmentId: string): Promise<void>;
+  splitSegment(videoId: string, segmentId: string, atWordIndex: number): Promise<void>;
+  requestTranslation(videoId: string, languageCode: string): Promise<void>;
 }
 
 function toTimelineClip(clip: Clip): TimelineClip {
@@ -66,6 +94,8 @@ function toTimelineClip(clip: Clip): TimelineClip {
     viralityScore: clip.viralityScore,
     downloadUrl: clip.downloadUrl,
     captionStyle: clip.captionStyle,
+    speakerColorCaptions: clip.speakerColorCaptions,
+    captionLanguage: clip.captionLanguage,
     hookText: clip.hookText,
     hashtags: clip.hashtags,
     scores: clip.scores,
@@ -87,6 +117,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
   videoId: null,
   duration: 0,
   transcript: [],
+  transcriptError: null,
   clips: [],
   selectedClipId: null,
   playhead: 0,
@@ -130,6 +161,22 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     }));
   },
 
+  setSpeakerColorCaptions(id, speakerColorCaptions) {
+    set((state) => ({
+      clips: state.clips.map((clip) =>
+        clip.id === id ? { ...clip, speakerColorCaptions, dirty: true, saveError: null } : clip,
+      ),
+    }));
+  },
+
+  setCaptionLanguage(id, captionLanguage) {
+    set((state) => ({
+      clips: state.clips.map((clip) =>
+        clip.id === id ? { ...clip, captionLanguage, dirty: true, saveError: null } : clip,
+      ),
+    }));
+  },
+
   setHookText(id, hookText) {
     set((state) => ({
       clips: state.clips.map((clip) =>
@@ -159,6 +206,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         startTime: clip.startTime,
         endTime: clip.endTime,
         captionStyle: clip.captionStyle,
+        speakerColorCaptions: clip.speakerColorCaptions,
+        captionLanguage: clip.captionLanguage,
         hookText: clip.hookText ?? undefined,
         hashtags: clip.hashtags,
       });
@@ -170,6 +219,8 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
                 startTime: updated.startTime,
                 endTime: updated.endTime,
                 captionStyle: updated.captionStyle,
+                speakerColorCaptions: updated.speakerColorCaptions,
+                captionLanguage: updated.captionLanguage,
                 hookText: updated.hookText,
                 hashtags: updated.hashtags,
                 updatedAt: updated.updatedAt,
@@ -247,6 +298,63 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
             : c,
         ),
       }));
+    }
+  },
+
+  async updateSegmentText(videoId, segmentId, text) {
+    try {
+      const updated = await updateTranscriptSegmentApi(videoId, segmentId, text);
+      set((state) => ({
+        transcript: state.transcript.map((s) => (s.id === segmentId ? updated : s)),
+        transcriptError: null,
+      }));
+    } catch (err) {
+      set({ transcriptError: err instanceof Error ? err.message : 'Gagal menyimpan teks' });
+    }
+  },
+
+  async mergeSegments(videoId, firstSegmentId, secondSegmentId) {
+    try {
+      const merged = await mergeTranscriptSegmentsApi(videoId, firstSegmentId, secondSegmentId);
+      set((state) => ({
+        // The merged row keeps firstSegmentId's id and absorbs
+        // secondSegmentId's - drop the second row, replace the first.
+        transcript: state.transcript
+          .filter((s) => s.id !== secondSegmentId)
+          .map((s) => (s.id === firstSegmentId ? merged : s)),
+        transcriptError: null,
+      }));
+    } catch (err) {
+      set({ transcriptError: err instanceof Error ? err.message : 'Gagal menggabungkan segmen' });
+    }
+  },
+
+  async splitSegment(videoId, segmentId, atWordIndex) {
+    try {
+      const { segments } = await splitTranscriptSegmentApi(videoId, segmentId, atWordIndex);
+      const [first, second] = segments;
+      set((state) => {
+        const index = state.transcript.findIndex((s) => s.id === segmentId);
+        if (index === -1) return { transcript: state.transcript, transcriptError: null };
+        const next = [...state.transcript];
+        next.splice(index, 1, first, second);
+        return { transcript: next, transcriptError: null };
+      });
+    } catch (err) {
+      set({ transcriptError: err instanceof Error ? err.message : 'Gagal membagi segmen' });
+    }
+  },
+
+  async requestTranslation(videoId, languageCode) {
+    try {
+      await translateTranscriptApi(videoId, languageCode);
+      // Fire-and-forget on the server side (see translateTranscript's own
+      // comment) - the caller is responsible for re-fetching the
+      // transcript later to pick up the finished translations; this store
+      // action only surfaces whether the REQUEST itself succeeded.
+      set({ transcriptError: null });
+    } catch (err) {
+      set({ transcriptError: err instanceof Error ? err.message : 'Gagal meminta terjemahan' });
     }
   },
 }));

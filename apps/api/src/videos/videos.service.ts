@@ -1,6 +1,7 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
+  Prisma,
   recordActivityEvent,
   recordAuditLog,
   recordNotification,
@@ -8,7 +9,6 @@ import {
   updateVideoStatus,
   VideoStatus,
   WorkspaceRole,
-  type Prisma,
   type Video,
 } from '@speedora/database';
 import { buildClipMetadataReport, buildVideoReportData } from '@speedora/report-builder';
@@ -22,6 +22,7 @@ import {
   type RenderClipJobData,
   type ThumbnailFallbackLevel,
   type TranscribeJobData,
+  type TranslateTranscriptJobData,
 } from '@speedora/shared';
 import { Queue } from 'bullmq';
 import { PaymentsService } from '../payments/payments.service';
@@ -85,6 +86,14 @@ import {
 const NO_PREMIUM_CREDIT_MESSAGE =
   'No premium (OpenAI Whisper) credit available - complete payment before uploading with this provider';
 
+// Subtitle Studio roadmap (P2f) - same per-day-cap guardrail as Publishing
+// Expansion Phase 7B's MAX_PLATFORM_COPY_GENERATIONS_PER_DAY (ClipsService),
+// bounding this new open LLM-cost surface (one call per video per language,
+// but a video's whole transcript in one prompt - larger than platform
+// copy's single-clip prompt).
+const MAX_TRANSLATE_REQUESTS_PER_DAY = 5;
+const TRANSLATE_RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 const CLIPS_WITH_PUBLISH_RECORDS = {
   orderBy: { viralityScore: 'desc' },
   include: { publishRecords: { include: { socialAccount: true } } },
@@ -111,6 +120,8 @@ export class VideosService {
     @InjectQueue(QueueName.DETECT_CLIPS)
     private readonly detectClipsQueue: Queue<DetectClipsJobData>,
     @InjectQueue(QueueName.RENDER_CLIP) private readonly renderClipQueue: Queue<RenderClipJobData>,
+    @InjectQueue(QueueName.TRANSLATE_TRANSCRIPT)
+    private readonly translateTranscriptQueue: Queue<TranslateTranscriptJobData>,
   ) {}
 
   // Explicit Promise<Video> return type (rather than inferred) - Video now
@@ -481,6 +492,8 @@ export class VideosService {
               clip.endTime,
             ),
             captionStyle: toSharedCaptionStyle(clip.captionStyle),
+            speakerColorCaptions: clip.speakerColorCaptions,
+            captionLanguage: clip.captionLanguage,
             keywords: clip.keywords,
             scores: toSharedClipScores(clip.scores),
           }),
@@ -725,13 +738,236 @@ export class VideosService {
     }
     await this.workspaceAccess.assertMinRole(requesterId, video.workspaceId, WorkspaceRole.VIEWER);
 
-    return video.transcriptSegments.map((segment) => ({
-      start: segment.start,
-      end: segment.end,
-      text: segment.text,
-      speaker: segment.speaker ?? undefined,
-      emotion: segment.emotion ?? undefined,
-    }));
+    // Subtitle Studio roadmap (P2) - was a hand-duplicated inline mapping
+    // missing id/words/translations (this endpoint used to only need
+    // caption text/speaker/emotion); switched to the same toShared*
+    // narrowing this file already uses elsewhere (findOne/findAll above) so
+    // this doesn't drift from it again, and the editor gets id (needed to
+    // address a segment for edit/merge/split) and words (needed for a real
+    // karaoke live-preview) for free.
+    return video.transcriptSegments.map(toSharedTranscriptSegment);
+  }
+
+  // Subtitle Studio roadmap (P2a) - manual caption text edit. If the new
+  // text's word count no longer matches the stored word-level timestamps,
+  // drop `words` (Prisma.JsonNull, not a bare null - see docs/prisma.md)
+  // rather than fabricate fake timings: build-ass.ts already falls back to
+  // plain (non-karaoke) rendering when `words` is absent, same graceful
+  // degradation a segment with no word-level data at all already gets.
+  async updateTranscriptSegment(
+    videoId: string,
+    segmentId: string,
+    requesterId: string,
+    text: string,
+  ) {
+    await this.workspaceAccess.assertVideoAccess(requesterId, videoId, WorkspaceRole.EDITOR);
+
+    const existing = await this.prisma.transcriptSegment.findUnique({
+      where: { id: segmentId },
+    });
+    if (!existing || existing.videoId !== videoId) {
+      throw new NotFoundException(`Transcript segment ${segmentId} not found`);
+    }
+
+    const existingWordCount = Array.isArray(existing.words) ? existing.words.length : 0;
+    const newWordCount = text.trim().split(/\s+/).filter(Boolean).length;
+    const wordsStillMatch = existingWordCount > 0 && existingWordCount === newWordCount;
+
+    const updated = await this.prisma.transcriptSegment.update({
+      where: { id: segmentId },
+      data: {
+        text,
+        ...(wordsStillMatch
+          ? {}
+          : { words: Prisma.JsonNull, speakingRateWordsPerSecond: null }),
+      },
+    });
+
+    return toSharedTranscriptSegment(updated);
+  }
+
+  // Subtitle Studio roadmap (P2b) - combine two chronologically adjacent
+  // segments into one, keeping firstSegmentId's row (secondSegmentId's row
+  // is deleted). Adjacency is checked against the video's real segment
+  // order, not just the two ids' own start/end - this also doubles as the
+  // ownership check for both ids at once. `words` is only kept when BOTH
+  // segments have it (a partial concatenation would silently break karaoke
+  // sync); `translations`/`rmsDb`/`peakDb` are cleared rather than
+  // averaged/concatenated into something misleading - merging changes this
+  // row's boundaries, so any signal derived from the old boundaries goes
+  // stale rather than approximately-right.
+  async mergeTranscriptSegments(
+    videoId: string,
+    requesterId: string,
+    firstSegmentId: string,
+    secondSegmentId: string,
+  ) {
+    await this.workspaceAccess.assertVideoAccess(requesterId, videoId, WorkspaceRole.EDITOR);
+
+    const ordered = await this.prisma.transcriptSegment.findMany({
+      where: { videoId },
+      orderBy: { start: 'asc' },
+    });
+    const firstIndex = ordered.findIndex((s) => s.id === firstSegmentId);
+    if (firstIndex === -1 || ordered[firstIndex + 1]?.id !== secondSegmentId) {
+      throw new BadRequestException(
+        'firstSegmentId and secondSegmentId must be chronologically adjacent segments of this video',
+      );
+    }
+    const first = ordered[firstIndex];
+    const second = ordered[firstIndex + 1];
+
+    const firstWords = Array.isArray(first.words) ? first.words : null;
+    const secondWords = Array.isArray(second.words) ? second.words : null;
+    const mergedWords = firstWords && secondWords ? [...firstWords, ...secondWords] : null;
+    const mergedText = `${first.text} ${second.text}`.replace(/\s+/g, ' ').trim();
+    const duration = second.end - first.start;
+
+    const [merged] = await this.prisma.$transaction([
+      this.prisma.transcriptSegment.update({
+        where: { id: first.id },
+        data: {
+          text: mergedText,
+          end: second.end,
+          words: mergedWords ?? Prisma.JsonNull,
+          speakingRateWordsPerSecond:
+            mergedWords && duration > 0 ? mergedWords.length / duration : null,
+          rmsDb: null,
+          peakDb: null,
+          translations: Prisma.JsonNull,
+        },
+      }),
+      this.prisma.transcriptSegment.delete({ where: { id: second.id } }),
+    ]);
+
+    return toSharedTranscriptSegment(merged);
+  }
+
+  // Subtitle Studio roadmap (P2b) - split one segment into two at a word
+  // boundary. Reuses the original row's id for the first half (so any
+  // external reference to it stays valid) and creates one new row for the
+  // second half. When the segment has real word-level timestamps, the split
+  // point and each half's start/end come directly from Whisper's own word
+  // boundaries (exact). When it doesn't (pre-Fase-3 rows), atWordIndex is
+  // reinterpreted against a plain whitespace split of `text`, and start/end
+  // are derived by character-length ratio - approximate, flagged as such in
+  // the response rather than presented as exact.
+  async splitTranscriptSegment(
+    videoId: string,
+    segmentId: string,
+    requesterId: string,
+    atWordIndex: number,
+  ) {
+    await this.workspaceAccess.assertVideoAccess(requesterId, videoId, WorkspaceRole.EDITOR);
+
+    const segment = await this.prisma.transcriptSegment.findUnique({ where: { id: segmentId } });
+    if (!segment || segment.videoId !== videoId) {
+      throw new NotFoundException(`Transcript segment ${segmentId} not found`);
+    }
+
+    const hasWords = Array.isArray(segment.words) && segment.words.length > 1;
+    let firstData: Prisma.TranscriptSegmentUpdateInput;
+    let secondData: Prisma.TranscriptSegmentUncheckedCreateInput;
+    let approximate: boolean;
+
+    if (hasWords) {
+      const words = segment.words as unknown as { word: string; start: number; end: number }[];
+      if (atWordIndex < 1 || atWordIndex >= words.length) {
+        throw new BadRequestException(`atWordIndex must be between 1 and ${words.length - 1}`);
+      }
+      const firstWords = words.slice(0, atWordIndex);
+      const secondWords = words.slice(atWordIndex);
+      const firstEnd = firstWords[firstWords.length - 1].end;
+      const secondStart = secondWords[0].start;
+      firstData = {
+        text: firstWords.map((w) => w.word).join(' '),
+        end: firstEnd,
+        words: firstWords,
+        speakingRateWordsPerSecond: firstWords.length / (firstEnd - segment.start),
+        rmsDb: null,
+        peakDb: null,
+        translations: Prisma.JsonNull,
+      };
+      secondData = {
+        videoId,
+        start: secondStart,
+        end: segment.end,
+        text: secondWords.map((w) => w.word).join(' '),
+        speaker: segment.speaker,
+        emotion: segment.emotion,
+        words: secondWords,
+        speakingRateWordsPerSecond: secondWords.length / (segment.end - secondStart),
+      };
+      approximate = false;
+    } else {
+      const tokens = segment.text.trim().split(/\s+/).filter(Boolean);
+      if (atWordIndex < 1 || atWordIndex >= tokens.length) {
+        throw new BadRequestException(`atWordIndex must be between 1 and ${tokens.length - 1}`);
+      }
+      const firstText = tokens.slice(0, atWordIndex).join(' ');
+      const secondText = tokens.slice(atWordIndex).join(' ');
+      const ratio = firstText.length / (firstText.length + secondText.length);
+      const splitAt = segment.start + (segment.end - segment.start) * ratio;
+      firstData = {
+        text: firstText,
+        end: splitAt,
+        words: Prisma.JsonNull,
+        speakingRateWordsPerSecond: null,
+        rmsDb: null,
+        peakDb: null,
+        translations: Prisma.JsonNull,
+      };
+      secondData = {
+        videoId,
+        start: splitAt,
+        end: segment.end,
+        text: secondText,
+        speaker: segment.speaker,
+        emotion: segment.emotion,
+      };
+      approximate = true;
+    }
+
+    const [first, second] = await this.prisma.$transaction([
+      this.prisma.transcriptSegment.update({ where: { id: segment.id }, data: firstData }),
+      this.prisma.transcriptSegment.create({ data: secondData }),
+    ]);
+
+    return {
+      segments: [toSharedTranscriptSegment(first), toSharedTranscriptSegment(second)],
+      approximate,
+    };
+  }
+
+  // Subtitle Studio roadmap (P2f) - enqueues the actual LLM translation
+  // (apps/worker's translate-transcript.worker.ts), same "create/log
+  // synchronously so the client has something to poll immediately, then
+  // enqueue" shape as ClipsService.generatePlatformCopy. No dedicated
+  // status row for this job itself (see TranslateTranscriptJobData's own
+  // comment) - the TranscriptTranslationRequest row exists purely as the
+  // rate-limit counter/history, not a job-status row to poll.
+  async translateTranscript(videoId: string, requesterId: string, languageCode: string) {
+    await this.workspaceAccess.assertVideoAccess(requesterId, videoId, WorkspaceRole.EDITOR);
+
+    const since = new Date(Date.now() - TRANSLATE_RATE_LIMIT_WINDOW_MS);
+    const recentCount = await this.prisma.transcriptTranslationRequest.count({
+      where: { requestedBy: requesterId, createdAt: { gte: since } },
+    });
+    if (recentCount >= MAX_TRANSLATE_REQUESTS_PER_DAY) {
+      throw new BadRequestException(
+        `Translate limit reached (${MAX_TRANSLATE_REQUESTS_PER_DAY}/24h) - try again later.`,
+      );
+    }
+
+    await this.prisma.transcriptTranslationRequest.create({
+      data: { videoId, requestedBy: requesterId, languageCode },
+    });
+    await this.translateTranscriptQueue.add(QueueName.TRANSLATE_TRANSCRIPT, {
+      videoId,
+      languageCode,
+    });
+
+    return { status: 'queued' as const, languageCode };
   }
 
   // Sprint 03b (Export Center) - the video report's JSON format. Reuses

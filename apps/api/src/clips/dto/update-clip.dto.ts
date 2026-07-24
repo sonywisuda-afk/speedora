@@ -1,5 +1,5 @@
 import { CaptionStyle } from '@speedora/database';
-import { IsArray, IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import { IsArray, IsBoolean, IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class UpdateClipDto {
   @IsOptional()
@@ -15,6 +15,18 @@ export class UpdateClipDto {
   @IsOptional()
   @IsEnum(CaptionStyle)
   captionStyle?: CaptionStyle;
+
+  // Subtitle Studio roadmap (P2c) - orthogonal to captionStyle, composes
+  // with any preset.
+  @IsOptional()
+  @IsBoolean()
+  speakerColorCaptions?: boolean;
+
+  // Subtitle Studio roadmap (P2f) - which TranscriptSegment.translations key
+  // to burn in; null clears it back to the original (untranslated) text.
+  @IsOptional()
+  @IsString()
+  captionLanguage?: string | null;
 
   // Suggested opener line/hashtags from the detect-clips LLM call - purely
   // metadata (not baked into the rendered video), user-editable same as

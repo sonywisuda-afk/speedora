@@ -135,16 +135,27 @@ function toSpeakerTurns(
     }));
 }
 
-// Narrows a DB-shaped TranscriptSegment (which also carries speaker/emotion
-// labels @speedora/subtitles never reads) down to that module's own,
+// Narrows a DB-shaped TranscriptSegment down to @speedora/subtitles' own,
 // smaller input contract - same pattern as detect-clips.worker.ts's
-// toScoringInput() for @speedora/clip-scoring.
-function toSubtitleSegments(transcript: RenderClipJobData['transcript']): SubtitleSegment[] {
+// toScoringInput() for @speedora/clip-scoring. `speaker` is passed through
+// (Subtitle Studio roadmap, P2c - only read when speakerColorCaptions is
+// true). `text` prefers the requested language's translation when one
+// exists (P2f) - a segment with no translation for that language still
+// falls back to its original text, never dropped/blanked. `words` is
+// deliberately still the ORIGINAL-language word timings even when
+// translated (a translated caption can't reuse the original's per-word
+// timestamps - karaoke-style word-by-word highlighting for a translated
+// segment is a known, accepted gap, not attempted here).
+function toSubtitleSegments(
+  transcript: RenderClipJobData['transcript'],
+  captionLanguage: string | null,
+): SubtitleSegment[] {
   return transcript.map((segment) => ({
     start: segment.start,
     end: segment.end,
-    text: segment.text,
+    text: (captionLanguage && segment.translations?.[captionLanguage]) || segment.text,
     words: segment.words,
+    speaker: segment.speaker,
   }));
 }
 
@@ -376,6 +387,8 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             endTime,
             transcript,
             captionStyle,
+            speakerColorCaptions,
+            captionLanguage,
             keywords,
             scores,
           } = job.data;
@@ -483,7 +496,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             brollPaths = finalPaths;
 
             const assContent = buildAss({
-              segments: toSubtitleSegments(transcript),
+              segments: toSubtitleSegments(transcript, captionLanguage),
               clipStart: startTime,
               clipEnd: endTime,
               // CaptionStyle (packages/database's Prisma enum, re-exported by
@@ -498,6 +511,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               // (smaller) window if an emphasis word happens to start at t=0.
               videoWidth: reframe.outputWidth,
               videoHeight: reframe.outputHeight,
+              speakerColorCaptions,
             });
             if (assContent.length > 0) {
               subtitlesPath = await reserveScratchPath('captions', '.ass');

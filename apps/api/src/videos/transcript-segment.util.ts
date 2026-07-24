@@ -57,6 +57,7 @@ import type {
 // ClipsService.render).
 export function toSharedTranscriptSegment(segment: TranscriptSegmentRow): TranscriptSegment {
   return {
+    id: segment.id,
     start: segment.start,
     end: segment.end,
     text: segment.text,
@@ -68,6 +69,7 @@ export function toSharedTranscriptSegment(segment: TranscriptSegmentRow): Transc
     rmsDb: segment.rmsDb ?? undefined,
     peakDb: segment.peakDb ?? undefined,
     speakingRateWordsPerSecond: segment.speakingRateWordsPerSecond ?? undefined,
+    translations: (segment.translations as Record<string, string> | null) ?? undefined,
   };
 }
 

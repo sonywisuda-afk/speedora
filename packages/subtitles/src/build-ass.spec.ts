@@ -7,6 +7,7 @@ const baseOptions = {
   style: 'DEFAULT' as const,
   videoWidth: 136,
   videoHeight: 240,
+  speakerColorCaptions: false,
 };
 
 describe('buildAss', () => {
@@ -104,14 +105,14 @@ describe('buildAss', () => {
       const segments: SubtitleSegment[] = [{ start: 10, end: 12, text: 'save 50 percent' }];
       const ass = buildAss({ ...baseOptions, segments, style: 'BOLD_HIGHLIGHT' });
 
-      expect(ass).toContain('save {\\b1\\c&H0000FFFF}50{\\r} percent');
+      expect(ass).toContain('save {\\b1\\c&H0000FFFF}50{\\b0\\c&H00FFFFFF} percent');
     });
 
     it('bolds an ALL-CAPS word', () => {
       const segments: SubtitleSegment[] = [{ start: 10, end: 12, text: 'this is HUGE news' }];
       const ass = buildAss({ ...baseOptions, segments, style: 'BOLD_HIGHLIGHT' });
 
-      expect(ass).toContain('this is {\\b1\\c&H0000FFFF}HUGE{\\r} news');
+      expect(ass).toContain('this is {\\b1\\c&H0000FFFF}HUGE{\\b0\\c&H00FFFFFF} news');
     });
 
     it('leaves an ordinary word unstyled', () => {
@@ -123,8 +124,57 @@ describe('buildAss', () => {
     });
   });
 
+  // Subtitle Studio roadmap (P2c).
+  describe('speakerColorCaptions', () => {
+    it('does nothing when false, even with a speaker on the segment', () => {
+      const segments: SubtitleSegment[] = [{ start: 10, end: 12, text: 'hi', speaker: 'Speaker A' }];
+      const ass = buildAss({ ...baseOptions, segments, speakerColorCaptions: false });
+
+      expect(ass).not.toContain('\\3c');
+    });
+
+    it('wraps the text in an outline-colour override when true and a speaker is present', () => {
+      const segments: SubtitleSegment[] = [{ start: 10, end: 12, text: 'hi', speaker: 'Speaker A' }];
+      const ass = buildAss({ ...baseOptions, segments, speakerColorCaptions: true });
+
+      expect(ass).toContain(',,{\\3c&HD6E622&}hi');
+    });
+
+    it('does nothing for a segment with no speaker, even when the flag is true', () => {
+      const segments: SubtitleSegment[] = [{ start: 10, end: 12, text: 'hi' }];
+      const ass = buildAss({ ...baseOptions, segments, speakerColorCaptions: true });
+
+      expect(ass).not.toContain('\\3c');
+    });
+
+    it('picks a different colour for Speaker B, deterministically by letter', () => {
+      const segments: SubtitleSegment[] = [{ start: 10, end: 12, text: 'hi', speaker: 'Speaker B' }];
+      const ass = buildAss({ ...baseOptions, segments, speakerColorCaptions: true });
+
+      expect(ass).toContain('{\\3c&H7F3BFF&}hi');
+    });
+
+    it('composes with BOLD_HIGHLIGHT without the keyword reset wiping the outline colour', () => {
+      const segments: SubtitleSegment[] = [
+        { start: 10, end: 12, text: 'save 50 percent', speaker: 'Speaker A' },
+      ];
+      const ass = buildAss({
+        ...baseOptions,
+        segments,
+        style: 'BOLD_HIGHLIGHT',
+        speakerColorCaptions: true,
+      });
+
+      expect(ass).toContain(
+        ',,{\\3c&HD6E622&}save {\\b1\\c&H0000FFFF}50{\\b0\\c&H00FFFFFF} percent',
+      );
+    });
+  });
+
   it('rejects an input that fails the buildAssInputSchema contract', () => {
     const segments: SubtitleSegment[] = [{ start: 10, end: 12, text: 'hi' }];
-    expect(() => buildAss({ ...baseOptions, segments, style: 'COMIC_SANS' as never })).toThrow();
+    expect(() =>
+      buildAss({ ...baseOptions, segments, style: 'COMIC_SANS' as never }),
+    ).toThrow();
   });
 });

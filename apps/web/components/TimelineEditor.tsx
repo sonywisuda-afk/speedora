@@ -1,6 +1,7 @@
 'use client';
 
-import { CAPTION_STYLES, type CaptionStyle, type ClipScores } from '@speedora/shared';
+import { CAPTION_STYLES, CaptionStyle, type ClipScores } from '@speedora/shared';
+import { KEYWORD_PATTERN } from '@speedora/subtitles';
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 
 import { LetterboxBand } from '@/components/signature/LetterboxBand';
@@ -116,6 +117,8 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
   const selectClip = useTimelineStore((s) => s.selectClip);
   const setClipRange = useTimelineStore((s) => s.setClipRange);
   const setCaptionStyle = useTimelineStore((s) => s.setCaptionStyle);
+  const setSpeakerColorCaptions = useTimelineStore((s) => s.setSpeakerColorCaptions);
+  const setCaptionLanguage = useTimelineStore((s) => s.setCaptionLanguage);
   const setHookText = useTimelineStore((s) => s.setHookText);
   const setHashtags = useTimelineStore((s) => s.setHashtags);
   const saveClip = useTimelineStore((s) => s.saveClip);
@@ -130,34 +133,92 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
   const [previewUnsupported, setPreviewUnsupported] = useState(false);
 
   const selectedClip = clips.find((c) => c.id === selectedClipId) ?? null;
+  // Subtitle Studio roadmap (P2f) - which languages actually have at least
+  // one translated segment (translation itself is requested from the
+  // Subtitle Studio panel, not here) - this picker only chooses among
+  // languages that already exist.
+  const availableCaptionLanguages = Array.from(
+    new Set(transcript.flatMap((segment) => Object.keys(segment.translations ?? {}))),
+  );
 
   // Caption overlay is a best-effort approximation of the FFmpeg libass
-  // burn-in (bold white text, black outline) - not a pixel match, and
-  // doesn't attempt to preview the KARAOKE/BOLD_HIGHLIGHT presets' per-word
-  // styling (same "approximate is fine" call as Fase 1's plain preview).
-  // Crucially it's drawn INSIDE the centered 9:16 crop band (matching the
-  // pink crop indicator), sized to and word-wrapped within that width - so it
-  // reflects where/how the caption lands on the rendered vertical clip,
-  // instead of spanning the full 16:9 frame and appearing to spill outside
-  // the 9:16 output. Redrawn every frame so it tracks currentTime smoothly
-  // while scrubbing, not just on the ~4/sec `timeupdate` event.
+  // burn-in (bold white text, black outline), NOT a pixel match - but
+  // Subtitle Studio roadmap (P2e) closes the gap that used to make all 3
+  // CaptionStyle presets look identical here: KARAOKE now progressively
+  // highlights already-spoken words (mirroring build-ass.ts's \k fill), and
+  // BOLD_HIGHLIGHT now bolds/colours the same KEYWORD_PATTERN tokens
+  // build-ass.ts itself matches (imported from @speedora/subtitles so the
+  // two never drift). Crucially it's drawn INSIDE the centered 9:16 crop
+  // band (matching the pink crop indicator), sized to and word-wrapped
+  // within that width - so it reflects where/how the caption lands on the
+  // rendered vertical clip, instead of spanning the full 16:9 frame and
+  // appearing to spill outside the 9:16 output. Redrawn every frame so it
+  // tracks currentTime smoothly while scrubbing, not just on the ~4/sec
+  // `timeupdate` event.
   useEffect(() => {
     let raf: number;
+    const HIGHLIGHT_COLOR = '#FFFF00'; // matches build-ass.ts's ASS HIGHLIGHT_COLOR
 
-    function wrapLines(ctx: CanvasRenderingContext2D, text: string, maxWidth: number): string[] {
-      const words = text.split(/\s+/).filter(Boolean);
-      const lines: string[] = [];
-      let current = '';
+    interface StyledWord {
+      text: string;
+      bold: boolean;
+      color: string;
+    }
+
+    function toStyledWords(
+      active: (typeof transcript)[number],
+      style: CaptionStyle,
+      currentTime: number,
+    ): StyledWord[] {
+      if (style === 'KARAOKE' && active.words && active.words.length > 0) {
+        return active.words.map((word) => ({
+          text: word.word,
+          bold: false,
+          color: currentTime >= word.start ? HIGHLIGHT_COLOR : 'white',
+        }));
+      }
+      const tokens = active.text.split(/\s+/).filter(Boolean);
+      if (style === 'BOLD_HIGHLIGHT') {
+        return tokens.map((token) => {
+          const stripped = token.replace(/^[.,!?;:"'“”]+|[.,!?;:"'“”]+$/g, '');
+          const isKeyword = KEYWORD_PATTERN.test(stripped);
+          return { text: token, bold: isKeyword, color: isKeyword ? HIGHLIGHT_COLOR : 'white' };
+        });
+      }
+      return tokens.map((token) => ({ text: token, bold: false, color: 'white' }));
+    }
+
+    // Wraps styled words into lines by measuring each word with ITS OWN
+    // bold/plain font (a KARAOKE/BOLD_HIGHLIGHT word can be wider bold than
+    // plain) - unlike the old single-string wrapLines, this can't just
+    // measure a joined string since font weight varies word-to-word.
+    function wrapStyledWords(
+      ctx: CanvasRenderingContext2D,
+      words: StyledWord[],
+      maxWidth: number,
+      fontSize: number,
+    ): StyledWord[][] {
+      const spaceWidth = (() => {
+        ctx.font = `${fontSize}px sans-serif`;
+        return ctx.measureText(' ').width;
+      })();
+      const lines: StyledWord[][] = [];
+      let current: StyledWord[] = [];
+      let currentWidth = 0;
       for (const word of words) {
-        const candidate = current ? `${current} ${word}` : word;
-        if (ctx.measureText(candidate).width > maxWidth && current) {
+        ctx.font = `${word.bold ? 'bold ' : ''}${fontSize}px sans-serif`;
+        const wordWidth = ctx.measureText(word.text).width;
+        const addedWidth = currentWidth === 0 ? wordWidth : currentWidth + spaceWidth + wordWidth;
+        if (addedWidth > maxWidth && current.length > 0) {
           lines.push(current);
-          current = word;
+          current = [word];
+          currentWidth = wordWidth;
         } else {
-          current = candidate;
+          current.push(word);
+          currentWidth = addedWidth;
         }
       }
-      if (current) lines.push(current);
+      if (current.length > 0) lines.push(current);
       return lines;
     }
 
@@ -184,21 +245,35 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
             // Font sized to the narrow 9:16 width (not the full frame) so it
             // matches the burned-in caption's relative size on the output.
             const fontSize = Math.max(13, Math.round(regionWidth * 0.09));
-            ctx.font = `bold ${fontSize}px sans-serif`;
-            ctx.textAlign = 'center';
+            ctx.textAlign = 'left';
             ctx.textBaseline = 'bottom';
             ctx.lineWidth = Math.max(2, fontSize * 0.16);
             ctx.strokeStyle = 'black';
-            ctx.fillStyle = 'white';
 
-            const lines = wrapLines(ctx, active.text, regionWidth * 0.92);
+            const style = selectedClip?.captionStyle ?? CaptionStyle.DEFAULT;
+            const styledWords = toStyledWords(active, style, video.currentTime);
+            const lines = wrapStyledWords(ctx, styledWords, regionWidth * 0.92, fontSize);
+            const spaceWidth = (() => {
+              ctx.font = `${fontSize}px sans-serif`;
+              return ctx.measureText(' ').width;
+            })();
             const lineHeight = fontSize * 1.2;
-            // Stack lines up from a bottom margin within the region.
             const bottom = canvas.height - fontSize * 0.9;
+
             lines.forEach((line, i) => {
               const y = bottom - (lines.length - 1 - i) * lineHeight;
-              ctx.strokeText(line, centerX, y);
-              ctx.fillText(line, centerX, y);
+              const lineWidth = line.reduce((sum, word, wi) => {
+                ctx.font = `${word.bold ? 'bold ' : ''}${fontSize}px sans-serif`;
+                return sum + ctx.measureText(word.text).width + (wi > 0 ? spaceWidth : 0);
+              }, 0);
+              let x = centerX - lineWidth / 2;
+              for (const word of line) {
+                ctx.font = `${word.bold ? 'bold ' : ''}${fontSize}px sans-serif`;
+                ctx.fillStyle = word.color;
+                ctx.strokeText(word.text, x, y);
+                ctx.fillText(word.text, x, y);
+                x += ctx.measureText(word.text).width + spaceWidth;
+              }
             });
           }
         }
@@ -208,7 +283,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
 
     raf = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(raf);
-  }, [transcript]);
+  }, [transcript, selectedClip?.captionStyle]);
 
   function handleLoadedMetadata() {
     if (videoRef.current) setDuration(videoRef.current.duration);
@@ -423,6 +498,42 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
                 </button>
               ))}
             </div>
+          </div>
+
+          {/* Subtitle Studio roadmap (P2c/P2f) - orthogonal to the preset
+              above, both flow through the same dirty/saveClip batch. */}
+          <div className="mt-3 flex flex-wrap items-end gap-4">
+            <label className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={selectedClip.speakerColorCaptions}
+                onChange={(e) => setSpeakerColorCaptions(selectedClip.id, e.target.checked)}
+                className="h-3.5 w-3.5"
+              />
+              Warna per pembicara
+            </label>
+
+            {availableCaptionLanguages.length > 0 && (
+              <div className="flex flex-col gap-1">
+                <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                  Bahasa Caption
+                </Label>
+                <select
+                  value={selectedClip.captionLanguage ?? ''}
+                  onChange={(e) =>
+                    setCaptionLanguage(selectedClip.id, e.target.value || null)
+                  }
+                  className="h-8 rounded-md border border-input bg-slate-panel px-2 font-mono text-xs text-foreground"
+                >
+                  <option value="">Asli (tidak diterjemahkan)</option>
+                  {availableCaptionLanguages.map((lang) => (
+                    <option key={lang} value={lang}>
+                      {lang}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           <div className="mt-3 space-y-1.5">

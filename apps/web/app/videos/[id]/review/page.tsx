@@ -8,6 +8,7 @@ import { FaceReviewPanel } from '@/components/review/FaceReviewPanel';
 import { FrameByFrameViewer } from '@/components/review/FrameByFrameViewer';
 import { HighlightReviewPanel } from '@/components/review/HighlightReviewPanel';
 import { TranscriptReviewPanel } from '@/components/review/TranscriptReviewPanel';
+import { SubtitleStudioPanel } from '@/components/subtitle-studio/SubtitleStudioPanel';
 import { Nav } from '@/components/Nav';
 import { getVideo, getVideoTranscript, type VideoWithClipsDto } from '@/lib/api';
 import { useTimelineStore } from '@/lib/timelineStore';
@@ -18,6 +19,9 @@ const MODES = [
   { id: 'transcript', label: 'Transcript' },
   { id: 'face', label: 'Face' },
   { id: 'highlight', label: 'Highlight' },
+  // Subtitle Studio roadmap (P2) - edit/merge/split/emoji/translate, a real
+  // editing surface unlike Transcript's explicitly read-only walkthrough.
+  { id: 'subtitle-studio', label: 'Subtitle Studio' },
 ] as const;
 
 type Mode = (typeof MODES)[number]['id'];
@@ -123,6 +127,7 @@ export default function ReviewModePage({ params }: { params: { id: string } }) {
                     {mode === 'highlight' && (
                       <HighlightReviewPanel videoId={params.id} clips={video.clips} />
                     )}
+                    {mode === 'subtitle-studio' && <SubtitleStudioPanel videoId={params.id} />}
                   </div>
                 </div>
 

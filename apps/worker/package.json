@@ -50,6 +50,7 @@
     "@speedora/speaker-diarization": "workspace:*",
     "@speedora/speaker-scoring": "workspace:*",
     "@speedora/storage": "workspace:^",
+    "@speedora/subtitle-translate": "workspace:*",
     "@speedora/subtitles": "workspace:*",
     "@speedora/thumbnail-selection": "workspace:*",
     "bullmq": "^5.7.8",

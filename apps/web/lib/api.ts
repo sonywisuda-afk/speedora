@@ -271,6 +271,78 @@ export async function getVideoTranscript(id: string): Promise<TranscriptSegment[
   return parseJsonOrThrow<TranscriptSegment[]>(res);
 }
 
+// Subtitle Studio roadmap (P2a) - manual caption text edit.
+export async function updateTranscriptSegment(
+  videoId: string,
+  segmentId: string,
+  text: string,
+): Promise<TranscriptSegment> {
+  const res = await apiFetch(`/videos/${videoId}/transcript-segments/${segmentId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  return parseJsonOrThrow<TranscriptSegment>(res);
+}
+
+// Subtitle Studio roadmap (P2b) - combine two chronologically adjacent
+// segments; returns the merged row.
+export async function mergeTranscriptSegments(
+  videoId: string,
+  firstSegmentId: string,
+  secondSegmentId: string,
+): Promise<TranscriptSegment> {
+  const res = await apiFetch(`/videos/${videoId}/transcript-segments/merge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ firstSegmentId, secondSegmentId }),
+  });
+  return parseJsonOrThrow<TranscriptSegment>(res);
+}
+
+export interface SplitTranscriptSegmentResult {
+  segments: [TranscriptSegment, TranscriptSegment];
+  // true when the split point was estimated by character-length ratio
+  // rather than a real Whisper word boundary (pre-Fase-3 segments with no
+  // word-level timestamps) - the UI should flag this as approximate.
+  approximate: boolean;
+}
+
+// Subtitle Studio roadmap (P2b) - split one segment into two at a word
+// boundary (or, for a segment with no word-level data, an approximate
+// character-ratio split).
+export async function splitTranscriptSegment(
+  videoId: string,
+  segmentId: string,
+  atWordIndex: number,
+): Promise<SplitTranscriptSegmentResult> {
+  const res = await apiFetch(`/videos/${videoId}/transcript-segments/${segmentId}/split`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ atWordIndex }),
+  });
+  return parseJsonOrThrow<SplitTranscriptSegmentResult>(res);
+}
+
+// Subtitle Studio roadmap (P2f) - enqueues one LLM call translating this
+// video's whole transcript into languageCode. Fire-and-forget from the
+// client's perspective - it returns immediately ({status: 'queued'}); the
+// caller polls getVideoTranscript() again and checks whether every segment
+// has translations[languageCode] populated, same "poll the resource
+// itself, no dedicated job-status row" contract TranslateTranscriptJobData
+// documents on the backend.
+export async function translateTranscript(
+  videoId: string,
+  languageCode: string,
+): Promise<{ status: 'queued'; languageCode: string }> {
+  const res = await apiFetch(`/videos/${videoId}/transcript-segments/translate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ languageCode }),
+  });
+  return parseJsonOrThrow<{ status: 'queued'; languageCode: string }>(res);
+}
+
 // Product Experience performance pass - GET /videos is now cursor-paginated
 // (see PaginatedVideos in packages/shared) rather than returning every video
 // a user has ever created on every 2s poll.

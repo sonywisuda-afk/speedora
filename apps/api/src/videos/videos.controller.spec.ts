@@ -27,6 +27,10 @@ describe('VideosController', () => {
     exportTranscriptTxt: jest.Mock;
     exportCaptionsSrt: jest.Mock;
     exportCaptionsVtt: jest.Mock;
+    updateTranscriptSegment: jest.Mock;
+    mergeTranscriptSegments: jest.Mock;
+    splitTranscriptSegment: jest.Mock;
+    translateTranscript: jest.Mock;
   };
   const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
 
@@ -47,6 +51,10 @@ describe('VideosController', () => {
       exportTranscriptTxt: jest.fn(),
       exportCaptionsSrt: jest.fn(),
       exportCaptionsVtt: jest.fn(),
+      updateTranscriptSegment: jest.fn(),
+      mergeTranscriptSegments: jest.fn(),
+      splitTranscriptSegment: jest.fn(),
+      translateTranscript: jest.fn(),
     };
     controller = new VideosController(videosService as unknown as VideosService);
     jest.clearAllMocks();
@@ -478,6 +486,79 @@ describe('VideosController', () => {
 
       await expect(controller.exportReportJson(user, 'missing', res)).rejects.toThrow('not found');
       expect(res.send).not.toHaveBeenCalled();
+    });
+  });
+
+  // Subtitle Studio roadmap (P2).
+  describe('updateTranscriptSegment', () => {
+    it('delegates to VideosService.updateTranscriptSegment', async () => {
+      const updated = { id: 'seg-1', text: 'new text' };
+      videosService.updateTranscriptSegment.mockResolvedValue(updated);
+
+      const result = await controller.updateTranscriptSegment(user, 'video-1', 'seg-1', {
+        text: 'new text',
+      });
+
+      expect(videosService.updateTranscriptSegment).toHaveBeenCalledWith(
+        'video-1',
+        'seg-1',
+        'user-1',
+        'new text',
+      );
+      expect(result).toBe(updated);
+    });
+  });
+
+  describe('mergeTranscriptSegments', () => {
+    it('delegates to VideosService.mergeTranscriptSegments', async () => {
+      const merged = { id: 'seg-1', text: 'a b' };
+      videosService.mergeTranscriptSegments.mockResolvedValue(merged);
+
+      const result = await controller.mergeTranscriptSegments(user, 'video-1', {
+        firstSegmentId: 'seg-1',
+        secondSegmentId: 'seg-2',
+      });
+
+      expect(videosService.mergeTranscriptSegments).toHaveBeenCalledWith(
+        'video-1',
+        'user-1',
+        'seg-1',
+        'seg-2',
+      );
+      expect(result).toBe(merged);
+    });
+  });
+
+  describe('splitTranscriptSegment', () => {
+    it('delegates to VideosService.splitTranscriptSegment', async () => {
+      const split = { segments: [{ id: 'seg-1' }, { id: 'seg-new' }], approximate: false };
+      videosService.splitTranscriptSegment.mockResolvedValue(split);
+
+      const result = await controller.splitTranscriptSegment(user, 'video-1', 'seg-1', {
+        atWordIndex: 2,
+      });
+
+      expect(videosService.splitTranscriptSegment).toHaveBeenCalledWith(
+        'video-1',
+        'seg-1',
+        'user-1',
+        2,
+      );
+      expect(result).toBe(split);
+    });
+  });
+
+  describe('translateTranscript', () => {
+    it('delegates to VideosService.translateTranscript', async () => {
+      const queued = { status: 'queued', languageCode: 'en' };
+      videosService.translateTranscript.mockResolvedValue(queued);
+
+      const result = await controller.translateTranscript(user, 'video-1', {
+        languageCode: 'en',
+      });
+
+      expect(videosService.translateTranscript).toHaveBeenCalledWith('video-1', 'user-1', 'en');
+      expect(result).toBe(queued);
     });
   });
 });

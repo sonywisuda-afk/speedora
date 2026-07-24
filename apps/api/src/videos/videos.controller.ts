@@ -26,7 +26,11 @@ import type { SafeUser } from '../auth/auth.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { withUtf8Bom } from '../common/csv.util';
 import { ImportYoutubeDto } from './dto/import-youtube.dto';
+import { MergeTranscriptSegmentsDto } from './dto/merge-transcript-segments.dto';
 import { MoveVideoDto } from './dto/move-video.dto';
+import { SplitTranscriptSegmentDto } from './dto/split-transcript-segment.dto';
+import { TranslateTranscriptDto } from './dto/translate-transcript.dto';
+import { UpdateTranscriptSegmentDto } from './dto/update-transcript-segment.dto';
 import { UploadVideoDto } from './dto/upload-video.dto';
 import { VideosService } from './videos.service';
 
@@ -259,6 +263,58 @@ export class VideosController {
   @Get(':id/transcript')
   transcript(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.videosService.findTranscriptOrThrow(id, user.id);
+  }
+
+  // Subtitle Studio roadmap (P2a) - manual caption text edit. See
+  // VideosService.updateTranscriptSegment.
+  @Patch(':id/transcript-segments/:segmentId')
+  updateTranscriptSegment(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Param('segmentId') segmentId: string,
+    @Body() dto: UpdateTranscriptSegmentDto,
+  ) {
+    return this.videosService.updateTranscriptSegment(id, segmentId, user.id, dto.text);
+  }
+
+  // Subtitle Studio roadmap (P2b) - combine two time-adjacent segments into
+  // one. See VideosService.mergeTranscriptSegments.
+  @Post(':id/transcript-segments/merge')
+  mergeTranscriptSegments(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Body() dto: MergeTranscriptSegmentsDto,
+  ) {
+    return this.videosService.mergeTranscriptSegments(
+      id,
+      user.id,
+      dto.firstSegmentId,
+      dto.secondSegmentId,
+    );
+  }
+
+  // Subtitle Studio roadmap (P2b) - split one segment into two at a word
+  // boundary. See VideosService.splitTranscriptSegment.
+  @Post(':id/transcript-segments/:segmentId/split')
+  splitTranscriptSegment(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Param('segmentId') segmentId: string,
+    @Body() dto: SplitTranscriptSegmentDto,
+  ) {
+    return this.videosService.splitTranscriptSegment(id, segmentId, user.id, dto.atWordIndex);
+  }
+
+  // Subtitle Studio roadmap (P2f) - one LLM call translating every segment
+  // of this video's transcript into languageCode, batched per video not per
+  // segment. See VideosService.translateTranscript.
+  @Post(':id/transcript-segments/translate')
+  translateTranscript(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Body() dto: TranslateTranscriptDto,
+  ) {
+    return this.videosService.translateTranscript(id, user.id, dto.languageCode);
   }
 
   // Sprint 03b (Export Center) - sync download formats only (no queue, no

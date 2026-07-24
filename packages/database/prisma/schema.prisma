@@ -369,6 +369,7 @@ model Video {
   folder                Folder?               @relation(fields: [folderId], references: [id], onDelete: SetNull)
 
   transcriptSegments TranscriptSegment[]
+  translationRequests TranscriptTranslationRequest[]
   clips              Clip[]
   premiumCredit      PremiumCredit?
   statusEvents       VideoStatusEvent[]
@@ -451,8 +452,34 @@ model TranscriptSegment {
   // (see @speedora/audio-intelligence's computeSpeakingRate). Null only
   // when this segment has no word-level data (see `words` above).
   speakingRateWordsPerSecond Float?
+  // Subtitle Studio roadmap (P2f) - sparse map of languageCode -> translated
+  // text, populated one language at a time via POST /videos/:id/transcript-
+  // segments/translate (batched one LLM call per video per language, not
+  // per segment). Null/missing key means that language hasn't been
+  // requested yet for this segment - never backfilled proactively.
+  translations               Json?
   createdAt                  DateTime @default(now())
 
+  @@index([videoId])
+}
+
+// Subtitle Studio roadmap (P2f) - one row per translate request, append-
+// only (never updated/deleted) - same "row IS the rate-limit counter"
+// pattern as ClipPlatformCopy (Publishing Expansion Phase 7B), rather than
+// stretching AuditLogEntry's "selective, workspace-significant actions"
+// semantics to also serve as a quota tracker. No status column (unlike
+// ClipPlatformCopy) - the outcome lives on each TranscriptSegment's own
+// `translations` field, not here; this table exists purely to answer
+// "how many times has this user requested a translation in the last 24h."
+model TranscriptTranslationRequest {
+  id           String   @id @default(cuid())
+  videoId      String
+  video        Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  requestedBy  String
+  languageCode String
+  createdAt    DateTime @default(now())
+
+  @@index([requestedBy, createdAt])
   @@index([videoId])
 }
 
@@ -514,6 +541,15 @@ model Clip {
   thumbnailSelectionFallback  String?
   thumbnailSelectionReason    String?
   captionStyle            CaptionStyle @default(DEFAULT)
+  // Subtitle Studio roadmap (P2c) - orthogonal to captionStyle (composes
+  // with any preset) rather than new CaptionStyle enum values, to avoid a
+  // combinatorial DEFAULT/DEFAULT_SPEAKER_COLOR/KARAOKE_SPEAKER_COLOR/...
+  // explosion. False by default - existing clips render unchanged.
+  speakerColorCaptions    Boolean      @default(false)
+  // Subtitle Studio roadmap (P2f) - which key of each TranscriptSegment's
+  // `translations` map to burn in; null/absent means the original
+  // (untranslated) text, same as every existing clip today.
+  captionLanguage         String?
   // Suggested 3-second-opener hook line and social hashtags (without a
   // leading '#') from the same detect-clips LLM call that scores virality -
   // not baked into the rendered video, purely metadata for the

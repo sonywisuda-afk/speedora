@@ -182,6 +182,8 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
                     // manual PATCH /clips/:id + re-render, same flow as a manual
                     // trim (see ClipsService.update/.render).
                     captionStyle: clips[index].captionStyle,
+                    speakerColorCaptions: clips[index].speakerColorCaptions,
+                    captionLanguage: clips[index].captionLanguage,
                     keywords: candidate.keywords,
                     scores: candidate.scores,
                   }),

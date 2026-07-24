@@ -1,5 +1,5 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { VideoStatus } from '@speedora/database';
+import { Prisma, VideoStatus } from '@speedora/database';
 import { QueueName, TranscriptionProvider } from '@speedora/shared';
 import type { Queue } from 'bullmq';
 import type { PaymentsService } from '../payments/payments.service';
@@ -27,6 +27,14 @@ describe('VideosService', () => {
     project: { findUnique: jest.Mock };
     folder: { findUnique: jest.Mock };
     auditLogEntry: { create: jest.Mock };
+    transcriptSegment: {
+      findUnique: jest.Mock;
+      findMany: jest.Mock;
+      update: jest.Mock;
+      create: jest.Mock;
+      delete: jest.Mock;
+    };
+    transcriptTranslationRequest: { count: jest.Mock; create: jest.Mock };
     $transaction: jest.Mock;
   };
   let workspaceAccess: {
@@ -43,6 +51,7 @@ describe('VideosService', () => {
   let transcribeQueue: { add: jest.Mock };
   let detectClipsQueue: { add: jest.Mock };
   let renderClipQueue: { add: jest.Mock };
+  let translateTranscriptQueue: { add: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -63,6 +72,18 @@ describe('VideosService', () => {
       project: { findUnique: jest.fn() },
       folder: { findUnique: jest.fn() },
       auditLogEntry: { create: jest.fn().mockResolvedValue({}) },
+      // Subtitle Studio roadmap (P2).
+      transcriptSegment: {
+        findUnique: jest.fn(),
+        findMany: jest.fn(),
+        update: jest.fn(),
+        create: jest.fn(),
+        delete: jest.fn(),
+      },
+      transcriptTranslationRequest: {
+        count: jest.fn().mockResolvedValue(0),
+        create: jest.fn().mockResolvedValue({}),
+      },
       // Supports both call shapes used by VideosService: the interactive
       // form (upload/importFromYoutube, which need the just-created video's
       // id before writing its first VideoStatusEvent) and the array form
@@ -96,6 +117,7 @@ describe('VideosService', () => {
     transcribeQueue = { add: jest.fn() };
     detectClipsQueue = { add: jest.fn() };
     renderClipQueue = { add: jest.fn() };
+    translateTranscriptQueue = { add: jest.fn() };
     service = new VideosService(
       prisma as unknown as PrismaService,
       storage as unknown as StorageService,
@@ -107,6 +129,7 @@ describe('VideosService', () => {
       transcribeQueue as unknown as Queue,
       detectClipsQueue as unknown as Queue,
       renderClipQueue as unknown as Queue,
+      translateTranscriptQueue as unknown as Queue,
     );
   });
 
@@ -790,6 +813,275 @@ describe('VideosService', () => {
       await expect(service.findTranscriptOrThrow('video-1', 'user-1')).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  // Subtitle Studio roadmap (P2a).
+  describe('updateTranscriptSegment', () => {
+    it('updates the text and keeps words when the new word count still matches', async () => {
+      prisma.transcriptSegment.findUnique.mockResolvedValue({
+        id: 'seg-1',
+        videoId: 'video-1',
+        words: [
+          { word: 'hello', start: 0, end: 0.5 },
+          { word: 'world', start: 0.5, end: 1 },
+        ],
+      });
+      prisma.transcriptSegment.update.mockResolvedValue({ id: 'seg-1', text: 'hiya world' });
+
+      await service.updateTranscriptSegment('video-1', 'seg-1', 'user-1', 'hiya world');
+
+      expect(workspaceAccess.assertVideoAccess).toHaveBeenCalledWith(
+        'user-1',
+        'video-1',
+        'EDITOR',
+      );
+      expect(prisma.transcriptSegment.update).toHaveBeenCalledWith({
+        where: { id: 'seg-1' },
+        data: { text: 'hiya world' },
+      });
+    });
+
+    it('drops words when the new text has a different word count', async () => {
+      prisma.transcriptSegment.findUnique.mockResolvedValue({
+        id: 'seg-1',
+        videoId: 'video-1',
+        words: [{ word: 'hello', start: 0, end: 0.5 }],
+      });
+      prisma.transcriptSegment.update.mockResolvedValue({ id: 'seg-1', text: 'hello there now' });
+
+      await service.updateTranscriptSegment('video-1', 'seg-1', 'user-1', 'hello there now');
+
+      expect(prisma.transcriptSegment.update).toHaveBeenCalledWith({
+        where: { id: 'seg-1' },
+        data: {
+          text: 'hello there now',
+          words: Prisma.JsonNull,
+          speakingRateWordsPerSecond: null,
+        },
+      });
+    });
+
+    it('throws NotFoundException for a segment that does not belong to this video', async () => {
+      prisma.transcriptSegment.findUnique.mockResolvedValue({
+        id: 'seg-1',
+        videoId: 'other-video',
+      });
+
+      await expect(
+        service.updateTranscriptSegment('video-1', 'seg-1', 'user-1', 'x'),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.transcriptSegment.update).not.toHaveBeenCalled();
+    });
+  });
+
+  // Subtitle Studio roadmap (P2b).
+  describe('mergeTranscriptSegments', () => {
+    it('combines two adjacent segments, concatenating words and clearing derived audio/translation fields', async () => {
+      prisma.transcriptSegment.findMany.mockResolvedValue([
+        {
+          id: 'seg-1',
+          start: 0,
+          end: 2,
+          text: 'hello',
+          words: [{ word: 'hello', start: 0, end: 2 }],
+        },
+        {
+          id: 'seg-2',
+          start: 2,
+          end: 4,
+          text: 'world',
+          words: [{ word: 'world', start: 2, end: 4 }],
+        },
+      ]);
+      prisma.transcriptSegment.update.mockResolvedValue({ id: 'seg-1', text: 'hello world' });
+      prisma.transcriptSegment.delete.mockResolvedValue({ id: 'seg-2' });
+
+      await service.mergeTranscriptSegments('video-1', 'user-1', 'seg-1', 'seg-2');
+
+      expect(prisma.transcriptSegment.update).toHaveBeenCalledWith({
+        where: { id: 'seg-1' },
+        data: {
+          text: 'hello world',
+          end: 4,
+          words: [
+            { word: 'hello', start: 0, end: 2 },
+            { word: 'world', start: 2, end: 4 },
+          ],
+          speakingRateWordsPerSecond: 0.5,
+          rmsDb: null,
+          peakDb: null,
+          translations: Prisma.JsonNull,
+        },
+      });
+      expect(prisma.transcriptSegment.delete).toHaveBeenCalledWith({ where: { id: 'seg-2' } });
+    });
+
+    it('drops words entirely when only one side has word-level data', async () => {
+      prisma.transcriptSegment.findMany.mockResolvedValue([
+        { id: 'seg-1', start: 0, end: 2, text: 'hello', words: [{ word: 'hello', start: 0, end: 2 }] },
+        { id: 'seg-2', start: 2, end: 4, text: 'world', words: null },
+      ]);
+      prisma.transcriptSegment.update.mockResolvedValue({});
+      prisma.transcriptSegment.delete.mockResolvedValue({});
+
+      await service.mergeTranscriptSegments('video-1', 'user-1', 'seg-1', 'seg-2');
+
+      expect(prisma.transcriptSegment.update).toHaveBeenCalledWith({
+        where: { id: 'seg-1' },
+        data: expect.objectContaining({
+          words: Prisma.JsonNull,
+          speakingRateWordsPerSecond: null,
+        }),
+      });
+    });
+
+    it('rejects a merge when the two segments are not chronologically adjacent', async () => {
+      prisma.transcriptSegment.findMany.mockResolvedValue([
+        { id: 'seg-1', start: 0, end: 2, text: 'a', words: null },
+        { id: 'seg-2', start: 2, end: 4, text: 'b', words: null },
+        { id: 'seg-3', start: 4, end: 6, text: 'c', words: null },
+      ]);
+
+      await expect(
+        service.mergeTranscriptSegments('video-1', 'user-1', 'seg-1', 'seg-3'),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.transcriptSegment.update).not.toHaveBeenCalled();
+      expect(prisma.transcriptSegment.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  // Subtitle Studio roadmap (P2b).
+  describe('splitTranscriptSegment', () => {
+    it('splits at a word boundary using real word-level timestamps (not approximate)', async () => {
+      prisma.transcriptSegment.findUnique.mockResolvedValue({
+        id: 'seg-1',
+        videoId: 'video-1',
+        start: 0,
+        end: 4,
+        speaker: 'Speaker A',
+        emotion: 'hap',
+        words: [
+          { word: 'hello', start: 0, end: 2 },
+          { word: 'world', start: 2, end: 4 },
+        ],
+      });
+      prisma.transcriptSegment.update.mockResolvedValue({ id: 'seg-1', text: 'hello' });
+      prisma.transcriptSegment.create.mockResolvedValue({ id: 'seg-new', text: 'world' });
+
+      const result = await service.splitTranscriptSegment('video-1', 'seg-1', 'user-1', 1);
+
+      expect(prisma.transcriptSegment.update).toHaveBeenCalledWith({
+        where: { id: 'seg-1' },
+        data: {
+          text: 'hello',
+          end: 2,
+          words: [{ word: 'hello', start: 0, end: 2 }],
+          speakingRateWordsPerSecond: 0.5,
+          rmsDb: null,
+          peakDb: null,
+          translations: Prisma.JsonNull,
+        },
+      });
+      expect(prisma.transcriptSegment.create).toHaveBeenCalledWith({
+        data: {
+          videoId: 'video-1',
+          start: 2,
+          end: 4,
+          text: 'world',
+          speaker: 'Speaker A',
+          emotion: 'hap',
+          words: [{ word: 'world', start: 2, end: 4 }],
+          speakingRateWordsPerSecond: 0.5,
+        },
+      });
+      expect(result.approximate).toBe(false);
+    });
+
+    it('falls back to an approximate character-ratio split when the segment has no word-level data, flagging approximate: true', async () => {
+      prisma.transcriptSegment.findUnique.mockResolvedValue({
+        id: 'seg-1',
+        videoId: 'video-1',
+        start: 0,
+        end: 10,
+        text: 'hello world',
+        speaker: null,
+        emotion: null,
+        words: null,
+      });
+      prisma.transcriptSegment.update.mockResolvedValue({ id: 'seg-1', text: 'hello' });
+      prisma.transcriptSegment.create.mockResolvedValue({ id: 'seg-new', text: 'world' });
+
+      const result = await service.splitTranscriptSegment('video-1', 'seg-1', 'user-1', 1);
+
+      expect(prisma.transcriptSegment.update).toHaveBeenCalledWith({
+        where: { id: 'seg-1' },
+        data: expect.objectContaining({ text: 'hello', words: Prisma.JsonNull }),
+      });
+      expect(prisma.transcriptSegment.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ text: 'world', videoId: 'video-1' }),
+      });
+      expect(result.approximate).toBe(true);
+    });
+
+    it('throws BadRequestException for an out-of-range word index', async () => {
+      prisma.transcriptSegment.findUnique.mockResolvedValue({
+        id: 'seg-1',
+        videoId: 'video-1',
+        start: 0,
+        end: 4,
+        words: [
+          { word: 'hello', start: 0, end: 2 },
+          { word: 'world', start: 2, end: 4 },
+        ],
+      });
+
+      await expect(
+        service.splitTranscriptSegment('video-1', 'seg-1', 'user-1', 5),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.transcriptSegment.update).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException for a segment that does not belong to this video', async () => {
+      prisma.transcriptSegment.findUnique.mockResolvedValue({
+        id: 'seg-1',
+        videoId: 'other-video',
+      });
+
+      await expect(
+        service.splitTranscriptSegment('video-1', 'seg-1', 'user-1', 1),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  // Subtitle Studio roadmap (P2f).
+  describe('translateTranscript', () => {
+    it('records a request row and enqueues the translate job', async () => {
+      const result = await service.translateTranscript('video-1', 'user-1', 'en');
+
+      expect(workspaceAccess.assertVideoAccess).toHaveBeenCalledWith(
+        'user-1',
+        'video-1',
+        'EDITOR',
+      );
+      expect(prisma.transcriptTranslationRequest.create).toHaveBeenCalledWith({
+        data: { videoId: 'video-1', requestedBy: 'user-1', languageCode: 'en' },
+      });
+      expect(translateTranscriptQueue.add).toHaveBeenCalledWith('translate-transcript', {
+        videoId: 'video-1',
+        languageCode: 'en',
+      });
+      expect(result).toEqual({ status: 'queued', languageCode: 'en' });
+    });
+
+    it('throws BadRequestException at the daily rate cap, without enqueueing', async () => {
+      prisma.transcriptTranslationRequest.count.mockResolvedValue(5);
+
+      await expect(service.translateTranscript('video-1', 'user-1', 'en')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.transcriptTranslationRequest.create).not.toHaveBeenCalled();
+      expect(translateTranscriptQueue.add).not.toHaveBeenCalled();
     });
   });
 

@@ -53,6 +53,14 @@ export enum QueueName {
   // and keyed on SocialAccount, not PublishRecord; see
   // apps/worker/src/workers/sync-follower-count.worker.ts.
   SYNC_FOLLOWER_COUNT = 'sync-follower-count',
+  // Subtitle Studio roadmap (P2f) - one LLM call translating a video's
+  // whole transcript into one language, enqueued by
+  // VideosService.translateTranscript (never self-chained). No dedicated
+  // status row (unlike GENERATE_PLATFORM_COPY's ClipPlatformCopy) - the
+  // client polls GET /videos/:id/transcript and treats "every segment has
+  // translations[languageCode]" as done, same "poll the resource itself"
+  // convention as IMPORT_YOUTUBE.
+  TRANSLATE_TRANSCRIPT = 'translate-transcript',
 }
 
 // videoId is created (status IMPORTING, placeholder sourceUrl) by
@@ -106,6 +114,12 @@ export interface RenderClipJobData {
   endTime: number;
   transcript: TranscriptSegment[];
   captionStyle: CaptionStyle;
+  // Subtitle Studio roadmap (P2c) - burns speaker-colored captions in when
+  // true, orthogonal to captionStyle (see Clip.speakerColorCaptions).
+  speakerColorCaptions: boolean;
+  // Subtitle Studio roadmap (P2f) - which TranscriptSegment.translations key
+  // to burn in; undefined/null means the original (untranslated) text.
+  captionLanguage: string | null;
   // Fase 15 (Auto B-roll) - the clip's own Fase 8 keywords, used to search
   // for matching stock footage moments (see broll.ts's findBRollMoments).
   // Empty for a clip whose Content Intelligence LLM call never ran/found
@@ -194,4 +208,12 @@ export const NOTIFICATION_DELIVERY_RETRY_OPTIONS = {
 // ExportGenerateJobData's own "no automatic retry" convention.
 export interface GeneratePlatformCopyJobData {
   clipPlatformCopyId: string;
+}
+
+// Subtitle Studio roadmap (P2f) - id-only, the worker re-fetches every
+// TranscriptSegment for videoId fresh rather than trusting a payload
+// snapshot (same reasoning as PublishClipJobData's own re-fetch).
+export interface TranslateTranscriptJobData {
+  videoId: string;
+  languageCode: string;
 }
