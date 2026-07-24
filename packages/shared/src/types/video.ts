@@ -957,6 +957,12 @@ export interface Clip {
   videoId: string;
   startTime: number;
   endTime: number;
+  // AI Clip Library roadmap (P1) - denormalized endTime - startTime, kept in
+  // sync at every write site that sets startTime/endTime. Exists so the
+  // clip library filter/sort can use a plain indexed column instead of
+  // making every caller recompute it - same reasoning as Video.durationSeconds.
+  // Null only for pre-existing rows before the backfill script runs.
+  durationSeconds: number | null;
   viralityScore: number;
   downloadUrl: string | null;
   // Sprint 1-2 (Dashboard Redesign) - feeds the Dashboard's per-owner

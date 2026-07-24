@@ -11,6 +11,8 @@ jest.mock('@speedora/storage', () => ({
 describe('ClipsController', () => {
   let controller: ClipsController;
   let clipsService: {
+    findAllFiltered: jest.Mock;
+    getTopicFacets: jest.Mock;
     findRenderedOrThrow: jest.Mock;
     findThumbnailOrThrow: jest.Mock;
     findAnimatedThumbnailOrThrow: jest.Mock;
@@ -30,6 +32,8 @@ describe('ClipsController', () => {
 
   beforeEach(() => {
     clipsService = {
+      findAllFiltered: jest.fn(),
+      getTopicFacets: jest.fn(),
       findRenderedOrThrow: jest.fn(),
       findThumbnailOrThrow: jest.fn(),
       findAnimatedThumbnailOrThrow: jest.fn(),
@@ -307,5 +311,169 @@ describe('ClipsController', () => {
       '2026-08-01T00:00:00.000Z',
     );
     expect(result).toBe(rescheduled);
+  });
+
+  // AI Clip Library roadmap (P1) - query-param parsing/clamping is the
+  // controller's own responsibility (ClipsService.findAllFiltered has its
+  // own spec for the filter/pagination logic itself).
+  describe('findAll', () => {
+    it('defaults limit to 20 and passes every other filter through as-is', async () => {
+      clipsService.findAllFiltered.mockResolvedValue({ clips: [], nextCursor: null });
+
+      await controller.findAll(user, undefined, undefined, 'ws-1', undefined, undefined);
+
+      expect(clipsService.findAllFiltered).toHaveBeenCalledWith('user-1', {
+        cursor: undefined,
+        limit: 20,
+        workspaceId: 'ws-1',
+        projectId: undefined,
+        folderId: undefined,
+        minScore: undefined,
+        platform: undefined,
+        minDuration: undefined,
+        maxDuration: undefined,
+        topics: undefined,
+        emotion: undefined,
+        keyword: undefined,
+      });
+    });
+
+    it('clamps limit to the 1-50 range', async () => {
+      clipsService.findAllFiltered.mockResolvedValue({ clips: [], nextCursor: null });
+
+      await controller.findAll(
+        user,
+        undefined,
+        '500',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      );
+
+      expect(clipsService.findAllFiltered).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ limit: 50 }),
+      );
+    });
+
+    it('drops an invalid platform value rather than passing it through', async () => {
+      clipsService.findAllFiltered.mockResolvedValue({ clips: [], nextCursor: null });
+
+      await controller.findAll(
+        user,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'not-a-real-platform',
+      );
+
+      expect(clipsService.findAllFiltered).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ platform: undefined }),
+      );
+    });
+
+    it('accepts a valid platform value', async () => {
+      clipsService.findAllFiltered.mockResolvedValue({ clips: [], nextCursor: null });
+
+      await controller.findAll(
+        user,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'YOUTUBE',
+      );
+
+      expect(clipsService.findAllFiltered).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ platform: 'YOUTUBE' }),
+      );
+    });
+
+    it('parses a comma-separated topics query param into a string array', async () => {
+      clipsService.findAllFiltered.mockResolvedValue({ clips: [], nextCursor: null });
+
+      await controller.findAll(
+        user,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'politics, crisis ,,military',
+      );
+
+      expect(clipsService.findAllFiltered).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ topics: ['politics', 'crisis', 'military'] }),
+      );
+    });
+
+    it('drops non-numeric minScore/minDuration/maxDuration rather than passing NaN through', async () => {
+      clipsService.findAllFiltered.mockResolvedValue({ clips: [], nextCursor: null });
+
+      await controller.findAll(
+        user,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'not-a-number',
+        undefined,
+        'also-not-a-number',
+        'nope',
+      );
+
+      expect(clipsService.findAllFiltered).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({
+          minScore: undefined,
+          minDuration: undefined,
+          maxDuration: undefined,
+        }),
+      );
+    });
+
+    it('returns whatever the service resolves', async () => {
+      const page = { clips: [{ id: 'clip-1' }], nextCursor: 'clip-1' };
+      clipsService.findAllFiltered.mockResolvedValue(page);
+
+      const result = await controller.findAll(user);
+
+      expect(result).toBe(page);
+    });
+  });
+
+  describe('getFacets', () => {
+    it('delegates to ClipsService.getTopicFacets with workspaceId/projectId', async () => {
+      const facets = { topics: [{ value: 'politics', count: 3 }] };
+      clipsService.getTopicFacets.mockResolvedValue(facets);
+
+      const result = await controller.getFacets(user, 'ws-1', 'proj-1');
+
+      expect(clipsService.getTopicFacets).toHaveBeenCalledWith('user-1', {
+        workspaceId: 'ws-1',
+        projectId: 'proj-1',
+      });
+      expect(result).toBe(facets);
+    });
   });
 });

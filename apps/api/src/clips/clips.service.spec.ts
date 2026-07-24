@@ -17,7 +17,8 @@ const PUBLISH_RECORDS_INCLUDE = {
 describe('ClipsService', () => {
   let service: ClipsService;
   let prisma: {
-    clip: { findUnique: jest.Mock; update: jest.Mock; delete: jest.Mock };
+    clip: { findUnique: jest.Mock; findMany: jest.Mock; update: jest.Mock; delete: jest.Mock };
+    project: { findUnique: jest.Mock };
     transcriptSegment: { findMany: jest.Mock };
     publishRecord: {
       create: jest.Mock;
@@ -35,10 +36,11 @@ describe('ClipsService', () => {
     clipPlatformCopy: { create: jest.Mock; count: jest.Mock; findMany: jest.Mock };
     auditLogEntry: { create: jest.Mock };
     $transaction: jest.Mock;
+    $queryRaw: jest.Mock;
   };
   let socialAccounts: { findOwnedOrThrow: jest.Mock };
   let storage: { deleteObjects: jest.Mock };
-  let workspaceAccess: { assertMinRole: jest.Mock };
+  let workspaceAccess: { assertMinRole: jest.Mock; getPersonalWorkspaceId: jest.Mock };
   let campaigns: { assertUsableForQueue: jest.Mock };
   let recurringSchedules: { resolveSlotForQueue: jest.Mock };
   let renderClipQueue: { add: jest.Mock };
@@ -47,7 +49,13 @@ describe('ClipsService', () => {
 
   beforeEach(() => {
     prisma = {
-      clip: { findUnique: jest.fn(), update: jest.fn(), delete: jest.fn().mockResolvedValue({}) },
+      clip: {
+        findUnique: jest.fn(),
+        findMany: jest.fn(),
+        update: jest.fn(),
+        delete: jest.fn().mockResolvedValue({}),
+      },
+      project: { findUnique: jest.fn() },
       transcriptSegment: { findMany: jest.fn() },
       publishRecord: {
         create: jest.fn(),
@@ -71,6 +79,7 @@ describe('ClipsService', () => {
       },
       auditLogEntry: { create: jest.fn().mockResolvedValue({}) },
       $transaction: jest.fn(),
+      $queryRaw: jest.fn(),
     };
     prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma));
     socialAccounts = { findOwnedOrThrow: jest.fn() };
@@ -78,7 +87,10 @@ describe('ClipsService', () => {
     // Default: access granted - WorkspaceAccessService has its own
     // dedicated spec for role-rank logic; this file only verifies
     // ClipsService's own orchestration around it.
-    workspaceAccess = { assertMinRole: jest.fn().mockResolvedValue('OWNER') };
+    workspaceAccess = {
+      assertMinRole: jest.fn().mockResolvedValue('OWNER'),
+      getPersonalWorkspaceId: jest.fn().mockResolvedValue('personal-ws-1'),
+    };
     campaigns = { assertUsableForQueue: jest.fn().mockResolvedValue(undefined) };
     recurringSchedules = { resolveSlotForQueue: jest.fn() };
     renderClipQueue = { add: jest.fn() };
@@ -921,6 +933,7 @@ describe('ClipsService', () => {
         data: {
           startTime: 12,
           endTime: 22,
+          durationSeconds: 10,
           captionStyle: 'DEFAULT',
           hookText: 'Wait for it...',
           hashtags: ['viral', 'fyp'],
@@ -1003,6 +1016,7 @@ describe('ClipsService', () => {
         data: {
           startTime: 10,
           endTime: 25,
+          durationSeconds: 15,
           captionStyle: 'DEFAULT',
           hookText: 'Wait for it...',
           hashtags: ['viral', 'fyp'],
@@ -1022,6 +1036,7 @@ describe('ClipsService', () => {
         data: {
           startTime: 10,
           endTime: 20,
+          durationSeconds: 10,
           captionStyle: 'KARAOKE',
           hookText: 'Wait for it...',
           hashtags: ['viral', 'fyp'],
@@ -1045,6 +1060,7 @@ describe('ClipsService', () => {
         data: {
           startTime: 10,
           endTime: 20,
+          durationSeconds: 10,
           captionStyle: 'DEFAULT',
           hookText: 'New hook',
           hashtags: ['newtag'],
@@ -1729,6 +1745,202 @@ describe('ClipsService', () => {
       await expect(service.remove('clip-1', 'user-1')).rejects.toThrow(NotFoundException);
       expect(prisma.clip.delete).not.toHaveBeenCalled();
       expect(storage.deleteObjects).not.toHaveBeenCalled();
+    });
+  });
+
+  // AI Clip Library roadmap (P1).
+  describe('findAllFiltered', () => {
+    const baseClip = {
+      id: 'clip-1',
+      videoId: 'video-1',
+      startTime: 0,
+      endTime: 10,
+      durationSeconds: 10,
+      viralityScore: 80,
+      outputUrl: 'renders/clip-1.mp4',
+      captionStyle: 'DEFAULT',
+      hookText: 'Wait for it...',
+      hashtags: ['viral'],
+      scores: null,
+      reason: null,
+      topics: ['politics'],
+      keywords: [],
+      intent: null,
+      ctaText: null,
+      publishRecords: [],
+      updatedAt: new Date('2026-01-01'),
+    };
+
+    it('resolves the requester personal workspace when no workspaceId/projectId given', async () => {
+      prisma.clip.findMany.mockResolvedValue([baseClip]);
+
+      await service.findAllFiltered('user-1', { limit: 20 });
+
+      expect(workspaceAccess.getPersonalWorkspaceId).toHaveBeenCalledWith('user-1');
+      expect(workspaceAccess.assertMinRole).not.toHaveBeenCalled();
+      expect(prisma.clip.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ video: { workspaceId: 'personal-ws-1' } }),
+        }),
+      );
+    });
+
+    it('uses an explicit workspaceId and checks access for it', async () => {
+      prisma.clip.findMany.mockResolvedValue([baseClip]);
+
+      await service.findAllFiltered('user-1', { limit: 20, workspaceId: 'ws-2' });
+
+      expect(workspaceAccess.assertMinRole).toHaveBeenCalledWith('user-1', 'ws-2', 'VIEWER');
+      expect(workspaceAccess.getPersonalWorkspaceId).not.toHaveBeenCalled();
+      expect(prisma.clip.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ video: { workspaceId: 'ws-2' } }),
+        }),
+      );
+    });
+
+    it("resolves via projectId's own workspace and throws NotFoundException for a missing project", async () => {
+      prisma.project.findUnique.mockResolvedValueOnce(null);
+
+      await expect(
+        service.findAllFiltered('user-1', { limit: 20, projectId: 'missing-project' }),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.clip.findMany).not.toHaveBeenCalled();
+    });
+
+    it('projectId wins over workspaceId when both are given', async () => {
+      prisma.project.findUnique.mockResolvedValueOnce({ id: 'proj-1', workspaceId: 'ws-3' });
+      prisma.clip.findMany.mockResolvedValue([baseClip]);
+
+      await service.findAllFiltered('user-1', {
+        limit: 20,
+        workspaceId: 'ws-2',
+        projectId: 'proj-1',
+      });
+
+      expect(workspaceAccess.assertMinRole).toHaveBeenCalledWith('user-1', 'ws-3', 'VIEWER');
+      expect(prisma.clip.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ video: { workspaceId: 'ws-3', projectId: 'proj-1' } }),
+        }),
+      );
+    });
+
+    it('builds the score/platform/duration/topic/emotion/keyword filters into one where clause', async () => {
+      prisma.clip.findMany.mockResolvedValue([baseClip]);
+
+      await service.findAllFiltered('user-1', {
+        limit: 20,
+        minScore: 70,
+        platform: 'YOUTUBE' as never,
+        minDuration: 15,
+        maxDuration: 60,
+        topics: ['politics', 'crisis'],
+        emotion: 'happy',
+        keyword: 'launch',
+      });
+
+      expect(prisma.clip.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            viralityScore: { gte: 70 },
+            publishRecords: { some: { socialAccount: { platform: 'YOUTUBE' } } },
+            durationSeconds: { gte: 15, lte: 60 },
+            topics: { hasSome: ['politics', 'crisis'] },
+            facialFeatures: { path: ['dominantEmotion'], equals: 'happy' },
+            OR: [
+              { hookText: { contains: 'launch', mode: 'insensitive' } },
+              { hashtags: { has: 'launch' } },
+              { topics: { has: 'launch' } },
+              { keywords: { has: 'launch' } },
+            ],
+          }),
+        }),
+      );
+    });
+
+    it('omits every optional filter key when no filters are given', async () => {
+      prisma.clip.findMany.mockResolvedValue([baseClip]);
+
+      await service.findAllFiltered('user-1', { limit: 20 });
+
+      const { where } = prisma.clip.findMany.mock.calls[0][0];
+      expect(where).toEqual({ video: { workspaceId: 'personal-ws-1' } });
+    });
+
+    it('requests one extra row to detect a next page and strips it from the result', async () => {
+      const clips = [
+        { ...baseClip, id: 'clip-1' },
+        { ...baseClip, id: 'clip-2' },
+        { ...baseClip, id: 'clip-3' },
+      ];
+      prisma.clip.findMany.mockResolvedValue(clips);
+
+      const result = await service.findAllFiltered('user-1', { limit: 2 });
+
+      expect(prisma.clip.findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 3 }));
+      expect(result.clips).toHaveLength(2);
+      expect(result.clips.map((c) => c.id)).toEqual(['clip-1', 'clip-2']);
+      expect(result.nextCursor).toBe('clip-2');
+    });
+
+    it('returns a null nextCursor when there is no next page', async () => {
+      prisma.clip.findMany.mockResolvedValue([baseClip]);
+
+      const result = await service.findAllFiltered('user-1', { limit: 20 });
+
+      expect(result.nextCursor).toBeNull();
+    });
+
+    it('passes a cursor through as { cursor: { id }, skip: 1 }', async () => {
+      prisma.clip.findMany.mockResolvedValue([baseClip]);
+
+      await service.findAllFiltered('user-1', { limit: 20, cursor: 'clip-9' });
+
+      expect(prisma.clip.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ cursor: { id: 'clip-9' }, skip: 1 }),
+      );
+    });
+
+    it('maps rows through toDto, including durationSeconds', async () => {
+      prisma.clip.findMany.mockResolvedValue([baseClip]);
+
+      const result = await service.findAllFiltered('user-1', { limit: 20 });
+
+      expect(result.clips[0]).toMatchObject({
+        id: 'clip-1',
+        durationSeconds: 10,
+        downloadUrl: '/clips/clip-1/download',
+      });
+    });
+  });
+
+  // AI Clip Library roadmap (P1).
+  describe('getTopicFacets', () => {
+    it('resolves the workspace the same way as findAllFiltered and maps bigint counts to numbers', async () => {
+      prisma.$queryRaw.mockResolvedValue([
+        { topic: 'politics', count: 3n },
+        { topic: 'crisis', count: 1n },
+      ]);
+
+      const result = await service.getTopicFacets('user-1', {});
+
+      expect(workspaceAccess.getPersonalWorkspaceId).toHaveBeenCalledWith('user-1');
+      expect(result).toEqual({
+        topics: [
+          { value: 'politics', count: 3 },
+          { value: 'crisis', count: 1 },
+        ],
+      });
+    });
+
+    it("throws NotFoundException for a missing project, same as findAllFiltered", async () => {
+      prisma.project.findUnique.mockResolvedValueOnce(null);
+
+      await expect(
+        service.getTopicFacets('user-1', { projectId: 'missing-project' }),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
     });
   });
 });

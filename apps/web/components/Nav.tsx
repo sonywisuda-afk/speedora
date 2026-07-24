@@ -10,6 +10,7 @@ import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 const LINKS = [
   { href: '/upload', label: 'Upload' },
   { href: '/dashboard', label: 'Dashboard' },
+  { href: '/library', label: 'Clip Library' },
   { href: '/analytics', label: 'Analytics' },
   { href: '/social', label: 'Social Media' },
   { href: '/campaigns', label: 'Campaigns' },

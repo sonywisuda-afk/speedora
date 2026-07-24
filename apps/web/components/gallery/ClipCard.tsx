@@ -39,7 +39,13 @@ function formatDuration(seconds: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-export function ClipCard({ videoId, clip }: { videoId: string; clip: Clip }) {
+// AI Clip Library roadmap (P1) - videoId is optional, defaulting to
+// clip.videoId (always present on the DTO), so the new cross-video library
+// grid can render a ClipCard without a single shared videoId prop. Existing
+// callers (ClipGrid, always scoped to one video) are unaffected - same value
+// either way.
+export function ClipCard({ videoId, clip }: { videoId?: string; clip: Clip }) {
+  const resolvedVideoId = videoId ?? clip.videoId;
   const isTopScore = clip.viralityScore >= TOP_SCORE_THRESHOLD;
   // Phase 3 (Hover Preview roadmap, "Clip Preview") - handlers go on this
   // card's own Link (its focusable root), so keyboard tabbing gets the same
@@ -83,7 +89,7 @@ export function ClipCard({ videoId, clip }: { videoId: string; clip: Clip }) {
 
   return (
     <Link
-      href={`/videos/${videoId}/edit?clip=${clip.id}`}
+      href={`/videos/${resolvedVideoId}/edit?clip=${clip.id}`}
       className={cn(
         'block overflow-hidden rounded-lg border border-border bg-card transition-all duration-300',
         'motion-safe:hover:-translate-y-0.5 motion-safe:hover:scale-[1.02]',

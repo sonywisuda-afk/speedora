@@ -117,6 +117,7 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
                     videoId,
                     startTime: candidate.startTime,
                     endTime: candidate.endTime,
+                    durationSeconds: candidate.endTime - candidate.startTime,
                     viralityScore: candidate.viralityScore,
                     hookText: candidate.hookText,
                     hashtags: candidate.hashtags,

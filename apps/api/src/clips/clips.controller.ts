@@ -9,10 +9,11 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { recordActivityEvent } from '@speedora/database';
+import { recordActivityEvent, SocialPlatform } from '@speedora/database';
 import { getObjectStream, getObjectStreamRange } from '@speedora/storage';
 import type { Response } from 'express';
 import type { SafeUser } from '../auth/auth.service';
@@ -33,6 +34,42 @@ function thumbnailContentType(key: string): string {
   return key.endsWith('.webp') ? 'image/webp' : 'image/jpeg';
 }
 
+// AI Clip Library roadmap (P1) - same clamped-parse-rather-than-throw
+// posture, and same per-controller-copy convention, as every other
+// parseLimit in this codebase (VideosController/AnalyticsController/etc).
+const MIN_LIMIT = 1;
+const MAX_LIMIT = 50;
+const DEFAULT_LIMIT = 20;
+
+function parseLimit(raw: string | undefined): number {
+  const parsed = Number(raw);
+  if (!raw || !Number.isFinite(parsed)) return DEFAULT_LIMIT;
+  return Math.min(MAX_LIMIT, Math.max(MIN_LIMIT, Math.round(parsed)));
+}
+
+// Same "invalid/missing falls back to undefined rather than throwing"
+// posture as AnalyticsController's own parsePlatform - a typo'd
+// ?platform=foo degrading to "no platform filter" is friendlier than a 400
+// for a display filter.
+function parsePlatform(raw: string | undefined): SocialPlatform | undefined {
+  return raw && (Object.values(SocialPlatform) as string[]).includes(raw)
+    ? (raw as SocialPlatform)
+    : undefined;
+}
+
+function parseNumber(raw: string | undefined): number | undefined {
+  const parsed = Number(raw);
+  return raw && Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function parseTopics(raw: string | undefined): string[] | undefined {
+  const topics = raw
+    ?.split(',')
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+  return topics && topics.length > 0 ? topics : undefined;
+}
+
 @Controller('clips')
 @UseGuards(JwtAuthGuard)
 export class ClipsController {
@@ -42,6 +79,52 @@ export class ClipsController {
     private readonly clipsService: ClipsService,
     private readonly prisma: PrismaService,
   ) {}
+
+  // AI Clip Library roadmap (P1) - the first cross-video clip listing this
+  // app has ever had. See ClipsService.findAllFiltered for the filter/
+  // pagination semantics.
+  @Get()
+  findAll(
+    @CurrentUser() user: SafeUser,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+    @Query('workspaceId') workspaceId?: string,
+    @Query('projectId') projectId?: string,
+    @Query('folderId') folderId?: string,
+    @Query('minScore') minScore?: string,
+    @Query('platform') platform?: string,
+    @Query('minDuration') minDuration?: string,
+    @Query('maxDuration') maxDuration?: string,
+    @Query('topics') topics?: string,
+    @Query('emotion') emotion?: string,
+    @Query('keyword') keyword?: string,
+  ) {
+    return this.clipsService.findAllFiltered(user.id, {
+      cursor,
+      limit: parseLimit(limit),
+      workspaceId,
+      projectId,
+      folderId,
+      minScore: parseNumber(minScore),
+      platform: parsePlatform(platform),
+      minDuration: parseNumber(minDuration),
+      maxDuration: parseNumber(maxDuration),
+      topics: parseTopics(topics),
+      emotion: emotion || undefined,
+      keyword: keyword || undefined,
+    });
+  }
+
+  // AI Clip Library roadmap (P1) - option values for the topic filter's
+  // dropdown/chips. See ClipsService.getTopicFacets.
+  @Get('facets')
+  getFacets(
+    @CurrentUser() user: SafeUser,
+    @Query('workspaceId') workspaceId?: string,
+    @Query('projectId') projectId?: string,
+  ) {
+    return this.clipsService.getTopicFacets(user.id, { workspaceId, projectId });
+  }
 
   @Get(':id/download')
   async download(@CurrentUser() user: SafeUser, @Param('id') id: string, @Res() res: Response) {

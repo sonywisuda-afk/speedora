@@ -801,6 +801,15 @@ model Clip {
   // persist here. Null when there were zero usable primary-subject samples
   // for this clip (not a fabricated all-null features object).
   compositionFeatures     Json?
+  // AI Clip Library roadmap, Phase P1 - denormalized endTime - startTime,
+  // set alongside them at every write site (detect-clips.worker.ts's
+  // initial prisma.clip.create, and ClipsService.update's manual trim) -
+  // same "store the derived value, don't make callers recompute it"
+  // reasoning as Video.durationSeconds above. Exists purely so the clip
+  // library filter/sort can use a plain indexed column instead of a
+  // cross-column expression Prisma's query builder can't express in a
+  // `where`. Null only for pre-existing rows before the backfill script runs.
+  durationSeconds         Float?
   createdAt               DateTime     @default(now())
   updatedAt               DateTime     @updatedAt
 
@@ -812,6 +821,8 @@ model Clip {
   platformCopies  ClipPlatformCopy[]
 
   @@index([videoId])
+  @@index([viralityScore])
+  @@index([durationSeconds])
 }
 
 // Phase 1 instrumentation for the render-graph executor (apps/worker/src/render-graph/executor.ts

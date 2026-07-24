@@ -92,6 +92,7 @@ export async function seedVideoWithClips(
         videoId: video.id,
         startTime: i * 10,
         endTime: i * 10 + 8,
+        durationSeconds: 8,
         viralityScore: highlightScore,
         outputUrl: `renders/${video.id}/${i}.mp4`,
         highlightScore,

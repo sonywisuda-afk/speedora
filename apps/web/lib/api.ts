@@ -15,6 +15,8 @@ import type {
   CampaignListDto,
   Clip,
   ClipExplainabilityDto,
+  ClipLibraryFacetsDto,
+  ClipLibraryPageDto,
   ClipPerformanceDto,
   ClipPlatformCopyDto,
   ClipPlatformCopyListDto,
@@ -288,6 +290,48 @@ export async function listVideos(params?: {
 
 export function clipDownloadUrl(downloadUrl: string): string {
   return `${API_URL}${downloadUrl}`;
+}
+
+// AI Clip Library roadmap (P1) - the first cross-video, filterable clip
+// listing this app has ever had (GET /videos only ever nests clips under one
+// video). Same named-param-interface + toQueryString pattern as
+// getAnalyticsPerformanceClips - topics is joined into a comma-separated
+// string here (the API's own parseTopics splits on comma) rather than
+// widening toQueryString to accept arrays for this one caller.
+export interface ClipLibraryFilterParams {
+  workspaceId?: string;
+  projectId?: string;
+  folderId?: string;
+  minScore?: number;
+  platform?: SocialPlatform;
+  minDuration?: number;
+  maxDuration?: number;
+  topics?: string[];
+  emotion?: string;
+  keyword?: string;
+  cursor?: string;
+  limit?: number;
+}
+
+export async function getClipLibrary(
+  params: ClipLibraryFilterParams = {},
+): Promise<ClipLibraryPageDto> {
+  const { topics, ...rest } = params;
+  const res = await apiFetch(
+    `/clips${toQueryString({
+      ...(rest as Record<string, string | number | undefined>),
+      topics: topics && topics.length > 0 ? topics.join(',') : undefined,
+    })}`,
+  );
+  return parseJsonOrThrow<ClipLibraryPageDto>(res);
+}
+
+export async function getClipLibraryFacets(params: {
+  workspaceId?: string;
+  projectId?: string;
+}): Promise<ClipLibraryFacetsDto> {
+  const res = await apiFetch(`/clips/facets${toQueryString(params)}`);
+  return parseJsonOrThrow<ClipLibraryFacetsDto>(res);
 }
 
 // Inline-playback variant of clipDownloadUrl for a <video> preview - the

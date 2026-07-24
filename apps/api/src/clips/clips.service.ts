@@ -7,6 +7,10 @@ import {
   type CaptionStyle,
   type ClipVersion,
   type Prisma,
+  // Aliased - this file already imports @speedora/shared's own SocialPlatform
+  // below (used by toSharedPlatformCopy), same two-source-of-truth situation
+  // AnalyticsService/AnalyticsController resolve the same way.
+  type SocialPlatform as PrismaSocialPlatform,
 } from '@speedora/database';
 import {
   ClipPlatformCopyStatus as SharedClipPlatformCopyStatus,
@@ -188,6 +192,155 @@ export class ClipsService {
     }
     await this.workspaceAccess.assertMinRole(requesterId, clip.video.workspaceId, minRole);
     return clip;
+  }
+
+  // AI Clip Library roadmap (P1) - the first cross-video, filterable clip
+  // listing this app has ever had (until now, clips were only ever nested
+  // under one Video via VideosService.findAll/findOne). Cursor-paginated
+  // exactly like VideosService.findAll, and workspace-role-scoped via
+  // workspaceAccess the same way - deliberately NOT SearchService's looser
+  // owner-only scoping, so this stays consistent with every other clip/video
+  // read in this service. The dynamic `where` follows
+  // AnalyticsService.fetchPublishedRecords' `...(filter.x ? { x } : {})`
+  // idiom throughout.
+  async findAllFiltered(
+    requesterId: string,
+    {
+      cursor,
+      limit,
+      workspaceId,
+      projectId,
+      folderId,
+      minScore,
+      platform,
+      minDuration,
+      maxDuration,
+      topics,
+      emotion,
+      keyword,
+    }: {
+      cursor?: string;
+      limit: number;
+      workspaceId?: string;
+      projectId?: string;
+      folderId?: string;
+      minScore?: number;
+      platform?: PrismaSocialPlatform;
+      minDuration?: number;
+      maxDuration?: number;
+      topics?: string[];
+      emotion?: string;
+      keyword?: string;
+    },
+  ) {
+    const targetWorkspaceId = await this.resolveTargetWorkspaceId(requesterId, {
+      workspaceId,
+      projectId,
+    });
+
+    const clips = await this.prisma.clip.findMany({
+      where: {
+        video: {
+          workspaceId: targetWorkspaceId,
+          ...(projectId ? { projectId } : {}),
+          ...(folderId ? { folderId } : {}),
+        },
+        ...(minScore != null ? { viralityScore: { gte: minScore } } : {}),
+        ...(platform ? { publishRecords: { some: { socialAccount: { platform } } } } : {}),
+        ...(minDuration != null || maxDuration != null
+          ? {
+              durationSeconds: {
+                ...(minDuration != null ? { gte: minDuration } : {}),
+                ...(maxDuration != null ? { lte: maxDuration } : {}),
+              },
+            }
+          : {}),
+        ...(topics && topics.length > 0 ? { topics: { hasSome: topics } } : {}),
+        // facialFeatures.dominantEmotion is the one existing per-clip
+        // emotion AGGREGATE (see schema.prisma's facialFeatures comment) -
+        // Postgres JSON path filtering, the first use of it in this
+        // codebase (every other Json column here is only ever read back in
+        // full, never filtered on).
+        ...(emotion ? { facialFeatures: { path: ['dominantEmotion'], equals: emotion } } : {}),
+        ...(keyword
+          ? {
+              OR: [
+                { hookText: { contains: keyword, mode: 'insensitive' } },
+                { hashtags: { has: keyword } },
+                { topics: { has: keyword } },
+                { keywords: { has: keyword } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      include: { publishRecords: { include: { socialAccount: true } } },
+    });
+
+    const hasMore = clips.length > limit;
+    const page = hasMore ? clips.slice(0, limit) : clips;
+
+    return {
+      clips: page.map((clip) => this.toDto(clip)),
+      nextCursor: hasMore ? page[page.length - 1].id : null,
+    };
+  }
+
+  // GET /clips/facets - topics/keywords are free-text LLM output with no
+  // fixed taxonomy (see schema.prisma's Clip.topics comment), so the filter
+  // bar needs real, workspace-scoped option values rather than a hardcoded
+  // list. unnest() + GROUP BY needs a raw query - Prisma's query builder has
+  // no array-unnesting `where`/aggregate support.
+  async getTopicFacets(
+    requesterId: string,
+    { workspaceId, projectId }: { workspaceId?: string; projectId?: string },
+  ) {
+    const targetWorkspaceId = await this.resolveTargetWorkspaceId(requesterId, {
+      workspaceId,
+      projectId,
+    });
+
+    const rows = await this.prisma.$queryRaw<{ topic: string; count: bigint }[]>`
+      SELECT topic, COUNT(*)::bigint AS count
+      FROM "Clip" c
+      JOIN "Video" v ON v."id" = c."videoId"
+      CROSS JOIN LATERAL unnest(c."topics") AS topic
+      WHERE v."workspaceId" = ${targetWorkspaceId}
+      GROUP BY topic
+      ORDER BY count DESC
+      LIMIT 30
+    `;
+
+    return { topics: rows.map((row) => ({ value: row.topic, count: Number(row.count) })) };
+  }
+
+  // Shared by findAllFiltered/getTopicFacets - same workspace/project
+  // resolution VideosService.findAll performs (project wins if given,
+  // otherwise explicit workspaceId, otherwise the requester's personal
+  // workspace).
+  private async resolveTargetWorkspaceId(
+    requesterId: string,
+    { workspaceId, projectId }: { workspaceId?: string; projectId?: string },
+  ): Promise<string> {
+    if (projectId) {
+      const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+      if (!project) {
+        throw new NotFoundException(`Project ${projectId} not found`);
+      }
+      await this.workspaceAccess.assertMinRole(
+        requesterId,
+        project.workspaceId,
+        WorkspaceRole.VIEWER,
+      );
+      return project.workspaceId;
+    }
+    if (workspaceId) {
+      await this.workspaceAccess.assertMinRole(requesterId, workspaceId, WorkspaceRole.VIEWER);
+      return workspaceId;
+    }
+    return this.workspaceAccess.getPersonalWorkspaceId(requesterId);
   }
 
   async findRenderedOrThrow(
@@ -463,7 +616,14 @@ export class ClipsService {
 
     const updated = await this.prisma.clip.update({
       where: { id },
-      data: { startTime, endTime, captionStyle, hookText, hashtags },
+      data: {
+        startTime,
+        endTime,
+        durationSeconds: endTime - startTime,
+        captionStyle,
+        hookText,
+        hashtags,
+      },
       include: { publishRecords: { include: { socialAccount: true } } },
     });
 
@@ -723,6 +883,7 @@ export class ClipsService {
     videoId: string;
     startTime: number;
     endTime: number;
+    durationSeconds: number | null;
     viralityScore: number;
     outputUrl: string | null;
     thumbnailUrl: string | null;
@@ -792,6 +953,7 @@ export class ClipsService {
       videoId: clip.videoId,
       startTime: clip.startTime,
       endTime: clip.endTime,
+      durationSeconds: clip.durationSeconds,
       viralityScore: clip.viralityScore,
       downloadUrl: clip.outputUrl ? `/clips/${clip.id}/download` : null,
       thumbnailUrl: clip.thumbnailUrl ? `/clips/${clip.id}/thumbnail` : null,

@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "reencode:sources": "tsx src/scripts/reencode-existing-sources.ts",
+    "backfill:clip-duration": "tsx src/scripts/backfill-clip-duration.ts",
     "evaluate:ocr": "tsx src/scripts/evaluate-ocr-classification.ts",
     "check:calibration-coverage": "tsx src/scripts/check-calibration-coverage.ts",
     "export:dataset": "tsx src/scripts/export-training-dataset.ts",

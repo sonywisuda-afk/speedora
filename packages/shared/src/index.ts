@@ -29,6 +29,7 @@ export * from './types/unavailable';
 export * from './types/heatmap';
 export * from './types/prediction';
 export * from './types/tracked-link';
+export * from './types/clip-library';
 export * from './utils/alert-conditions';
 export * from './utils/duration';
 export * from './utils/export-format';
