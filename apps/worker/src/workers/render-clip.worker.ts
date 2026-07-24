@@ -4,7 +4,12 @@ import { readFile, stat, writeFile } from 'node:fs/promises';
 import * as path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import * as Sentry from '@sentry/node';
-import type { CaptionStyleValue, SpeakerTurn, SubtitleSegment } from '@speedora/contracts';
+import type {
+  CaptionStyleValue,
+  FontFamily,
+  SpeakerTurn,
+  SubtitleSegment,
+} from '@speedora/contracts';
 import {
   computeFillerCuts,
   computeSilenceCuts,
@@ -389,6 +394,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             captionStyle,
             speakerColorCaptions,
             captionLanguage,
+            fontFamily,
             keywords,
             scores,
           } = job.data;
@@ -512,6 +518,17 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               videoWidth: reframe.outputWidth,
               videoHeight: reframe.outputHeight,
               speakerColorCaptions,
+              // Brand Kit roadmap (P3a) - job.data.fontFamily is null when
+              // Clip.applyBrandKit is false or the owner never set one; the
+              // 'Inter' literal here mirrors buildAssInputSchema's own
+              // default, spelled out explicitly since BuildAssInput's
+              // z.infer makes fontFamily a required field despite the
+              // schema's .default() (same z.infer + .default() gotcha
+              // speakerColorCaptions/captionLanguage's own tests hit - see
+              // build-ass.spec.ts). The cast mirrors captionStyle's own just
+              // above - fontFamily is re-validated against the same
+              // FONT_FAMILIES list inside buildAss() regardless.
+              fontFamily: (fontFamily ?? 'Inter') as FontFamily,
             });
             if (assContent.length > 0) {
               subtitlesPath = await reserveScratchPath('captions', '.ass');

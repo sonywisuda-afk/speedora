@@ -8,6 +8,27 @@ import { transcriptWordSchema } from './transcript-word';
 export const CAPTION_STYLES = ['DEFAULT', 'KARAOKE', 'BOLD_HIGHLIGHT'] as const;
 export const captionStyleSchema = z.enum(CAPTION_STYLES);
 
+// Brand Kit roadmap (P3a) - a curated, OFL-licensed set (not arbitrary
+// font-file upload - see the plan's own decision record) that must be
+// bundled into apps/worker's Docker image (apps/worker/Dockerfile) and kept
+// in sync with this list by hand, same "no build-time link between a
+// Dockerfile and a TypeScript const" caveat that Dockerfile's own comment
+// documents. The ASS Fontname build-ass.ts writes must exactly match each
+// font file's own name-table family name for fontconfig/libass to resolve
+// it - "Open Sans" (with the space), not "OpenSans".
+export const FONT_FAMILIES = [
+  'Inter',
+  'Poppins',
+  'Montserrat',
+  'Roboto',
+  'Oswald',
+  'Nunito',
+  'Open Sans',
+  'Lato',
+] as const;
+export const fontFamilySchema = z.enum(FONT_FAMILIES);
+const DEFAULT_FONT_FAMILY: (typeof FONT_FAMILIES)[number] = 'Inter';
+
 // The subtitles module's OWN transcript segment shape - deliberately
 // narrower than packages/shared's DB-hydrated TranscriptSegment (which also
 // carries speaker/emotion labels this module never reads), same pattern as
@@ -35,8 +56,14 @@ export const buildAssInputSchema = z.object({
   // Subtitle Studio roadmap (P2c) - orthogonal to `style` (composes with
   // any of the 3 presets rather than a combinatorial enum), defaults false.
   speakerColorCaptions: z.boolean().default(false),
+  // Brand Kit roadmap (P3a) - defaults to Inter (not hardcoded 'Arial',
+  // which was never actually guaranteed to render correctly - see
+  // build-ass.ts's own comment) for a clip whose Brand Kit has no font
+  // choice set yet.
+  fontFamily: fontFamilySchema.default(DEFAULT_FONT_FAMILY),
 });
 
 export type CaptionStyleValue = z.infer<typeof captionStyleSchema>;
+export type FontFamily = z.infer<typeof fontFamilySchema>;
 export type SubtitleSegment = z.infer<typeof subtitleSegmentSchema>;
 export type BuildAssInput = z.infer<typeof buildAssInputSchema>;

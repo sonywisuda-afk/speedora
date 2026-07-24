@@ -36,6 +36,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     curl \
+    # Brand Kit roadmap (P3a) - libass (ffmpeg's `subtitles` filter) resolves
+    # caption fonts through the system's fontconfig index. Without this
+    # package (and the font files installed below), build-ass.ts's Fontname
+    # falls back to whatever fontconfig-less default libass picks, which is
+    # NOT guaranteed to be any particular font - see build-ass.ts's own
+    # comment on this previously-unverified gap.
+    fontconfig \
     # Provides pgrep, used by this image's own HEALTHCHECK below - this
     # image has no HTTP server to probe (see that HEALTHCHECK's comment),
     # so liveness is "is the process still running" instead.
@@ -108,6 +115,40 @@ RUN mkdir -p /app/models && curl -sL -o /app/models/blaze_face_short_range.tflit
 # while wiring Batch 4 into the same script.
 RUN curl -sL -o /app/models/face_landmarker.task \
     https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
+# Brand Kit roadmap (P3a) - the curated, OFL-licensed caption font list (see
+# packages/subtitles' FONT_FAMILIES - this list and that one must be kept in
+# sync by hand, there's no build-time link between a Dockerfile and a
+# TypeScript const). Fetched from google/fonts' own OFL repo (the canonical
+# source, same "fetch from source rather than commit a binary asset"
+# reasoning as the MediaPipe models above) into a real fontconfig-scanned
+# directory, then indexed with fc-cache - no `fontsdir=` filter argument
+# needed at ffmpeg-call time as a result. Inter/Montserrat/Roboto/Oswald/
+# Nunito/Open Sans ship only as a single variable-weight TTF upstream (no
+# separate static Bold file) - verified these still expose named instances
+# (incl. Bold) that fontconfig/libass can resolve; Poppins/Lato ship real
+# static Regular+Bold files, fetched as pairs for exact fidelity.
+RUN mkdir -p /usr/share/fonts/truetype/speedora \
+    && curl -sL -o /usr/share/fonts/truetype/speedora/Inter-Regular.ttf \
+        "https://github.com/google/fonts/raw/main/ofl/inter/Inter%5Bopsz,wght%5D.ttf" \
+    && curl -sL -o /usr/share/fonts/truetype/speedora/Poppins-Regular.ttf \
+        "https://github.com/google/fonts/raw/main/ofl/poppins/Poppins-Regular.ttf" \
+    && curl -sL -o /usr/share/fonts/truetype/speedora/Poppins-Bold.ttf \
+        "https://github.com/google/fonts/raw/main/ofl/poppins/Poppins-Bold.ttf" \
+    && curl -sL -o /usr/share/fonts/truetype/speedora/Montserrat-Regular.ttf \
+        "https://github.com/google/fonts/raw/main/ofl/montserrat/Montserrat%5Bwght%5D.ttf" \
+    && curl -sL -o /usr/share/fonts/truetype/speedora/Roboto-Regular.ttf \
+        "https://github.com/google/fonts/raw/main/ofl/roboto/Roboto%5Bwdth,wght%5D.ttf" \
+    && curl -sL -o /usr/share/fonts/truetype/speedora/Oswald-Regular.ttf \
+        "https://github.com/google/fonts/raw/main/ofl/oswald/Oswald%5Bwght%5D.ttf" \
+    && curl -sL -o /usr/share/fonts/truetype/speedora/Nunito-Regular.ttf \
+        "https://github.com/google/fonts/raw/main/ofl/nunito/Nunito%5Bwght%5D.ttf" \
+    && curl -sL -o /usr/share/fonts/truetype/speedora/OpenSans-Regular.ttf \
+        "https://github.com/google/fonts/raw/main/ofl/opensans/OpenSans%5Bwdth,wght%5D.ttf" \
+    && curl -sL -o /usr/share/fonts/truetype/speedora/Lato-Regular.ttf \
+        "https://github.com/google/fonts/raw/main/ofl/lato/Lato-Regular.ttf" \
+    && curl -sL -o /usr/share/fonts/truetype/speedora/Lato-Bold.ttf \
+        "https://github.com/google/fonts/raw/main/ofl/lato/Lato-Bold.ttf" \
+    && fc-cache -f /usr/share/fonts/truetype/speedora
 WORKDIR /app
 COPY --from=build /out .
 # No .env file is copied into the image on purpose - config comes entirely

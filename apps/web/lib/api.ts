@@ -1230,6 +1230,8 @@ export async function getBrandKit(): Promise<BrandKitDto> {
 export async function updateBrandKit(input: {
   primaryColor?: string;
   secondaryColor?: string;
+  // Brand Kit roadmap (P3a) - one of FONT_FAMILIES's curated keys.
+  fontFamily?: string;
 }): Promise<BrandKitDto> {
   const res = await apiFetch('/brand-kit', {
     method: 'PUT',

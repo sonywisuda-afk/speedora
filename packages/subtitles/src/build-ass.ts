@@ -148,8 +148,16 @@ function buildDialogueEvent(
 // is no untrusted LLM JSON here - the adapter's caption-style cast is the
 // one place a mismatch could slip through unnoticed otherwise.
 export function buildAss(options: BuildAssInput): string {
-  const { segments, clipStart, clipEnd, style, videoWidth, videoHeight, speakerColorCaptions } =
-    buildAssInputSchema.parse(options);
+  const {
+    segments,
+    clipStart,
+    clipEnd,
+    style,
+    videoWidth,
+    videoHeight,
+    speakerColorCaptions,
+    fontFamily,
+  } = buildAssInputSchema.parse(options);
   const duration = clipEnd - clipStart;
 
   const fontSize = Math.max(12, Math.round(videoHeight * 0.06));
@@ -187,8 +195,12 @@ export function buildAss(options: BuildAssInput): string {
   }
 
   const baseStyleCols = [fontSize, outline, shadow, marginV] as const;
+  // Brand Kit roadmap (P3a) - fontFamily must exactly match a font actually
+  // bundled into apps/worker's Docker image (see that Dockerfile's own
+  // comment) - libass silently falls back to a generic default when
+  // fontconfig can't resolve the requested Fontname, rather than erroring.
   const styleLine = (name: string, primary: string, secondary: string) =>
-    `Style: ${name},Arial,${baseStyleCols[0]},${primary},${secondary},${OUTLINE_COLOR},&H00000000,0,0,0,0,100,100,0,0,1,${baseStyleCols[1]},${baseStyleCols[2]},2,10,10,${baseStyleCols[3]},1`;
+    `Style: ${name},${fontFamily},${baseStyleCols[0]},${primary},${secondary},${OUTLINE_COLOR},&H00000000,0,0,0,0,100,100,0,0,1,${baseStyleCols[1]},${baseStyleCols[2]},2,10,10,${baseStyleCols[3]},1`;
 
   return `[Script Info]
 ScriptType: v4.00+

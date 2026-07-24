@@ -154,6 +154,15 @@ model User {
   brandLogoUrl                String?
   brandPrimaryColor           String?
   brandSecondaryColor         String?
+  // Brand Kit roadmap (P3a) - one of packages/contracts's curated
+  // FONT_FAMILIES keys (e.g. "Inter", "Open Sans"), not an arbitrary string -
+  // enforced by BrandKitService/UpdateBrandKitDto, not a DB-level enum (same
+  // "app-level enum, not a Postgres one" posture CaptionStyle itself
+  // deliberately avoids for its own reasons documented on that enum). Null
+  // until set; render-enqueue time falls back to build-ass.ts's own default
+  // ('Inter') when null, same as an unset Clip.captionLanguage falling back
+  // to the original (untranslated) transcript text.
+  brandFontFamily              String?
   createdAt                   DateTime  @default(now())
   updatedAt                   DateTime  @updatedAt
 
@@ -550,6 +559,16 @@ model Clip {
   // `translations` map to burn in; null/absent means the original
   // (untranslated) text, same as every existing clip today.
   captionLanguage         String?
+  // Brand Kit roadmap (P3a) - gates whether render-enqueue time (ClipsService
+  // .render()/.update(), and detect-clips.worker.ts's initial auto-render)
+  // pulls the video owner's Brand Kit (font now; logo/watermark/intro/outro
+  // in later P3 sub-phases) into RenderClipJobData at all. True by default -
+  // same "AI/branding gives a good default, user opts out per clip rather
+  // than opting in every time" posture this product already follows
+  // elsewhere (see the P3 plan's own rationale). Added once here, ahead of
+  // watermark/intro/outro actually needing it, rather than retrofitting a
+  // migration per sub-phase.
+  applyBrandKit           Boolean      @default(true)
   // Suggested 3-second-opener hook line and social hashtags (without a
   // leading '#') from the same detect-clips LLM call that scores virality -
   // not baked into the rendered video, purely metadata for the

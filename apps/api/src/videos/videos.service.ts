@@ -478,6 +478,18 @@ export class VideosService {
       }
 
       await updateVideoStatus(this.prisma, id, VideoStatus.CLIPS_DETECTED);
+      // Brand Kit roadmap (P3a) - one owner lookup shared by every clip in
+      // this video (all belong to the same owner), same "resolve once at
+      // enqueue time" shape as ClipsService.render()'s own
+      // resolveFontFamily. Skipped entirely when every clip has opted out.
+      const ownerBrandFontFamily = unrendered.some((clip) => clip.applyBrandKit)
+        ? (
+            await this.prisma.user.findUniqueOrThrow({
+              where: { id: video.ownerId },
+              select: { brandFontFamily: true },
+            })
+          ).brandFontFamily
+        : null;
       await Promise.all(
         unrendered.map((clip) =>
           this.renderClipQueue.add(QueueName.RENDER_CLIP, {
@@ -494,6 +506,7 @@ export class VideosService {
             captionStyle: toSharedCaptionStyle(clip.captionStyle),
             speakerColorCaptions: clip.speakerColorCaptions,
             captionLanguage: clip.captionLanguage,
+            fontFamily: clip.applyBrandKit ? ownerBrandFontFamily : null,
             keywords: clip.keywords,
             scores: toSharedClipScores(clip.scores),
           }),

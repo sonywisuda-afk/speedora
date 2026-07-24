@@ -168,6 +168,15 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
 
             if (candidates.length > 0) {
               const video = await prisma.video.findUniqueOrThrow({ where: { id: videoId } });
+              // Brand Kit roadmap (P3a) - newly-created clips always start at
+              // the schema default (applyBrandKit: true, same reasoning as
+              // captionStyle's own comment below), so this is effectively
+              // unconditional here - still gated on clips[index].applyBrandKit
+              // for consistency with ClipsService.render()/VideosService.retry.
+              const owner = await prisma.user.findUniqueOrThrow({
+                where: { id: video.ownerId },
+                select: { brandFontFamily: true },
+              });
               await Promise.all(
                 candidates.map((candidate, index) =>
                   renderClipQueue.add(QueueName.RENDER_CLIP, {
@@ -184,6 +193,7 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
                     captionStyle: clips[index].captionStyle,
                     speakerColorCaptions: clips[index].speakerColorCaptions,
                     captionLanguage: clips[index].captionLanguage,
+                    fontFamily: clips[index].applyBrandKit ? owner.brandFontFamily : null,
                     keywords: candidate.keywords,
                     scores: candidate.scores,
                   }),

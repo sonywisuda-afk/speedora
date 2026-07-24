@@ -6,6 +6,7 @@ jest.mock('@react-pdf/renderer', () => ({
   Page: 'Page',
   View: 'View',
   Text: 'Text',
+  Image: 'Image',
   StyleSheet: { create: (styles: unknown) => styles },
 }));
 
@@ -87,10 +88,21 @@ function baseReport(overrides: Partial<AnalyticsReportData> = {}): AnalyticsRepo
 }
 
 describe('buildAnalyticsReportDocument', () => {
-  it('does not throw with a fully-configured brand kit', () => {
+  it('does not throw with a fully-configured brand kit (text-only logo fallback)', () => {
     expect(() =>
       buildAnalyticsReportDocument(baseReport(), {
         logoUrl: '/brand-kit/logo',
+        logoImageDataUri: null,
+        primaryColor: '#1D4ED8',
+      }),
+    ).not.toThrow();
+  });
+
+  it('does not throw with an embeddable (PNG/JPEG) logo image', () => {
+    expect(() =>
+      buildAnalyticsReportDocument(baseReport(), {
+        logoUrl: '/brand-kit/logo',
+        logoImageDataUri: 'data:image/jpeg;base64,Zm9v',
         primaryColor: '#1D4ED8',
       }),
     ).not.toThrow();
@@ -98,7 +110,11 @@ describe('buildAnalyticsReportDocument', () => {
 
   it('does not throw with no brand kit configured (graceful default styling)', () => {
     expect(() =>
-      buildAnalyticsReportDocument(baseReport(), { logoUrl: null, primaryColor: null }),
+      buildAnalyticsReportDocument(baseReport(), {
+        logoUrl: null,
+        logoImageDataUri: null,
+        primaryColor: null,
+      }),
     ).not.toThrow();
   });
 
@@ -136,7 +152,11 @@ describe('buildAnalyticsReportDocument', () => {
       topVideos: [],
     });
     expect(() =>
-      buildAnalyticsReportDocument(empty, { logoUrl: null, primaryColor: null }),
+      buildAnalyticsReportDocument(empty, {
+        logoUrl: null,
+        logoImageDataUri: null,
+        primaryColor: null,
+      }),
     ).not.toThrow();
   });
 
@@ -153,7 +173,11 @@ describe('buildAnalyticsReportDocument', () => {
       },
     });
     expect(() =>
-      buildAnalyticsReportDocument(mixed, { logoUrl: null, primaryColor: null }),
+      buildAnalyticsReportDocument(mixed, {
+        logoUrl: null,
+        logoImageDataUri: null,
+        primaryColor: null,
+      }),
     ).not.toThrow();
   });
 });

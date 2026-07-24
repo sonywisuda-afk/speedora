@@ -608,6 +608,7 @@ export class ClipsService {
     const endTime = input.endTime ?? clip.endTime;
     const captionStyle = input.captionStyle ?? clip.captionStyle;
     const speakerColorCaptions = input.speakerColorCaptions ?? clip.speakerColorCaptions;
+    const applyBrandKit = input.applyBrandKit ?? clip.applyBrandKit;
     const hookText = input.hookText ?? clip.hookText;
     const hashtags = input.hashtags ? sanitizeHashtags(input.hashtags) : clip.hashtags;
 
@@ -623,6 +624,7 @@ export class ClipsService {
         durationSeconds: endTime - startTime,
         captionStyle,
         speakerColorCaptions,
+        applyBrandKit,
         // Explicit undefined check (not ??) - null is a real, distinct
         // value here (clears back to the original/untranslated text), same
         // "omitted vs. explicitly null" distinction MoveVideoDto's own
@@ -648,6 +650,8 @@ export class ClipsService {
     const segments = await this.prisma.transcriptSegment.findMany({
       where: { videoId: clip.videoId },
     });
+
+    const fontFamily = await this.resolveFontFamily(clip.video.ownerId, clip.applyBrandKit);
 
     // Sprint 5E (Version Compare & History) + cleared-before-enqueueing, in
     // one transaction: the pre-render state is snapshotted into ClipVersion
@@ -700,11 +704,30 @@ export class ClipsService {
       captionStyle: toSharedCaptionStyle(clip.captionStyle),
       speakerColorCaptions: clip.speakerColorCaptions,
       captionLanguage: clip.captionLanguage,
+      fontFamily,
       keywords: clip.keywords,
       scores: toSharedClipScores(clip.scores),
     });
 
     return this.toDto(cleared);
+  }
+
+  // Brand Kit roadmap (P3a) - resolves the video owner's chosen font once at
+  // enqueue time (never re-fetched by the worker, same "resolve once" shape
+  // as every other RenderClipJobData field). null (both when applyBrandKit
+  // is false and when the owner has never set a font) means "use
+  // build-ass.ts's own default" - not fetched at all when applyBrandKit is
+  // false, since a disabled Brand Kit shouldn't need a User row read.
+  private async resolveFontFamily(
+    ownerId: string,
+    applyBrandKit: boolean,
+  ): Promise<string | null> {
+    if (!applyBrandKit) return null;
+    const owner = await this.prisma.user.findUniqueOrThrow({
+      where: { id: ownerId },
+      select: { brandFontFamily: true },
+    });
+    return owner.brandFontFamily;
   }
 
   async listVersions(userId: string, clipId: string): Promise<ClipVersionListDto> {
@@ -903,6 +926,7 @@ export class ClipsService {
     captionStyle: CaptionStyle;
     speakerColorCaptions: boolean;
     captionLanguage: string | null;
+    applyBrandKit: boolean;
     hookText: string | null;
     hashtags: string[];
     scores: unknown;
@@ -979,6 +1003,7 @@ export class ClipsService {
       captionStyle: clip.captionStyle,
       speakerColorCaptions: clip.speakerColorCaptions,
       captionLanguage: clip.captionLanguage,
+      applyBrandKit: clip.applyBrandKit,
       hookText: clip.hookText,
       hashtags: clip.hashtags,
       scores: toSharedClipScores(clip.scores),

@@ -1407,6 +1407,7 @@ describe('VideosService', () => {
         endTime: 20,
         transcript: [{ start: 12, end: 18, text: 'inside' }],
         captionStyle: 'DEFAULT',
+        fontFamily: null,
         keywords: ['sunset', 'beach'],
         scores: null,
       });

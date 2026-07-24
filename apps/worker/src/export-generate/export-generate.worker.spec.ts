@@ -110,8 +110,16 @@ jest.mock('@react-pdf/renderer', () => ({
 }));
 
 const uploadObjectMock = jest.fn();
+// Brand Kit roadmap (P3a) - real Readable so node:stream/consumers' buffer()
+// (used by fetchBrandKit to embed a PNG/JPEG logo) has something real to
+// read, rather than mocking that Node builtin too.
+const getObjectStreamMock = jest.fn().mockImplementation(async () => {
+  const { Readable } = await import('node:stream');
+  return Readable.from(Buffer.from('fake-logo-bytes'));
+});
 jest.mock('@speedora/storage', () => ({
   uploadObject: (...args: unknown[]) => uploadObjectMock(...args),
+  getObjectStream: (...args: unknown[]) => getObjectStreamMock(...args),
 }));
 
 import { createExportGenerateWorker } from './export-generate.worker';
@@ -267,9 +275,35 @@ describe('export-generate worker', () => {
       where: { id: 'user-1' },
       select: { brandLogoUrl: true, brandPrimaryColor: true },
     });
+    expect(getObjectStreamMock).toHaveBeenCalledWith('brand-logos/abc.png');
     expect(buildBrandReportDocumentMock).toHaveBeenCalledWith(expect.anything(), {
       logoUrl: '/brand-kit/logo',
+      logoImageDataUri: 'data:image/png;base64,ZmFrZS1sb2dvLWJ5dGVz',
       primaryColor: '#1D4ED8',
+    });
+  });
+
+  it('BRAND_REPORT: skips embedding (text-fallback only) for a non-PNG/JPEG logo format', async () => {
+    exportJobFindUniqueOrThrowMock.mockResolvedValue({
+      id: 'job-1',
+      userId: 'user-1',
+      videoId: 'video-1',
+      type: 'BRAND_REPORT',
+      status: 'PENDING',
+    });
+    userFindUniqueOrThrowMock.mockResolvedValue({
+      brandLogoUrl: 'brand-logos/abc.webp',
+      brandPrimaryColor: null,
+    });
+    const processor = getProcessor();
+
+    await processor({ data: { exportJobId: 'job-1' } });
+
+    expect(getObjectStreamMock).not.toHaveBeenCalled();
+    expect(buildBrandReportDocumentMock).toHaveBeenCalledWith(expect.anything(), {
+      logoUrl: '/brand-kit/logo',
+      logoImageDataUri: null,
+      primaryColor: null,
     });
   });
 
@@ -287,6 +321,7 @@ describe('export-generate worker', () => {
 
     expect(buildBrandReportDocumentMock).toHaveBeenCalledWith(expect.anything(), {
       logoUrl: null,
+      logoImageDataUri: null,
       primaryColor: null,
     });
   });

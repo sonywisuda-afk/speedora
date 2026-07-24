@@ -5,6 +5,9 @@ import { createSectionBuilders, createStyles, Page } from './sections';
 
 export interface BrandKitForDocument {
   logoUrl: string | null;
+  // Brand Kit roadmap (P3a) - see brand-report-document.ts's identical field
+  // for the reasoning (base64 data URI, PNG/JPEG only).
+  logoImageDataUri: string | null;
   primaryColor: string | null;
 }
 
@@ -33,7 +36,8 @@ export function buildAnalyticsReportDocument(
   brandKit: BrandKitForDocument,
 ): React.ReactElement {
   const styles = createStyles(brandKit.primaryColor ?? undefined);
-  const { kv, heading, subheading, muted, divider } = createSectionBuilders(styles);
+  const { kv, heading, subheading, muted, divider, buildBrandLogo } =
+    createSectionBuilders(styles);
 
   function buildCoverBlock(): React.ReactElement {
     return React.createElement(
@@ -45,9 +49,7 @@ export function buildAnalyticsReportDocument(
         { style: styles.subtitle },
         `Speedora Export Center - last ${report.cover.windowDays} days, generated ${report.cover.generatedAt}`,
       ),
-      brandKit.logoUrl
-        ? React.createElement(Text, { style: styles.muted }, `Brand logo: ${brandKit.logoUrl}`)
-        : null,
+      buildBrandLogo(brandKit.logoImageDataUri, brandKit.logoUrl),
     );
   }
 

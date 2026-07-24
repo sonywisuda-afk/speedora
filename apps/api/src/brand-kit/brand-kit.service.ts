@@ -7,12 +7,14 @@ interface BrandKitRow {
   brandLogoUrl: string | null;
   brandPrimaryColor: string | null;
   brandSecondaryColor: string | null;
+  brandFontFamily: string | null;
 }
 
 const BRAND_KIT_SELECT = {
   brandLogoUrl: true,
   brandPrimaryColor: true,
   brandSecondaryColor: true,
+  brandFontFamily: true,
 } as const;
 
 @Injectable()
@@ -36,6 +38,7 @@ export class BrandKitService {
       data: {
         ...(dto.primaryColor !== undefined ? { brandPrimaryColor: dto.primaryColor } : {}),
         ...(dto.secondaryColor !== undefined ? { brandSecondaryColor: dto.secondaryColor } : {}),
+        ...(dto.fontFamily !== undefined ? { brandFontFamily: dto.fontFamily } : {}),
       },
       select: BRAND_KIT_SELECT,
     });
@@ -67,6 +70,7 @@ export class BrandKitService {
       logoUrl: user.brandLogoUrl ? '/brand-kit/logo' : null,
       primaryColor: user.brandPrimaryColor,
       secondaryColor: user.brandSecondaryColor,
+      fontFamily: user.brandFontFamily,
     };
   }
 }

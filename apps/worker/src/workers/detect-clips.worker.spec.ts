@@ -36,6 +36,7 @@ const clipCreateMock = jest.fn((args: { data: Record<string, unknown> }) => {
 const videoUpdateMock = jest.fn();
 const videoFindUniqueOrThrowMock = jest.fn();
 const videoFindUniqueMock = jest.fn();
+const userFindUniqueOrThrowMock = jest.fn();
 const videoStatusEventCreateMock = jest.fn().mockResolvedValue({});
 const notificationCreateMock = jest.fn();
 const notificationPreferenceFindUniqueMock = jest.fn();
@@ -48,6 +49,10 @@ jest.mock('../prisma', () => ({
       findUniqueOrThrow: (...args: unknown[]) => videoFindUniqueOrThrowMock(...args),
       findUnique: (...args: unknown[]) => videoFindUniqueMock(...args),
     },
+    // Brand Kit roadmap (P3a) - resolves the video owner's chosen font once
+    // per detect-clips run, same reasoning as ClipsService.render()'s own
+    // resolveFontFamily.
+    user: { findUniqueOrThrow: (...args: unknown[]) => userFindUniqueOrThrowMock(...args) },
     // Fase 3 (DB+JSON-contract roadmap) - updateVideoStatus() writes here
     // too, in the same $transaction as video.update().
     videoStatusEvent: { create: (...args: unknown[]) => videoStatusEventCreateMock(...args) },
@@ -117,6 +122,9 @@ describe('detect-clips worker (adapter)', () => {
     // orphaned-job (deleted-video) and already-processed (idempotency) skip
     // paths.
     videoFindUniqueMock.mockResolvedValue({ status: VideoStatus.TRANSCRIBED });
+    // Brand Kit roadmap (P3a) - no font set by default; individual tests
+    // override to exercise a real brandFontFamily flowing through.
+    userFindUniqueOrThrowMock.mockResolvedValue({ brandFontFamily: null });
   });
 
   it("narrows each TranscriptSegment to the scoring module's own input shape (drops speaker/emotion)", async () => {

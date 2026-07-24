@@ -1,10 +1,14 @@
 import * as React from 'react';
-import { Document, Text } from '@react-pdf/renderer';
+import { Document } from '@react-pdf/renderer';
 import type { VideoReportData } from '@speedora/contracts';
 import { createSectionBuilders, createStyles, Page } from './sections';
 
 export interface BrandKitForDocument {
   logoUrl: string | null;
+  // Brand Kit roadmap (P3a) - base64 data URI, only set for a PNG/JPEG logo
+  // (see sections.ts's buildBrandLogo comment for why other formats fall
+  // back to the text-only logoUrl line instead).
+  logoImageDataUri: string | null;
   primaryColor: string | null;
 }
 
@@ -12,10 +16,9 @@ export interface BrandKitForDocument {
 // styled with the user's own Brand Kit colors instead of the default
 // black/grey palette. Falls back to the default palette when no
 // primaryColor is set (graceful degradation, not a blocked export - see
-// schema.prisma's own comment on User.brandPrimaryColor). Logo is
-// referenced as text only, not embedded as an image - same posture as the
-// existing Thumbnail section, for the same reason (no authenticated-image-
-// fetch path exists in apps/worker yet).
+// schema.prisma's own comment on User.brandPrimaryColor). Logo is embedded
+// as a real image when possible (Brand Kit roadmap P3a) - see
+// sections.ts's buildBrandLogo.
 export function buildBrandReportDocument(
   report: VideoReportData,
   brandKit: BrandKitForDocument,
@@ -23,6 +26,7 @@ export function buildBrandReportDocument(
   const styles = createStyles(brandKit.primaryColor ?? undefined);
   const {
     divider,
+    buildBrandLogo,
     buildCoverBlock,
     buildVideoSummaryBlock,
     buildTimelineBlock,
@@ -43,9 +47,7 @@ export function buildBrandReportDocument(
       Page,
       { size: 'A4', style: styles.page },
       buildCoverBlock(report.cover, 'Speedora Export Center - Brand Report'),
-      brandKit.logoUrl
-        ? React.createElement(Text, { style: styles.muted }, `Brand logo: ${brandKit.logoUrl}`)
-        : null,
+      buildBrandLogo(brandKit.logoImageDataUri, brandKit.logoUrl),
       buildVideoSummaryBlock(report.videoSummary),
       divider(),
       buildTimelineBlock(report.timeline),

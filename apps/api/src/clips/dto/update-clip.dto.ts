@@ -28,6 +28,13 @@ export class UpdateClipDto {
   @IsString()
   captionLanguage?: string | null;
 
+  // Brand Kit roadmap (P3a) - per-clip opt-out of the owner's Brand Kit
+  // (font now; logo/watermark/intro/outro in later P3 sub-phases), same
+  // shape as speakerColorCaptions above.
+  @IsOptional()
+  @IsBoolean()
+  applyBrandKit?: boolean;
+
   // Suggested opener line/hashtags from the detect-clips LLM call - purely
   // metadata (not baked into the rendered video), user-editable same as
   // everything else on this DTO.

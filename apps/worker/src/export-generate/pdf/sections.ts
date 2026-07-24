@@ -1,5 +1,5 @@
 import * as React from 'react';
-import { Page, StyleSheet, Text, View } from '@react-pdf/renderer';
+import { Image, Page, StyleSheet, Text, View } from '@react-pdf/renderer';
 import type {
   CtaSection,
   FaceAnalysisSection,
@@ -47,6 +47,7 @@ export function createStyles(accentColor?: string) {
     value: { flex: 1 },
     muted: { color: '#888' },
     divider: { borderBottomWidth: 1, borderBottomColor: '#ddd', marginTop: 4, marginBottom: 4 },
+    logo: { width: 80, marginBottom: 8 },
   });
 }
 
@@ -84,6 +85,29 @@ export function createSectionBuilders(styles: Styles) {
 
   function divider(): React.ReactElement {
     return React.createElement(View, { style: styles.divider });
+  }
+
+  // Brand Kit roadmap (P3a) - embeds the logo as an actual image when
+  // logoImageDataUri is available (a base64 data URI - @react-pdf/renderer's
+  // Image accepts one directly, no separate file/network fetch from inside
+  // the PDF renderer). logoImageDataUri is null for a logo the fetch-and-
+  // embed step upstream (export-generate.worker.ts's fetchBrandKit)
+  // deliberately skipped - today that's any format other than PNG/JPEG
+  // (react-pdf's Image doesn't support WebP/GIF/SVG) - in which case this
+  // falls back to the original text-only line rather than a broken/blank
+  // image. logoUrl alone with no data URI (skipped format) still shows the
+  // text fallback; neither present renders nothing.
+  function buildBrandLogo(
+    logoImageDataUri: string | null,
+    logoUrl: string | null,
+  ): React.ReactElement | null {
+    if (logoImageDataUri) {
+      return React.createElement(Image, { style: styles.logo, src: logoImageDataUri });
+    }
+    if (logoUrl) {
+      return React.createElement(Text, { style: styles.muted }, `Brand logo: ${logoUrl}`);
+    }
+    return null;
   }
 
   function buildCoverBlock(
@@ -278,6 +302,7 @@ export function createSectionBuilders(styles: Styles) {
     subheading,
     muted,
     divider,
+    buildBrandLogo,
     buildCoverBlock,
     buildVideoSummaryBlock,
     buildTimelineBlock,

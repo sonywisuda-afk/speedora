@@ -1,3 +1,4 @@
+import { buffer as bufferFromStream } from 'node:stream/consumers';
 import * as Sentry from '@sentry/node';
 import { ExportJobStatus, ExportType, recordNotification } from '@speedora/database';
 import { buildAnalyticsReportData } from '@speedora/analytics-report';
@@ -10,7 +11,7 @@ import {
   type ExportGenerateJobResult,
   type ExportType as SharedExportType,
 } from '@speedora/shared';
-import { uploadObject } from '@speedora/storage';
+import { getObjectStream, uploadObject } from '@speedora/storage';
 import { renderToBuffer } from '@react-pdf/renderer';
 import { Worker, type Job } from 'bullmq';
 import { forStage } from '../logger';
@@ -28,13 +29,36 @@ import { buildVideoReportWorkbook } from './xlsx/video-report-workbook';
 
 const logger = forStage('export-generate');
 
+// Brand Kit roadmap (P3a) - PNG/JPEG only (the two formats @react-pdf/
+// renderer's Image component actually supports - WebP/GIF/SVG logos still
+// get the pre-existing text-only fallback, see sections.ts's buildBrandLogo).
+// Detected from the stored key's own extension, same convention as
+// apps/api's brand-kit.controller.ts logoContentType().
+function embeddableLogoMimeType(key: string): string | null {
+  if (key.endsWith('.png')) return 'image/png';
+  if (key.endsWith('.jpg') || key.endsWith('.jpeg')) return 'image/jpeg';
+  return null;
+}
+
 async function fetchBrandKit(userId: string) {
   const user = await prisma.user.findUniqueOrThrow({
     where: { id: userId },
     select: { brandLogoUrl: true, brandPrimaryColor: true },
   });
+
+  let logoImageDataUri: string | null = null;
+  if (user.brandLogoUrl) {
+    const mimeType = embeddableLogoMimeType(user.brandLogoUrl);
+    if (mimeType) {
+      const stream = await getObjectStream(user.brandLogoUrl);
+      const bytes = await bufferFromStream(stream);
+      logoImageDataUri = `data:${mimeType};base64,${bytes.toString('base64')}`;
+    }
+  }
+
   return {
     logoUrl: user.brandLogoUrl ? '/brand-kit/logo' : null,
+    logoImageDataUri,
     primaryColor: user.brandPrimaryColor,
   };
 }

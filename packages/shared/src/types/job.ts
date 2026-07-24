@@ -120,6 +120,13 @@ export interface RenderClipJobData {
   // Subtitle Studio roadmap (P2f) - which TranscriptSegment.translations key
   // to burn in; undefined/null means the original (untranslated) text.
   captionLanguage: string | null;
+  // Brand Kit roadmap (P3a) - resolved once at enqueue time from the video
+  // owner's User.brandFontFamily when Clip.applyBrandKit is true, else null
+  // - same "resolve once, worker never re-fetches" shape as captionStyle/
+  // speakerColorCaptions above. null means "use build-ass.ts's own default"
+  // (Inter), not "no font" - buildAssInputSchema's fontFamily field defaults
+  // to Inter itself, this is just the caller-facing optional-ness of that.
+  fontFamily: string | null;
   // Fase 15 (Auto B-roll) - the clip's own Fase 8 keywords, used to search
   // for matching stock footage moments (see broll.ts's findBRollMoments).
   // Empty for a clip whose Content Intelligence LLM call never ran/found

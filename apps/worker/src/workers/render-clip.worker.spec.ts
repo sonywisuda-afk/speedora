@@ -574,6 +574,7 @@ describe('render-clip worker', () => {
       style: CaptionStyle.DEFAULT,
       videoWidth: 136,
       videoHeight: 240,
+      fontFamily: 'Inter',
     });
     expect(writeFileMock).toHaveBeenCalledWith(
       expect.stringContaining('captions'),

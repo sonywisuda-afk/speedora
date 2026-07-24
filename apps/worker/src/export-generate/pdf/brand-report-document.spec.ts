@@ -6,6 +6,7 @@ jest.mock('@react-pdf/renderer', () => ({
   Page: 'Page',
   View: 'View',
   Text: 'Text',
+  Image: 'Image',
   StyleSheet: { create: (styles: unknown) => styles },
 }));
 
@@ -68,10 +69,21 @@ function baseReport(overrides: Partial<VideoReportData> = {}): VideoReportData {
 }
 
 describe('buildBrandReportDocument', () => {
-  it('does not throw with a fully-configured brand kit', () => {
+  it('does not throw with a fully-configured brand kit (text-only logo fallback)', () => {
     expect(() =>
       buildBrandReportDocument(baseReport(), {
         logoUrl: '/brand-kit/logo',
+        logoImageDataUri: null,
+        primaryColor: '#1D4ED8',
+      }),
+    ).not.toThrow();
+  });
+
+  it('does not throw with an embeddable (PNG/JPEG) logo image', () => {
+    expect(() =>
+      buildBrandReportDocument(baseReport(), {
+        logoUrl: '/brand-kit/logo',
+        logoImageDataUri: 'data:image/png;base64,Zm9v',
         primaryColor: '#1D4ED8',
       }),
     ).not.toThrow();
@@ -79,7 +91,11 @@ describe('buildBrandReportDocument', () => {
 
   it('does not throw with no brand kit configured (graceful default styling)', () => {
     expect(() =>
-      buildBrandReportDocument(baseReport(), { logoUrl: null, primaryColor: null }),
+      buildBrandReportDocument(baseReport(), {
+        logoUrl: null,
+        logoImageDataUri: null,
+        primaryColor: null,
+      }),
     ).not.toThrow();
   });
 
@@ -95,7 +111,11 @@ describe('buildBrandReportDocument', () => {
       thumbnail: { entries: [] },
     });
     expect(() =>
-      buildBrandReportDocument(empty, { logoUrl: null, primaryColor: null }),
+      buildBrandReportDocument(empty, {
+        logoUrl: null,
+        logoImageDataUri: null,
+        primaryColor: null,
+      }),
     ).not.toThrow();
   });
 });

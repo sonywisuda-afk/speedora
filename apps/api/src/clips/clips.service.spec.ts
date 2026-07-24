@@ -1177,6 +1177,7 @@ describe('ClipsService', () => {
           },
         ],
         captionStyle: CaptionStyle.KARAOKE,
+        fontFamily: null,
         keywords: [],
         scores: null,
       });

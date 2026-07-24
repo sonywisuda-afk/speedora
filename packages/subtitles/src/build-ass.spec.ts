@@ -8,6 +8,7 @@ const baseOptions = {
   videoWidth: 136,
   videoHeight: 240,
   speakerColorCaptions: false,
+  fontFamily: 'Inter' as const,
 };
 
 describe('buildAss', () => {
