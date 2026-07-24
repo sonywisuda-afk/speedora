@@ -50,11 +50,12 @@ export function createSyncFollowerCountWorker(): Worker {
         // account this run - absence of recent rows is itself the "not
         // available" signal (see platform-capability.util.ts).
         //
-        // TODO(tech debt, Stabilization Pass Area 5): same no-retry/no-
-        // alerting gap as sync-publish-stats.worker.ts's matching TODO -
-        // this try/catch never rethrows, so a permanently broken account is
-        // silently retried every SYNC_INTERVAL_MS forever with no
-        // escalation after N consecutive failures.
+        // Stabilization Pass Area 5 tech-debt fix: this try/catch still
+        // never rethrows (a BullMQ-level retry doesn't help here - the next
+        // scheduled tick already re-attempts every account), but a
+        // permanently broken account is no longer silent - consecutiveSync
+        // Failures below feeds alert-engine.worker.ts's sync-failure-warning
+        // rule, which notifies the account owner once it crosses threshold.
         try {
           const adapter = platformRegistry[account.platform];
           if (!adapter.fetchFollowerCount) continue;
@@ -75,6 +76,12 @@ export function createSyncFollowerCountWorker(): Worker {
           await prisma.socialAccountFollowerSnapshot.create({
             data: { socialAccountId: account.id, followerCount },
           });
+          if (account.consecutiveSyncFailures > 0) {
+            await prisma.socialAccount.update({
+              where: { id: account.id },
+              data: { consecutiveSyncFailures: 0 },
+            });
+          }
           synced += 1;
         } catch (error) {
           logger.error(
@@ -83,6 +90,10 @@ export function createSyncFollowerCountWorker(): Worker {
             error,
           );
           Sentry.captureException(error, { tags: { socialAccountId: account.id } });
+          await prisma.socialAccount.update({
+            where: { id: account.id },
+            data: { consecutiveSyncFailures: { increment: 1 }, lastSyncFailureAt: new Date() },
+          });
         }
       }
 

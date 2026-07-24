@@ -25,6 +25,11 @@ export enum NotificationType {
   REVIEW_REQUEST = 'REVIEW_REQUEST',
   APPROVAL = 'APPROVAL',
   MEMBER_INVITATION_ACCEPTED = 'MEMBER_INVITATION_ACCEPTED',
+  // Stabilization Pass Area 5 tech-debt fix (2026-07-24) - a third
+  // state-based type alongside STORAGE_WARNING/CREDIT_WARNING, per-account
+  // rather than system-wide. See alert-engine.worker.ts's
+  // syncFailureWarningRule.
+  SYNC_FAILURE_WARNING = 'SYNC_FAILURE_WARNING',
 }
 
 // Mirrors NotificationChannel in packages/database's Prisma schema, same
@@ -64,6 +69,7 @@ export const NOTIFICATION_SEVERITY: Record<NotificationType, NotificationSeverit
   [NotificationType.RENDER_FAILED]: 'error',
   [NotificationType.STORAGE_WARNING]: 'warning',
   [NotificationType.CREDIT_WARNING]: 'warning',
+  [NotificationType.SYNC_FAILURE_WARNING]: 'warning',
   // Milestone 04f - all 5 are positive/informational collaboration activity
   // (someone engaged with your content), not a warning or failure state -
   // same 'success' tone as the other event-driven types above.

@@ -89,6 +89,7 @@ const youtubeAccount = {
   accessToken: 'encrypted-access',
   refreshToken: 'encrypted-refresh',
   tokenExpiresAt: new Date('2099-01-01'),
+  consecutiveSyncFailures: 0,
 };
 
 const instagramAccount = {
@@ -98,6 +99,7 @@ const instagramAccount = {
   accessToken: 'encrypted-access-2',
   refreshToken: 'encrypted-refresh-2',
   tokenExpiresAt: new Date('2099-01-01'),
+  consecutiveSyncFailures: 0,
 };
 
 const tiktokAccount = {
@@ -107,6 +109,7 @@ const tiktokAccount = {
   accessToken: 'encrypted-access-3',
   refreshToken: 'encrypted-refresh-3',
   tokenExpiresAt: new Date('2099-01-01'),
+  consecutiveSyncFailures: 0,
 };
 
 describe('sync-follower-count worker', () => {
@@ -228,6 +231,43 @@ describe('sync-follower-count worker', () => {
       // The YouTube account after it still gets synced.
       expect(followerSnapshotCreateMock).toHaveBeenCalledWith({
         data: { socialAccountId: 'account-1', followerCount: 1000 },
+      });
+    });
+
+    it('resets consecutiveSyncFailures to 0 on a successful sync', async () => {
+      socialAccountFindManyMock.mockResolvedValue([
+        { ...youtubeAccount, consecutiveSyncFailures: 2 },
+      ]);
+
+      const processor = getProcessor();
+      await processor({});
+
+      expect(socialAccountUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'account-1' },
+        data: { consecutiveSyncFailures: 0 },
+      });
+    });
+
+    it('does not touch consecutiveSyncFailures on success when it is already 0', async () => {
+      socialAccountFindManyMock.mockResolvedValue([youtubeAccount]);
+
+      const processor = getProcessor();
+      await processor({});
+
+      expect(socialAccountUpdateMock).not.toHaveBeenCalled();
+    });
+
+    it('increments consecutiveSyncFailures and sets lastSyncFailureAt when an account fails', async () => {
+      const error = new Error('scope_not_authorized');
+      fetchTikTokFollowerCountMock.mockRejectedValueOnce(error);
+      socialAccountFindManyMock.mockResolvedValue([tiktokAccount]);
+
+      const processor = getProcessor();
+      await processor({});
+
+      expect(socialAccountUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'account-3' },
+        data: { consecutiveSyncFailures: { increment: 1 }, lastSyncFailureAt: expect.any(Date) },
       });
     });
 

@@ -915,6 +915,15 @@ model SocialAccount {
   tokenExpiresAt    DateTime
   createdAt         DateTime       @default(now())
   updatedAt         DateTime       @updatedAt
+  // Stabilization Pass Area 5 tech-debt fix: incremented on every sync
+  // failure (sync-publish-stats.worker.ts/sync-follower-count.worker.ts),
+  // reset to 0 on any success for that account. Read by alert-engine.worker
+  // .ts's sync-failure-warning rule to notify the account owner once it
+  // crosses SYNC_FAILURE_ALERT_THRESHOLD, instead of failing forever with
+  // no visibility. lastSyncFailureAt is display-only (surfaced in the
+  // notification body), not itself compared against a threshold.
+  consecutiveSyncFailures Int      @default(0)
+  lastSyncFailureAt       DateTime?
 
   publishRecords     PublishRecord[]
   // Publishing Expansion Phase 6 (Scheduling)
@@ -1200,6 +1209,12 @@ enum NotificationType {
   // someone accepts their workspace invite - see
   // WorkspaceService.acceptInvite.
   MEMBER_INVITATION_ACCEPTED
+  // Stabilization Pass Area 5 tech-debt fix (2026-07-24) - a third
+  // state-based AlertRule alongside STORAGE_WARNING/CREDIT_WARNING, fired
+  // per-account (not system-wide) once SocialAccount.consecutiveSyncFailures
+  // crosses the alert-engine.worker.ts threshold. See alert-engine.ts's own
+  // comment on AlertRule for the general re-arm/dedupe pattern this reuses.
+  SYNC_FAILURE_WARNING
 }
 
 // Only IN_APP for Sprint 4A. Milestone 04d wired SLACK/DISCORD/WEBHOOK, 04e

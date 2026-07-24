@@ -21,6 +21,7 @@ const notificationCreateMock = jest.fn();
 const notificationPreferenceFindUniqueMock = jest.fn();
 const userFindManyMock = jest.fn();
 const premiumCreditFindManyMock = jest.fn();
+const socialAccountFindManyMock = jest.fn();
 jest.mock('../prisma', () => ({
   prisma: {
     alertState: {
@@ -34,6 +35,7 @@ jest.mock('../prisma', () => ({
     },
     user: { findMany: (...args: unknown[]) => userFindManyMock(...args) },
     premiumCredit: { findMany: (...args: unknown[]) => premiumCreditFindManyMock(...args) },
+    socialAccount: { findMany: (...args: unknown[]) => socialAccountFindManyMock(...args) },
   },
 }));
 
@@ -56,6 +58,7 @@ describe('alert-engine worker', () => {
     jest.clearAllMocks();
     process.env = { ...originalEnv };
     delete process.env.STORAGE_QUOTA_BYTES;
+    delete process.env.SYNC_FAILURE_ALERT_THRESHOLD;
     notificationPreferenceFindUniqueMock.mockResolvedValue(null);
     notificationCreateMock.mockResolvedValue({ id: 'notif-1' });
     publishNotificationMock.mockResolvedValue(undefined);
@@ -68,6 +71,7 @@ describe('alert-engine worker', () => {
     });
     premiumCreditFindManyMock.mockResolvedValue([]);
     userFindManyMock.mockResolvedValue([]);
+    socialAccountFindManyMock.mockResolvedValue([]);
   });
 
   afterAll(() => {
@@ -167,6 +171,125 @@ describe('alert-engine worker', () => {
       await processor({});
 
       expect(notificationCreateMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('processor - sync failure warning', () => {
+    it('notifies the account owner once consecutiveSyncFailures reaches the default threshold (3)', async () => {
+      socialAccountFindManyMock.mockResolvedValue([
+        {
+          id: 'account-1',
+          userId: 'user-1',
+          platform: 'YOUTUBE',
+          displayName: 'My Channel',
+          consecutiveSyncFailures: 3,
+        },
+      ]);
+
+      const processor = getProcessor();
+      await processor({});
+
+      expect(notificationCreateMock).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: 'user-1', type: 'SYNC_FAILURE_WARNING' }),
+      });
+    });
+
+    it('does not notify while under threshold', async () => {
+      socialAccountFindManyMock.mockResolvedValue([
+        {
+          id: 'account-1',
+          userId: 'user-1',
+          platform: 'YOUTUBE',
+          displayName: 'My Channel',
+          consecutiveSyncFailures: 2,
+        },
+      ]);
+
+      const processor = getProcessor();
+      await processor({});
+
+      expect(notificationCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('notifies only once across multiple ticks while the account stays broken, even as the failure count keeps growing', async () => {
+      const activeDedupeKeys = new Set<string>();
+      alertStateFindUniqueMock.mockImplementation(({ where }: { where: { dedupeKey: string } }) =>
+        activeDedupeKeys.has(where.dedupeKey) ? { dedupeKey: where.dedupeKey } : null,
+      );
+      alertStateCreateMock.mockImplementation(({ data }: { data: { dedupeKey: string } }) => {
+        activeDedupeKeys.add(data.dedupeKey);
+        return {};
+      });
+
+      const processor = getProcessor();
+      for (const consecutiveSyncFailures of [3, 4, 5]) {
+        socialAccountFindManyMock.mockResolvedValueOnce([
+          {
+            id: 'account-1',
+            userId: 'user-1',
+            platform: 'YOUTUBE',
+            displayName: 'My Channel',
+            consecutiveSyncFailures,
+          },
+        ]);
+        await processor({});
+      }
+
+      expect(
+        notificationCreateMock.mock.calls.filter(
+          ([{ data }]) => data.type === 'SYNC_FAILURE_WARNING',
+        ),
+      ).toHaveLength(1);
+    });
+
+    it('re-arms once the account recovers (consecutiveSyncFailures reset to 0), so a later re-breach notifies again', async () => {
+      const brokenAccount = {
+        id: 'account-1',
+        userId: 'user-1',
+        platform: 'YOUTUBE',
+        displayName: 'My Channel',
+        consecutiveSyncFailures: 3,
+      };
+      // Keyed by dedupeKey (not call order) - each rule's instance queries
+      // its own key independently within the same tick.
+      const activeDedupeKeys = new Set<string>();
+      alertStateFindUniqueMock.mockImplementation(({ where }: { where: { dedupeKey: string } }) =>
+        activeDedupeKeys.has(where.dedupeKey) ? { dedupeKey: where.dedupeKey } : null,
+      );
+      alertStateCreateMock.mockImplementation(({ data }: { data: { dedupeKey: string } }) => {
+        activeDedupeKeys.add(data.dedupeKey);
+        return {};
+      });
+      alertStateDeleteMock.mockImplementation(({ where }: { where: { dedupeKey: string } }) => {
+        activeDedupeKeys.delete(where.dedupeKey);
+        return {};
+      });
+
+      socialAccountFindManyMock.mockResolvedValueOnce([brokenAccount]);
+      const processor = getProcessor();
+      await processor({});
+      expect(notificationCreateMock).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: 'user-1', type: 'SYNC_FAILURE_WARNING' }),
+      });
+      notificationCreateMock.mockClear();
+
+      // Second tick: recovered - the rule returns breached: false, and the
+      // existing AlertState row should be deleted to re-arm.
+      socialAccountFindManyMock.mockResolvedValueOnce([
+        { ...brokenAccount, consecutiveSyncFailures: 0 },
+      ]);
+      await processor({});
+      expect(alertStateDeleteMock).toHaveBeenCalledWith({
+        where: { dedupeKey: 'sync-failure-warning:account-1' },
+      });
+
+      // Third tick: broken again - re-notifies since the AlertState row was
+      // deleted above.
+      socialAccountFindManyMock.mockResolvedValueOnce([brokenAccount]);
+      await processor({});
+      expect(notificationCreateMock).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: 'user-1', type: 'SYNC_FAILURE_WARNING' }),
+      });
     });
   });
 

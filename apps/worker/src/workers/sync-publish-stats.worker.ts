@@ -44,20 +44,26 @@ export function createSyncPublishStatsWorker(): Worker {
 
       let synced = 0;
       let pending = 0;
+      // Stabilization Pass Area 5 tech-debt fix: tracks each account's
+      // outcome for this tick, not each record's - one broken account can
+      // own several PublishRecords, and a single stale/deleted post
+      // shouldn't read as "the account is broken" alongside others from the
+      // same account still syncing fine. Any success for the account this
+      // tick wins over an earlier failure (resolveAccessToken/adapter calls
+      // are per-record, so a transient blip on record 1 followed by a real
+      // success on record 2 means the account itself is fine).
+      const accountOutcomes = new Map<string, 'success' | 'failure'>();
       for (const record of records) {
         // One clip's stats failing (token revoked, video deleted on the
         // platform, transient API error) shouldn't stop the rest of the
-        // batch from syncing - isolated per record, not per-batch.
-        //
-        // TODO(tech debt, Stabilization Pass Area 5 Performance Evaluation):
-        // this try/catch never rethrows, so the BullMQ job itself always
-        // "succeeds" regardless of how many records failed - there is no
-        // BullMQ-level retry for a failed sync at all, and no backoff/
-        // circuit-breaker/alerting after N consecutive failures on the same
-        // record. A permanently broken account (e.g. a revoked token) is
-        // silently re-attempted every SYNC_INTERVAL_MS forever with no
-        // escalation. Not fixed - flagging only. Same shape of gap exists in
-        // sync-follower-count.worker.ts's per-account loop below.
+        // batch from syncing - isolated per record, not per-batch. A
+        // BullMQ-level retry wouldn't help here anyway - the next scheduled
+        // tick already re-attempts every record - so this still never
+        // rethrows. What used to be silent forever is now escalated via
+        // accountOutcomes below: a permanently broken account crosses
+        // alert-engine.worker.ts's sync-failure-warning threshold and
+        // notifies its owner instead of failing invisibly. Same shape of
+        // fix applied to sync-follower-count.worker.ts's per-account loop.
         try {
           if (!record.platformPostId) continue;
 
@@ -111,6 +117,7 @@ export function createSyncPublishStatsWorker(): Worker {
             },
           });
           synced += 1;
+          accountOutcomes.set(record.socialAccountId, 'success');
         } catch (error) {
           logger.error(
             'record failed',
@@ -119,6 +126,23 @@ export function createSyncPublishStatsWorker(): Worker {
           );
           Sentry.captureException(error, {
             tags: { publishRecordId: record.id, socialAccountId: record.socialAccountId },
+          });
+          if (accountOutcomes.get(record.socialAccountId) !== 'success') {
+            accountOutcomes.set(record.socialAccountId, 'failure');
+          }
+        }
+      }
+
+      for (const [socialAccountId, outcome] of accountOutcomes) {
+        if (outcome === 'success') {
+          await prisma.socialAccount.updateMany({
+            where: { id: socialAccountId, consecutiveSyncFailures: { gt: 0 } },
+            data: { consecutiveSyncFailures: 0 },
+          });
+        } else {
+          await prisma.socialAccount.update({
+            where: { id: socialAccountId },
+            data: { consecutiveSyncFailures: { increment: 1 }, lastSyncFailureAt: new Date() },
           });
         }
       }

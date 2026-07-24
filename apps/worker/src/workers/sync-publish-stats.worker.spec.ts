@@ -55,6 +55,7 @@ const publishRecordFindManyMock = jest.fn();
 const publishRecordUpdateMock = jest.fn();
 const publishRecordStatsSnapshotCreateMock = jest.fn();
 const socialAccountUpdateMock = jest.fn();
+const socialAccountUpdateManyMock = jest.fn();
 jest.mock('../prisma', () => ({
   prisma: {
     publishRecord: {
@@ -66,6 +67,7 @@ jest.mock('../prisma', () => ({
     },
     socialAccount: {
       update: (...args: unknown[]) => socialAccountUpdateMock(...args),
+      updateMany: (...args: unknown[]) => socialAccountUpdateManyMock(...args),
     },
   },
 }));
@@ -170,6 +172,7 @@ describe('sync-publish-stats worker', () => {
     publishRecordUpdateMock.mockResolvedValue({});
     publishRecordStatsSnapshotCreateMock.mockResolvedValue({});
     socialAccountUpdateMock.mockResolvedValue({});
+    socialAccountUpdateManyMock.mockResolvedValue({ count: 0 });
     resolveAccessTokenMock.mockResolvedValue({ accessToken: 'plaintext-access', refreshed: false });
     computeEngagementScoreMock.mockReturnValue(0.5);
     fetchYouTubeVideoStatsMock.mockResolvedValue({
@@ -389,6 +392,58 @@ describe('sync-publish-stats worker', () => {
           statsUpdatedAt: expect.any(Date),
         },
       });
+    });
+
+    it('resets consecutiveSyncFailures to 0 on a successful sync', async () => {
+      publishRecordFindManyMock.mockResolvedValue([youtubeRecord]);
+
+      const processor = getProcessor();
+      await processor({});
+
+      expect(socialAccountUpdateManyMock).toHaveBeenCalledWith({
+        where: { id: 'account-1', consecutiveSyncFailures: { gt: 0 } },
+        data: { consecutiveSyncFailures: 0 },
+      });
+      expect(socialAccountUpdateMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ consecutiveSyncFailures: expect.anything() }) }),
+      );
+    });
+
+    it('increments consecutiveSyncFailures and sets lastSyncFailureAt when every record for an account fails', async () => {
+      const error = new Error('token revoked');
+      fetchYouTubeVideoStatsMock.mockRejectedValueOnce(error);
+      publishRecordFindManyMock.mockResolvedValue([youtubeRecord]);
+
+      const processor = getProcessor();
+      await processor({});
+
+      expect(socialAccountUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'account-1' },
+        data: { consecutiveSyncFailures: { increment: 1 }, lastSyncFailureAt: expect.any(Date) },
+      });
+      expect(socialAccountUpdateManyMock).not.toHaveBeenCalled();
+    });
+
+    it('treats the account as healthy when at least one of its records succeeds this tick, even if another fails', async () => {
+      const error = new Error('this specific post was deleted on the platform');
+      const secondYoutubeRecord = { ...youtubeRecord, id: 'record-1b', platformPostId: 'yt-video-1b' };
+      fetchYouTubeVideoStatsMock.mockRejectedValueOnce(error).mockResolvedValueOnce({
+        viewCount: 100,
+        likeCount: 10,
+        commentCount: 2,
+      });
+      publishRecordFindManyMock.mockResolvedValue([youtubeRecord, secondYoutubeRecord]);
+
+      const processor = getProcessor();
+      await processor({});
+
+      expect(socialAccountUpdateManyMock).toHaveBeenCalledWith({
+        where: { id: 'account-1', consecutiveSyncFailures: { gt: 0 } },
+        data: { consecutiveSyncFailures: 0 },
+      });
+      expect(socialAccountUpdateMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ consecutiveSyncFailures: expect.anything() }) }),
+      );
     });
 
     it('does nothing when there are no published records to sync', async () => {

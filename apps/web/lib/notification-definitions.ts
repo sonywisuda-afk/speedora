@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   UploadCloud,
   UserPlus,
+  Unplug,
 } from 'lucide-react';
 import { NOTIFICATION_SEVERITY, NotificationType, type NotificationSeverity } from '@speedora/shared';
 
@@ -26,6 +27,7 @@ export const NOTIFICATION_ICONS: Record<NotificationType, typeof Bell> = {
   [NotificationType.RENDER_FAILED]: FileWarning,
   [NotificationType.STORAGE_WARNING]: HardDrive,
   [NotificationType.CREDIT_WARNING]: CreditCard,
+  [NotificationType.SYNC_FAILURE_WARNING]: Unplug,
   [NotificationType.COMMENT]: MessageSquare,
   [NotificationType.MENTION]: AtSign,
   [NotificationType.REVIEW_REQUEST]: ShieldCheck,
@@ -57,6 +59,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   [NotificationType.RENDER_FAILED]: 'Proses gagal',
   [NotificationType.STORAGE_WARNING]: 'Peringatan penyimpanan',
   [NotificationType.CREDIT_WARNING]: 'Kredit premium habis',
+  [NotificationType.SYNC_FAILURE_WARNING]: 'Sinkronisasi akun gagal',
   [NotificationType.COMMENT]: 'Komentar baru',
   [NotificationType.MENTION]: 'Disebut dalam komentar',
   [NotificationType.REVIEW_REQUEST]: 'Permintaan review',

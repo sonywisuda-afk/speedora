@@ -268,12 +268,19 @@ High-level state of each major initiative (see the linked docs for what's actual
   here; dark mode confirmed absent, tooltips/empty/loading states pass by construction, 2
   responsive-layout gaps flagged as backlog), and Performance Evaluation (Area 5 — real `EXPLAIN
   ANALYZE`/index review/N+1 audit plus worker throughput, redirect latency, and Recharts bundle
-  impact, see `performance-evaluation.md`). Three tech-debt findings are deliberately left open and
-  documented rather than fixed in this pass (none block production-readiness): a dotenv/module-load
+  impact, see `performance-evaluation.md`). Three tech-debt findings were deliberately left open and
+  documented rather than fixed in this pass (none blocked production-readiness): a dotenv/module-load
   env-read ordering risk in `apps/worker/src/redis.ts`, an unbounded `capturedAt`-less query in
   `AnalyticsService.getOverview`, and a silent no-retry/no-alerting failure mode in
-  `sync-publish-stats.worker.ts`/`sync-follower-count.worker.ts` — each has a `TODO` at its exact
-  location. The Sprint 6A-6K analytics module is considered production-ready as of this pass.
+  `sync-publish-stats.worker.ts`/`sync-follower-count.worker.ts`. The Sprint 6A-6K analytics module is
+  considered production-ready as of this pass. **Update (2026-07-24)**: the user prioritized the 3
+  items (worker silent-retry highest, `getOverview` next, `redis.ts` lowest) and the first is now
+  fixed — `SocialAccount.consecutiveSyncFailures`/`lastSyncFailureAt` are tracked per-account by both
+  sync workers (reset on any success, incremented + timestamped on failure), and a new
+  `sync-failure-warning` `AlertRule` (`apps/worker/src/workers/alert-engine.worker.ts`) notifies the
+  account owner once `SYNC_FAILURE_ALERT_THRESHOLD` (default 3) consecutive failures are reached, via
+  a new `NotificationType.SYNC_FAILURE_WARNING`. The other 2 items remain open as originally
+  documented.
 
 For new feature work: check whether it's an extension of an existing signal/module first (extend,
 don't rebuild — this has been an explicit recurring instruction across the AI Fusion roadmap), and
