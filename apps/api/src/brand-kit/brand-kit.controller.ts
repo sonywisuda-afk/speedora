@@ -32,6 +32,8 @@ const MAX_WATERMARK_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
 // Intro roadmap (P3d) - a short intro clip, so far bigger than a logo/
 // watermark image but nowhere near VideosController's 2GB main-video cap.
 const MAX_INTRO_SIZE_BYTES = 100 * 1024 * 1024; // 100MB
+// Outro roadmap (P3e) - same cap as intro.
+const MAX_OUTRO_SIZE_BYTES = 100 * 1024 * 1024; // 100MB
 
 // getObjectStream returns just a Readable, no stored Content-Type metadata
 // (same reason VideosController/ClipsController derive thumbnailContentType
@@ -58,10 +60,11 @@ function imageContentType(key: string): string {
   }
 }
 
-// Intro roadmap (P3d) - same key's-own-extension-sniffing reasoning as
-// imageContentType above, but an intro can be either a video or a still
-// image, so this covers both.
-function introContentType(key: string): string {
+// Intro/Outro roadmap (P3d/P3e) - same key's-own-extension-sniffing
+// reasoning as imageContentType above, but a segment can be either a video
+// or a still image, so this covers both. Shared by the intro and outro
+// download endpoints.
+function brandSegmentContentType(key: string): string {
   const ext = key.split('.').pop()?.toLowerCase();
   switch (ext) {
     case 'mp4':
@@ -199,7 +202,7 @@ export class BrandKitController {
     }
 
     const stream = await getObjectStream(introKey);
-    res.setHeader('Content-Type', introContentType(introKey));
+    res.setHeader('Content-Type', brandSegmentContentType(introKey));
     res.setHeader('Cache-Control', 'private, max-age=86400');
     stream.pipe(res);
   }
@@ -208,5 +211,41 @@ export class BrandKitController {
   @HttpCode(204)
   removeIntro(@CurrentUser() user: SafeUser) {
     return this.brandKit.removeIntro(user.id);
+  }
+
+  // Outro roadmap (P3e) - same upload/download/delete shape as intro above.
+  @Post('outro')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_OUTRO_SIZE_BYTES } }))
+  async uploadOutro(
+    @CurrentUser() user: SafeUser,
+    @UploadedFile(
+      new ParseFilePipeBuilder()
+        .addFileTypeValidator({ fileType: /^(video\/(mp4|quicktime)|image\/(png|jpe?g|webp))$/ })
+        .build({ fileIsRequired: true }),
+    )
+    file: Express.Multer.File,
+  ) {
+    const outroType: IntroType = file.mimetype.startsWith('video/') ? 'video' : 'image';
+    const outroKey = await this.storage.saveBrandOutro(file);
+    return this.brandKit.saveOutro(user.id, outroKey, outroType);
+  }
+
+  @Get('outro')
+  async downloadOutro(@CurrentUser() user: SafeUser, @Res() res: Response) {
+    const { outroKey } = await this.brandKit.findOutroKeyOrThrow(user.id);
+    if (!outroKey) {
+      throw new NotFoundException('No brand outro has been uploaded yet');
+    }
+
+    const stream = await getObjectStream(outroKey);
+    res.setHeader('Content-Type', brandSegmentContentType(outroKey));
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    stream.pipe(res);
+  }
+
+  @Delete('outro')
+  @HttpCode(204)
+  removeOutro(@CurrentUser() user: SafeUser) {
+    return this.brandKit.removeOutro(user.id);
   }
 }

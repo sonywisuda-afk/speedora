@@ -1410,6 +1410,7 @@ describe('VideosService', () => {
         fontFamily: null,
         watermark: null,
         intro: null,
+        outro: null,
         keywords: ['sunset', 'beach'],
         scores: null,
       });

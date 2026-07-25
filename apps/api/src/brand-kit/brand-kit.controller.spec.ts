@@ -19,8 +19,16 @@ describe('BrandKitController', () => {
     saveIntro: jest.Mock;
     findIntroKeyOrThrow: jest.Mock;
     removeIntro: jest.Mock;
+    saveOutro: jest.Mock;
+    findOutroKeyOrThrow: jest.Mock;
+    removeOutro: jest.Mock;
   };
-  let storage: { saveBrandLogo: jest.Mock; saveBrandWatermark: jest.Mock; saveBrandIntro: jest.Mock };
+  let storage: {
+    saveBrandLogo: jest.Mock;
+    saveBrandWatermark: jest.Mock;
+    saveBrandIntro: jest.Mock;
+    saveBrandOutro: jest.Mock;
+  };
   const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
 
   beforeEach(() => {
@@ -35,11 +43,15 @@ describe('BrandKitController', () => {
       saveIntro: jest.fn(),
       findIntroKeyOrThrow: jest.fn(),
       removeIntro: jest.fn(),
+      saveOutro: jest.fn(),
+      findOutroKeyOrThrow: jest.fn(),
+      removeOutro: jest.fn(),
     };
     storage = {
       saveBrandLogo: jest.fn(),
       saveBrandWatermark: jest.fn(),
       saveBrandIntro: jest.fn(),
+      saveBrandOutro: jest.fn(),
     };
     controller = new BrandKitController(
       brandKit as unknown as BrandKitService,
@@ -254,6 +266,81 @@ describe('BrandKitController', () => {
       await controller.removeIntro(user);
 
       expect(brandKit.removeIntro).toHaveBeenCalledWith('user-1');
+    });
+  });
+
+  describe('uploadOutro', () => {
+    it('derives outroType "video" from a video mimetype and saves the file', async () => {
+      storage.saveBrandOutro.mockResolvedValue('outros/abc.mp4');
+      brandKit.saveOutro.mockResolvedValue({ outroUrl: '/brand-kit/outro', outroType: 'video' });
+      const file = {
+        buffer: Buffer.from('x'),
+        originalname: 'outro.mp4',
+        mimetype: 'video/mp4',
+      } as Express.Multer.File;
+
+      const result = await controller.uploadOutro(user, file);
+
+      expect(storage.saveBrandOutro).toHaveBeenCalledWith(file);
+      expect(brandKit.saveOutro).toHaveBeenCalledWith('user-1', 'outros/abc.mp4', 'video');
+      expect(result.outroUrl).toBe('/brand-kit/outro');
+    });
+
+    it('derives outroType "image" from an image mimetype', async () => {
+      storage.saveBrandOutro.mockResolvedValue('outros/abc.png');
+      brandKit.saveOutro.mockResolvedValue({ outroUrl: '/brand-kit/outro', outroType: 'image' });
+      const file = {
+        buffer: Buffer.from('x'),
+        originalname: 'outro.png',
+        mimetype: 'image/png',
+      } as Express.Multer.File;
+
+      await controller.uploadOutro(user, file);
+
+      expect(brandKit.saveOutro).toHaveBeenCalledWith('user-1', 'outros/abc.png', 'image');
+    });
+  });
+
+  describe('downloadOutro', () => {
+    it('streams a video outro with a video content type derived from its extension', async () => {
+      brandKit.findOutroKeyOrThrow.mockResolvedValue({ outroKey: 'outros/abc.mp4' });
+      const fakeStream = { pipe: jest.fn() };
+      (getObjectStream as jest.Mock).mockResolvedValue(fakeStream);
+      const res = { setHeader: jest.fn() } as unknown as Response;
+
+      await controller.downloadOutro(user, res);
+
+      expect(getObjectStream).toHaveBeenCalledWith('outros/abc.mp4');
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'video/mp4');
+      expect(fakeStream.pipe).toHaveBeenCalledWith(res);
+    });
+
+    it('streams an image outro with an image content type', async () => {
+      brandKit.findOutroKeyOrThrow.mockResolvedValue({ outroKey: 'outros/abc.png' });
+      (getObjectStream as jest.Mock).mockResolvedValue({ pipe: jest.fn() });
+      const res = { setHeader: jest.fn() } as unknown as Response;
+
+      await controller.downloadOutro(user, res);
+
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/png');
+    });
+
+    it('404s without touching storage when no outro has been uploaded yet', async () => {
+      brandKit.findOutroKeyOrThrow.mockResolvedValue({ outroKey: null });
+      const res = { setHeader: jest.fn() } as unknown as Response;
+
+      await expect(controller.downloadOutro(user, res)).rejects.toThrow(
+        'No brand outro has been uploaded yet',
+      );
+      expect(getObjectStream).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('removeOutro', () => {
+    it('delegates to the service', async () => {
+      await controller.removeOutro(user);
+
+      expect(brandKit.removeOutro).toHaveBeenCalledWith('user-1');
     });
   });
 });

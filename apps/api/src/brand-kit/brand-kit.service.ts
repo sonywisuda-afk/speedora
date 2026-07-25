@@ -16,6 +16,9 @@ interface BrandKitRow {
   brandIntroUrl: string | null;
   brandIntroType: string | null;
   brandIntroImageDurationSeconds: number | null;
+  brandOutroUrl: string | null;
+  brandOutroType: string | null;
+  brandOutroImageDurationSeconds: number | null;
 }
 
 const BRAND_KIT_SELECT = {
@@ -31,6 +34,9 @@ const BRAND_KIT_SELECT = {
   brandIntroUrl: true,
   brandIntroType: true,
   brandIntroImageDurationSeconds: true,
+  brandOutroUrl: true,
+  brandOutroType: true,
+  brandOutroImageDurationSeconds: true,
 } as const;
 
 @Injectable()
@@ -67,6 +73,9 @@ export class BrandKitService {
           : {}),
         ...(dto.introImageDurationSeconds !== undefined
           ? { brandIntroImageDurationSeconds: dto.introImageDurationSeconds }
+          : {}),
+        ...(dto.outroImageDurationSeconds !== undefined
+          ? { brandOutroImageDurationSeconds: dto.outroImageDurationSeconds }
           : {}),
       },
       select: BRAND_KIT_SELECT,
@@ -149,6 +158,32 @@ export class BrandKitService {
     });
   }
 
+  // Outro roadmap (P3e) - same shape as saveIntro/findIntroKeyOrThrow/
+  // removeIntro above.
+  async saveOutro(userId: string, outroKey: string, outroType: IntroType): Promise<BrandKitDto> {
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: { brandOutroUrl: outroKey, brandOutroType: outroType },
+      select: BRAND_KIT_SELECT,
+    });
+    return this.toDto(user);
+  }
+
+  async findOutroKeyOrThrow(userId: string): Promise<{ outroKey: string | null }> {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { brandOutroUrl: true },
+    });
+    return { outroKey: user.brandOutroUrl };
+  }
+
+  async removeOutro(userId: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { brandOutroUrl: null, brandOutroType: null },
+    });
+  }
+
   private toDto(user: BrandKitRow): BrandKitDto {
     return {
       logoUrl: user.brandLogoUrl ? '/brand-kit/logo' : null,
@@ -163,6 +198,9 @@ export class BrandKitService {
       introUrl: user.brandIntroUrl ? '/brand-kit/intro' : null,
       introType: (user.brandIntroType as IntroType | null) ?? null,
       introImageDurationSeconds: user.brandIntroImageDurationSeconds,
+      outroUrl: user.brandOutroUrl ? '/brand-kit/outro' : null,
+      outroType: (user.brandOutroType as IntroType | null) ?? null,
+      outroImageDurationSeconds: user.brandOutroImageDurationSeconds,
     };
   }
 }

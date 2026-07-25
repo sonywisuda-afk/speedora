@@ -852,11 +852,11 @@ export async function trimCutRanges(
 }
 
 // Intro roadmap (P3d) - probes whether a video file has an audio stream at
-// all (a muted intro upload, or one that was never given audio) - same
+// all (a muted intro/outro upload, or one that was never given audio) - same
 // ffprobe-select-stream shape as getVideoCodec above, just checking
-// presence rather than reading a specific field. concatIntro() below uses
-// this to decide whether to reference the intro's own `0:a` or synthesize
-// a silent one instead.
+// presence rather than reading a specific field. concatBrandSegment() below
+// uses this to decide whether to reference the segment's own `0:a` or
+// synthesize a silent one instead.
 async function hasAudioStream(inputPath: string): Promise<boolean> {
   const { stdout } = await execFileAsync(FFPROBE_PATH, [
     '-v',
@@ -872,23 +872,36 @@ async function hasAudioStream(inputPath: string): Promise<boolean> {
   return stdout.trim().length > 0;
 }
 
-const INTRO_AUDIO_SAMPLE_RATE = 44100;
-const INTRO_AUDIO_CHANNEL_LAYOUT = 'stereo';
+const BRAND_SEGMENT_AUDIO_SAMPLE_RATE = 44100;
+const BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT = 'stereo';
 
-export interface IntroAsset {
+// 'start' (Intro roadmap, P3d) prepends the segment before the clip; 'end'
+// (Outro roadmap, P3e) appends it after. Chosen deliberately over two
+// separate exported functions (concatIntro/concatOutro) - per your own
+// review of P3d, the segment normalization/duration/audio-synthesis logic
+// below is 100% position-independent; only the concat filter's input order
+// differs, so that's the only thing this parameter actually branches on.
+export type BrandSegmentPosition = 'start' | 'end';
+
+export interface BrandSegmentAsset {
   filePath: string;
   type: IntroType;
   // Only used when type === 'image' - a still has no inherent duration.
   imageDurationSeconds: number | null;
 }
 
-// Intro roadmap (P3d) - concatenates a Brand Kit intro (video or static
-// image) onto the front of an already-fully-rendered clip (crop/B-roll/
-// subtitles/watermark/cutlist-trim all already applied - see
-// render-clip.worker.ts's own comment on where this slots in the pipeline).
-// A THIRD pass, sibling to trimCutRanges above, not folded into
+// Brand Kit Intro/Outro roadmap (P3d/P3e) - concatenates a Brand Kit
+// video/image segment onto the front or end of an already-fully-rendered
+// clip (crop/B-roll/subtitles/watermark/cutlist-trim all already applied -
+// see render-clip.worker.ts's own comment on where this slots in the
+// pipeline). A THIRD (and, when both an intro and outro are configured,
+// fourth) pass, sibling to trimCutRanges above, not folded into
 // renderClip() itself - renderClip() only ever sees the clip BEFORE the
-// cutlist trim, and this needs the fully-finished file.
+// cutlist trim, and this needs the fully-finished file. render-clip.
+// worker.ts chains two calls (position 'start' then 'end') when a clip has
+// both configured, rather than this function handling a 3-way concat
+// itself - simpler to build/test, and each pass keeps its own independent
+// best-effort failure handling.
 //
 // Duration is bounded via `trim=`/`atrim=` FILTERS inside the filter graph,
 // not a bare `-t` CLI flag. A `-t` positioned after this function's first
@@ -906,43 +919,45 @@ export interface IntroAsset {
 // around chaining two `fade` filters corrupting the whole output, which
 // doesn't apply here since zero `fade` filters are used).
 //
-// A video intro's duration is never stored - it's re-derived (and capped
+// A video segment's duration is never stored - it's re-derived (and capped
 // at MAX_INTRO_DURATION_SECONDS) fresh here via ffprobe every render, since
 // apps/api has no ffmpeg/ffprobe dependency to compute it at upload time.
-export async function concatIntro(
+export async function concatBrandSegment(
+  position: BrandSegmentPosition,
   clipPath: string,
-  intro: IntroAsset,
+  segment: BrandSegmentAsset,
   outputWidth: number,
   outputHeight: number,
   outputPath: string,
 ): Promise<void> {
-  const introDuration =
-    intro.type === 'image'
-      ? (intro.imageDurationSeconds ?? DEFAULT_INTRO_IMAGE_DURATION_SECONDS)
-      : Math.min(await getMediaDurationSeconds(intro.filePath), MAX_INTRO_DURATION_SECONDS);
+  const segmentDuration =
+    segment.type === 'image'
+      ? (segment.imageDurationSeconds ?? DEFAULT_INTRO_IMAGE_DURATION_SECONDS)
+      : Math.min(await getMediaDurationSeconds(segment.filePath), MAX_INTRO_DURATION_SECONDS);
 
-  const introHasAudio = intro.type === 'video' && (await hasAudioStream(intro.filePath));
+  const segmentHasAudio = segment.type === 'video' && (await hasAudioStream(segment.filePath));
 
-  const introInputArgs =
-    intro.type === 'image'
-      ? ['-f', 'image2', '-loop', '1', '-i', intro.filePath]
-      : ['-i', intro.filePath];
+  const segmentInputArgs =
+    segment.type === 'image'
+      ? ['-f', 'image2', '-loop', '1', '-i', segment.filePath]
+      : ['-i', segment.filePath];
 
-  const args = ['-y', ...introInputArgs, '-i', clipPath];
+  const args = ['-y', ...segmentInputArgs, '-i', clipPath];
   // A silent audio branch is synthesized via its own lavfi input (a real
   // input, referenced by a fixed index alongside the other two `-i`s)
   // rather than ffmpeg's `anullsrc` used as a bare filter source - both
   // work, this is simpler to wire into the filter graph below.
-  if (!introHasAudio) {
+  if (!segmentHasAudio) {
     args.push(
       '-f',
       'lavfi',
       '-i',
-      `anullsrc=sample_rate=${INTRO_AUDIO_SAMPLE_RATE}:channel_layout=${INTRO_AUDIO_CHANNEL_LAYOUT}`,
+      `anullsrc=sample_rate=${BRAND_SEGMENT_AUDIO_SAMPLE_RATE}:` +
+        `channel_layout=${BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT}`,
     );
   }
 
-  const introAudioLabel = introHasAudio ? '0:a' : '2:a';
+  const segmentAudioLabel = segmentHasAudio ? '0:a' : '2:a';
   const complexParts = [
     // setsar=1 at the end of BOTH video branches is required, not cosmetic -
     // confirmed against a real ffmpeg build (P3d integration test): even
@@ -957,14 +972,20 @@ export async function concatIntro(
     `[0:v]scale=${outputWidth}:${outputHeight}:force_original_aspect_ratio=increase,` +
       `crop=${outputWidth}:${outputHeight},fps=${BROLL_TARGET_FPS},` +
       `colorspace=iall=${BROLL_COLOR_SPACE}:all=${BROLL_COLOR_SPACE}:range=tv,format=yuv420p,` +
-      `setsar=1,trim=duration=${introDuration},setpts=PTS-STARTPTS[introv]`,
-    `[${introAudioLabel}]aformat=sample_rates=${INTRO_AUDIO_SAMPLE_RATE}:` +
-      `channel_layouts=${INTRO_AUDIO_CHANNEL_LAYOUT},atrim=duration=${introDuration},` +
-      `asetpts=PTS-STARTPTS[introa]`,
+      `setsar=1,trim=duration=${segmentDuration},setpts=PTS-STARTPTS[segv]`,
+    `[${segmentAudioLabel}]aformat=sample_rates=${BRAND_SEGMENT_AUDIO_SAMPLE_RATE}:` +
+      `channel_layouts=${BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT},atrim=duration=${segmentDuration},` +
+      `asetpts=PTS-STARTPTS[sega]`,
     `[1:v]fps=${BROLL_TARGET_FPS},format=yuv420p,setsar=1[clipv]`,
-    `[1:a]aformat=sample_rates=${INTRO_AUDIO_SAMPLE_RATE}:` +
-      `channel_layouts=${INTRO_AUDIO_CHANNEL_LAYOUT}[clipa]`,
-    '[introv][introa][clipv][clipa]concat=n=2:v=1:a=1[outv][outa]',
+    `[1:a]aformat=sample_rates=${BRAND_SEGMENT_AUDIO_SAMPLE_RATE}:` +
+      `channel_layouts=${BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT}[clipa]`,
+    // The only position-dependent line in this whole function - 'start'
+    // (intro) puts the segment first in the concat order, 'end' (outro)
+    // puts it last. Everything feeding [segv]/[sega]/[clipv]/[clipa] above
+    // is identical either way.
+    position === 'start'
+      ? '[segv][sega][clipv][clipa]concat=n=2:v=1:a=1[outv][outa]'
+      : '[clipv][clipa][segv][sega]concat=n=2:v=1:a=1[outv][outa]',
   ];
 
   args.push(

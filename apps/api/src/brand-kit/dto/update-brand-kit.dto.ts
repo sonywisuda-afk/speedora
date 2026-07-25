@@ -53,4 +53,12 @@ export class UpdateBrandKitDto {
   @Min(0.5)
   @Max(MAX_INTRO_DURATION_SECONDS)
   introImageDurationSeconds?: number;
+
+  // Outro roadmap (P3e) - same shape/reasoning as introImageDurationSeconds
+  // above.
+  @IsOptional()
+  @IsNumber()
+  @Min(0.5)
+  @Max(MAX_INTRO_DURATION_SECONDS)
+  outroImageDurationSeconds?: number;
 }

@@ -1019,6 +1019,8 @@ export interface Clip {
   // Intro roadmap (P3d) - per-clip on/off gate for the owner's Brand Kit
   // intro, same shape as watermarkEnabled.
   introEnabled: boolean;
+  // Outro roadmap (P3e) - same shape as introEnabled.
+  outroEnabled: boolean;
   hookText: string | null;
   hashtags: string[];
   // Fase 8 (Content Intelligence) - see ClipCandidate/ClipScores above.
@@ -1207,6 +1209,8 @@ export interface UpdateClipInput {
   // Intro roadmap (P3d) - per-clip on/off gate, same shape as
   // watermarkEnabled.
   introEnabled?: boolean;
+  // Outro roadmap (P3e) - same shape as introEnabled.
+  outroEnabled?: boolean;
   hookText?: string;
   hashtags?: string[];
 }

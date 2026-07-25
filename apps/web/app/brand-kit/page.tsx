@@ -18,15 +18,18 @@ import { Label } from '@/components/ui/label';
 import {
   brandKitIntroUrl,
   brandKitLogoUrl,
+  brandKitOutroUrl,
   brandKitWatermarkUrl,
   deleteSubtitlePreset,
   getBrandKit,
   listSubtitlePresets,
   removeBrandIntro,
+  removeBrandOutro,
   removeBrandWatermark,
   updateBrandKit,
   uploadBrandIntro,
   uploadBrandLogo,
+  uploadBrandOutro,
   uploadBrandWatermark,
 } from '@/lib/api';
 import { useAuth } from '@/lib/useAuth';
@@ -107,6 +110,11 @@ export default function BrandKitPage() {
   const [removingIntro, setRemovingIntro] = useState(false);
   const [introImageDurationSeconds, setIntroImageDurationSeconds] = useState<number | null>(null);
 
+  // Outro roadmap (P3e) - same shape as the intro state above.
+  const [uploadingOutro, setUploadingOutro] = useState(false);
+  const [removingOutro, setRemovingOutro] = useState(false);
+  const [outroImageDurationSeconds, setOutroImageDurationSeconds] = useState<number | null>(null);
+
   const primary = primaryColor || brandKit?.primaryColor || '';
   const secondary = secondaryColor || brandKit?.secondaryColor || '';
   const font = fontFamily || brandKit?.fontFamily || '';
@@ -129,6 +137,10 @@ export default function BrandKitPage() {
   const imageDurationSeconds =
     introImageDurationSeconds ??
     brandKit?.introImageDurationSeconds ??
+    DEFAULT_INTRO_IMAGE_DURATION_SECONDS;
+  const outroImgDurationSeconds =
+    outroImageDurationSeconds ??
+    brandKit?.outroImageDurationSeconds ??
     DEFAULT_INTRO_IMAGE_DURATION_SECONDS;
 
   async function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -169,6 +181,7 @@ export default function BrandKitPage() {
         watermarkMargin: marginPct / 100,
         watermarkPosition: position,
         introImageDurationSeconds: imageDurationSeconds,
+        outroImageDurationSeconds: outroImgDurationSeconds,
       });
       await mutate(updated, false);
       setSaved(true);
@@ -234,6 +247,35 @@ export default function BrandKitPage() {
       setSaveError(err instanceof Error ? err.message : 'Gagal menghapus intro');
     } finally {
       setRemovingIntro(false);
+    }
+  }
+
+  async function handleOutroChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSaveError(null);
+    setUploadingOutro(true);
+    try {
+      const updated = await uploadBrandOutro(file);
+      await mutate(updated, false);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Gagal mengunggah outro');
+    } finally {
+      setUploadingOutro(false);
+      e.target.value = '';
+    }
+  }
+
+  async function handleRemoveOutro() {
+    setSaveError(null);
+    setRemovingOutro(true);
+    try {
+      await removeBrandOutro();
+      await mutate({ ...brandKit!, outroUrl: null, outroType: null }, false);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Gagal menghapus outro');
+    } finally {
+      setRemovingOutro(false);
     }
   }
 
@@ -555,6 +597,82 @@ export default function BrandKitPage() {
                         step={0.5}
                         value={imageDurationSeconds}
                         onChange={(e) => setIntroImageDurationSeconds(Number(e.target.value))}
+                        className="w-20"
+                      />
+                    </div>
+                  )}
+                </section>
+
+                <section className="space-y-3">
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Outro
+                  </Label>
+                  <p className="font-body text-xs text-muted-foreground">
+                    Video atau gambar yang diputar setelah setiap clip baru (bisa dimatikan
+                    per-clip di editor). Video diputar dengan durasi aslinya (maks.{' '}
+                    {MAX_INTRO_DURATION_SECONDS} detik); gambar ditahan selama durasi di bawah.
+                  </p>
+                  <div className="flex items-center gap-4">
+                    {brandKit.outroUrl ? (
+                      brandKit.outroType === 'video' ? (
+                        <video
+                          src={brandKitOutroUrl()}
+                          crossOrigin="use-credentials"
+                          muted
+                          className="h-20 w-20 rounded-md border border-border bg-slate-panel object-contain"
+                        />
+                      ) : (
+                        <img
+                          src={brandKitOutroUrl()}
+                          crossOrigin="use-credentials"
+                          alt="Outro brand"
+                          className="h-20 w-20 rounded-md border border-border bg-slate-panel object-contain"
+                        />
+                      )
+                    ) : (
+                      <div className="flex h-20 w-20 items-center justify-center rounded-md border border-dashed border-border font-mono text-[10px] text-muted-foreground">
+                        Kosong
+                      </div>
+                    )}
+                    <div className="flex flex-col gap-2">
+                      <label>
+                        <Button size="sm" variant="outline" asChild disabled={uploadingOutro}>
+                          <span>{uploadingOutro ? 'Mengunggah...' : 'Unggah Outro'}</span>
+                        </Button>
+                        <input
+                          type="file"
+                          accept="video/mp4,video/quicktime,image/png,image/jpeg,image/webp"
+                          onChange={handleOutroChange}
+                          disabled={uploadingOutro}
+                          className="hidden"
+                        />
+                      </label>
+                      {brandKit.outroUrl && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={removingOutro}
+                          onClick={handleRemoveOutro}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          {removingOutro ? 'Menghapus...' : 'Hapus Outro'}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {brandKit.outroType === 'image' && (
+                    <div className="flex flex-col gap-1">
+                      <span className="font-mono text-[10px] text-muted-foreground">
+                        Durasi gambar (detik)
+                      </span>
+                      <Input
+                        type="number"
+                        min={0.5}
+                        max={MAX_INTRO_DURATION_SECONDS}
+                        step={0.5}
+                        value={outroImgDurationSeconds}
+                        onChange={(e) => setOutroImageDurationSeconds(Number(e.target.value))}
                         className="w-20"
                       />
                     </div>

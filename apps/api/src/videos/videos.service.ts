@@ -555,6 +555,25 @@ export class VideosService {
               imageDurationSeconds: ownerIntro.brandIntroImageDurationSeconds,
             }
           : null;
+      // Outro roadmap (P3e) - same shape as ownerIntro/resolvedIntro above.
+      const ownerOutro = unrendered.some((clip) => clip.outroEnabled)
+        ? await this.prisma.user.findUniqueOrThrow({
+            where: { id: video.ownerId },
+            select: {
+              brandOutroUrl: true,
+              brandOutroType: true,
+              brandOutroImageDurationSeconds: true,
+            },
+          })
+        : null;
+      const resolvedOutro: RenderClipJobData['outro'] =
+        ownerOutro?.brandOutroUrl && ownerOutro.brandOutroType
+          ? {
+              key: ownerOutro.brandOutroUrl,
+              type: ownerOutro.brandOutroType as IntroType,
+              imageDurationSeconds: ownerOutro.brandOutroImageDurationSeconds,
+            }
+          : null;
       await Promise.all(
         unrendered.map((clip) =>
           this.renderClipQueue.add(QueueName.RENDER_CLIP, {
@@ -574,6 +593,7 @@ export class VideosService {
             fontFamily: clip.fontFamily ?? (clip.applyBrandKit ? ownerBrandFontFamily : null),
             watermark: clip.watermarkEnabled ? resolvedWatermark : null,
             intro: clip.introEnabled ? resolvedIntro : null,
+            outro: clip.outroEnabled ? resolvedOutro : null,
             keywords: clip.keywords,
             scores: toSharedClipScores(clip.scores),
           }),

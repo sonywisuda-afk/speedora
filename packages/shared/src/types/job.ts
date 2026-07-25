@@ -150,6 +150,13 @@ export interface RenderClipJobData {
     type: IntroType;
     imageDurationSeconds: number | null;
   } | null;
+  // Outro roadmap (P3e) - same shape/reasoning as intro above, applied at
+  // the end of the render instead of the start.
+  outro: {
+    key: string;
+    type: IntroType;
+    imageDurationSeconds: number | null;
+  } | null;
   // Fase 15 (Auto B-roll) - the clip's own Fase 8 keywords, used to search
   // for matching stock footage moments (see broll.ts's findBRollMoments).
   // Empty for a clip whose Content Intelligence LLM call never ran/found

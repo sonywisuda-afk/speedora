@@ -33,6 +33,12 @@ export interface BrandKitDto {
   introUrl: string | null;
   introType: IntroType | null;
   introImageDurationSeconds: number | null;
+  // Outro roadmap (P3e) - same shape as intro* above, applied at the end of
+  // the render instead of the start. Reuses IntroType ('video' | 'image') -
+  // no new type vocabulary needed, the distinction is identical either way.
+  outroUrl: string | null;
+  outroType: IntroType | null;
+  outroImageDurationSeconds: number | null;
 }
 
 // Brand Kit roadmap (P3a) - apps/web's own copy of packages/contracts's

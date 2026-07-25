@@ -14,6 +14,9 @@ const BASE_ROW = {
   brandIntroUrl: null,
   brandIntroType: null,
   brandIntroImageDurationSeconds: null,
+  brandOutroUrl: null,
+  brandOutroType: null,
+  brandOutroImageDurationSeconds: null,
 };
 
 describe('BrandKitService', () => {
@@ -40,6 +43,9 @@ describe('BrandKitService', () => {
         brandIntroUrl: 'intros/abc.mp4',
         brandIntroType: 'video',
         brandIntroImageDurationSeconds: null,
+        brandOutroUrl: 'outros/abc.mp4',
+        brandOutroType: 'video',
+        brandOutroImageDurationSeconds: null,
       });
 
       const result = await service.get('user-1');
@@ -57,10 +63,13 @@ describe('BrandKitService', () => {
         introUrl: '/brand-kit/intro',
         introType: 'video',
         introImageDurationSeconds: null,
+        outroUrl: '/brand-kit/outro',
+        outroType: 'video',
+        outroImageDurationSeconds: null,
       });
     });
 
-    it('reports a null logoUrl/watermarkUrl/introUrl when none has been uploaded', async () => {
+    it('reports a null logoUrl/watermarkUrl/introUrl/outroUrl when none has been uploaded', async () => {
       prisma.user.findUniqueOrThrow.mockResolvedValue(BASE_ROW);
 
       const result = await service.get('user-1');
@@ -69,6 +78,8 @@ describe('BrandKitService', () => {
       expect(result.watermarkUrl).toBeNull();
       expect(result.introUrl).toBeNull();
       expect(result.introType).toBeNull();
+      expect(result.outroUrl).toBeNull();
+      expect(result.outroType).toBeNull();
     });
   });
 
@@ -94,6 +105,9 @@ describe('BrandKitService', () => {
           brandIntroUrl: true,
           brandIntroType: true,
           brandIntroImageDurationSeconds: true,
+          brandOutroUrl: true,
+          brandOutroType: true,
+          brandOutroImageDurationSeconds: true,
         },
       });
     });
@@ -164,6 +178,17 @@ describe('BrandKitService', () => {
         expect.objectContaining({ data: { brandIntroImageDurationSeconds: 5 } }),
       );
       expect(result.introImageDurationSeconds).toBe(5);
+    });
+
+    it('updates outroImageDurationSeconds when sent', async () => {
+      prisma.user.update.mockResolvedValue({ ...BASE_ROW, brandOutroImageDurationSeconds: 4 });
+
+      const result = await service.update('user-1', { outroImageDurationSeconds: 4 });
+
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { brandOutroImageDurationSeconds: 4 } }),
+      );
+      expect(result.outroImageDurationSeconds).toBe(4);
     });
   });
 
@@ -285,6 +310,55 @@ describe('BrandKitService', () => {
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
         data: { brandIntroUrl: null, brandIntroType: null },
+      });
+    });
+  });
+
+  describe('saveOutro', () => {
+    it('stores the raw storage key and type together, returns the endpoint-path DTO', async () => {
+      prisma.user.update.mockResolvedValue({
+        ...BASE_ROW,
+        brandOutroUrl: 'outros/xyz.mp4',
+        brandOutroType: 'video',
+      });
+
+      const result = await service.saveOutro('user-1', 'outros/xyz.mp4', 'video');
+
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { brandOutroUrl: 'outros/xyz.mp4', brandOutroType: 'video' },
+        }),
+      );
+      expect(result.outroUrl).toBe('/brand-kit/outro');
+      expect(result.outroType).toBe('video');
+    });
+  });
+
+  describe('findOutroKeyOrThrow', () => {
+    it('returns the raw key without throwing when an outro exists', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ brandOutroUrl: 'outros/xyz.mp4' });
+
+      expect(await service.findOutroKeyOrThrow('user-1')).toEqual({
+        outroKey: 'outros/xyz.mp4',
+      });
+    });
+
+    it('returns a null outroKey (not a throw) when no outro has been uploaded', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ brandOutroUrl: null });
+
+      expect(await service.findOutroKeyOrThrow('user-1')).toEqual({ outroKey: null });
+    });
+  });
+
+  describe('removeOutro', () => {
+    it('clears both the outro key and type', async () => {
+      prisma.user.update.mockResolvedValue({});
+
+      await service.removeOutro('user-1');
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { brandOutroUrl: null, brandOutroType: null },
       });
     });
   });

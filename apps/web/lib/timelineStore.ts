@@ -50,6 +50,8 @@ export interface TimelineClip {
   // Intro roadmap (P3d) - per-clip on/off gate, same shape as
   // watermarkEnabled above.
   introEnabled: boolean;
+  // Outro roadmap (P3e) - same shape as introEnabled above.
+  outroEnabled: boolean;
   // Suggested opener line/hashtags from the detect-clips LLM call - purely
   // metadata (not baked into the rendered video), editable same as
   // captionStyle below.
@@ -107,6 +109,8 @@ interface TimelineState {
   setWatermarkEnabled(id: string, watermarkEnabled: boolean): void;
   // Intro roadmap (P3d) - same shape as setWatermarkEnabled above.
   setIntroEnabled(id: string, introEnabled: boolean): void;
+  // Outro roadmap (P3e) - same shape as setIntroEnabled above.
+  setOutroEnabled(id: string, outroEnabled: boolean): void;
   setHookText(id: string, hookText: string): void;
   setHashtags(id: string, hashtags: string[]): void;
   saveClip(id: string): Promise<void>;
@@ -136,6 +140,7 @@ function toTimelineClip(clip: Clip): TimelineClip {
     fontFamily: clip.fontFamily,
     watermarkEnabled: clip.watermarkEnabled,
     introEnabled: clip.introEnabled,
+    outroEnabled: clip.outroEnabled,
     hookText: clip.hookText,
     hashtags: clip.hashtags,
     scores: clip.scores,
@@ -258,6 +263,14 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     }));
   },
 
+  setOutroEnabled(id, outroEnabled) {
+    set((state) => ({
+      clips: state.clips.map((clip) =>
+        clip.id === id ? { ...clip, outroEnabled, dirty: true, saveError: null } : clip,
+      ),
+    }));
+  },
+
   setHookText(id, hookText) {
     set((state) => ({
       clips: state.clips.map((clip) =>
@@ -292,6 +305,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         fontFamily: clip.fontFamily,
         watermarkEnabled: clip.watermarkEnabled,
         introEnabled: clip.introEnabled,
+        outroEnabled: clip.outroEnabled,
         hookText: clip.hookText ?? undefined,
         hashtags: clip.hashtags,
       });
@@ -308,6 +322,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
                 fontFamily: updated.fontFamily,
                 watermarkEnabled: updated.watermarkEnabled,
                 introEnabled: updated.introEnabled,
+                outroEnabled: updated.outroEnabled,
                 hookText: updated.hookText,
                 hashtags: updated.hashtags,
                 updatedAt: updated.updatedAt,

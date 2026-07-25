@@ -1243,6 +1243,8 @@ export async function updateBrandKit(input: {
   // Intro roadmap (P3d) - only meaningful when the current intro is an
   // image (a video's own duration isn't user-editable).
   introImageDurationSeconds?: number;
+  // Outro roadmap (P3e) - same shape as introImageDurationSeconds above.
+  outroImageDurationSeconds?: number;
 }): Promise<BrandKitDto> {
   const res = await apiFetch('/brand-kit', {
     method: 'PUT',
@@ -1297,6 +1299,23 @@ export function brandKitIntroUrl(): string {
 
 export async function removeBrandIntro(): Promise<void> {
   await apiFetch('/brand-kit/intro', { method: 'DELETE' });
+}
+
+// Outro roadmap (P3e) - same upload/download/delete shape as the intro
+// above.
+export async function uploadBrandOutro(file: File): Promise<BrandKitDto> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await apiFetch('/brand-kit/outro', { method: 'POST', body: formData });
+  return parseJsonOrThrow<BrandKitDto>(res);
+}
+
+export function brandKitOutroUrl(): string {
+  return `${API_URL}/brand-kit/outro`;
+}
+
+export async function removeBrandOutro(): Promise<void> {
+  await apiFetch('/brand-kit/outro', { method: 'DELETE' });
 }
 
 // Subtitle Presets roadmap (P3b) - a named, user-saved bundle of

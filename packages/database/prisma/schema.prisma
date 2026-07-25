@@ -195,6 +195,13 @@ model User {
   brandIntroUrl                String?
   brandIntroType                String?
   brandIntroImageDurationSeconds Float?
+  // Outro roadmap (P3e) - same shape as brandIntro* above, applied at the
+  // end of the render instead of the start (see ffmpeg.ts's
+  // concatBrandSegment, generalized from P3d's concatIntro to take a
+  // 'start' | 'end' position rather than duplicating the whole pipeline).
+  brandOutroUrl                String?
+  brandOutroType                String?
+  brandOutroImageDurationSeconds Float?
   createdAt                   DateTime  @default(now())
   updatedAt                   DateTime  @updatedAt
 
@@ -623,6 +630,8 @@ model Clip {
   // intro, same shape/reasoning as watermarkEnabled - composable with it and
   // applyBrandKit independently.
   introEnabled            Boolean      @default(true)
+  // Outro roadmap (P3e) - per-clip on/off gate, same shape as introEnabled.
+  outroEnabled            Boolean      @default(true)
   // Suggested 3-second-opener hook line and social hashtags (without a
   // leading '#') from the same detect-clips LLM call that scores virality -
   // not baked into the rendered video, purely metadata for the

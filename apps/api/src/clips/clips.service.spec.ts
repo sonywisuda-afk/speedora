@@ -1182,6 +1182,7 @@ describe('ClipsService', () => {
         fontFamily: null,
         watermark: null,
         intro: null,
+        outro: null,
         keywords: [],
         scores: null,
       });
@@ -1462,6 +1463,78 @@ describe('ClipsService', () => {
       expect(renderClipQueue.add).toHaveBeenCalledWith(
         QueueName.RENDER_CLIP,
         expect.objectContaining({ intro: null }),
+      );
+    });
+
+    // Outro roadmap (P3e).
+    it('does not resolve an outro (or look up the owner) when outroEnabled is false', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, outroEnabled: false });
+      prisma.transcriptSegment.findMany.mockResolvedValue([]);
+      prisma.clip.update.mockResolvedValue({ ...clip, outputUrl: null });
+
+      await service.render('clip-1', 'user-1');
+
+      expect(renderClipQueue.add).toHaveBeenCalledWith(
+        QueueName.RENDER_CLIP,
+        expect.objectContaining({ outro: null }),
+      );
+    });
+
+    it('resolves the Brand Kit outro when outroEnabled is true and one is configured', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, outroEnabled: true });
+      prisma.transcriptSegment.findMany.mockResolvedValue([]);
+      prisma.clip.update.mockResolvedValue({ ...clip, outputUrl: null });
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        brandOutroUrl: 'outros/abc.mp4',
+        brandOutroType: 'video',
+        brandOutroImageDurationSeconds: null,
+      });
+
+      await service.render('clip-1', 'user-1');
+
+      expect(renderClipQueue.add).toHaveBeenCalledWith(
+        QueueName.RENDER_CLIP,
+        expect.objectContaining({
+          outro: { key: 'outros/abc.mp4', type: 'video', imageDurationSeconds: null },
+        }),
+      );
+    });
+
+    it('resolves an image outro with its custom hold duration', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, outroEnabled: true });
+      prisma.transcriptSegment.findMany.mockResolvedValue([]);
+      prisma.clip.update.mockResolvedValue({ ...clip, outputUrl: null });
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        brandOutroUrl: 'outros/abc.png',
+        brandOutroType: 'image',
+        brandOutroImageDurationSeconds: 4,
+      });
+
+      await service.render('clip-1', 'user-1');
+
+      expect(renderClipQueue.add).toHaveBeenCalledWith(
+        QueueName.RENDER_CLIP,
+        expect.objectContaining({
+          outro: { key: 'outros/abc.png', type: 'image', imageDurationSeconds: 4 },
+        }),
+      );
+    });
+
+    it('resolves null when outroEnabled is true but no Brand Kit outro is configured', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, outroEnabled: true });
+      prisma.transcriptSegment.findMany.mockResolvedValue([]);
+      prisma.clip.update.mockResolvedValue({ ...clip, outputUrl: null });
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        brandOutroUrl: null,
+        brandOutroType: null,
+        brandOutroImageDurationSeconds: null,
+      });
+
+      await service.render('clip-1', 'user-1');
+
+      expect(renderClipQueue.add).toHaveBeenCalledWith(
+        QueueName.RENDER_CLIP,
+        expect.objectContaining({ outro: null }),
       );
     });
   });

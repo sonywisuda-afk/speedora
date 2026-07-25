@@ -159,6 +159,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
   const applyPreset = useTimelineStore((s) => s.applyPreset);
   const setWatermarkEnabled = useTimelineStore((s) => s.setWatermarkEnabled);
   const setIntroEnabled = useTimelineStore((s) => s.setIntroEnabled);
+  const setOutroEnabled = useTimelineStore((s) => s.setOutroEnabled);
   const setHookText = useTimelineStore((s) => s.setHookText);
   const setHashtags = useTimelineStore((s) => s.setHashtags);
   const saveClip = useTimelineStore((s) => s.saveClip);
@@ -703,6 +704,16 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
                 className="h-3.5 w-3.5"
               />
               Terapkan intro
+            </label>
+
+            <label className="flex items-center gap-2 font-mono text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={selectedClip.outroEnabled}
+                onChange={(e) => setOutroEnabled(selectedClip.id, e.target.checked)}
+                className="h-3.5 w-3.5"
+              />
+              Terapkan outro
             </label>
 
             <div className="flex flex-col gap-1">

@@ -60,7 +60,7 @@ import {
 } from '../broll';
 import { faceDetectionDeps } from '../faceDetectionDeps';
 import {
-  concatIntro,
+  concatBrandSegment,
   extractAnimatedPreview,
   extractBlurPlaceholder,
   extractThumbnail,
@@ -398,6 +398,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             fontFamily,
             watermark,
             intro,
+            outro,
             keywords,
             scores,
           } = job.data;
@@ -443,12 +444,15 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           let brollPaths: string[] = [];
           let watermarkPath: string | null = null;
           let introPath: string | null = null;
-          // Only ever set when concatIntro() actually creates a NEW scratch
-          // file below - stays null (nothing extra to clean up) whenever
-          // there's no intro, or concat fails and the pipeline falls back to
-          // uploading the plain renderedPath (already covered by outputPath/
-          // trimmedPath's own cleanup entries).
+          // Only ever set when concatBrandSegment() actually creates a NEW
+          // scratch file below - stays null (nothing extra to clean up)
+          // whenever there's no intro, or concat fails and the pipeline
+          // falls back to uploading the plain renderedPath (already covered
+          // by outputPath/trimmedPath's own cleanup entries).
           let introConcatPath: string | null = null;
+          // Outro roadmap (P3e) - same shape as introPath/introConcatPath.
+          let outroPath: string | null = null;
+          let outroConcatPath: string | null = null;
           let thumbPath: string | null = null;
           let blurPath: string | null = null;
           let animatedThumbnailPath: string | null = null;
@@ -550,6 +554,22 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               }
             }
 
+            // Outro roadmap (P3e) - same best-effort download shape as
+            // intro above.
+            if (outro) {
+              try {
+                outroPath = await reserveScratchPath(
+                  'outro',
+                  path.extname(outro.key) || (outro.type === 'video' ? '.mp4' : '.png'),
+                );
+                const outroStream = await getObjectStream(outro.key);
+                await pipeline(outroStream, createWriteStream(outroPath));
+              } catch (error) {
+                logger.warn('outro download failed, rendering without one', { clipId }, error);
+                outroPath = null;
+              }
+            }
+
             const assContent = buildAss({
               segments: toSubtitleSegments(transcript, captionLanguage),
               clipStart: startTime,
@@ -634,24 +654,34 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               }
             }
 
-            // Intro roadmap (P3d) - a THIRD pass, after the cutlist trim
-            // above, prepending the Brand Kit intro onto the fully-finished
-            // clip (crop/B-roll/subtitles/watermark/cutlist-trim already
-            // applied). finalOutputPath (not renderedPath) is what gets
-            // checksummed/uploaded/sized below - thumbnail/storyboard/
-            // hover-preview extraction further down deliberately keeps
-            // reading renderedPath unchanged, so a thumbnail represents the
-            // clip's own highlight content, not a generic intro card.
-            // Best-effort, same "degrade gracefully, never fail the job"
-            // posture as watermark/B-roll: a concat failure just uploads the
-            // clip without its intro rather than failing an otherwise-
-            // successful render.
+            // Intro/Outro roadmap (P3d/P3e) - a THIRD (and, when both are
+            // configured, fourth) pass, after the cutlist trim above,
+            // prepending/appending the Brand Kit intro/outro onto the
+            // fully-finished clip (crop/B-roll/subtitles/watermark/cutlist-
+            // trim already applied). finalOutputPath (not renderedPath) is
+            // what gets checksummed/uploaded/sized below - thumbnail/
+            // storyboard/hover-preview extraction further down deliberately
+            // keeps reading renderedPath unchanged, so a thumbnail
+            // represents the clip's own highlight content, not a generic
+            // intro/outro card. Each pass is independently best-effort, same
+            // "degrade gracefully, never fail the job" posture as watermark/
+            // B-roll: a concat failure just uploads the clip without that
+            // one segment rather than failing an otherwise-successful
+            // render - an outro failure after a successful intro concat
+            // still uploads the intro+clip result, not nothing. The outro
+            // pass chains onto whatever the intro pass already produced
+            // (or renderedPath, if there was no intro), reusing the exact
+            // same concatBrandSegment() call shape with position: 'end'
+            // instead of 'start' - see that function's own comment for why
+            // this is a sequential two-pass composition rather than a
+            // single 3-way concat.
             let finalOutputPath = renderedPath;
             if (introPath && intro) {
               try {
                 introConcatPath = await reserveScratchPath('with-intro', '.mp4');
-                await concatIntro(
-                  renderedPath,
+                await concatBrandSegment(
+                  'start',
+                  finalOutputPath,
                   {
                     filePath: introPath,
                     type: intro.type,
@@ -664,7 +694,26 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                 finalOutputPath = introConcatPath;
               } catch (error) {
                 logger.warn('intro concat failed, uploading without one', { clipId }, error);
-                finalOutputPath = renderedPath;
+              }
+            }
+            if (outroPath && outro) {
+              try {
+                outroConcatPath = await reserveScratchPath('with-outro', '.mp4');
+                await concatBrandSegment(
+                  'end',
+                  finalOutputPath,
+                  {
+                    filePath: outroPath,
+                    type: outro.type,
+                    imageDurationSeconds: outro.imageDurationSeconds,
+                  },
+                  reframe.outputWidth,
+                  reframe.outputHeight,
+                  outroConcatPath,
+                );
+                finalOutputPath = outroConcatPath;
+              } catch (error) {
+                logger.warn('outro concat failed, uploading without one', { clipId }, error);
               }
             }
 
@@ -1014,6 +1063,8 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             if (watermarkPath) await cleanupTempFile(watermarkPath);
             if (introPath) await cleanupTempFile(introPath);
             if (introConcatPath) await cleanupTempFile(introConcatPath);
+            if (outroPath) await cleanupTempFile(outroPath);
+            if (outroConcatPath) await cleanupTempFile(outroConcatPath);
           }
         },
         RENDER_CLIP_JOB_TIMEOUT_MS,

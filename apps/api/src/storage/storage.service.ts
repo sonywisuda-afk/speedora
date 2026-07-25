@@ -68,6 +68,16 @@ export class StorageService {
     return key;
   }
 
+  // Outro roadmap (P3e) - same shape as saveBrandIntro above, a different
+  // key prefix.
+  async saveBrandOutro(file: Express.Multer.File): Promise<string> {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const key = `outros/${randomUUID()}${ext}`;
+    await uploadObject(key, file.buffer, file.mimetype);
+
+    return key;
+  }
+
   // Sprint 5C (Comments) - same shape as saveBrandLogo above, a different
   // key prefix. Keeps the original filename in the returned key's basename
   // (URL-unsafe characters aside) so a stored object stays identifiable

@@ -30,7 +30,7 @@ jest.mock('node:fs/promises', () => ({
 }));
 
 import {
-  concatIntro,
+  concatBrandSegment,
   escapeFfmpegFilterPath,
   extractAnimatedPreview,
   extractAudio,
@@ -1071,7 +1071,7 @@ describe('trimCutRanges', () => {
   });
 });
 
-describe('concatIntro (P3d)', () => {
+describe('concatBrandSegment (P3d intro / P3e outro)', () => {
   beforeEach(() => {
     execFileMock.mockClear();
     renameMock.mockClear();
@@ -1079,8 +1079,8 @@ describe('concatIntro (P3d)', () => {
   });
 
   // Queues one ffprobe-shaped success response, consumed in call order by
-  // whichever probe concatIntro() issues first (duration, then audio
-  // presence, for a video-type intro) - mirrors getMediaDurationSeconds'
+  // whichever probe concatBrandSegment() issues first (duration, then audio
+  // presence, for a video-type segment) - mirrors getMediaDurationSeconds'
   // own spec's mockImplementationOnce shape.
   function queueProbeResponse(stdout: string) {
     execFileMockBehavior.mockImplementationOnce(
@@ -1094,49 +1094,59 @@ describe('concatIntro (P3d)', () => {
     );
   }
 
-  it('builds the image-intro filter graph: -f image2 -loop 1, default hold duration, synthesized silent audio, no ffprobe calls', async () => {
-    await concatIntro(
-      '/tmp/clip.mp4',
-      { filePath: '/tmp/intro.png', type: 'image', imageDurationSeconds: null },
-      608,
-      1080,
-      '/tmp/output.mp4',
-    );
+  it.each(['start', 'end'] as const)(
+    "builds the image-segment filter graph (position '%s'): -f image2 -loop 1, default hold duration, synthesized silent audio, no ffprobe calls",
+    async (position) => {
+      await concatBrandSegment(
+        position,
+        '/tmp/clip.mp4',
+        { filePath: '/tmp/segment.png', type: 'image', imageDurationSeconds: null },
+        608,
+        1080,
+        '/tmp/output.mp4',
+      );
 
-    // No ffprobe needed at all for an image intro - duration comes from the
-    // (defaulted) imageDurationSeconds, and it never has audio to probe for.
-    expect(execFileMock).toHaveBeenCalledTimes(1);
-    const [file, args] = execFileMock.mock.calls[0];
-    expect(file).toBe('ffmpeg');
-    expect(args).toEqual(
-      expect.arrayContaining(['-f', 'image2', '-loop', '1', '-i', '/tmp/intro.png']),
-    );
-    expect(args).toEqual(
-      expect.arrayContaining([
-        '-f',
-        'lavfi',
-        '-i',
-        'anullsrc=sample_rate=44100:channel_layout=stereo',
-      ]),
-    );
-    const fc = args[args.indexOf('-filter_complex') + 1];
-    expect(fc).toBe(
-      '[0:v]scale=608:1080:force_original_aspect_ratio=increase,crop=608:1080,fps=30,' +
-        'colorspace=iall=bt709:all=bt709:range=tv,format=yuv420p,' +
-        'setsar=1,trim=duration=3,setpts=PTS-STARTPTS[introv];' +
-        '[2:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=duration=3,' +
-        'asetpts=PTS-STARTPTS[introa];' +
-        '[1:v]fps=30,format=yuv420p,setsar=1[clipv];' +
-        '[1:a]aformat=sample_rates=44100:channel_layouts=stereo[clipa];' +
-        '[introv][introa][clipv][clipa]concat=n=2:v=1:a=1[outv][outa]',
-    );
-    expect(args).toEqual(expect.arrayContaining(['-map', '[outv]', '-map', '[outa]']));
-  });
+      // No ffprobe needed at all for an image segment - duration comes from
+      // the (defaulted) imageDurationSeconds, and it never has audio to
+      // probe for.
+      expect(execFileMock).toHaveBeenCalledTimes(1);
+      const [file, args] = execFileMock.mock.calls[0];
+      expect(file).toBe('ffmpeg');
+      expect(args).toEqual(
+        expect.arrayContaining(['-f', 'image2', '-loop', '1', '-i', '/tmp/segment.png']),
+      );
+      expect(args).toEqual(
+        expect.arrayContaining([
+          '-f',
+          'lavfi',
+          '-i',
+          'anullsrc=sample_rate=44100:channel_layout=stereo',
+        ]),
+      );
+      const fc = args[args.indexOf('-filter_complex') + 1];
+      const expectedConcat =
+        position === 'start'
+          ? '[segv][sega][clipv][clipa]concat=n=2:v=1:a=1[outv][outa]'
+          : '[clipv][clipa][segv][sega]concat=n=2:v=1:a=1[outv][outa]';
+      expect(fc).toBe(
+        '[0:v]scale=608:1080:force_original_aspect_ratio=increase,crop=608:1080,fps=30,' +
+          'colorspace=iall=bt709:all=bt709:range=tv,format=yuv420p,' +
+          'setsar=1,trim=duration=3,setpts=PTS-STARTPTS[segv];' +
+          '[2:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=duration=3,' +
+          'asetpts=PTS-STARTPTS[sega];' +
+          '[1:v]fps=30,format=yuv420p,setsar=1[clipv];' +
+          '[1:a]aformat=sample_rates=44100:channel_layouts=stereo[clipa];' +
+          expectedConcat,
+      );
+      expect(args).toEqual(expect.arrayContaining(['-map', '[outv]', '-map', '[outa]']));
+    },
+  );
 
-  it('uses a custom image hold duration when imageDurationSeconds is set', async () => {
-    await concatIntro(
+  it("puts the segment first in the concat order for position 'start' (intro)", async () => {
+    await concatBrandSegment(
+      'start',
       '/tmp/clip.mp4',
-      { filePath: '/tmp/intro.png', type: 'image', imageDurationSeconds: 5 },
+      { filePath: '/tmp/segment.png', type: 'image', imageDurationSeconds: null },
       608,
       1080,
       '/tmp/output.mp4',
@@ -1144,17 +1154,48 @@ describe('concatIntro (P3d)', () => {
 
     const [, args] = execFileMock.mock.calls[0];
     const fc = args[args.indexOf('-filter_complex') + 1];
-    expect(fc).toContain('trim=duration=5,setpts=PTS-STARTPTS[introv]');
-    expect(fc).toContain('atrim=duration=5,asetpts=PTS-STARTPTS[introa]');
+    expect(fc).toContain('[segv][sega][clipv][clipa]concat=n=2:v=1:a=1[outv][outa]');
   });
 
-  it('probes duration and audio presence for a video intro, and references its own 0:a when audio exists', async () => {
+  it("puts the segment last in the concat order for position 'end' (outro)", async () => {
+    await concatBrandSegment(
+      'end',
+      '/tmp/clip.mp4',
+      { filePath: '/tmp/segment.png', type: 'image', imageDurationSeconds: null },
+      608,
+      1080,
+      '/tmp/output.mp4',
+    );
+
+    const [, args] = execFileMock.mock.calls[0];
+    const fc = args[args.indexOf('-filter_complex') + 1];
+    expect(fc).toContain('[clipv][clipa][segv][sega]concat=n=2:v=1:a=1[outv][outa]');
+  });
+
+  it('uses a custom image hold duration when imageDurationSeconds is set', async () => {
+    await concatBrandSegment(
+      'start',
+      '/tmp/clip.mp4',
+      { filePath: '/tmp/segment.png', type: 'image', imageDurationSeconds: 5 },
+      608,
+      1080,
+      '/tmp/output.mp4',
+    );
+
+    const [, args] = execFileMock.mock.calls[0];
+    const fc = args[args.indexOf('-filter_complex') + 1];
+    expect(fc).toContain('trim=duration=5,setpts=PTS-STARTPTS[segv]');
+    expect(fc).toContain('atrim=duration=5,asetpts=PTS-STARTPTS[sega]');
+  });
+
+  it('probes duration and audio presence for a video segment, and references its own 0:a when audio exists', async () => {
     queueProbeResponse('4.2'); // getMediaDurationSeconds
     queueProbeResponse('audio'); // hasAudioStream - non-empty codec_type means present
 
-    await concatIntro(
+    await concatBrandSegment(
+      'start',
       '/tmp/clip.mp4',
-      { filePath: '/tmp/intro.mp4', type: 'video', imageDurationSeconds: null },
+      { filePath: '/tmp/segment.mp4', type: 'video', imageDurationSeconds: null },
       608,
       1080,
       '/tmp/output.mp4',
@@ -1163,29 +1204,30 @@ describe('concatIntro (P3d)', () => {
     expect(execFileMock).toHaveBeenCalledTimes(3);
     const [probe1File, probe1Args] = execFileMock.mock.calls[0];
     expect(probe1File).toBe('ffprobe');
-    expect(probe1Args).toEqual(expect.arrayContaining(['/tmp/intro.mp4']));
+    expect(probe1Args).toEqual(expect.arrayContaining(['/tmp/segment.mp4']));
     const [probe2File, probe2Args] = execFileMock.mock.calls[1];
     expect(probe2File).toBe('ffprobe');
     expect(probe2Args).toEqual(expect.arrayContaining(['-select_streams', 'a:0']));
 
     const [, renderArgs] = execFileMock.mock.calls[2];
-    expect(renderArgs).toEqual(expect.arrayContaining(['-i', '/tmp/intro.mp4']));
+    expect(renderArgs).toEqual(expect.arrayContaining(['-i', '/tmp/segment.mp4']));
     expect(renderArgs).not.toContain('anullsrc=sample_rate=44100:channel_layout=stereo');
     const fc = renderArgs[renderArgs.indexOf('-filter_complex') + 1];
-    expect(fc).toContain('trim=duration=4.2,setpts=PTS-STARTPTS[introv]');
+    expect(fc).toContain('trim=duration=4.2,setpts=PTS-STARTPTS[segv]');
     expect(fc).toContain(
       '[0:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=duration=4.2,' +
-        'asetpts=PTS-STARTPTS[introa]',
+        'asetpts=PTS-STARTPTS[sega]',
     );
   });
 
-  it('synthesizes silent audio for a video intro with no audio stream', async () => {
+  it('synthesizes silent audio for a video segment with no audio stream', async () => {
     queueProbeResponse('4.2'); // getMediaDurationSeconds
     queueProbeResponse(''); // hasAudioStream - empty means no audio stream
 
-    await concatIntro(
+    await concatBrandSegment(
+      'start',
       '/tmp/clip.mp4',
-      { filePath: '/tmp/intro.mp4', type: 'video', imageDurationSeconds: null },
+      { filePath: '/tmp/segment.mp4', type: 'video', imageDurationSeconds: null },
       608,
       1080,
       '/tmp/output.mp4',
@@ -1203,17 +1245,18 @@ describe('concatIntro (P3d)', () => {
     const fc = args[args.indexOf('-filter_complex') + 1];
     expect(fc).toContain(
       '[2:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=duration=4.2,' +
-        'asetpts=PTS-STARTPTS[introa]',
+        'asetpts=PTS-STARTPTS[sega]',
     );
   });
 
-  it('caps a video intro longer than MAX_INTRO_DURATION_SECONDS', async () => {
+  it('caps a video segment longer than MAX_INTRO_DURATION_SECONDS', async () => {
     queueProbeResponse('999'); // way over the cap
     queueProbeResponse('audio');
 
-    await concatIntro(
+    await concatBrandSegment(
+      'end',
       '/tmp/clip.mp4',
-      { filePath: '/tmp/intro.mp4', type: 'video', imageDurationSeconds: null },
+      { filePath: '/tmp/segment.mp4', type: 'video', imageDurationSeconds: null },
       608,
       1080,
       '/tmp/output.mp4',
@@ -1221,13 +1264,14 @@ describe('concatIntro (P3d)', () => {
 
     const [, args] = execFileMock.mock.calls[2];
     const fc = args[args.indexOf('-filter_complex') + 1];
-    expect(fc).toContain('trim=duration=10,setpts=PTS-STARTPTS[introv]');
+    expect(fc).toContain('trim=duration=10,setpts=PTS-STARTPTS[segv]');
   });
 
   it('atomically renames the .tmp output onto the real path only after ffmpeg succeeds', async () => {
-    await concatIntro(
+    await concatBrandSegment(
+      'start',
       '/tmp/clip.mp4',
-      { filePath: '/tmp/intro.png', type: 'image', imageDurationSeconds: null },
+      { filePath: '/tmp/segment.png', type: 'image', imageDurationSeconds: null },
       608,
       1080,
       '/tmp/output.mp4',
@@ -1244,9 +1288,10 @@ describe('concatIntro (P3d)', () => {
     });
 
     await expect(
-      concatIntro(
+      concatBrandSegment(
+        'start',
         '/tmp/clip.mp4',
-        { filePath: '/tmp/intro.png', type: 'image', imageDurationSeconds: null },
+        { filePath: '/tmp/segment.png', type: 'image', imageDurationSeconds: null },
         608,
         1080,
         '/tmp/output.mp4',

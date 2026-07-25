@@ -197,6 +197,9 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
                   brandIntroUrl: true,
                   brandIntroType: true,
                   brandIntroImageDurationSeconds: true,
+                  brandOutroUrl: true,
+                  brandOutroType: true,
+                  brandOutroImageDurationSeconds: true,
                 },
               });
               const ownerWatermark: RenderClipJobData['watermark'] = owner.brandWatermarkUrl
@@ -217,6 +220,15 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
                       key: owner.brandIntroUrl,
                       type: owner.brandIntroType as IntroType,
                       imageDurationSeconds: owner.brandIntroImageDurationSeconds,
+                    }
+                  : null;
+              // Outro roadmap (P3e) - same shape as ownerIntro above.
+              const ownerOutro: RenderClipJobData['outro'] =
+                owner.brandOutroUrl && owner.brandOutroType
+                  ? {
+                      key: owner.brandOutroUrl,
+                      type: owner.brandOutroType as IntroType,
+                      imageDurationSeconds: owner.brandOutroImageDurationSeconds,
                     }
                   : null;
               await Promise.all(
@@ -254,6 +266,7 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
                     // brand-new clip, Brand-Kit-driven in practice" reasoning
                     // as watermark above.
                     intro: clips[index].introEnabled ? ownerIntro : null,
+                    outro: clips[index].outroEnabled ? ownerOutro : null,
                     keywords: candidate.keywords,
                     scores: candidate.scores,
                   }),

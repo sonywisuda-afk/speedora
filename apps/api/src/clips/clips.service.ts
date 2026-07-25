@@ -624,6 +624,7 @@ export class ClipsService {
     const applyBrandKit = input.applyBrandKit ?? clip.applyBrandKit;
     const watermarkEnabled = input.watermarkEnabled ?? clip.watermarkEnabled;
     const introEnabled = input.introEnabled ?? clip.introEnabled;
+    const outroEnabled = input.outroEnabled ?? clip.outroEnabled;
     const hookText = input.hookText ?? clip.hookText;
     const hashtags = input.hashtags ? sanitizeHashtags(input.hashtags) : clip.hashtags;
 
@@ -642,6 +643,7 @@ export class ClipsService {
         applyBrandKit,
         watermarkEnabled,
         introEnabled,
+        outroEnabled,
         // Explicit undefined check (not ??) - null is a real, distinct
         // value here (clears back to the original/untranslated text), same
         // "omitted vs. explicitly null" distinction MoveVideoDto's own
@@ -679,6 +681,7 @@ export class ClipsService {
     );
     const watermark = await this.resolveWatermark(clip.video.ownerId, clip.watermarkEnabled);
     const intro = await this.resolveIntro(clip.video.ownerId, clip.introEnabled);
+    const outro = await this.resolveOutro(clip.video.ownerId, clip.outroEnabled);
 
     // Sprint 5E (Version Compare & History) + cleared-before-enqueueing, in
     // one transaction: the pre-render state is snapshotted into ClipVersion
@@ -734,6 +737,7 @@ export class ClipsService {
       fontFamily,
       watermark,
       intro,
+      outro,
       keywords: clip.keywords,
       scores: toSharedClipScores(clip.scores),
     });
@@ -824,6 +828,28 @@ export class ClipsService {
       key: owner.brandIntroUrl,
       type: owner.brandIntroType as IntroType,
       imageDurationSeconds: owner.brandIntroImageDurationSeconds,
+    };
+  }
+
+  // Outro roadmap (P3e) - same shape/reasoning as resolveIntro above.
+  private async resolveOutro(
+    ownerId: string,
+    clipOutroEnabled: boolean,
+  ): Promise<RenderClipJobData['outro']> {
+    if (!clipOutroEnabled) return null;
+    const owner = await this.prisma.user.findUniqueOrThrow({
+      where: { id: ownerId },
+      select: {
+        brandOutroUrl: true,
+        brandOutroType: true,
+        brandOutroImageDurationSeconds: true,
+      },
+    });
+    if (!owner.brandOutroUrl || !owner.brandOutroType) return null;
+    return {
+      key: owner.brandOutroUrl,
+      type: owner.brandOutroType as IntroType,
+      imageDurationSeconds: owner.brandOutroImageDurationSeconds,
     };
   }
 
@@ -1027,6 +1053,7 @@ export class ClipsService {
     fontFamily: string | null;
     watermarkEnabled: boolean;
     introEnabled: boolean;
+    outroEnabled: boolean;
     hookText: string | null;
     hashtags: string[];
     scores: unknown;
@@ -1107,6 +1134,7 @@ export class ClipsService {
       fontFamily: clip.fontFamily,
       watermarkEnabled: clip.watermarkEnabled,
       introEnabled: clip.introEnabled,
+      outroEnabled: clip.outroEnabled,
       hookText: clip.hookText,
       hashtags: clip.hashtags,
       scores: toSharedClipScores(clip.scores),
