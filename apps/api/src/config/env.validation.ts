@@ -68,6 +68,15 @@ class EnvironmentVariables {
   @IsString()
   TOKEN_ENCRYPTION_KEY?: string;
 
+  // Optional on purpose, same posture as SENTRY_DSN above - the rest of the
+  // app has to keep working for everyone who hasn't set this up. Missing
+  // config only becomes a real (503) error at the point someone actually
+  // tries the Natural Language AI Search feature - see
+  // clips/clip-query-parser.service.ts's isAiSearchEnabled() guard.
+  @IsOptional()
+  @IsString()
+  OPENAI_API_KEY?: string;
+
   // Optional on purpose, same posture as the OAuth vars above - see
   // MailService.sendPasswordResetEmail(), which logs the reset link
   // instead of sending when SMTP_HOST is unset rather than failing boot.

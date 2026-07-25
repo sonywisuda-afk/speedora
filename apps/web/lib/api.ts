@@ -409,6 +409,28 @@ export async function getClipLibraryFacets(params: {
   return parseJsonOrThrow<ClipLibraryFacetsDto>(res);
 }
 
+// Natural Language AI Search roadmap (P4) - a thin parser on top of the
+// Clip Library filters above: translates free text into a partial
+// ClipLibraryFilterParams, which the caller merges into its own filter
+// state and re-issues as a normal getClipLibrary() call - this function
+// never returns clips itself.
+export interface ParseClipQueryResult {
+  filters: Partial<ClipLibraryFilterParams>;
+  summary: string;
+}
+
+export async function parseClipQuery(
+  query: string,
+  params: { workspaceId?: string; projectId?: string } = {},
+): Promise<ParseClipQueryResult> {
+  const res = await apiFetch('/clips/ai-search', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ query, ...params }),
+  });
+  return parseJsonOrThrow<ParseClipQueryResult>(res);
+}
+
 // Inline-playback variant of clipDownloadUrl for a <video> preview - the
 // download endpoint serves Content-Disposition: attachment (which browsers
 // refuse to play as media) and has no Range support; this one streams

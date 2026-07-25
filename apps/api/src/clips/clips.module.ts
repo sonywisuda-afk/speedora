@@ -5,6 +5,7 @@ import { RecurringSchedulesModule } from '../recurring-schedules/recurring-sched
 import { SocialModule } from '../social/social.module';
 import { StorageModule } from '../storage/storage.module';
 import { WorkspaceModule } from '../workspace/workspace.module';
+import { ClipQueryParserService } from './clip-query-parser.service';
 import { ClipsController } from './clips.controller';
 import { ClipsService } from './clips.service';
 
@@ -26,6 +27,6 @@ import { ClipsService } from './clips.service';
     RecurringSchedulesModule,
   ],
   controllers: [ClipsController],
-  providers: [ClipsService],
+  providers: [ClipsService, ClipQueryParserService],
 })
 export class ClipsModule {}

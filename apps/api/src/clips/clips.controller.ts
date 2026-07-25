@@ -20,8 +20,10 @@ import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.service';
+import { ClipQueryParserService } from './clip-query-parser.service';
 import { ClipsService } from './clips.service';
 import { CreatePlatformCopyDto } from './dto/create-platform-copy.dto';
+import { ParseClipQueryDto } from './dto/parse-clip-query.dto';
 import { PublishClipDto } from './dto/publish-clip.dto';
 import { ReschedulePublishDto } from './dto/reschedule-publish.dto';
 import { UpdateClipDto } from './dto/update-clip.dto';
@@ -78,6 +80,7 @@ export class ClipsController {
   constructor(
     private readonly clipsService: ClipsService,
     private readonly prisma: PrismaService,
+    private readonly clipQueryParser: ClipQueryParserService,
   ) {}
 
   // AI Clip Library roadmap (P1) - the first cross-video clip listing this
@@ -124,6 +127,20 @@ export class ClipsController {
     @Query('projectId') projectId?: string,
   ) {
     return this.clipsService.getTopicFacets(user.id, { workspaceId, projectId });
+  }
+
+  // Natural Language AI Search roadmap (P4) - a thin parser on top of the
+  // filters above: translates dto.query into a partial ClipLibraryFilterParams
+  // (see ClipQueryParserService), which the client merges into its own
+  // filter state and re-issues as a normal GET /clips call - no new
+  // results-rendering path, this endpoint never returns clips itself.
+  @Post('ai-search')
+  @HttpCode(200)
+  parseAiSearchQuery(@CurrentUser() user: SafeUser, @Body() dto: ParseClipQueryDto) {
+    return this.clipQueryParser.parseQuery(user.id, dto.query, {
+      workspaceId: dto.workspaceId,
+      projectId: dto.projectId,
+    });
   }
 
   @Get(':id/download')

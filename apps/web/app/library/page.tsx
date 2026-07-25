@@ -2,16 +2,18 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import type { Clip } from '@speedora/shared';
+import type { Clip, ClipLibraryFilterParams } from '@speedora/shared';
 import useSWR from 'swr';
 import { Button } from '@/components/ui/button';
 import { ClipCard } from '@/components/gallery/ClipCard';
+import { AiSearchBar } from '@/components/library/AiSearchBar';
 import {
   ClipLibraryFilters,
   type ClipLibraryFiltersValue,
 } from '@/components/library/ClipLibraryFilters';
 import { Nav } from '@/components/Nav';
-import { getClipLibrary, getClipLibraryFacets } from '@/lib/api';
+import { getClipLibrary, getClipLibraryFacets, type ParseClipQueryResult } from '@/lib/api';
+import { DURATION_BUCKETS } from '@/lib/clip-library';
 import { useAuth } from '@/lib/useAuth';
 import { useWorkspaceStore } from '@/lib/workspaceStore';
 
@@ -31,20 +33,74 @@ export default function ClipLibraryPage() {
   const [hasLoadedMore, setHasLoadedMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
 
+  // Natural Language AI Search roadmap (P4) - raw AI-parsed filters, applied
+  // ON TOP of the manual ClipLibraryFilters state below rather than forced
+  // into it: the manual UI can only represent a fixed duration-bucket set
+  // and a single topic, but the AI may return an arbitrary duration range
+  // or several topics at once. aiSummary is shown verbatim so the actual
+  // applied filter is always visible even when the manual controls below
+  // can't precisely echo it (see handleAiResult's best-effort partial sync).
+  // Any manual filter edit clears both - "touching a control by hand" means
+  // full manual control again, not a stale AI filter silently lingering.
+  const [aiFilters, setAiFilters] = useState<Partial<ClipLibraryFilterParams>>({});
+  const [aiSummary, setAiSummary] = useState<string | null>(null);
+
   const queryParams = useMemo(
     () => ({
       workspaceId: activeWorkspaceId ?? undefined,
       limit: LIMIT,
-      platform: filters.platform,
-      minDuration: filters.durationBucket?.minDuration,
-      maxDuration: filters.durationBucket?.maxDuration,
-      emotion: filters.emotion,
-      topics: filters.topic ? [filters.topic] : undefined,
-      minScore: filters.minScore,
-      keyword: filters.keyword,
+      platform: aiFilters.platform ?? filters.platform,
+      minDuration: aiFilters.minDuration ?? filters.durationBucket?.minDuration,
+      maxDuration: aiFilters.maxDuration ?? filters.durationBucket?.maxDuration,
+      emotion: aiFilters.emotion ?? filters.emotion,
+      topics: aiFilters.topics ?? (filters.topic ? [filters.topic] : undefined),
+      minScore: aiFilters.minScore ?? filters.minScore,
+      keyword: aiFilters.keyword ?? filters.keyword,
     }),
-    [activeWorkspaceId, filters],
+    [activeWorkspaceId, filters, aiFilters],
   );
+
+  function handleManualFilterChange(next: ClipLibraryFiltersValue) {
+    setFilters(next);
+    setAiFilters({});
+    setAiSummary(null);
+  }
+
+  function handleAiResult(result: ParseClipQueryResult) {
+    setAiFilters(result.filters);
+    setAiSummary(result.summary);
+    // Best-effort echo into the manual controls, only for fields the fixed
+    // UI primitives can represent exactly - a field the AI didn't mention
+    // is left untouched (prev.*); a duration/topic that doesn't map onto
+    // the fixed bucket/single-select set clears to "Semua" (still applied,
+    // via aiFilters/aiSummary above, just not visually representable here)
+    // rather than leaving a stale, now-incorrect selection highlighted.
+    setFilters((prev) => {
+      const matchedBucket =
+        result.filters.minDuration !== undefined || result.filters.maxDuration !== undefined
+          ? DURATION_BUCKETS.find(
+              (b) =>
+                b.minDuration === result.filters.minDuration &&
+                b.maxDuration === result.filters.maxDuration,
+            )
+          : undefined;
+      return {
+        ...prev,
+        platform: result.filters.platform ?? prev.platform,
+        emotion: result.filters.emotion ?? prev.emotion,
+        minScore: result.filters.minScore ?? prev.minScore,
+        keyword: result.filters.keyword ?? prev.keyword,
+        durationBucket:
+          result.filters.minDuration !== undefined || result.filters.maxDuration !== undefined
+            ? matchedBucket
+            : prev.durationBucket,
+        topic:
+          result.filters.topics !== undefined
+            ? (result.filters.topics.length === 1 ? result.filters.topics[0] : undefined)
+            : prev.topic,
+      };
+    });
+  }
 
   const { data, error, isLoading } = useSWR(
     user ? ['clip-library', queryParams] : null,
@@ -122,9 +178,18 @@ export default function ClipLibraryPage() {
             <Nav user={user} onLogout={logout} />
 
             <div className="mt-6">
+              <AiSearchBar workspaceId={activeWorkspaceId ?? undefined} onResult={handleAiResult} />
+              {aiSummary && (
+                <p className="mt-2 font-mono text-[11px] text-muted-foreground">
+                  Dipahami sebagai: <span className="text-foreground">{aiSummary}</span>
+                </p>
+              )}
+            </div>
+
+            <div className="mt-4">
               <ClipLibraryFilters
                 value={filters}
-                onChange={setFilters}
+                onChange={handleManualFilterChange}
                 topicOptions={facets?.topics ?? []}
               />
             </div>

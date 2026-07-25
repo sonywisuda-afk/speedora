@@ -243,6 +243,8 @@ model User {
   subtitlePresets          SubtitlePreset[]
   // Template Presets roadmap (P3f)
   brandKitTemplates        BrandKitTemplate[]
+  // Natural Language AI Search roadmap (P4)
+  aiSearchRequests         AiSearchRequest[]
 }
 
 model Video {
@@ -533,6 +535,24 @@ model TranscriptTranslationRequest {
 
   @@index([requestedBy, createdAt])
   @@index([videoId])
+}
+
+// Natural Language AI Search roadmap (P4) - same "row IS the rate-limit
+// counter" pattern as TranscriptTranslationRequest above, not tied to a
+// specific video (a search query isn't scoped to one video the way a
+// translate request is) - counts a user's parse-query calls in a rolling
+// 24h window. No status/result column - the parsed filters are returned
+// directly in the HTTP response, never persisted; this table exists purely
+// to answer "how many times has this user asked for an AI search in the
+// last 24h."
+model AiSearchRequest {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  query     String
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
 }
 
 // One row per candidate produced by the detect-clips job; outputUrl is set

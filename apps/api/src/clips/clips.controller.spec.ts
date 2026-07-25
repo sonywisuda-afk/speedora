@@ -1,6 +1,7 @@
 import { getObjectStream } from '@speedora/storage';
 import type { Response } from 'express';
 import type { PrismaService } from '../prisma/prisma.service';
+import type { ClipQueryParserService } from './clip-query-parser.service';
 import type { ClipsService } from './clips.service';
 import { ClipsController } from './clips.controller';
 
@@ -28,6 +29,7 @@ describe('ClipsController', () => {
     reschedulePublish: jest.Mock;
   };
   let prisma: { activityEvent: { create: jest.Mock } };
+  let clipQueryParser: { parseQuery: jest.Mock };
   const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
 
   beforeEach(() => {
@@ -49,9 +51,11 @@ describe('ClipsController', () => {
       reschedulePublish: jest.fn(),
     };
     prisma = { activityEvent: { create: jest.fn().mockResolvedValue({}) } };
+    clipQueryParser = { parseQuery: jest.fn() };
     controller = new ClipsController(
       clipsService as unknown as ClipsService,
       prisma as unknown as PrismaService,
+      clipQueryParser as unknown as ClipQueryParserService,
     );
     jest.clearAllMocks();
     prisma.activityEvent.create.mockResolvedValue({});
@@ -474,6 +478,26 @@ describe('ClipsController', () => {
         projectId: 'proj-1',
       });
       expect(result).toBe(facets);
+    });
+  });
+
+  // Natural Language AI Search roadmap (P4).
+  describe('parseAiSearchQuery', () => {
+    it('delegates to ClipQueryParserService.parseQuery with the requester id, query, and target', async () => {
+      const parsed = { filters: { minScore: 70 }, summary: 'Score >= 70.' };
+      clipQueryParser.parseQuery.mockResolvedValue(parsed);
+
+      const result = await controller.parseAiSearchQuery(user, {
+        query: 'best clips',
+        workspaceId: 'ws-1',
+        projectId: 'proj-1',
+      });
+
+      expect(clipQueryParser.parseQuery).toHaveBeenCalledWith('user-1', 'best clips', {
+        workspaceId: 'ws-1',
+        projectId: 'proj-1',
+      });
+      expect(result).toBe(parsed);
     });
   });
 });
