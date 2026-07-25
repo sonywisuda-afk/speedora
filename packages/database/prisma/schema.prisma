@@ -241,6 +241,8 @@ model User {
   createdTrackedLinks      TrackedLink[]
   // Subtitle Presets roadmap (P3b)
   subtitlePresets          SubtitlePreset[]
+  // Template Presets roadmap (P3f)
+  brandKitTemplates        BrandKitTemplate[]
 }
 
 model Video {
@@ -1485,6 +1487,48 @@ model SubtitlePreset {
   fontFamily           String?
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
+
+  @@index([userId])
+}
+
+// Template Presets roadmap (P3f) - a named, user-saved snapshot of every
+// field BrandKitService.BRAND_KIT_SELECT reads (the exact set render-enqueue
+// resolution actually consumes), letting a user save "the Brand Kit as it is
+// right now" and switch back to it later. Directly userId-owned, same CRUD
+// shape as SubtitlePreset (mirrors ProjectService's create/list/update/
+// remove, ownership checked in findOwnedOrThrow rather than
+// WorkspaceAccessService - a personal setting, not a team-shared resource).
+// Deliberately workspace-agnostic for now (P3g adds workspace scoping
+// uniformly across the whole Brand Kit, not templates specially). Fields are
+// a flat 1:1 mirror of User's own brand* columns (raw storage keys, not
+// resolved `/brand-kit/...` URLs - this is a server-side snapshot, re-applied
+// by copying straight back onto User, not something rendered to a client
+// as-is). "Applying" a template copies its fields onto the user's live Brand
+// Kit fields; the fields render-clip.worker.ts actually reads stay the same
+// flat set on User they always were - a template is purely an editing-
+// convenience layer on top, not a new thing renders resolve against.
+model BrandKitTemplate {
+  id                             String   @id @default(cuid())
+  userId                         String
+  user                           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                           String
+  logoUrl                        String?
+  primaryColor                   String?
+  secondaryColor                 String?
+  fontFamily                     String?
+  watermarkUrl                   String?
+  watermarkOpacity               Float?
+  watermarkScale                 Float?
+  watermarkMargin                Float?
+  watermarkPosition              String?
+  introUrl                       String?
+  introType                      String?
+  introImageDurationSeconds      Float?
+  outroUrl                       String?
+  outroType                      String?
+  outroImageDurationSeconds      Float?
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @updatedAt
 
   @@index([userId])
 }

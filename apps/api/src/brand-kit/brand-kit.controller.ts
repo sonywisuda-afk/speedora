@@ -5,7 +5,9 @@ import {
   Get,
   HttpCode,
   NotFoundException,
+  Param,
   ParseFilePipeBuilder,
+  Patch,
   Post,
   Put,
   Res,
@@ -22,7 +24,9 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { StorageService } from '../storage/storage.service';
 import { BrandKitService } from './brand-kit.service';
+import { CreateBrandKitTemplateDto } from './dto/create-brand-kit-template.dto';
 import { UpdateBrandKitDto } from './dto/update-brand-kit.dto';
+import { UpdateBrandKitTemplateDto } from './dto/update-brand-kit-template.dto';
 
 // A logo, not a video - same MAX_UPLOAD_SIZE_BYTES-style constant as
 // VideosController, just a much smaller cap.
@@ -247,5 +251,40 @@ export class BrandKitController {
   @HttpCode(204)
   removeOutro(@CurrentUser() user: SafeUser) {
     return this.brandKit.removeOutro(user.id);
+  }
+
+  // Template Presets roadmap (P3f) - "save current Brand Kit as template" +
+  // a switcher. Routed under /brand-kit/templates rather than a separate
+  // controller/module - tightly coupled to BrandKitService's own
+  // BRAND_KIT_SELECT/toDto shape, same reasoning as keeping these methods on
+  // BrandKitService itself instead of a sibling service.
+  @Post('templates')
+  createTemplate(@CurrentUser() user: SafeUser, @Body() dto: CreateBrandKitTemplateDto) {
+    return this.brandKit.createTemplate(user.id, dto.name);
+  }
+
+  @Get('templates')
+  listTemplates(@CurrentUser() user: SafeUser) {
+    return this.brandKit.listTemplates(user.id);
+  }
+
+  @Patch('templates/:id')
+  renameTemplate(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateBrandKitTemplateDto,
+  ) {
+    return this.brandKit.renameTemplate(user.id, id, dto.name);
+  }
+
+  @Delete('templates/:id')
+  @HttpCode(204)
+  deleteTemplate(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    return this.brandKit.deleteTemplate(user.id, id);
+  }
+
+  @Post('templates/:id/apply')
+  applyTemplate(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    return this.brandKit.applyTemplate(user.id, id);
   }
 }

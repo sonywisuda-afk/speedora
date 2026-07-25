@@ -19,12 +19,53 @@ const BASE_ROW = {
   brandOutroImageDurationSeconds: null,
 };
 
+const BASE_TEMPLATE_ROW = {
+  id: 'template-1',
+  userId: 'user-1',
+  name: 'My Template',
+  logoUrl: null,
+  primaryColor: null,
+  secondaryColor: null,
+  fontFamily: null,
+  watermarkUrl: null,
+  watermarkOpacity: null,
+  watermarkScale: null,
+  watermarkMargin: null,
+  watermarkPosition: null,
+  introUrl: null,
+  introType: null,
+  introImageDurationSeconds: null,
+  outroUrl: null,
+  outroType: null,
+  outroImageDurationSeconds: null,
+  createdAt: new Date('2026-01-01T00:00:00.000Z'),
+  updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+};
+
 describe('BrandKitService', () => {
   let service: BrandKitService;
-  let prisma: { user: { findUniqueOrThrow: jest.Mock; update: jest.Mock } };
+  let prisma: {
+    user: { findUniqueOrThrow: jest.Mock; update: jest.Mock };
+    brandKitTemplate: {
+      create: jest.Mock;
+      findMany: jest.Mock;
+      findUnique: jest.Mock;
+      update: jest.Mock;
+      delete: jest.Mock;
+    };
+  };
 
   beforeEach(() => {
-    prisma = { user: { findUniqueOrThrow: jest.fn(), update: jest.fn() } };
+    prisma = {
+      user: { findUniqueOrThrow: jest.fn(), update: jest.fn() },
+      brandKitTemplate: {
+        create: jest.fn(),
+        findMany: jest.fn(),
+        findUnique: jest.fn(),
+        update: jest.fn(),
+        delete: jest.fn(),
+      },
+    };
     service = new BrandKitService(prisma as unknown as PrismaService);
   });
 
@@ -360,6 +401,229 @@ describe('BrandKitService', () => {
         where: { id: 'user-1' },
         data: { brandOutroUrl: null, brandOutroType: null },
       });
+    });
+  });
+
+  describe('createTemplate', () => {
+    it('snapshots every current Brand Kit field into a new template row', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        ...BASE_ROW,
+        brandLogoUrl: 'brand-logos/abc.png',
+        brandPrimaryColor: '#1D4ED8',
+        brandFontFamily: 'Poppins',
+        brandWatermarkUrl: 'watermarks/abc.png',
+        brandWatermarkPosition: 'BOTTOM_RIGHT',
+        brandIntroUrl: 'intros/abc.mp4',
+        brandIntroType: 'video',
+        brandOutroUrl: 'outros/abc.png',
+        brandOutroType: 'image',
+        brandOutroImageDurationSeconds: 3,
+      });
+      prisma.brandKitTemplate.create.mockResolvedValue({
+        ...BASE_TEMPLATE_ROW,
+        logoUrl: 'brand-logos/abc.png',
+        primaryColor: '#1D4ED8',
+        fontFamily: 'Poppins',
+        watermarkUrl: 'watermarks/abc.png',
+        watermarkPosition: 'BOTTOM_RIGHT',
+        introUrl: 'intros/abc.mp4',
+        introType: 'video',
+        outroUrl: 'outros/abc.png',
+        outroType: 'image',
+        outroImageDurationSeconds: 3,
+      });
+
+      const result = await service.createTemplate('user-1', 'My Template');
+
+      expect(prisma.brandKitTemplate.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'user-1',
+          name: 'My Template',
+          logoUrl: 'brand-logos/abc.png',
+          primaryColor: '#1D4ED8',
+          secondaryColor: null,
+          fontFamily: 'Poppins',
+          watermarkUrl: 'watermarks/abc.png',
+          watermarkOpacity: null,
+          watermarkScale: null,
+          watermarkMargin: null,
+          watermarkPosition: 'BOTTOM_RIGHT',
+          introUrl: 'intros/abc.mp4',
+          introType: 'video',
+          introImageDurationSeconds: null,
+          outroUrl: 'outros/abc.png',
+          outroType: 'image',
+          outroImageDurationSeconds: 3,
+        },
+      });
+      expect(result).toEqual({
+        id: 'template-1',
+        name: 'My Template',
+        primaryColor: '#1D4ED8',
+        secondaryColor: null,
+        fontFamily: 'Poppins',
+        hasLogo: true,
+        hasWatermark: true,
+        watermarkPosition: 'BOTTOM_RIGHT',
+        hasIntro: true,
+        introType: 'video',
+        hasOutro: true,
+        outroType: 'image',
+        createdAt: '2026-01-01T00:00:00.000Z',
+      });
+    });
+  });
+
+  describe('listTemplates', () => {
+    it('lists the user\'s templates, newest first, as summary DTOs', async () => {
+      prisma.brandKitTemplate.findMany.mockResolvedValue([BASE_TEMPLATE_ROW]);
+
+      const result = await service.listTemplates('user-1');
+
+      expect(prisma.brandKitTemplate.findMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1' },
+        orderBy: { createdAt: 'desc' },
+        take: 100,
+      });
+      expect(result.templates).toEqual([
+        expect.objectContaining({ id: 'template-1', name: 'My Template', hasLogo: false }),
+      ]);
+    });
+  });
+
+  describe('renameTemplate', () => {
+    it('renames a template owned by the user', async () => {
+      prisma.brandKitTemplate.findUnique.mockResolvedValue(BASE_TEMPLATE_ROW);
+      prisma.brandKitTemplate.update.mockResolvedValue({
+        ...BASE_TEMPLATE_ROW,
+        name: 'Renamed',
+      });
+
+      const result = await service.renameTemplate('user-1', 'template-1', 'Renamed');
+
+      expect(prisma.brandKitTemplate.update).toHaveBeenCalledWith({
+        where: { id: 'template-1' },
+        data: { name: 'Renamed' },
+      });
+      expect(result.name).toBe('Renamed');
+    });
+
+    it('404s when the template belongs to a different user', async () => {
+      prisma.brandKitTemplate.findUnique.mockResolvedValue({
+        ...BASE_TEMPLATE_ROW,
+        userId: 'other-user',
+      });
+
+      await expect(service.renameTemplate('user-1', 'template-1', 'Renamed')).rejects.toThrow(
+        'Brand Kit template template-1 not found',
+      );
+      expect(prisma.brandKitTemplate.update).not.toHaveBeenCalled();
+    });
+
+    it('404s when the template does not exist', async () => {
+      prisma.brandKitTemplate.findUnique.mockResolvedValue(null);
+
+      await expect(service.renameTemplate('user-1', 'missing', 'Renamed')).rejects.toThrow(
+        'Brand Kit template missing not found',
+      );
+    });
+  });
+
+  describe('deleteTemplate', () => {
+    it('deletes a template owned by the user', async () => {
+      prisma.brandKitTemplate.findUnique.mockResolvedValue(BASE_TEMPLATE_ROW);
+
+      await service.deleteTemplate('user-1', 'template-1');
+
+      expect(prisma.brandKitTemplate.delete).toHaveBeenCalledWith({ where: { id: 'template-1' } });
+    });
+
+    it('404s when the template belongs to a different user', async () => {
+      prisma.brandKitTemplate.findUnique.mockResolvedValue({
+        ...BASE_TEMPLATE_ROW,
+        userId: 'other-user',
+      });
+
+      await expect(service.deleteTemplate('user-1', 'template-1')).rejects.toThrow(
+        'Brand Kit template template-1 not found',
+      );
+      expect(prisma.brandKitTemplate.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('applyTemplate', () => {
+    it("copies the template's fields back onto the user's live Brand Kit fields", async () => {
+      prisma.brandKitTemplate.findUnique.mockResolvedValue({
+        ...BASE_TEMPLATE_ROW,
+        logoUrl: 'brand-logos/abc.png',
+        primaryColor: '#1D4ED8',
+        fontFamily: 'Poppins',
+        watermarkUrl: 'watermarks/abc.png',
+        watermarkOpacity: 0.8,
+        watermarkScale: 0.15,
+        watermarkMargin: 0.03,
+        watermarkPosition: 'BOTTOM_RIGHT',
+        introUrl: 'intros/abc.mp4',
+        introType: 'video',
+        outroUrl: 'outros/abc.png',
+        outroType: 'image',
+        outroImageDurationSeconds: 3,
+      });
+      prisma.user.update.mockResolvedValue({
+        ...BASE_ROW,
+        brandLogoUrl: 'brand-logos/abc.png',
+        brandPrimaryColor: '#1D4ED8',
+        brandFontFamily: 'Poppins',
+        brandWatermarkUrl: 'watermarks/abc.png',
+        brandWatermarkOpacity: 0.8,
+        brandWatermarkScale: 0.15,
+        brandWatermarkMargin: 0.03,
+        brandWatermarkPosition: 'BOTTOM_RIGHT',
+        brandIntroUrl: 'intros/abc.mp4',
+        brandIntroType: 'video',
+        brandOutroUrl: 'outros/abc.png',
+        brandOutroType: 'image',
+        brandOutroImageDurationSeconds: 3,
+      });
+
+      const result = await service.applyTemplate('user-1', 'template-1');
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: {
+          brandLogoUrl: 'brand-logos/abc.png',
+          brandPrimaryColor: '#1D4ED8',
+          brandSecondaryColor: null,
+          brandFontFamily: 'Poppins',
+          brandWatermarkUrl: 'watermarks/abc.png',
+          brandWatermarkOpacity: 0.8,
+          brandWatermarkScale: 0.15,
+          brandWatermarkMargin: 0.03,
+          brandWatermarkPosition: 'BOTTOM_RIGHT',
+          brandIntroUrl: 'intros/abc.mp4',
+          brandIntroType: 'video',
+          brandIntroImageDurationSeconds: null,
+          brandOutroUrl: 'outros/abc.png',
+          brandOutroType: 'image',
+          brandOutroImageDurationSeconds: 3,
+        },
+        select: expect.any(Object),
+      });
+      expect(result.logoUrl).toBe('/brand-kit/logo');
+      expect(result.watermarkPosition).toBe('BOTTOM_RIGHT');
+      expect(result.outroType).toBe('image');
+    });
+
+    it('404s when the template belongs to a different user', async () => {
+      prisma.brandKitTemplate.findUnique.mockResolvedValue({
+        ...BASE_TEMPLATE_ROW,
+        userId: 'other-user',
+      });
+
+      await expect(service.applyTemplate('user-1', 'template-1')).rejects.toThrow(
+        'Brand Kit template template-1 not found',
+      );
+      expect(prisma.user.update).not.toHaveBeenCalled();
     });
   });
 });

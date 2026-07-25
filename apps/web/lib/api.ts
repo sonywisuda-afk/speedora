@@ -8,6 +8,7 @@ import type {
   ApprovalListDto,
   AuditLogListDto,
   BrandKitDto,
+  BrandKitTemplateDto,
   CalendarDto,
   CampaignAnalyticsDto,
   CampaignDetailDto,
@@ -1316,6 +1317,46 @@ export function brandKitOutroUrl(): string {
 
 export async function removeBrandOutro(): Promise<void> {
   await apiFetch('/brand-kit/outro', { method: 'DELETE' });
+}
+
+// Template Presets roadmap (P3f) - "save current Brand Kit as template" +
+// a switcher list.
+export async function listBrandKitTemplates(): Promise<{ templates: BrandKitTemplateDto[] }> {
+  const res = await apiFetch('/brand-kit/templates');
+  return parseJsonOrThrow<{ templates: BrandKitTemplateDto[] }>(res);
+}
+
+export async function createBrandKitTemplate(name: string): Promise<BrandKitTemplateDto> {
+  const res = await apiFetch('/brand-kit/templates', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return parseJsonOrThrow<BrandKitTemplateDto>(res);
+}
+
+export async function renameBrandKitTemplate(
+  id: string,
+  name: string,
+): Promise<BrandKitTemplateDto> {
+  const res = await apiFetch(`/brand-kit/templates/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return parseJsonOrThrow<BrandKitTemplateDto>(res);
+}
+
+export async function deleteBrandKitTemplate(id: string): Promise<void> {
+  await apiFetch(`/brand-kit/templates/${id}`, { method: 'DELETE' });
+}
+
+// Copies the saved template's fields back onto the live Brand Kit -
+// returns the resulting BrandKitDto so the caller can refresh in one round
+// trip instead of apply-then-refetch.
+export async function applyBrandKitTemplate(id: string): Promise<BrandKitDto> {
+  const res = await apiFetch(`/brand-kit/templates/${id}/apply`, { method: 'POST' });
+  return parseJsonOrThrow<BrandKitDto>(res);
 }
 
 // Subtitle Presets roadmap (P3b) - a named, user-saved bundle of

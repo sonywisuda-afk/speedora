@@ -41,6 +41,32 @@ export interface BrandKitDto {
   outroImageDurationSeconds: number | null;
 }
 
+// Template Presets roadmap (P3f) - the client-facing shape for a saved
+// Brand Kit snapshot. Deliberately does NOT expose the template's own raw
+// asset keys/URLs (logo/watermark/intro/outro) the way BrandKitDto exposes
+// the CURRENTLY ACTIVE kit's assets via `/brand-kit/logo` etc. - there is no
+// per-template asset-serving endpoint (only the active Brand Kit's assets
+// are ever streamed), so a raw key here wouldn't be usable as an <img src>
+// anyway. The switcher list only needs to summarize what a template
+// contains (has*/​*Position/*Type) well enough to pick between saved
+// templates, not preview their images - same "Campaign's named-entity list,
+// no live preview" precedent this sub-phase's plan called out.
+export interface BrandKitTemplateDto {
+  id: string;
+  name: string;
+  primaryColor: string | null;
+  secondaryColor: string | null;
+  fontFamily: string | null;
+  hasLogo: boolean;
+  hasWatermark: boolean;
+  watermarkPosition: WatermarkPosition | null;
+  hasIntro: boolean;
+  introType: IntroType | null;
+  hasOutro: boolean;
+  outroType: IntroType | null;
+  createdAt: string;
+}
+
 // Brand Kit roadmap (P3a) - apps/web's own copy of packages/contracts's
 // curated FONT_FAMILIES list, same "this package has no dependency on
 // packages/contracts" duplication convention CaptionStyle/CAPTION_STYLES

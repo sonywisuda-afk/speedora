@@ -1,7 +1,28 @@
-import { Injectable } from '@nestjs/common';
-import type { BrandKitDto, IntroType, WatermarkPosition } from '@speedora/shared';
+import { Injectable, NotFoundException } from '@nestjs/common';
+import type { BrandKitDto, BrandKitTemplateDto, IntroType, WatermarkPosition } from '@speedora/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import type { UpdateBrandKitDto } from './dto/update-brand-kit.dto';
+
+interface BrandKitTemplateRow {
+  id: string;
+  name: string;
+  logoUrl: string | null;
+  primaryColor: string | null;
+  secondaryColor: string | null;
+  fontFamily: string | null;
+  watermarkUrl: string | null;
+  watermarkOpacity: number | null;
+  watermarkScale: number | null;
+  watermarkMargin: number | null;
+  watermarkPosition: string | null;
+  introUrl: string | null;
+  introType: string | null;
+  introImageDurationSeconds: number | null;
+  outroUrl: string | null;
+  outroType: string | null;
+  outroImageDurationSeconds: number | null;
+  createdAt: Date;
+}
 
 interface BrandKitRow {
   brandLogoUrl: string | null;
@@ -182,6 +203,126 @@ export class BrandKitService {
       where: { id: userId },
       data: { brandOutroUrl: null, brandOutroType: null },
     });
+  }
+
+  // Template Presets roadmap (P3f) - snapshots the CURRENT Brand Kit fields
+  // (BRAND_KIT_SELECT) into a new named BrandKitTemplate row. Raw keys, not
+  // the DTO's resolved `/brand-kit/...` URLs - a template is a server-side
+  // snapshot, re-applied by copying straight back onto User.
+  async createTemplate(userId: string, name: string): Promise<BrandKitTemplateDto> {
+    const current = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: BRAND_KIT_SELECT,
+    });
+    const template = await this.prisma.brandKitTemplate.create({
+      data: {
+        userId,
+        name,
+        logoUrl: current.brandLogoUrl,
+        primaryColor: current.brandPrimaryColor,
+        secondaryColor: current.brandSecondaryColor,
+        fontFamily: current.brandFontFamily,
+        watermarkUrl: current.brandWatermarkUrl,
+        watermarkOpacity: current.brandWatermarkOpacity,
+        watermarkScale: current.brandWatermarkScale,
+        watermarkMargin: current.brandWatermarkMargin,
+        watermarkPosition: current.brandWatermarkPosition,
+        introUrl: current.brandIntroUrl,
+        introType: current.brandIntroType,
+        introImageDurationSeconds: current.brandIntroImageDurationSeconds,
+        outroUrl: current.brandOutroUrl,
+        outroType: current.brandOutroType,
+        outroImageDurationSeconds: current.brandOutroImageDurationSeconds,
+      },
+    });
+    return this.templateToDto(template);
+  }
+
+  async listTemplates(userId: string): Promise<{ templates: BrandKitTemplateDto[] }> {
+    const templates = await this.prisma.brandKitTemplate.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+    });
+    return { templates: templates.map((t) => this.templateToDto(t)) };
+  }
+
+  // Same "findOwnedOrThrow, 404 rather than leaking another user's template
+  // existence" convention as SubtitlePresetsService.
+  private async findTemplateOwnedOrThrow(
+    userId: string,
+    templateId: string,
+  ): Promise<BrandKitTemplateRow> {
+    const template = await this.prisma.brandKitTemplate.findUnique({ where: { id: templateId } });
+    if (!template || template.userId !== userId) {
+      throw new NotFoundException(`Brand Kit template ${templateId} not found`);
+    }
+    return template;
+  }
+
+  async renameTemplate(
+    userId: string,
+    templateId: string,
+    name: string,
+  ): Promise<BrandKitTemplateDto> {
+    await this.findTemplateOwnedOrThrow(userId, templateId);
+    const template = await this.prisma.brandKitTemplate.update({
+      where: { id: templateId },
+      data: { name },
+    });
+    return this.templateToDto(template);
+  }
+
+  async deleteTemplate(userId: string, templateId: string): Promise<void> {
+    await this.findTemplateOwnedOrThrow(userId, templateId);
+    await this.prisma.brandKitTemplate.delete({ where: { id: templateId } });
+  }
+
+  // Copies a template's snapshot back onto the user's live Brand Kit fields -
+  // the same flat fields render-enqueue resolution already reads, so
+  // "applying" a template needs no new render-time code path.
+  async applyTemplate(userId: string, templateId: string): Promise<BrandKitDto> {
+    const template = await this.findTemplateOwnedOrThrow(userId, templateId);
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: {
+        brandLogoUrl: template.logoUrl,
+        brandPrimaryColor: template.primaryColor,
+        brandSecondaryColor: template.secondaryColor,
+        brandFontFamily: template.fontFamily,
+        brandWatermarkUrl: template.watermarkUrl,
+        brandWatermarkOpacity: template.watermarkOpacity,
+        brandWatermarkScale: template.watermarkScale,
+        brandWatermarkMargin: template.watermarkMargin,
+        brandWatermarkPosition: template.watermarkPosition,
+        brandIntroUrl: template.introUrl,
+        brandIntroType: template.introType,
+        brandIntroImageDurationSeconds: template.introImageDurationSeconds,
+        brandOutroUrl: template.outroUrl,
+        brandOutroType: template.outroType,
+        brandOutroImageDurationSeconds: template.outroImageDurationSeconds,
+      },
+      select: BRAND_KIT_SELECT,
+    });
+    return this.toDto(user);
+  }
+
+  private templateToDto(template: BrandKitTemplateRow): BrandKitTemplateDto {
+    return {
+      id: template.id,
+      name: template.name,
+      primaryColor: template.primaryColor,
+      secondaryColor: template.secondaryColor,
+      fontFamily: template.fontFamily,
+      hasLogo: template.logoUrl !== null,
+      hasWatermark: template.watermarkUrl !== null,
+      watermarkPosition: (template.watermarkPosition as WatermarkPosition | null) ?? null,
+      hasIntro: template.introUrl !== null,
+      introType: (template.introType as IntroType | null) ?? null,
+      hasOutro: template.outroUrl !== null,
+      outroType: (template.outroType as IntroType | null) ?? null,
+      createdAt: template.createdAt.toISOString(),
+    };
   }
 
   private toDto(user: BrandKitRow): BrandKitDto {

@@ -16,16 +16,21 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
+  applyBrandKitTemplate,
   brandKitIntroUrl,
   brandKitLogoUrl,
   brandKitOutroUrl,
   brandKitWatermarkUrl,
+  createBrandKitTemplate,
+  deleteBrandKitTemplate,
   deleteSubtitlePreset,
   getBrandKit,
+  listBrandKitTemplates,
   listSubtitlePresets,
   removeBrandIntro,
   removeBrandOutro,
   removeBrandWatermark,
+  renameBrandKitTemplate,
   updateBrandKit,
   uploadBrandIntro,
   uploadBrandLogo,
@@ -82,6 +87,21 @@ export default function BrandKitPage() {
     mutate: mutatePresets,
   } = useSWR(user ? 'subtitle-presets' : null, listSubtitlePresets);
   const [deletingPresetId, setDeletingPresetId] = useState<string | null>(null);
+
+  // Template Presets roadmap (P3f) - "save current Brand Kit as template" +
+  // a switcher list. Independent SWR key/mutate, same "manage from Brand
+  // Kit" split as Subtitle Presets above.
+  const {
+    data: templatesData,
+    error: templatesError,
+    mutate: mutateTemplates,
+  } = useSWR(user ? 'brand-kit-templates' : null, listBrandKitTemplates);
+  const [newTemplateName, setNewTemplateName] = useState('');
+  const [creatingTemplate, setCreatingTemplate] = useState(false);
+  const [applyingTemplateId, setApplyingTemplateId] = useState<string | null>(null);
+  const [renamingTemplateId, setRenamingTemplateId] = useState<string | null>(null);
+  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
+  const [templateActionError, setTemplateActionError] = useState<string | null>(null);
 
   const [primaryColor, setPrimaryColor] = useState('');
   const [secondaryColor, setSecondaryColor] = useState('');
@@ -286,6 +306,75 @@ export default function BrandKitPage() {
       await mutatePresets();
     } finally {
       setDeletingPresetId(null);
+    }
+  }
+
+  async function handleCreateTemplate() {
+    const name = newTemplateName.trim();
+    if (!name) return;
+    setTemplateActionError(null);
+    setCreatingTemplate(true);
+    try {
+      await createBrandKitTemplate(name);
+      await mutateTemplates();
+      setNewTemplateName('');
+    } catch (err) {
+      setTemplateActionError(err instanceof Error ? err.message : 'Gagal menyimpan template');
+    } finally {
+      setCreatingTemplate(false);
+    }
+  }
+
+  async function handleApplyTemplate(id: string) {
+    setTemplateActionError(null);
+    setApplyingTemplateId(id);
+    try {
+      const updated = await applyBrandKitTemplate(id);
+      await mutate(updated, false);
+      // Local field overrides (color/font/watermark inputs) were edited
+      // relative to the OLD brandKit - clear them so the just-applied
+      // template's values show immediately instead of stale local state.
+      setPrimaryColor('');
+      setSecondaryColor('');
+      setFontFamily('');
+      setWatermarkOpacityPct(null);
+      setWatermarkScalePct(null);
+      setWatermarkMarginPct(null);
+      setWatermarkPosition(null);
+      setIntroImageDurationSeconds(null);
+      setOutroImageDurationSeconds(null);
+    } catch (err) {
+      setTemplateActionError(err instanceof Error ? err.message : 'Gagal menerapkan template');
+    } finally {
+      setApplyingTemplateId(null);
+    }
+  }
+
+  async function handleRenameTemplate(id: string, currentName: string) {
+    const name = window.prompt('Nama baru untuk template ini:', currentName)?.trim();
+    if (!name || name === currentName) return;
+    setTemplateActionError(null);
+    setRenamingTemplateId(id);
+    try {
+      await renameBrandKitTemplate(id, name);
+      await mutateTemplates();
+    } catch (err) {
+      setTemplateActionError(err instanceof Error ? err.message : 'Gagal mengganti nama template');
+    } finally {
+      setRenamingTemplateId(null);
+    }
+  }
+
+  async function handleDeleteTemplate(id: string) {
+    setTemplateActionError(null);
+    setDeletingTemplateId(id);
+    try {
+      await deleteBrandKitTemplate(id);
+      await mutateTemplates();
+    } catch (err) {
+      setTemplateActionError(err instanceof Error ? err.message : 'Gagal menghapus template');
+    } finally {
+      setDeletingTemplateId(null);
     }
   }
 
@@ -723,6 +812,98 @@ export default function BrandKitPage() {
                         </li>
                       ))}
                     </ul>
+                  )}
+                </section>
+
+                <section className="space-y-3">
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Template Brand Kit
+                  </Label>
+                  <p className="font-body text-xs text-muted-foreground">
+                    Simpan kombinasi logo, warna, font, watermark, intro, dan outro saat ini
+                    sebagai template bernama, lalu beralih di antara beberapa template kapan pun.
+                  </p>
+
+                  <div className="flex items-center gap-2">
+                    <Input
+                      value={newTemplateName}
+                      onChange={(e) => setNewTemplateName(e.target.value)}
+                      placeholder="Nama template, contoh: Kampanye Musim Panas"
+                      className="max-w-xs"
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={creatingTemplate || !newTemplateName.trim()}
+                      onClick={handleCreateTemplate}
+                    >
+                      {creatingTemplate ? 'Menyimpan...' : 'Simpan sebagai template'}
+                    </Button>
+                  </div>
+
+                  {templatesError && (
+                    <p className="font-body text-xs text-destructive">Gagal memuat template</p>
+                  )}
+                  {templatesData && templatesData.templates.length === 0 && (
+                    <p className="font-body text-xs text-muted-foreground">
+                      Belum ada template tersimpan.
+                    </p>
+                  )}
+                  {templatesData && templatesData.templates.length > 0 && (
+                    <ul className="space-y-2">
+                      {templatesData.templates.map((template) => (
+                        <li
+                          key={template.id}
+                          className="flex items-center justify-between gap-3 rounded-md border border-border bg-slate-panel px-3 py-2"
+                        >
+                          <div className="min-w-0">
+                            <p className="truncate font-body text-sm text-foreground">
+                              {template.name}
+                            </p>
+                            <p className="font-mono text-[10px] text-muted-foreground">
+                              {template.fontFamily ?? 'Default (Inter)'}
+                              {template.primaryColor ? ` · ${template.primaryColor}` : ''}
+                              {template.hasWatermark
+                                ? ` · Watermark: ${WATERMARK_POSITION_LABELS[template.watermarkPosition ?? 'BOTTOM_RIGHT']}`
+                                : ''}
+                              {template.hasIntro ? ` · Intro: ${template.introType}` : ''}
+                              {template.hasOutro ? ` · Outro: ${template.outroType}` : ''}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 items-center gap-2">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={applyingTemplateId === template.id}
+                              onClick={() => handleApplyTemplate(template.id)}
+                            >
+                              {applyingTemplateId === template.id ? 'Menerapkan...' : 'Terapkan'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={renamingTemplateId === template.id}
+                              onClick={() => handleRenameTemplate(template.id, template.name)}
+                            >
+                              {renamingTemplateId === template.id ? 'Mengubah...' : 'Ganti Nama'}
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={deletingTemplateId === template.id}
+                              onClick={() => handleDeleteTemplate(template.id)}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              {deletingTemplateId === template.id ? 'Menghapus...' : 'Hapus'}
+                            </Button>
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+
+                  {templateActionError && (
+                    <p className="font-body text-xs text-destructive">{templateActionError}</p>
                   )}
                 </section>
 

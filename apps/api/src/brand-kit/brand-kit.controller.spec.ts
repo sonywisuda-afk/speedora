@@ -22,6 +22,11 @@ describe('BrandKitController', () => {
     saveOutro: jest.Mock;
     findOutroKeyOrThrow: jest.Mock;
     removeOutro: jest.Mock;
+    createTemplate: jest.Mock;
+    listTemplates: jest.Mock;
+    renameTemplate: jest.Mock;
+    deleteTemplate: jest.Mock;
+    applyTemplate: jest.Mock;
   };
   let storage: {
     saveBrandLogo: jest.Mock;
@@ -46,6 +51,11 @@ describe('BrandKitController', () => {
       saveOutro: jest.fn(),
       findOutroKeyOrThrow: jest.fn(),
       removeOutro: jest.fn(),
+      createTemplate: jest.fn(),
+      listTemplates: jest.fn(),
+      renameTemplate: jest.fn(),
+      deleteTemplate: jest.fn(),
+      applyTemplate: jest.fn(),
     };
     storage = {
       saveBrandLogo: jest.fn(),
@@ -341,6 +351,58 @@ describe('BrandKitController', () => {
       await controller.removeOutro(user);
 
       expect(brandKit.removeOutro).toHaveBeenCalledWith('user-1');
+    });
+  });
+
+  describe('createTemplate', () => {
+    it('forwards the requester id and template name', async () => {
+      brandKit.createTemplate.mockResolvedValue({ id: 'template-1', name: 'My Template' });
+
+      const result = await controller.createTemplate(user, { name: 'My Template' });
+
+      expect(brandKit.createTemplate).toHaveBeenCalledWith('user-1', 'My Template');
+      expect(result).toEqual({ id: 'template-1', name: 'My Template' });
+    });
+  });
+
+  describe('listTemplates', () => {
+    it('delegates to the service', async () => {
+      brandKit.listTemplates.mockResolvedValue({ templates: [] });
+
+      const result = await controller.listTemplates(user);
+
+      expect(brandKit.listTemplates).toHaveBeenCalledWith('user-1');
+      expect(result).toEqual({ templates: [] });
+    });
+  });
+
+  describe('renameTemplate', () => {
+    it('forwards the requester id, template id, and new name', async () => {
+      brandKit.renameTemplate.mockResolvedValue({ id: 'template-1', name: 'Renamed' });
+
+      const result = await controller.renameTemplate(user, 'template-1', { name: 'Renamed' });
+
+      expect(brandKit.renameTemplate).toHaveBeenCalledWith('user-1', 'template-1', 'Renamed');
+      expect(result.name).toBe('Renamed');
+    });
+  });
+
+  describe('deleteTemplate', () => {
+    it('delegates to the service', async () => {
+      await controller.deleteTemplate(user, 'template-1');
+
+      expect(brandKit.deleteTemplate).toHaveBeenCalledWith('user-1', 'template-1');
+    });
+  });
+
+  describe('applyTemplate', () => {
+    it('delegates to the service', async () => {
+      brandKit.applyTemplate.mockResolvedValue({ logoUrl: '/brand-kit/logo' });
+
+      const result = await controller.applyTemplate(user, 'template-1');
+
+      expect(brandKit.applyTemplate).toHaveBeenCalledWith('user-1', 'template-1');
+      expect(result.logoUrl).toBe('/brand-kit/logo');
     });
   });
 });
