@@ -5,6 +5,7 @@ import { updateVideoStatus, VideoStatus, type Prisma } from '@speedora/database'
 import { suggestEmojis } from '@speedora/emoji-suggester';
 import {
   filterSegmentsForClip,
+  mergeBrandKitFields,
   QueueName,
   type ClipCandidate,
   type ClipScores,
@@ -39,6 +40,28 @@ const DEFAULT_WATERMARK_OPACITY = 0.8;
 const DEFAULT_WATERMARK_SCALE = 0.15;
 const DEFAULT_WATERMARK_MARGIN = 0.03;
 const DEFAULT_WATERMARK_POSITION: WatermarkPosition = 'BOTTOM_RIGHT';
+
+// Workspace-level Brand Kit roadmap (P3g) - same shape as ClipsService's
+// own BRAND_KIT_SELECT (apps/api), inlined here for the same "each
+// render-enqueue site resolves its own Brand Kit reads independently"
+// reasoning as the DEFAULT_WATERMARK_* constants above.
+const BRAND_KIT_SELECT = {
+  brandLogoUrl: true,
+  brandPrimaryColor: true,
+  brandSecondaryColor: true,
+  brandFontFamily: true,
+  brandWatermarkUrl: true,
+  brandWatermarkOpacity: true,
+  brandWatermarkScale: true,
+  brandWatermarkMargin: true,
+  brandWatermarkPosition: true,
+  brandIntroUrl: true,
+  brandIntroType: true,
+  brandIntroImageDurationSeconds: true,
+  brandOutroUrl: true,
+  brandOutroType: true,
+  brandOutroImageDurationSeconds: true,
+} as const;
 
 const logger = forStage('detect-clips');
 
@@ -185,50 +208,50 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
               // captionStyle's own comment below), so this is effectively
               // unconditional here - still gated on clips[index].applyBrandKit
               // for consistency with ClipsService.render()/VideosService.retry.
-              const owner = await prisma.user.findUniqueOrThrow({
-                where: { id: video.ownerId },
-                select: {
-                  brandFontFamily: true,
-                  brandWatermarkUrl: true,
-                  brandWatermarkOpacity: true,
-                  brandWatermarkScale: true,
-                  brandWatermarkMargin: true,
-                  brandWatermarkPosition: true,
-                  brandIntroUrl: true,
-                  brandIntroType: true,
-                  brandIntroImageDurationSeconds: true,
-                  brandOutroUrl: true,
-                  brandOutroType: true,
-                  brandOutroImageDurationSeconds: true,
-                },
-              });
-              const ownerWatermark: RenderClipJobData['watermark'] = owner.brandWatermarkUrl
+              //
+              // Workspace-level Brand Kit roadmap (P3g) - merges the video's
+              // workspace Brand Kit over the owner's personal one, same
+              // "resolve once, skip the Workspace fetch when it's the
+              // owner's personal workspace" shape as
+              // ClipsService.resolveEffectiveBrandKit.
+              const [workspace, owner] = await Promise.all([
+                prisma.workspace.findUniqueOrThrow({
+                  where: { id: video.workspaceId },
+                  select: { isPersonal: true, ...BRAND_KIT_SELECT },
+                }),
+                prisma.user.findUniqueOrThrow({
+                  where: { id: video.ownerId },
+                  select: BRAND_KIT_SELECT,
+                }),
+              ]);
+              const brandKit = mergeBrandKitFields(workspace.isPersonal ? null : workspace, owner);
+              const ownerWatermark: RenderClipJobData['watermark'] = brandKit.brandWatermarkUrl
                 ? {
-                    key: owner.brandWatermarkUrl,
-                    opacity: owner.brandWatermarkOpacity ?? DEFAULT_WATERMARK_OPACITY,
-                    scale: owner.brandWatermarkScale ?? DEFAULT_WATERMARK_SCALE,
-                    margin: owner.brandWatermarkMargin ?? DEFAULT_WATERMARK_MARGIN,
+                    key: brandKit.brandWatermarkUrl,
+                    opacity: brandKit.brandWatermarkOpacity ?? DEFAULT_WATERMARK_OPACITY,
+                    scale: brandKit.brandWatermarkScale ?? DEFAULT_WATERMARK_SCALE,
+                    margin: brandKit.brandWatermarkMargin ?? DEFAULT_WATERMARK_MARGIN,
                     position:
-                      (owner.brandWatermarkPosition as WatermarkPosition | null) ??
+                      (brandKit.brandWatermarkPosition as WatermarkPosition | null) ??
                       DEFAULT_WATERMARK_POSITION,
                   }
                 : null;
               // Intro roadmap (P3d) - same shape as ownerWatermark above.
               const ownerIntro: RenderClipJobData['intro'] =
-                owner.brandIntroUrl && owner.brandIntroType
+                brandKit.brandIntroUrl && brandKit.brandIntroType
                   ? {
-                      key: owner.brandIntroUrl,
-                      type: owner.brandIntroType as IntroType,
-                      imageDurationSeconds: owner.brandIntroImageDurationSeconds,
+                      key: brandKit.brandIntroUrl,
+                      type: brandKit.brandIntroType as IntroType,
+                      imageDurationSeconds: brandKit.brandIntroImageDurationSeconds,
                     }
                   : null;
               // Outro roadmap (P3e) - same shape as ownerIntro above.
               const ownerOutro: RenderClipJobData['outro'] =
-                owner.brandOutroUrl && owner.brandOutroType
+                brandKit.brandOutroUrl && brandKit.brandOutroType
                   ? {
-                      key: owner.brandOutroUrl,
-                      type: owner.brandOutroType as IntroType,
-                      imageDurationSeconds: owner.brandOutroImageDurationSeconds,
+                      key: brandKit.brandOutroUrl,
+                      type: brandKit.brandOutroType as IntroType,
+                      imageDurationSeconds: brandKit.brandOutroImageDurationSeconds,
                     }
                   : null;
               await Promise.all(
@@ -255,7 +278,7 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
                     // consistency, not because it currently branches.
                     fontFamily:
                       clips[index].fontFamily ??
-                      (clips[index].applyBrandKit ? owner.brandFontFamily : null),
+                      (clips[index].applyBrandKit ? brandKit.brandFontFamily : null),
                     // Watermark roadmap (P3c) - clips[index].watermarkEnabled
                     // is always true for a brand-new clip (schema default),
                     // so this is Brand-Kit-driven in practice here, same

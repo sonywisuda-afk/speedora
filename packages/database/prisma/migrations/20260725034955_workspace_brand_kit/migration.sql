@@ -1,0 +1,16 @@
+-- AlterTable
+ALTER TABLE "Workspace" ADD COLUMN     "brandFontFamily" TEXT,
+ADD COLUMN     "brandIntroImageDurationSeconds" DOUBLE PRECISION,
+ADD COLUMN     "brandIntroType" TEXT,
+ADD COLUMN     "brandIntroUrl" TEXT,
+ADD COLUMN     "brandLogoUrl" TEXT,
+ADD COLUMN     "brandOutroImageDurationSeconds" DOUBLE PRECISION,
+ADD COLUMN     "brandOutroType" TEXT,
+ADD COLUMN     "brandOutroUrl" TEXT,
+ADD COLUMN     "brandPrimaryColor" TEXT,
+ADD COLUMN     "brandSecondaryColor" TEXT,
+ADD COLUMN     "brandWatermarkMargin" DOUBLE PRECISION,
+ADD COLUMN     "brandWatermarkOpacity" DOUBLE PRECISION,
+ADD COLUMN     "brandWatermarkPosition" TEXT,
+ADD COLUMN     "brandWatermarkScale" DOUBLE PRECISION,
+ADD COLUMN     "brandWatermarkUrl" TEXT;

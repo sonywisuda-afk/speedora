@@ -15,8 +15,10 @@ import { buildClipMetadataReport, buildVideoReportData } from '@speedora/report-
 import type { ClipMetadataOutput, TimelineEvent, VideoReportData } from '@speedora/contracts';
 import {
   filterSegmentsForClip,
+  mergeBrandKitFields,
   QueueName,
   TranscriptionProvider,
+  type BrandKitFields,
   type DetectClipsJobData,
   type ImportYoutubeJobData,
   type IntroType,
@@ -111,6 +113,28 @@ const DEFAULT_WATERMARK_OPACITY = 0.8;
 const DEFAULT_WATERMARK_SCALE = 0.15;
 const DEFAULT_WATERMARK_MARGIN = 0.03;
 const DEFAULT_WATERMARK_POSITION: WatermarkPosition = 'BOTTOM_RIGHT';
+
+// Workspace-level Brand Kit roadmap (P3g) - same shape as ClipsService's
+// own BRAND_KIT_SELECT, inlined here for the same "each service resolves
+// its own Brand Kit reads independently" reasoning as the DEFAULT_WATERMARK_*
+// constants above.
+const BRAND_KIT_SELECT = {
+  brandLogoUrl: true,
+  brandPrimaryColor: true,
+  brandSecondaryColor: true,
+  brandFontFamily: true,
+  brandWatermarkUrl: true,
+  brandWatermarkOpacity: true,
+  brandWatermarkScale: true,
+  brandWatermarkMargin: true,
+  brandWatermarkPosition: true,
+  brandIntroUrl: true,
+  brandIntroType: true,
+  brandIntroImageDurationSeconds: true,
+  brandOutroUrl: true,
+  brandOutroType: true,
+  brandOutroImageDurationSeconds: true,
+} as const;
 
 type VideoWithClips = Prisma.VideoGetPayload<{
   include: { clips: typeof CLIPS_WITH_PUBLISH_RECORDS };
@@ -491,87 +515,59 @@ export class VideosService {
       }
 
       await updateVideoStatus(this.prisma, id, VideoStatus.CLIPS_DETECTED);
-      // Brand Kit roadmap (P3a) - one owner lookup shared by every clip in
-      // this video (all belong to the same owner), same "resolve once at
-      // enqueue time" shape as ClipsService.render()'s own
-      // resolveFontFamily. Subtitle Presets roadmap (P3b) - a clip with its
-      // own explicit fontFamily override never needs this owner fallback at
-      // all, so the fetch is skipped when every clip either opted out of the
-      // Brand Kit or already has its own override.
-      const ownerBrandFontFamily = unrendered.some(
-        (clip) => !clip.fontFamily && clip.applyBrandKit,
-      )
-        ? (
-            await this.prisma.user.findUniqueOrThrow({
-              where: { id: video.ownerId },
-              select: { brandFontFamily: true },
-            })
-          ).brandFontFamily
-        : null;
-      // Watermark roadmap (P3c) - same "one owner lookup shared by every
-      // clip, skipped entirely when nothing needs it" shape as
-      // ownerBrandFontFamily above.
-      const ownerWatermark = unrendered.some((clip) => clip.watermarkEnabled)
-        ? await this.prisma.user.findUniqueOrThrow({
+      // Workspace-level Brand Kit roadmap (P3g) - one merged-kit lookup
+      // shared by every clip in this video (all belong to the same
+      // owner/workspace), same "resolve once at enqueue time" shape as
+      // ClipsService.render()'s own resolveEffectiveBrandKit. Skipped
+      // entirely when no unrendered clip needs any part of it (every clip
+      // either has its own fontFamily override and opted out of everything
+      // else, or every Brand-Kit-driven flag is off).
+      const needsBrandKit = unrendered.some(
+        (clip) =>
+          (!clip.fontFamily && clip.applyBrandKit) ||
+          clip.watermarkEnabled ||
+          clip.introEnabled ||
+          clip.outroEnabled,
+      );
+      let brandKit: BrandKitFields | null = null;
+      if (needsBrandKit) {
+        const [workspace, owner] = await Promise.all([
+          this.prisma.workspace.findUniqueOrThrow({
+            where: { id: video.workspaceId },
+            select: { isPersonal: true, ...BRAND_KIT_SELECT },
+          }),
+          this.prisma.user.findUniqueOrThrow({
             where: { id: video.ownerId },
-            select: {
-              brandWatermarkUrl: true,
-              brandWatermarkOpacity: true,
-              brandWatermarkScale: true,
-              brandWatermarkMargin: true,
-              brandWatermarkPosition: true,
-            },
-          })
-        : null;
-      const resolvedWatermark: RenderClipJobData['watermark'] = ownerWatermark?.brandWatermarkUrl
+            select: BRAND_KIT_SELECT,
+          }),
+        ]);
+        brandKit = mergeBrandKitFields(workspace.isPersonal ? null : workspace, owner);
+      }
+      const resolvedWatermark: RenderClipJobData['watermark'] = brandKit?.brandWatermarkUrl
         ? {
-            key: ownerWatermark.brandWatermarkUrl,
-            opacity: ownerWatermark.brandWatermarkOpacity ?? DEFAULT_WATERMARK_OPACITY,
-            scale: ownerWatermark.brandWatermarkScale ?? DEFAULT_WATERMARK_SCALE,
-            margin: ownerWatermark.brandWatermarkMargin ?? DEFAULT_WATERMARK_MARGIN,
+            key: brandKit.brandWatermarkUrl,
+            opacity: brandKit.brandWatermarkOpacity ?? DEFAULT_WATERMARK_OPACITY,
+            scale: brandKit.brandWatermarkScale ?? DEFAULT_WATERMARK_SCALE,
+            margin: brandKit.brandWatermarkMargin ?? DEFAULT_WATERMARK_MARGIN,
             position:
-              (ownerWatermark.brandWatermarkPosition as WatermarkPosition | null) ??
+              (brandKit.brandWatermarkPosition as WatermarkPosition | null) ??
               DEFAULT_WATERMARK_POSITION,
           }
         : null;
-      // Intro roadmap (P3d) - same "one owner lookup shared by every clip,
-      // skipped entirely when nothing needs it" shape as ownerWatermark
-      // above.
-      const ownerIntro = unrendered.some((clip) => clip.introEnabled)
-        ? await this.prisma.user.findUniqueOrThrow({
-            where: { id: video.ownerId },
-            select: {
-              brandIntroUrl: true,
-              brandIntroType: true,
-              brandIntroImageDurationSeconds: true,
-            },
-          })
-        : null;
       const resolvedIntro: RenderClipJobData['intro'] =
-        ownerIntro?.brandIntroUrl && ownerIntro.brandIntroType
+        brandKit?.brandIntroUrl && brandKit.brandIntroType
           ? {
-              key: ownerIntro.brandIntroUrl,
-              type: ownerIntro.brandIntroType as IntroType,
-              imageDurationSeconds: ownerIntro.brandIntroImageDurationSeconds,
+              key: brandKit.brandIntroUrl,
+              type: brandKit.brandIntroType as IntroType,
+              imageDurationSeconds: brandKit.brandIntroImageDurationSeconds,
             }
           : null;
-      // Outro roadmap (P3e) - same shape as ownerIntro/resolvedIntro above.
-      const ownerOutro = unrendered.some((clip) => clip.outroEnabled)
-        ? await this.prisma.user.findUniqueOrThrow({
-            where: { id: video.ownerId },
-            select: {
-              brandOutroUrl: true,
-              brandOutroType: true,
-              brandOutroImageDurationSeconds: true,
-            },
-          })
-        : null;
       const resolvedOutro: RenderClipJobData['outro'] =
-        ownerOutro?.brandOutroUrl && ownerOutro.brandOutroType
+        brandKit?.brandOutroUrl && brandKit.brandOutroType
           ? {
-              key: ownerOutro.brandOutroUrl,
-              type: ownerOutro.brandOutroType as IntroType,
-              imageDurationSeconds: ownerOutro.brandOutroImageDurationSeconds,
+              key: brandKit.brandOutroUrl,
+              type: brandKit.brandOutroType as IntroType,
+              imageDurationSeconds: brandKit.brandOutroImageDurationSeconds,
             }
           : null;
       await Promise.all(
@@ -590,7 +586,8 @@ export class VideosService {
             captionStyle: toSharedCaptionStyle(clip.captionStyle),
             speakerColorCaptions: clip.speakerColorCaptions,
             captionLanguage: clip.captionLanguage,
-            fontFamily: clip.fontFamily ?? (clip.applyBrandKit ? ownerBrandFontFamily : null),
+            fontFamily:
+              clip.fontFamily ?? (clip.applyBrandKit ? (brandKit?.brandFontFamily ?? null) : null),
             watermark: clip.watermarkEnabled ? resolvedWatermark : null,
             intro: clip.introEnabled ? resolvedIntro : null,
             outro: clip.outroEnabled ? resolvedOutro : null,

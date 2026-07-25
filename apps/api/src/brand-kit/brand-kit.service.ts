@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { WorkspaceRole } from '@speedora/database';
 import type { BrandKitDto, BrandKitTemplateDto, IntroType, WatermarkPosition } from '@speedora/shared';
 import { PrismaService } from '../prisma/prisma.service';
+import { WorkspaceAccessService } from '../workspace/workspace-access.service';
 import type { UpdateBrandKitDto } from './dto/update-brand-kit.dto';
 
 interface BrandKitTemplateRow {
@@ -60,94 +62,118 @@ const BRAND_KIT_SELECT = {
   brandOutroImageDurationSeconds: true,
 } as const;
 
+// Workspace-level Brand Kit roadmap (P3g) - which row a Brand Kit operation
+// actually reads/writes. 'user' is the pre-P3g behavior (unchanged meaning -
+// a personal workspace's Brand Kit IS the owner's User row); 'workspace' is
+// new, only ever produced by resolveTarget() for a non-personal workspace
+// the requester has sufficient role on. Every existing method below took a
+// bare userId before this roadmap step; they now take this instead, so the
+// same read/write logic works unchanged for either row shape.
+export type BrandKitTarget = { kind: 'user'; id: string } | { kind: 'workspace'; id: string };
+
 @Injectable()
 export class BrandKitService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly workspaceAccess: WorkspaceAccessService,
+  ) {}
 
-  async get(userId: string): Promise<BrandKitDto> {
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: BRAND_KIT_SELECT,
+  // Resolves which row a request should operate on. No workspaceId (the
+  // common case, and the ONLY case before P3g) -> the requester's own User
+  // row, no access check needed (it's their own data). An explicit
+  // workspaceId requires at least minRole membership (assertMinRole 404s
+  // for a non-member, same "don't leak existence" posture used everywhere
+  // else) - if that workspace turns out to be the requester's own personal
+  // one, it still resolves to their User row (a personal workspace's Brand
+  // Kit has always been the User row, not a separate concept); any other
+  // workspace resolves to that Workspace's own brand* columns.
+  async resolveTarget(
+    userId: string,
+    workspaceId: string | undefined,
+    minRole: WorkspaceRole,
+  ): Promise<BrandKitTarget> {
+    if (!workspaceId) return { kind: 'user', id: userId };
+    await this.workspaceAccess.assertMinRole(userId, workspaceId, minRole);
+    const workspace = await this.prisma.workspace.findUniqueOrThrow({
+      where: { id: workspaceId },
+      select: { isPersonal: true },
     });
-    return this.toDto(user);
+    return workspace.isPersonal ? { kind: 'user', id: userId } : { kind: 'workspace', id: workspaceId };
+  }
+
+  private async readRow(target: BrandKitTarget): Promise<BrandKitRow> {
+    if (target.kind === 'workspace') {
+      return this.prisma.workspace.findUniqueOrThrow({
+        where: { id: target.id },
+        select: BRAND_KIT_SELECT,
+      });
+    }
+    return this.prisma.user.findUniqueOrThrow({ where: { id: target.id }, select: BRAND_KIT_SELECT });
+  }
+
+  private async writeRow(target: BrandKitTarget, data: Partial<BrandKitRow>): Promise<BrandKitRow> {
+    if (target.kind === 'workspace') {
+      return this.prisma.workspace.update({ where: { id: target.id }, data, select: BRAND_KIT_SELECT });
+    }
+    return this.prisma.user.update({ where: { id: target.id }, data, select: BRAND_KIT_SELECT });
+  }
+
+  async get(target: BrandKitTarget): Promise<BrandKitDto> {
+    const row = await this.readRow(target);
+    return this.toDto(row);
   }
 
   // Undefined fields are left untouched (a client can set just one color),
   // same "only the fields actually sent get updated" convention as every
   // other partial-update DTO in this codebase.
-  async update(userId: string, dto: UpdateBrandKitDto): Promise<BrandKitDto> {
-    const user = await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        ...(dto.primaryColor !== undefined ? { brandPrimaryColor: dto.primaryColor } : {}),
-        ...(dto.secondaryColor !== undefined ? { brandSecondaryColor: dto.secondaryColor } : {}),
-        ...(dto.fontFamily !== undefined ? { brandFontFamily: dto.fontFamily } : {}),
-        ...(dto.watermarkOpacity !== undefined
-          ? { brandWatermarkOpacity: dto.watermarkOpacity }
-          : {}),
-        ...(dto.watermarkScale !== undefined ? { brandWatermarkScale: dto.watermarkScale } : {}),
-        ...(dto.watermarkMargin !== undefined
-          ? { brandWatermarkMargin: dto.watermarkMargin }
-          : {}),
-        ...(dto.watermarkPosition !== undefined
-          ? { brandWatermarkPosition: dto.watermarkPosition }
-          : {}),
-        ...(dto.introImageDurationSeconds !== undefined
-          ? { brandIntroImageDurationSeconds: dto.introImageDurationSeconds }
-          : {}),
-        ...(dto.outroImageDurationSeconds !== undefined
-          ? { brandOutroImageDurationSeconds: dto.outroImageDurationSeconds }
-          : {}),
-      },
-      select: BRAND_KIT_SELECT,
+  async update(target: BrandKitTarget, dto: UpdateBrandKitDto): Promise<BrandKitDto> {
+    const row = await this.writeRow(target, {
+      ...(dto.primaryColor !== undefined ? { brandPrimaryColor: dto.primaryColor } : {}),
+      ...(dto.secondaryColor !== undefined ? { brandSecondaryColor: dto.secondaryColor } : {}),
+      ...(dto.fontFamily !== undefined ? { brandFontFamily: dto.fontFamily } : {}),
+      ...(dto.watermarkOpacity !== undefined ? { brandWatermarkOpacity: dto.watermarkOpacity } : {}),
+      ...(dto.watermarkScale !== undefined ? { brandWatermarkScale: dto.watermarkScale } : {}),
+      ...(dto.watermarkMargin !== undefined ? { brandWatermarkMargin: dto.watermarkMargin } : {}),
+      ...(dto.watermarkPosition !== undefined
+        ? { brandWatermarkPosition: dto.watermarkPosition }
+        : {}),
+      ...(dto.introImageDurationSeconds !== undefined
+        ? { brandIntroImageDurationSeconds: dto.introImageDurationSeconds }
+        : {}),
+      ...(dto.outroImageDurationSeconds !== undefined
+        ? { brandOutroImageDurationSeconds: dto.outroImageDurationSeconds }
+        : {}),
     });
-    return this.toDto(user);
+    return this.toDto(row);
   }
 
-  async saveLogo(userId: string, logoKey: string): Promise<BrandKitDto> {
-    const user = await this.prisma.user.update({
-      where: { id: userId },
-      data: { brandLogoUrl: logoKey },
-      select: BRAND_KIT_SELECT,
-    });
-    return this.toDto(user);
+  async saveLogo(target: BrandKitTarget, logoKey: string): Promise<BrandKitDto> {
+    const row = await this.writeRow(target, { brandLogoUrl: logoKey });
+    return this.toDto(row);
   }
 
   // Returns the raw key (or null), doesn't throw for "no logo yet" - same
   // "service returns null, controller decides whether that's a 404"
   // convention as VideosService.findThumbnailOrThrow.
-  async findLogoKeyOrThrow(userId: string): Promise<{ logoKey: string | null }> {
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { brandLogoUrl: true },
-    });
-    return { logoKey: user.brandLogoUrl };
+  async findLogoKeyOrThrow(target: BrandKitTarget): Promise<{ logoKey: string | null }> {
+    const row = await this.readRow(target);
+    return { logoKey: row.brandLogoUrl };
   }
 
   // Watermark roadmap (P3c) - same shape as saveLogo/findLogoKeyOrThrow
   // above.
-  async saveWatermark(userId: string, watermarkKey: string): Promise<BrandKitDto> {
-    const user = await this.prisma.user.update({
-      where: { id: userId },
-      data: { brandWatermarkUrl: watermarkKey },
-      select: BRAND_KIT_SELECT,
-    });
-    return this.toDto(user);
+  async saveWatermark(target: BrandKitTarget, watermarkKey: string): Promise<BrandKitDto> {
+    const row = await this.writeRow(target, { brandWatermarkUrl: watermarkKey });
+    return this.toDto(row);
   }
 
-  async findWatermarkKeyOrThrow(userId: string): Promise<{ watermarkKey: string | null }> {
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { brandWatermarkUrl: true },
-    });
-    return { watermarkKey: user.brandWatermarkUrl };
+  async findWatermarkKeyOrThrow(target: BrandKitTarget): Promise<{ watermarkKey: string | null }> {
+    const row = await this.readRow(target);
+    return { watermarkKey: row.brandWatermarkUrl };
   }
 
-  async removeWatermark(userId: string): Promise<void> {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { brandWatermarkUrl: null },
-    });
+  async removeWatermark(target: BrandKitTarget): Promise<void> {
+    await this.writeRow(target, { brandWatermarkUrl: null });
   }
 
   // Intro roadmap (P3d) - same shape as saveWatermark/findWatermarkKeyOrThrow/
@@ -155,65 +181,59 @@ export class BrandKitService {
   // by the controller from the upload's mimetype) in the same update, since
   // a new intro upload always replaces both together - there's no valid
   // state where the URL changes but the type doesn't.
-  async saveIntro(userId: string, introKey: string, introType: IntroType): Promise<BrandKitDto> {
-    const user = await this.prisma.user.update({
-      where: { id: userId },
-      data: { brandIntroUrl: introKey, brandIntroType: introType },
-      select: BRAND_KIT_SELECT,
-    });
-    return this.toDto(user);
+  async saveIntro(
+    target: BrandKitTarget,
+    introKey: string,
+    introType: IntroType,
+  ): Promise<BrandKitDto> {
+    const row = await this.writeRow(target, { brandIntroUrl: introKey, brandIntroType: introType });
+    return this.toDto(row);
   }
 
-  async findIntroKeyOrThrow(userId: string): Promise<{ introKey: string | null }> {
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { brandIntroUrl: true },
-    });
-    return { introKey: user.brandIntroUrl };
+  async findIntroKeyOrThrow(target: BrandKitTarget): Promise<{ introKey: string | null }> {
+    const row = await this.readRow(target);
+    return { introKey: row.brandIntroUrl };
   }
 
-  async removeIntro(userId: string): Promise<void> {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { brandIntroUrl: null, brandIntroType: null },
-    });
+  async removeIntro(target: BrandKitTarget): Promise<void> {
+    await this.writeRow(target, { brandIntroUrl: null, brandIntroType: null });
   }
 
   // Outro roadmap (P3e) - same shape as saveIntro/findIntroKeyOrThrow/
   // removeIntro above.
-  async saveOutro(userId: string, outroKey: string, outroType: IntroType): Promise<BrandKitDto> {
-    const user = await this.prisma.user.update({
-      where: { id: userId },
-      data: { brandOutroUrl: outroKey, brandOutroType: outroType },
-      select: BRAND_KIT_SELECT,
-    });
-    return this.toDto(user);
+  async saveOutro(
+    target: BrandKitTarget,
+    outroKey: string,
+    outroType: IntroType,
+  ): Promise<BrandKitDto> {
+    const row = await this.writeRow(target, { brandOutroUrl: outroKey, brandOutroType: outroType });
+    return this.toDto(row);
   }
 
-  async findOutroKeyOrThrow(userId: string): Promise<{ outroKey: string | null }> {
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { brandOutroUrl: true },
-    });
-    return { outroKey: user.brandOutroUrl };
+  async findOutroKeyOrThrow(target: BrandKitTarget): Promise<{ outroKey: string | null }> {
+    const row = await this.readRow(target);
+    return { outroKey: row.brandOutroUrl };
   }
 
-  async removeOutro(userId: string): Promise<void> {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { brandOutroUrl: null, brandOutroType: null },
-    });
+  async removeOutro(target: BrandKitTarget): Promise<void> {
+    await this.writeRow(target, { brandOutroUrl: null, brandOutroType: null });
   }
 
   // Template Presets roadmap (P3f) - snapshots the CURRENT Brand Kit fields
   // (BRAND_KIT_SELECT) into a new named BrandKitTemplate row. Raw keys, not
   // the DTO's resolved `/brand-kit/...` URLs - a template is a server-side
-  // snapshot, re-applied by copying straight back onto User.
-  async createTemplate(userId: string, name: string): Promise<BrandKitTemplateDto> {
-    const current = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: BRAND_KIT_SELECT,
-    });
+  // snapshot, re-applied by copying straight back onto the target row.
+  // Workspace-level Brand Kit roadmap (P3g) - source is now whichever
+  // target the requester currently has active (their own User row, or a
+  // workspace's), not always User; templates themselves stay userId-owned
+  // (a personal collection of saved snapshots, not workspace-shared) -
+  // only WHERE a snapshot is taken from/applied to becomes target-aware.
+  async createTemplate(
+    userId: string,
+    name: string,
+    target: BrandKitTarget,
+  ): Promise<BrandKitTemplateDto> {
+    const current = await this.readRow(target);
     const template = await this.prisma.brandKitTemplate.create({
       data: {
         userId,
@@ -278,33 +298,33 @@ export class BrandKitService {
     await this.prisma.brandKitTemplate.delete({ where: { id: templateId } });
   }
 
-  // Copies a template's snapshot back onto the user's live Brand Kit fields -
-  // the same flat fields render-enqueue resolution already reads, so
-  // "applying" a template needs no new render-time code path.
-  async applyTemplate(userId: string, templateId: string): Promise<BrandKitDto> {
+  // Copies a template's snapshot back onto the target's live Brand Kit
+  // fields - the same flat fields render-enqueue resolution already reads,
+  // so "applying" a template needs no new render-time code path.
+  async applyTemplate(
+    userId: string,
+    templateId: string,
+    target: BrandKitTarget,
+  ): Promise<BrandKitDto> {
     const template = await this.findTemplateOwnedOrThrow(userId, templateId);
-    const user = await this.prisma.user.update({
-      where: { id: userId },
-      data: {
-        brandLogoUrl: template.logoUrl,
-        brandPrimaryColor: template.primaryColor,
-        brandSecondaryColor: template.secondaryColor,
-        brandFontFamily: template.fontFamily,
-        brandWatermarkUrl: template.watermarkUrl,
-        brandWatermarkOpacity: template.watermarkOpacity,
-        brandWatermarkScale: template.watermarkScale,
-        brandWatermarkMargin: template.watermarkMargin,
-        brandWatermarkPosition: template.watermarkPosition,
-        brandIntroUrl: template.introUrl,
-        brandIntroType: template.introType,
-        brandIntroImageDurationSeconds: template.introImageDurationSeconds,
-        brandOutroUrl: template.outroUrl,
-        brandOutroType: template.outroType,
-        brandOutroImageDurationSeconds: template.outroImageDurationSeconds,
-      },
-      select: BRAND_KIT_SELECT,
+    const row = await this.writeRow(target, {
+      brandLogoUrl: template.logoUrl,
+      brandPrimaryColor: template.primaryColor,
+      brandSecondaryColor: template.secondaryColor,
+      brandFontFamily: template.fontFamily,
+      brandWatermarkUrl: template.watermarkUrl,
+      brandWatermarkOpacity: template.watermarkOpacity,
+      brandWatermarkScale: template.watermarkScale,
+      brandWatermarkMargin: template.watermarkMargin,
+      brandWatermarkPosition: template.watermarkPosition,
+      brandIntroUrl: template.introUrl,
+      brandIntroType: template.introType,
+      brandIntroImageDurationSeconds: template.introImageDurationSeconds,
+      brandOutroUrl: template.outroUrl,
+      brandOutroType: template.outroType,
+      brandOutroImageDurationSeconds: template.outroImageDurationSeconds,
     });
-    return this.toDto(user);
+    return this.toDto(row);
   }
 
   private templateToDto(template: BrandKitTemplateRow): BrandKitTemplateDto {
@@ -325,23 +345,23 @@ export class BrandKitService {
     };
   }
 
-  private toDto(user: BrandKitRow): BrandKitDto {
+  private toDto(row: BrandKitRow): BrandKitDto {
     return {
-      logoUrl: user.brandLogoUrl ? '/brand-kit/logo' : null,
-      primaryColor: user.brandPrimaryColor,
-      secondaryColor: user.brandSecondaryColor,
-      fontFamily: user.brandFontFamily,
-      watermarkUrl: user.brandWatermarkUrl ? '/brand-kit/watermark' : null,
-      watermarkOpacity: user.brandWatermarkOpacity,
-      watermarkScale: user.brandWatermarkScale,
-      watermarkMargin: user.brandWatermarkMargin,
-      watermarkPosition: (user.brandWatermarkPosition as WatermarkPosition | null) ?? null,
-      introUrl: user.brandIntroUrl ? '/brand-kit/intro' : null,
-      introType: (user.brandIntroType as IntroType | null) ?? null,
-      introImageDurationSeconds: user.brandIntroImageDurationSeconds,
-      outroUrl: user.brandOutroUrl ? '/brand-kit/outro' : null,
-      outroType: (user.brandOutroType as IntroType | null) ?? null,
-      outroImageDurationSeconds: user.brandOutroImageDurationSeconds,
+      logoUrl: row.brandLogoUrl ? '/brand-kit/logo' : null,
+      primaryColor: row.brandPrimaryColor,
+      secondaryColor: row.brandSecondaryColor,
+      fontFamily: row.brandFontFamily,
+      watermarkUrl: row.brandWatermarkUrl ? '/brand-kit/watermark' : null,
+      watermarkOpacity: row.brandWatermarkOpacity,
+      watermarkScale: row.brandWatermarkScale,
+      watermarkMargin: row.brandWatermarkMargin,
+      watermarkPosition: (row.brandWatermarkPosition as WatermarkPosition | null) ?? null,
+      introUrl: row.brandIntroUrl ? '/brand-kit/intro' : null,
+      introType: (row.brandIntroType as IntroType | null) ?? null,
+      introImageDurationSeconds: row.brandIntroImageDurationSeconds,
+      outroUrl: row.brandOutroUrl ? '/brand-kit/outro' : null,
+      outroType: (row.brandOutroType as IntroType | null) ?? null,
+      outroImageDurationSeconds: row.brandOutroImageDurationSeconds,
     };
   }
 }

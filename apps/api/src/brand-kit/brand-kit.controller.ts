@@ -10,12 +10,14 @@ import {
   Patch,
   Post,
   Put,
+  Query,
   Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { WorkspaceRole } from '@speedora/database';
 import type { IntroType } from '@speedora/shared';
 import { getObjectStream } from '@speedora/storage';
 import type { Response } from 'express';
@@ -90,6 +92,14 @@ function brandSegmentContentType(key: string): string {
 // Sprint 03d (Export Center roadmap) - the minimal Brand Kit Brand Report
 // needs. Standalone, not bolted onto AuthModule (purely an auth-flow
 // module) - this is its own distinct resource.
+//
+// Workspace-level Brand Kit roadmap (P3g) - every route below accepts an
+// optional `workspaceId` query param, resolved via
+// BrandKitService.resolveTarget() into either the requester's own User row
+// (omitted, or their personal workspace) or a non-personal Workspace's own
+// row (requires at least the given role there - VIEWER for reads, EDITOR
+// for anything that mutates the kit). A caller that never passes
+// workspaceId sees zero behavior change from pre-P3g.
 @Controller('brand-kit')
 @UseGuards(JwtAuthGuard)
 export class BrandKitController {
@@ -99,13 +109,19 @@ export class BrandKitController {
   ) {}
 
   @Get()
-  get(@CurrentUser() user: SafeUser) {
-    return this.brandKit.get(user.id);
+  async get(@CurrentUser() user: SafeUser, @Query('workspaceId') workspaceId?: string) {
+    const target = await this.brandKit.resolveTarget(user.id, workspaceId, WorkspaceRole.VIEWER);
+    return this.brandKit.get(target);
   }
 
   @Put()
-  update(@CurrentUser() user: SafeUser, @Body() dto: UpdateBrandKitDto) {
-    return this.brandKit.update(user.id, dto);
+  async update(
+    @CurrentUser() user: SafeUser,
+    @Body() dto: UpdateBrandKitDto,
+    @Query('workspaceId') workspaceId?: string,
+  ) {
+    const target = await this.brandKit.resolveTarget(user.id, workspaceId, WorkspaceRole.EDITOR);
+    return this.brandKit.update(target, dto);
   }
 
   @Post('logo')
@@ -118,14 +134,21 @@ export class BrandKitController {
         .build({ fileIsRequired: true }),
     )
     file: Express.Multer.File,
+    @Query('workspaceId') workspaceId?: string,
   ) {
+    const target = await this.brandKit.resolveTarget(user.id, workspaceId, WorkspaceRole.EDITOR);
     const logoKey = await this.storage.saveBrandLogo(file);
-    return this.brandKit.saveLogo(user.id, logoKey);
+    return this.brandKit.saveLogo(target, logoKey);
   }
 
   @Get('logo')
-  async downloadLogo(@CurrentUser() user: SafeUser, @Res() res: Response) {
-    const { logoKey } = await this.brandKit.findLogoKeyOrThrow(user.id);
+  async downloadLogo(
+    @CurrentUser() user: SafeUser,
+    @Res() res: Response,
+    @Query('workspaceId') workspaceId?: string,
+  ) {
+    const target = await this.brandKit.resolveTarget(user.id, workspaceId, WorkspaceRole.VIEWER);
+    const { logoKey } = await this.brandKit.findLogoKeyOrThrow(target);
     if (!logoKey) {
       throw new NotFoundException('No brand logo has been uploaded yet');
     }
@@ -150,14 +173,21 @@ export class BrandKitController {
         .build({ fileIsRequired: true }),
     )
     file: Express.Multer.File,
+    @Query('workspaceId') workspaceId?: string,
   ) {
+    const target = await this.brandKit.resolveTarget(user.id, workspaceId, WorkspaceRole.EDITOR);
     const watermarkKey = await this.storage.saveBrandWatermark(file);
-    return this.brandKit.saveWatermark(user.id, watermarkKey);
+    return this.brandKit.saveWatermark(target, watermarkKey);
   }
 
   @Get('watermark')
-  async downloadWatermark(@CurrentUser() user: SafeUser, @Res() res: Response) {
-    const { watermarkKey } = await this.brandKit.findWatermarkKeyOrThrow(user.id);
+  async downloadWatermark(
+    @CurrentUser() user: SafeUser,
+    @Res() res: Response,
+    @Query('workspaceId') workspaceId?: string,
+  ) {
+    const target = await this.brandKit.resolveTarget(user.id, workspaceId, WorkspaceRole.VIEWER);
+    const { watermarkKey } = await this.brandKit.findWatermarkKeyOrThrow(target);
     if (!watermarkKey) {
       throw new NotFoundException('No brand watermark has been uploaded yet');
     }
@@ -173,8 +203,12 @@ export class BrandKitController {
   // to 0.
   @Delete('watermark')
   @HttpCode(204)
-  removeWatermark(@CurrentUser() user: SafeUser) {
-    return this.brandKit.removeWatermark(user.id);
+  async removeWatermark(
+    @CurrentUser() user: SafeUser,
+    @Query('workspaceId') workspaceId?: string,
+  ) {
+    const target = await this.brandKit.resolveTarget(user.id, workspaceId, WorkspaceRole.EDITOR);
+    return this.brandKit.removeWatermark(target);
   }
 
   // Intro roadmap (P3d) - same upload/download/delete shape as watermark
@@ -192,15 +226,22 @@ export class BrandKitController {
         .build({ fileIsRequired: true }),
     )
     file: Express.Multer.File,
+    @Query('workspaceId') workspaceId?: string,
   ) {
+    const target = await this.brandKit.resolveTarget(user.id, workspaceId, WorkspaceRole.EDITOR);
     const introType: IntroType = file.mimetype.startsWith('video/') ? 'video' : 'image';
     const introKey = await this.storage.saveBrandIntro(file);
-    return this.brandKit.saveIntro(user.id, introKey, introType);
+    return this.brandKit.saveIntro(target, introKey, introType);
   }
 
   @Get('intro')
-  async downloadIntro(@CurrentUser() user: SafeUser, @Res() res: Response) {
-    const { introKey } = await this.brandKit.findIntroKeyOrThrow(user.id);
+  async downloadIntro(
+    @CurrentUser() user: SafeUser,
+    @Res() res: Response,
+    @Query('workspaceId') workspaceId?: string,
+  ) {
+    const target = await this.brandKit.resolveTarget(user.id, workspaceId, WorkspaceRole.VIEWER);
+    const { introKey } = await this.brandKit.findIntroKeyOrThrow(target);
     if (!introKey) {
       throw new NotFoundException('No brand intro has been uploaded yet');
     }
@@ -213,8 +254,9 @@ export class BrandKitController {
 
   @Delete('intro')
   @HttpCode(204)
-  removeIntro(@CurrentUser() user: SafeUser) {
-    return this.brandKit.removeIntro(user.id);
+  async removeIntro(@CurrentUser() user: SafeUser, @Query('workspaceId') workspaceId?: string) {
+    const target = await this.brandKit.resolveTarget(user.id, workspaceId, WorkspaceRole.EDITOR);
+    return this.brandKit.removeIntro(target);
   }
 
   // Outro roadmap (P3e) - same upload/download/delete shape as intro above.
@@ -228,15 +270,22 @@ export class BrandKitController {
         .build({ fileIsRequired: true }),
     )
     file: Express.Multer.File,
+    @Query('workspaceId') workspaceId?: string,
   ) {
+    const target = await this.brandKit.resolveTarget(user.id, workspaceId, WorkspaceRole.EDITOR);
     const outroType: IntroType = file.mimetype.startsWith('video/') ? 'video' : 'image';
     const outroKey = await this.storage.saveBrandOutro(file);
-    return this.brandKit.saveOutro(user.id, outroKey, outroType);
+    return this.brandKit.saveOutro(target, outroKey, outroType);
   }
 
   @Get('outro')
-  async downloadOutro(@CurrentUser() user: SafeUser, @Res() res: Response) {
-    const { outroKey } = await this.brandKit.findOutroKeyOrThrow(user.id);
+  async downloadOutro(
+    @CurrentUser() user: SafeUser,
+    @Res() res: Response,
+    @Query('workspaceId') workspaceId?: string,
+  ) {
+    const target = await this.brandKit.resolveTarget(user.id, workspaceId, WorkspaceRole.VIEWER);
+    const { outroKey } = await this.brandKit.findOutroKeyOrThrow(target);
     if (!outroKey) {
       throw new NotFoundException('No brand outro has been uploaded yet');
     }
@@ -249,8 +298,9 @@ export class BrandKitController {
 
   @Delete('outro')
   @HttpCode(204)
-  removeOutro(@CurrentUser() user: SafeUser) {
-    return this.brandKit.removeOutro(user.id);
+  async removeOutro(@CurrentUser() user: SafeUser, @Query('workspaceId') workspaceId?: string) {
+    const target = await this.brandKit.resolveTarget(user.id, workspaceId, WorkspaceRole.EDITOR);
+    return this.brandKit.removeOutro(target);
   }
 
   // Template Presets roadmap (P3f) - "save current Brand Kit as template" +
@@ -258,9 +308,19 @@ export class BrandKitController {
   // controller/module - tightly coupled to BrandKitService's own
   // BRAND_KIT_SELECT/toDto shape, same reasoning as keeping these methods on
   // BrandKitService itself instead of a sibling service.
+  //
+  // Workspace-level Brand Kit roadmap (P3g) - createTemplate/applyTemplate
+  // accept workspaceId (they read/write a Brand Kit row); list/rename/
+  // delete don't (a template row itself is always userId-owned, independent
+  // of which kit is currently active - see BrandKitService's own comment).
   @Post('templates')
-  createTemplate(@CurrentUser() user: SafeUser, @Body() dto: CreateBrandKitTemplateDto) {
-    return this.brandKit.createTemplate(user.id, dto.name);
+  async createTemplate(
+    @CurrentUser() user: SafeUser,
+    @Body() dto: CreateBrandKitTemplateDto,
+    @Query('workspaceId') workspaceId?: string,
+  ) {
+    const target = await this.brandKit.resolveTarget(user.id, workspaceId, WorkspaceRole.VIEWER);
+    return this.brandKit.createTemplate(user.id, dto.name, target);
   }
 
   @Get('templates')
@@ -284,7 +344,12 @@ export class BrandKitController {
   }
 
   @Post('templates/:id/apply')
-  applyTemplate(@CurrentUser() user: SafeUser, @Param('id') id: string) {
-    return this.brandKit.applyTemplate(user.id, id);
+  async applyTemplate(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Query('workspaceId') workspaceId?: string,
+  ) {
+    const target = await this.brandKit.resolveTarget(user.id, workspaceId, WorkspaceRole.EDITOR);
+    return this.brandKit.applyTemplate(user.id, id, target);
   }
 }

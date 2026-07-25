@@ -1225,29 +1225,42 @@ export async function upsertTelegramWebhook(botToken: string): Promise<Notificat
 }
 
 // Brand Kit (03d) - Brand Report's minimal logo + color settings.
-export async function getBrandKit(): Promise<BrandKitDto> {
-  const res = await apiFetch('/brand-kit');
+//
+// Workspace-level Brand Kit roadmap (P3g) - every function below now takes
+// an optional workspaceId, forwarded to apps/api as a `?workspaceId=`
+// query param (see BrandKitController.resolveTarget). Omitted (or the
+// caller's own personal workspace) edits the same User fields as before -
+// existing callers that never pass it see zero behavior change. The
+// `brandKit*Url()` helpers are used directly as <img>/<video> `src`
+// attributes (the browser issues the GET itself, not fetch()), so
+// workspaceId has to be baked into the URL string rather than passed as a
+// request option.
+export async function getBrandKit(workspaceId?: string): Promise<BrandKitDto> {
+  const res = await apiFetch(`/brand-kit${toQueryString({ workspaceId })}`);
   return parseJsonOrThrow<BrandKitDto>(res);
 }
 
-export async function updateBrandKit(input: {
-  primaryColor?: string;
-  secondaryColor?: string;
-  // Brand Kit roadmap (P3a) - one of FONT_FAMILIES's curated keys.
-  fontFamily?: string;
-  // Watermark roadmap (P3c) - opacity/scale/margin are 0-1 fractions;
-  // scale/margin are fractions of the OUTPUT video's width.
-  watermarkOpacity?: number;
-  watermarkScale?: number;
-  watermarkMargin?: number;
-  watermarkPosition?: string;
-  // Intro roadmap (P3d) - only meaningful when the current intro is an
-  // image (a video's own duration isn't user-editable).
-  introImageDurationSeconds?: number;
-  // Outro roadmap (P3e) - same shape as introImageDurationSeconds above.
-  outroImageDurationSeconds?: number;
-}): Promise<BrandKitDto> {
-  const res = await apiFetch('/brand-kit', {
+export async function updateBrandKit(
+  input: {
+    primaryColor?: string;
+    secondaryColor?: string;
+    // Brand Kit roadmap (P3a) - one of FONT_FAMILIES's curated keys.
+    fontFamily?: string;
+    // Watermark roadmap (P3c) - opacity/scale/margin are 0-1 fractions;
+    // scale/margin are fractions of the OUTPUT video's width.
+    watermarkOpacity?: number;
+    watermarkScale?: number;
+    watermarkMargin?: number;
+    watermarkPosition?: string;
+    // Intro roadmap (P3d) - only meaningful when the current intro is an
+    // image (a video's own duration isn't user-editable).
+    introImageDurationSeconds?: number;
+    // Outro roadmap (P3e) - same shape as introImageDurationSeconds above.
+    outroImageDurationSeconds?: number;
+  },
+  workspaceId?: string,
+): Promise<BrandKitDto> {
+  const res = await apiFetch(`/brand-kit${toQueryString({ workspaceId })}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(input),
@@ -1258,65 +1271,80 @@ export async function updateBrandKit(input: {
 // multipart/form-data - no Content-Type header set explicitly, the browser
 // fills in the correct boundary itself (setting it manually here would
 // break the multipart parse on the server side).
-export async function uploadBrandLogo(file: File): Promise<BrandKitDto> {
+export async function uploadBrandLogo(file: File, workspaceId?: string): Promise<BrandKitDto> {
   const formData = new FormData();
   formData.append('file', file);
-  const res = await apiFetch('/brand-kit/logo', { method: 'POST', body: formData });
+  const res = await apiFetch(`/brand-kit/logo${toQueryString({ workspaceId })}`, {
+    method: 'POST',
+    body: formData,
+  });
   return parseJsonOrThrow<BrandKitDto>(res);
 }
 
-export function brandKitLogoUrl(): string {
-  return `${API_URL}/brand-kit/logo`;
+export function brandKitLogoUrl(workspaceId?: string): string {
+  return `${API_URL}/brand-kit/logo${toQueryString({ workspaceId })}`;
 }
 
 // Watermark roadmap (P3c) - same upload/download shape as the logo above.
-export async function uploadBrandWatermark(file: File): Promise<BrandKitDto> {
+export async function uploadBrandWatermark(
+  file: File,
+  workspaceId?: string,
+): Promise<BrandKitDto> {
   const formData = new FormData();
   formData.append('file', file);
-  const res = await apiFetch('/brand-kit/watermark', { method: 'POST', body: formData });
+  const res = await apiFetch(`/brand-kit/watermark${toQueryString({ workspaceId })}`, {
+    method: 'POST',
+    body: formData,
+  });
   return parseJsonOrThrow<BrandKitDto>(res);
 }
 
-export function brandKitWatermarkUrl(): string {
-  return `${API_URL}/brand-kit/watermark`;
+export function brandKitWatermarkUrl(workspaceId?: string): string {
+  return `${API_URL}/brand-kit/watermark${toQueryString({ workspaceId })}`;
 }
 
-export async function removeBrandWatermark(): Promise<void> {
-  await apiFetch('/brand-kit/watermark', { method: 'DELETE' });
+export async function removeBrandWatermark(workspaceId?: string): Promise<void> {
+  await apiFetch(`/brand-kit/watermark${toQueryString({ workspaceId })}`, { method: 'DELETE' });
 }
 
 // Intro roadmap (P3d) - same upload/download/delete shape as the watermark
 // above.
-export async function uploadBrandIntro(file: File): Promise<BrandKitDto> {
+export async function uploadBrandIntro(file: File, workspaceId?: string): Promise<BrandKitDto> {
   const formData = new FormData();
   formData.append('file', file);
-  const res = await apiFetch('/brand-kit/intro', { method: 'POST', body: formData });
+  const res = await apiFetch(`/brand-kit/intro${toQueryString({ workspaceId })}`, {
+    method: 'POST',
+    body: formData,
+  });
   return parseJsonOrThrow<BrandKitDto>(res);
 }
 
-export function brandKitIntroUrl(): string {
-  return `${API_URL}/brand-kit/intro`;
+export function brandKitIntroUrl(workspaceId?: string): string {
+  return `${API_URL}/brand-kit/intro${toQueryString({ workspaceId })}`;
 }
 
-export async function removeBrandIntro(): Promise<void> {
-  await apiFetch('/brand-kit/intro', { method: 'DELETE' });
+export async function removeBrandIntro(workspaceId?: string): Promise<void> {
+  await apiFetch(`/brand-kit/intro${toQueryString({ workspaceId })}`, { method: 'DELETE' });
 }
 
 // Outro roadmap (P3e) - same upload/download/delete shape as the intro
 // above.
-export async function uploadBrandOutro(file: File): Promise<BrandKitDto> {
+export async function uploadBrandOutro(file: File, workspaceId?: string): Promise<BrandKitDto> {
   const formData = new FormData();
   formData.append('file', file);
-  const res = await apiFetch('/brand-kit/outro', { method: 'POST', body: formData });
+  const res = await apiFetch(`/brand-kit/outro${toQueryString({ workspaceId })}`, {
+    method: 'POST',
+    body: formData,
+  });
   return parseJsonOrThrow<BrandKitDto>(res);
 }
 
-export function brandKitOutroUrl(): string {
-  return `${API_URL}/brand-kit/outro`;
+export function brandKitOutroUrl(workspaceId?: string): string {
+  return `${API_URL}/brand-kit/outro${toQueryString({ workspaceId })}`;
 }
 
-export async function removeBrandOutro(): Promise<void> {
-  await apiFetch('/brand-kit/outro', { method: 'DELETE' });
+export async function removeBrandOutro(workspaceId?: string): Promise<void> {
+  await apiFetch(`/brand-kit/outro${toQueryString({ workspaceId })}`, { method: 'DELETE' });
 }
 
 // Template Presets roadmap (P3f) - "save current Brand Kit as template" +
@@ -1326,8 +1354,14 @@ export async function listBrandKitTemplates(): Promise<{ templates: BrandKitTemp
   return parseJsonOrThrow<{ templates: BrandKitTemplateDto[] }>(res);
 }
 
-export async function createBrandKitTemplate(name: string): Promise<BrandKitTemplateDto> {
-  const res = await apiFetch('/brand-kit/templates', {
+// Workspace-level Brand Kit roadmap (P3g) - workspaceId picks which kit is
+// snapshotted (list/rename/delete don't need it - a template row itself is
+// always userId-owned, independent of which kit is currently active).
+export async function createBrandKitTemplate(
+  name: string,
+  workspaceId?: string,
+): Promise<BrandKitTemplateDto> {
+  const res = await apiFetch(`/brand-kit/templates${toQueryString({ workspaceId })}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
@@ -1354,8 +1388,13 @@ export async function deleteBrandKitTemplate(id: string): Promise<void> {
 // Copies the saved template's fields back onto the live Brand Kit -
 // returns the resulting BrandKitDto so the caller can refresh in one round
 // trip instead of apply-then-refetch.
-export async function applyBrandKitTemplate(id: string): Promise<BrandKitDto> {
-  const res = await apiFetch(`/brand-kit/templates/${id}/apply`, { method: 'POST' });
+export async function applyBrandKitTemplate(
+  id: string,
+  workspaceId?: string,
+): Promise<BrandKitDto> {
+  const res = await apiFetch(`/brand-kit/templates/${id}/apply${toQueryString({ workspaceId })}`, {
+    method: 'POST',
+  });
   return parseJsonOrThrow<BrandKitDto>(res);
 }
 

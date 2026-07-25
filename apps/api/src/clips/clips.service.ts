@@ -15,10 +15,12 @@ import {
 import {
   ClipPlatformCopyStatus as SharedClipPlatformCopyStatus,
   filterSegmentsForClip,
+  mergeBrandKitFields,
   PUBLISH_RETRY_OPTIONS,
   QueueName,
   sanitizeHashtags,
   SocialPlatform,
+  type BrandKitFields,
   type ClipExplainabilityDto,
   type ClipPerformanceDto,
   type ClipPlatformCopyDto,
@@ -142,6 +144,29 @@ const DEFAULT_WATERMARK_OPACITY = 0.8;
 const DEFAULT_WATERMARK_SCALE = 0.15;
 const DEFAULT_WATERMARK_MARGIN = 0.03;
 const DEFAULT_WATERMARK_POSITION: WatermarkPosition = 'BOTTOM_RIGHT';
+
+// Workspace-level Brand Kit roadmap (P3g) - the same 15-field select shape
+// BrandKitService's own BRAND_KIT_SELECT uses, inlined here rather than
+// imported (each service resolves its own Brand Kit reads independently -
+// an established convention in this codebase, see resolveFontFamily's own
+// comment below).
+const BRAND_KIT_SELECT = {
+  brandLogoUrl: true,
+  brandPrimaryColor: true,
+  brandSecondaryColor: true,
+  brandFontFamily: true,
+  brandWatermarkUrl: true,
+  brandWatermarkOpacity: true,
+  brandWatermarkScale: true,
+  brandWatermarkMargin: true,
+  brandWatermarkPosition: true,
+  brandIntroUrl: true,
+  brandIntroType: true,
+  brandIntroImageDurationSeconds: true,
+  brandOutroUrl: true,
+  brandOutroType: true,
+  brandOutroImageDurationSeconds: true,
+} as const;
 
 function toSharedPlatformCopy(row: ClipPlatformCopy): ClipPlatformCopyDto {
   return {
@@ -674,14 +699,31 @@ export class ClipsService {
       where: { videoId: clip.videoId },
     });
 
-    const fontFamily = await this.resolveFontFamily(
-      clip.video.ownerId,
-      clip.applyBrandKit,
-      clip.fontFamily,
-    );
-    const watermark = await this.resolveWatermark(clip.video.ownerId, clip.watermarkEnabled);
-    const intro = await this.resolveIntro(clip.video.ownerId, clip.introEnabled);
-    const outro = await this.resolveOutro(clip.video.ownerId, clip.outroEnabled);
+    // Workspace-level Brand Kit roadmap (P3g) - one merged-kit fetch shared
+    // by all 4 resolve* calls below (was 1 owner-only fetch each before
+    // P3g) - skipped entirely when nothing needs it, same "don't fetch when
+    // not needed" posture this file's resolve* methods already had
+    // individually.
+    const needsBrandKit =
+      (!clip.fontFamily && clip.applyBrandKit) ||
+      clip.watermarkEnabled ||
+      clip.introEnabled ||
+      clip.outroEnabled;
+    const brandKit = needsBrandKit
+      ? await this.resolveEffectiveBrandKit(clip.video.workspaceId, clip.video.ownerId)
+      : null;
+
+    // brandKit === null here only ever means either clip.fontFamily was
+    // already truthy (returned as-is) or applyBrandKit was falsy (the only
+    // way needsBrandKit's first disjunct is false) - `?? null` normalizes
+    // that second case the same way resolveFontFamily's own `!applyBrandKit
+    // -> return null` branch would.
+    const fontFamily = brandKit
+      ? this.resolveFontFamily(brandKit, clip.applyBrandKit, clip.fontFamily)
+      : (clip.fontFamily ?? null);
+    const watermark = brandKit ? this.resolveWatermark(brandKit, clip.watermarkEnabled) : null;
+    const intro = brandKit ? this.resolveIntro(brandKit, clip.introEnabled) : null;
+    const outro = brandKit ? this.resolveOutro(brandKit, clip.outroEnabled) : null;
 
     // Sprint 5E (Version Compare & History) + cleared-before-enqueueing, in
     // one transaction: the pre-render state is snapshotted into ClipVersion
@@ -745,63 +787,66 @@ export class ClipsService {
     return this.toDto(cleared);
   }
 
-  // Brand Kit roadmap (P3a) - resolves the video owner's chosen font once at
-  // enqueue time (never re-fetched by the worker, same "resolve once" shape
-  // as every other RenderClipJobData field). null (both when applyBrandKit
-  // is false and when the owner has never set a font) means "use
-  // build-ass.ts's own default" - not fetched at all when applyBrandKit is
-  // false, since a disabled Brand Kit shouldn't need a User row read.
+  // Workspace-level Brand Kit roadmap (P3g) - the merged effective Brand
+  // Kit for a render: the video's workspace fields win per-field where set,
+  // falling back to the video owner's personal (User) fields otherwise (see
+  // mergeBrandKitFields's own comment) - skipped/no-op (workspace: null)
+  // when the workspace IS the owner's personal one, since a personal
+  // workspace's Brand Kit has always simply been the User row.
+  private async resolveEffectiveBrandKit(
+    workspaceId: string,
+    ownerId: string,
+  ): Promise<BrandKitFields> {
+    const [workspace, owner] = await Promise.all([
+      this.prisma.workspace.findUniqueOrThrow({
+        where: { id: workspaceId },
+        select: { isPersonal: true, ...BRAND_KIT_SELECT },
+      }),
+      this.prisma.user.findUniqueOrThrow({ where: { id: ownerId }, select: BRAND_KIT_SELECT }),
+    ]);
+    return mergeBrandKitFields(workspace.isPersonal ? null : workspace, owner);
+  }
+
+  // Brand Kit roadmap (P3a) - resolves the effective (workspace-merged, see
+  // resolveEffectiveBrandKit) font, same "resolve once at enqueue time"
+  // shape as every other RenderClipJobData field. null (both when
+  // applyBrandKit is false and when nothing has ever set a font) means "use
+  // build-ass.ts's own default".
   //
   // Subtitle Presets roadmap (P3b) - clipFontFamily (the per-clip override,
   // e.g. from picking a preset) is checked FIRST and short-circuits the
   // Brand Kit lookup entirely when set - a deliberate per-clip choice always
-  // wins regardless of applyBrandKit, same reasoning as this method's own
-  // pre-P3b comment about not needing a User row read when disabled.
-  private async resolveFontFamily(
-    ownerId: string,
+  // wins regardless of applyBrandKit.
+  private resolveFontFamily(
+    brandKit: BrandKitFields,
     applyBrandKit: boolean,
     clipFontFamily: string | null,
-  ): Promise<string | null> {
+  ): string | null {
     if (clipFontFamily) return clipFontFamily;
     if (!applyBrandKit) return null;
-    const owner = await this.prisma.user.findUniqueOrThrow({
-      where: { id: ownerId },
-      select: { brandFontFamily: true },
-    });
-    return owner.brandFontFamily;
+    return brandKit.brandFontFamily;
   }
 
-  // Watermark roadmap (P3c) - resolves the video owner's Brand Kit
-  // watermark once at enqueue time, same "resolve once" shape as
-  // resolveFontFamily. clipWatermarkEnabled is a plain on/off gate (not a
-  // per-clip value override the way clipFontFamily is) - a disabled clip
-  // never even reads the owner row, same reasoning resolveFontFamily's own
-  // comment documents for applyBrandKit. Returns null (not just "no
-  // watermark configured") when brandWatermarkUrl itself is unset, so a
-  // clip with watermarkEnabled=true but no Brand Kit watermark uploaded
-  // renders exactly as if it had none - no error, no placeholder.
-  private async resolveWatermark(
-    ownerId: string,
+  // Watermark roadmap (P3c) - resolves the effective Brand Kit watermark,
+  // same "resolve once" shape as resolveFontFamily. clipWatermarkEnabled is
+  // a plain on/off gate (not a per-clip value override the way
+  // clipFontFamily is). Returns null (not just "no watermark configured")
+  // when brandWatermarkUrl itself is unset, so a clip with
+  // watermarkEnabled=true but no Brand Kit watermark configured renders
+  // exactly as if it had none - no error, no placeholder.
+  private resolveWatermark(
+    brandKit: BrandKitFields,
     clipWatermarkEnabled: boolean,
-  ): Promise<RenderClipJobData['watermark']> {
+  ): RenderClipJobData['watermark'] {
     if (!clipWatermarkEnabled) return null;
-    const owner = await this.prisma.user.findUniqueOrThrow({
-      where: { id: ownerId },
-      select: {
-        brandWatermarkUrl: true,
-        brandWatermarkOpacity: true,
-        brandWatermarkScale: true,
-        brandWatermarkMargin: true,
-        brandWatermarkPosition: true,
-      },
-    });
-    if (!owner.brandWatermarkUrl) return null;
+    if (!brandKit.brandWatermarkUrl) return null;
     return {
-      key: owner.brandWatermarkUrl,
-      opacity: owner.brandWatermarkOpacity ?? DEFAULT_WATERMARK_OPACITY,
-      scale: owner.brandWatermarkScale ?? DEFAULT_WATERMARK_SCALE,
-      margin: owner.brandWatermarkMargin ?? DEFAULT_WATERMARK_MARGIN,
-      position: (owner.brandWatermarkPosition as WatermarkPosition | null) ?? DEFAULT_WATERMARK_POSITION,
+      key: brandKit.brandWatermarkUrl,
+      opacity: brandKit.brandWatermarkOpacity ?? DEFAULT_WATERMARK_OPACITY,
+      scale: brandKit.brandWatermarkScale ?? DEFAULT_WATERMARK_SCALE,
+      margin: brandKit.brandWatermarkMargin ?? DEFAULT_WATERMARK_MARGIN,
+      position:
+        (brandKit.brandWatermarkPosition as WatermarkPosition | null) ?? DEFAULT_WATERMARK_POSITION,
     };
   }
 
@@ -810,46 +855,30 @@ export class ClipsService {
   // DEFAULT_INTRO_IMAGE_DURATION_SECONDS fallback is applied by
   // apps/worker's concatIntro() at render time, not here, since it's only
   // ever relevant when type is 'image'.
-  private async resolveIntro(
-    ownerId: string,
+  private resolveIntro(
+    brandKit: BrandKitFields,
     clipIntroEnabled: boolean,
-  ): Promise<RenderClipJobData['intro']> {
+  ): RenderClipJobData['intro'] {
     if (!clipIntroEnabled) return null;
-    const owner = await this.prisma.user.findUniqueOrThrow({
-      where: { id: ownerId },
-      select: {
-        brandIntroUrl: true,
-        brandIntroType: true,
-        brandIntroImageDurationSeconds: true,
-      },
-    });
-    if (!owner.brandIntroUrl || !owner.brandIntroType) return null;
+    if (!brandKit.brandIntroUrl || !brandKit.brandIntroType) return null;
     return {
-      key: owner.brandIntroUrl,
-      type: owner.brandIntroType as IntroType,
-      imageDurationSeconds: owner.brandIntroImageDurationSeconds,
+      key: brandKit.brandIntroUrl,
+      type: brandKit.brandIntroType as IntroType,
+      imageDurationSeconds: brandKit.brandIntroImageDurationSeconds,
     };
   }
 
   // Outro roadmap (P3e) - same shape/reasoning as resolveIntro above.
-  private async resolveOutro(
-    ownerId: string,
+  private resolveOutro(
+    brandKit: BrandKitFields,
     clipOutroEnabled: boolean,
-  ): Promise<RenderClipJobData['outro']> {
+  ): RenderClipJobData['outro'] {
     if (!clipOutroEnabled) return null;
-    const owner = await this.prisma.user.findUniqueOrThrow({
-      where: { id: ownerId },
-      select: {
-        brandOutroUrl: true,
-        brandOutroType: true,
-        brandOutroImageDurationSeconds: true,
-      },
-    });
-    if (!owner.brandOutroUrl || !owner.brandOutroType) return null;
+    if (!brandKit.brandOutroUrl || !brandKit.brandOutroType) return null;
     return {
-      key: owner.brandOutroUrl,
-      type: owner.brandOutroType as IntroType,
-      imageDurationSeconds: owner.brandOutroImageDurationSeconds,
+      key: brandKit.brandOutroUrl,
+      type: brandKit.brandOutroType as IntroType,
+      imageDurationSeconds: brandKit.brandOutroImageDurationSeconds,
     };
   }
 

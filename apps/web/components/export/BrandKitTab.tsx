@@ -11,7 +11,12 @@ import { brandKitLogoUrl, getBrandKit } from '@/lib/api';
 // tab is a read-only summary of what the PDF Brand Report will use, plus a
 // link to the real editor - no editing UI duplicated in two places.
 export function BrandKitTab() {
-  const { data: brandKit, isLoading } = useSWR('brand-kit', getBrandKit);
+  // Workspace-level Brand Kit roadmap (P3g) - always the PERSONAL kit (the
+  // Brand Report is a User-scoped export, unaffected by whichever workspace
+  // is active elsewhere in the app) - closure fetcher, not the `useSWR(key,
+  // fn)` shorthand, since SWR would otherwise call getBrandKit('brand-kit')
+  // and misread the cache key itself as a workspaceId.
+  const { data: brandKit, isLoading } = useSWR('brand-kit', () => getBrandKit());
 
   return (
     <div className="space-y-4">

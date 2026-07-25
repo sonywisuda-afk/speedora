@@ -27,6 +27,7 @@ import {
   getBrandKit,
   listBrandKitTemplates,
   listSubtitlePresets,
+  listWorkspaces,
   removeBrandIntro,
   removeBrandOutro,
   removeBrandWatermark,
@@ -38,6 +39,7 @@ import {
   uploadBrandWatermark,
 } from '@/lib/api';
 import { useAuth } from '@/lib/useAuth';
+import { useWorkspaceStore } from '@/lib/workspaceStore';
 
 // Same short labels TimelineEditor.tsx uses for the CaptionStyle toggle.
 const CAPTION_STYLE_LABELS: Record<CaptionStyle, string> = {
@@ -63,21 +65,35 @@ const DEFAULT_WATERMARK_OPACITY_PCT = 80;
 const DEFAULT_WATERMARK_SCALE_PCT = 15;
 const DEFAULT_WATERMARK_MARGIN_PCT = 3;
 
-// Brand Kit roadmap (P3a) - flat top-level route reading useAuth() only, not
-// useWorkspaceStore - same shell convention as /campaigns/social/analytics,
-// but Brand Kit today is a User-scoped resource (not Workspace-scoped),
-// so there's no active-workspace gate. Workspace-level Brand Kit (P3g) is
-// planned as an additive sibling, not a replacement, so this page will gain
-// workspace-awareness later without changing what it edits today.
-// export/BrandKitTab.tsx (the Export Center's own tab) becomes a read-only
-// summary + link to this page once this ships, rather than duplicating the
-// editing UI in two places.
+// Brand Kit roadmap (P3a) - flat top-level route, same shell convention as
+// /campaigns/social/analytics. Workspace-level Brand Kit roadmap (P3g) -
+// now reads useWorkspaceStore too: editing while the active workspace is
+// the requester's personal one (or before workspaces have loaded) edits
+// the same User fields as always; editing while a real team workspace is
+// active edits that Workspace's own fields instead (requires EDITOR+
+// there, enforced server-side - see BrandKitController.resolveTarget).
+// export/BrandKitTab.tsx (the Export Center's own tab) stays a read-only
+// summary + link to this page, always reading the PERSONAL kit (Brand
+// Report is a User-scoped export, unaffected by which workspace is active
+// here).
 export default function BrandKitPage() {
   const { user, checkingAuth, logout } = useAuth();
-  const { data: brandKit, error, isLoading, mutate } = useSWR(
-    user ? 'brand-kit' : null,
-    getBrandKit,
-  );
+  const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
+  const { data: workspacesData } = useSWR(user ? 'workspaces' : null, listWorkspaces);
+  const activeWorkspace = workspacesData?.workspaces.find((w) => w.id === activeWorkspaceId);
+  // undefined means "edit my personal kit" (the pre-P3g default) - only a
+  // real non-personal active workspace switches the editing target, same
+  // "server defaults to personal workspace when omitted" posture every
+  // other workspace-aware page already has.
+  const workspaceParam =
+    activeWorkspace && !activeWorkspace.isPersonal ? activeWorkspace.id : undefined;
+
+  const {
+    data: brandKit,
+    error,
+    isLoading,
+    mutate,
+  } = useSWR(user ? ['brand-kit', workspaceParam] : null, () => getBrandKit(workspaceParam));
   // Subtitle Presets roadmap (P3b) - saved from the Timeline Editor ("Simpan
   // sebagai preset"); this page is the manage/delete view, no duplicated
   // create form here.
@@ -169,7 +185,7 @@ export default function BrandKitPage() {
     setSaveError(null);
     setUploading(true);
     try {
-      const updated = await uploadBrandLogo(file);
+      const updated = await uploadBrandLogo(file, workspaceParam);
       await mutate(updated, false);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Gagal mengunggah logo');
@@ -192,17 +208,20 @@ export default function BrandKitPage() {
     }
     setSaving(true);
     try {
-      const updated = await updateBrandKit({
-        primaryColor: primary || undefined,
-        secondaryColor: secondary || undefined,
-        fontFamily: font || undefined,
-        watermarkOpacity: opacityPct / 100,
-        watermarkScale: scalePct / 100,
-        watermarkMargin: marginPct / 100,
-        watermarkPosition: position,
-        introImageDurationSeconds: imageDurationSeconds,
-        outroImageDurationSeconds: outroImgDurationSeconds,
-      });
+      const updated = await updateBrandKit(
+        {
+          primaryColor: primary || undefined,
+          secondaryColor: secondary || undefined,
+          fontFamily: font || undefined,
+          watermarkOpacity: opacityPct / 100,
+          watermarkScale: scalePct / 100,
+          watermarkMargin: marginPct / 100,
+          watermarkPosition: position,
+          introImageDurationSeconds: imageDurationSeconds,
+          outroImageDurationSeconds: outroImgDurationSeconds,
+        },
+        workspaceParam,
+      );
       await mutate(updated, false);
       setSaved(true);
     } catch (err) {
@@ -218,7 +237,7 @@ export default function BrandKitPage() {
     setSaveError(null);
     setUploadingWatermark(true);
     try {
-      const updated = await uploadBrandWatermark(file);
+      const updated = await uploadBrandWatermark(file, workspaceParam);
       await mutate(updated, false);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Gagal mengunggah watermark');
@@ -232,7 +251,7 @@ export default function BrandKitPage() {
     setSaveError(null);
     setRemovingWatermark(true);
     try {
-      await removeBrandWatermark();
+      await removeBrandWatermark(workspaceParam);
       await mutate({ ...brandKit!, watermarkUrl: null }, false);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Gagal menghapus watermark');
@@ -247,7 +266,7 @@ export default function BrandKitPage() {
     setSaveError(null);
     setUploadingIntro(true);
     try {
-      const updated = await uploadBrandIntro(file);
+      const updated = await uploadBrandIntro(file, workspaceParam);
       await mutate(updated, false);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Gagal mengunggah intro');
@@ -261,7 +280,7 @@ export default function BrandKitPage() {
     setSaveError(null);
     setRemovingIntro(true);
     try {
-      await removeBrandIntro();
+      await removeBrandIntro(workspaceParam);
       await mutate({ ...brandKit!, introUrl: null, introType: null }, false);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Gagal menghapus intro');
@@ -276,7 +295,7 @@ export default function BrandKitPage() {
     setSaveError(null);
     setUploadingOutro(true);
     try {
-      const updated = await uploadBrandOutro(file);
+      const updated = await uploadBrandOutro(file, workspaceParam);
       await mutate(updated, false);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Gagal mengunggah outro');
@@ -290,7 +309,7 @@ export default function BrandKitPage() {
     setSaveError(null);
     setRemovingOutro(true);
     try {
-      await removeBrandOutro();
+      await removeBrandOutro(workspaceParam);
       await mutate({ ...brandKit!, outroUrl: null, outroType: null }, false);
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : 'Gagal menghapus outro');
@@ -315,7 +334,7 @@ export default function BrandKitPage() {
     setTemplateActionError(null);
     setCreatingTemplate(true);
     try {
-      await createBrandKitTemplate(name);
+      await createBrandKitTemplate(name, workspaceParam);
       await mutateTemplates();
       setNewTemplateName('');
     } catch (err) {
@@ -329,7 +348,7 @@ export default function BrandKitPage() {
     setTemplateActionError(null);
     setApplyingTemplateId(id);
     try {
-      const updated = await applyBrandKitTemplate(id);
+      const updated = await applyBrandKitTemplate(id, workspaceParam);
       await mutate(updated, false);
       // Local field overrides (color/font/watermark inputs) were edited
       // relative to the OLD brandKit - clear them so the just-applied
@@ -389,6 +408,12 @@ export default function BrandKitPage() {
             Logo, warna, dan font ini diterapkan otomatis ke setiap clip baru (bisa dimatikan
             per-clip di editor), dan dipakai di Laporan Brand pada Export Center.
           </p>
+          {workspaceParam && (
+            <p className="mt-2 font-mono text-[11px] uppercase tracking-wide text-muted-foreground">
+              Mengedit Brand Kit workspace:{' '}
+              <span className="text-foreground">{activeWorkspace?.name}</span>
+            </p>
+          )}
         </div>
 
         {checkingAuth ? null : !user ? (
@@ -417,7 +442,7 @@ export default function BrandKitPage() {
                   <div className="flex items-center gap-4">
                     {brandKit.logoUrl ? (
                       <img
-                        src={brandKitLogoUrl()}
+                        src={brandKitLogoUrl(workspaceParam)}
                         crossOrigin="use-credentials"
                         alt="Logo brand"
                         className="h-20 w-20 rounded-md border border-border bg-slate-panel object-contain"
@@ -520,7 +545,7 @@ export default function BrandKitPage() {
                   <div className="flex items-center gap-4">
                     {brandKit.watermarkUrl ? (
                       <img
-                        src={brandKitWatermarkUrl()}
+                        src={brandKitWatermarkUrl(workspaceParam)}
                         crossOrigin="use-credentials"
                         alt="Watermark brand"
                         className="h-20 w-20 rounded-md border border-border bg-slate-panel object-contain"
@@ -629,14 +654,14 @@ export default function BrandKitPage() {
                     {brandKit.introUrl ? (
                       brandKit.introType === 'video' ? (
                         <video
-                          src={brandKitIntroUrl()}
+                          src={brandKitIntroUrl(workspaceParam)}
                           crossOrigin="use-credentials"
                           muted
                           className="h-20 w-20 rounded-md border border-border bg-slate-panel object-contain"
                         />
                       ) : (
                         <img
-                          src={brandKitIntroUrl()}
+                          src={brandKitIntroUrl(workspaceParam)}
                           crossOrigin="use-credentials"
                           alt="Intro brand"
                           className="h-20 w-20 rounded-md border border-border bg-slate-panel object-contain"
@@ -705,14 +730,14 @@ export default function BrandKitPage() {
                     {brandKit.outroUrl ? (
                       brandKit.outroType === 'video' ? (
                         <video
-                          src={brandKitOutroUrl()}
+                          src={brandKitOutroUrl(workspaceParam)}
                           crossOrigin="use-credentials"
                           muted
                           className="h-20 w-20 rounded-md border border-border bg-slate-panel object-contain"
                         />
                       ) : (
                         <img
-                          src={brandKitOutroUrl()}
+                          src={brandKitOutroUrl(workspaceParam)}
                           crossOrigin="use-credentials"
                           alt="Outro brand"
                           className="h-20 w-20 rounded-md border border-border bg-slate-panel object-contain"

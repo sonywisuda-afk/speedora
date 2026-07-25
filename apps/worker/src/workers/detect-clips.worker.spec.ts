@@ -31,12 +31,23 @@ jest.mock('@speedora/clip-scoring', () => ({
 let clipIdCounter = 0;
 const clipCreateMock = jest.fn((args: { data: Record<string, unknown> }) => {
   clipIdCounter += 1;
-  return Promise.resolve({ id: `clip-${clipIdCounter}`, captionStyle: 'DEFAULT', ...args.data });
+  // captionStyle/applyBrandKit both mirror real schema.prisma column
+  // defaults (not passed explicitly in the create data - see the worker's
+  // own comment) - synthesized here so the mock reflects what a real
+  // Prisma insert would actually return.
+  return Promise.resolve({
+    id: `clip-${clipIdCounter}`,
+    captionStyle: 'DEFAULT',
+    applyBrandKit: true,
+    ...args.data,
+  });
 });
 const videoUpdateMock = jest.fn();
 const videoFindUniqueOrThrowMock = jest.fn();
 const videoFindUniqueMock = jest.fn();
 const userFindUniqueOrThrowMock = jest.fn();
+// Workspace-level Brand Kit roadmap (P3g).
+const workspaceFindUniqueOrThrowMock = jest.fn();
 const videoStatusEventCreateMock = jest.fn().mockResolvedValue({});
 const notificationCreateMock = jest.fn();
 const notificationPreferenceFindUniqueMock = jest.fn();
@@ -53,6 +64,12 @@ jest.mock('../prisma', () => ({
     // per detect-clips run, same reasoning as ClipsService.render()'s own
     // resolveFontFamily.
     user: { findUniqueOrThrow: (...args: unknown[]) => userFindUniqueOrThrowMock(...args) },
+    // Workspace-level Brand Kit roadmap (P3g) - merged over the owner's
+    // fields per-field, same reasoning as ClipsService's own
+    // resolveEffectiveBrandKit.
+    workspace: {
+      findUniqueOrThrow: (...args: unknown[]) => workspaceFindUniqueOrThrowMock(...args),
+    },
     // Fase 3 (DB+JSON-contract roadmap) - updateVideoStatus() writes here
     // too, in the same $transaction as video.update().
     videoStatusEvent: { create: (...args: unknown[]) => videoStatusEventCreateMock(...args) },
@@ -125,6 +142,11 @@ describe('detect-clips worker (adapter)', () => {
     // Brand Kit roadmap (P3a) - no font set by default; individual tests
     // override to exercise a real brandFontFamily flowing through.
     userFindUniqueOrThrowMock.mockResolvedValue({ brandFontFamily: null });
+    // Workspace-level Brand Kit roadmap (P3g) - defaults to a personal
+    // workspace (mergeBrandKitFields short-circuits to the owner's fields
+    // untouched), same "existing tests keep working unchanged" reasoning as
+    // ClipsService/VideosService's own specs.
+    workspaceFindUniqueOrThrowMock.mockResolvedValue({ isPersonal: true });
   });
 
   it("narrows each TranscriptSegment to the scoring module's own input shape (drops speaker/emotion)", async () => {
@@ -205,6 +227,37 @@ describe('detect-clips worker (adapter)', () => {
         endTime: 32,
         transcript: [{ start: 10, end: 30, text: 'inside clip' }],
       }),
+    );
+  });
+
+  // Workspace-level Brand Kit roadmap (P3g).
+  it("prefers the video's workspace Brand Kit font over the owner's personal one when set", async () => {
+    scoreClipCandidatesMock.mockResolvedValue({
+      candidates: [scoredCandidate({ startTime: 5, endTime: 10, viralityScore: 90, hookText: 'hook' })],
+    });
+    videoFindUniqueOrThrowMock.mockResolvedValue({
+      id: 'video-1',
+      sourceUrl: 'videos/abc.mp4',
+      ownerId: 'user-1',
+      workspaceId: 'team-ws-1',
+    });
+    workspaceFindUniqueOrThrowMock.mockResolvedValue({
+      isPersonal: false,
+      brandFontFamily: 'Oswald',
+    });
+    userFindUniqueOrThrowMock.mockResolvedValue({ brandFontFamily: 'Roboto' });
+
+    const processor = getProcessor();
+    await processor({
+      data: { videoId: 'video-1', segments: [{ start: 0, end: 10, text: 'hi' }] },
+    });
+
+    expect(workspaceFindUniqueOrThrowMock).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: 'team-ws-1' } }),
+    );
+    expect(renderClipQueueAdd).toHaveBeenCalledWith(
+      QueueName.RENDER_CLIP,
+      expect.objectContaining({ fontFamily: 'Oswald' }),
     );
   });
 

@@ -111,3 +111,66 @@ export type IntroType = (typeof INTRO_TYPES)[number];
 // is null) - one constant, not two independently-tuned copies.
 export const MAX_INTRO_DURATION_SECONDS = 10;
 export const DEFAULT_INTRO_IMAGE_DURATION_SECONDS = 3;
+
+// Workspace-level Brand Kit roadmap (P3g) - the flat set of raw brand*
+// columns shared identically by both User and Workspace (see schema.prisma's
+// Workspace model comment) - the shape every render-side resolve site reads
+// from, whichever row it came from.
+export interface BrandKitFields {
+  brandLogoUrl: string | null;
+  brandPrimaryColor: string | null;
+  brandSecondaryColor: string | null;
+  brandFontFamily: string | null;
+  brandWatermarkUrl: string | null;
+  brandWatermarkOpacity: number | null;
+  brandWatermarkScale: number | null;
+  brandWatermarkMargin: number | null;
+  brandWatermarkPosition: string | null;
+  brandIntroUrl: string | null;
+  brandIntroType: string | null;
+  brandIntroImageDurationSeconds: number | null;
+  brandOutroUrl: string | null;
+  brandOutroType: string | null;
+  brandOutroImageDurationSeconds: number | null;
+}
+
+// Workspace-level Brand Kit roadmap (P3g) - merges a video's workspace
+// Brand Kit fields over its owner's personal ones, per FIELD (not an
+// all-or-nothing "use workspace OR owner" switch): a team can set just a
+// shared logo/colors while everyone's own font/watermark preferences still
+// apply wherever the team hasn't defined one. Safe to merge independently
+// field-by-field even for the paired intro/outro url+type columns, because
+// BrandKitService.saveIntro/saveOutro/removeIntro/removeOutro always write
+// both fields of a pair together on the same row - url and type are never
+// null on one but set on the other, so `?? ` picks the same source (either
+// both from workspace, or both from owner) for each pair.
+//
+// `workspace` is null when the video's workspace IS the owner's personal
+// one - every call site skips the Workspace fetch entirely in that case
+// (same "don't fetch when not needed" posture every other Brand Kit
+// resolve function already has), so this is a pure pass-through of `owner`.
+export function mergeBrandKitFields(
+  workspace: BrandKitFields | null,
+  owner: BrandKitFields,
+): BrandKitFields {
+  if (!workspace) return owner;
+  return {
+    brandLogoUrl: workspace.brandLogoUrl ?? owner.brandLogoUrl,
+    brandPrimaryColor: workspace.brandPrimaryColor ?? owner.brandPrimaryColor,
+    brandSecondaryColor: workspace.brandSecondaryColor ?? owner.brandSecondaryColor,
+    brandFontFamily: workspace.brandFontFamily ?? owner.brandFontFamily,
+    brandWatermarkUrl: workspace.brandWatermarkUrl ?? owner.brandWatermarkUrl,
+    brandWatermarkOpacity: workspace.brandWatermarkOpacity ?? owner.brandWatermarkOpacity,
+    brandWatermarkScale: workspace.brandWatermarkScale ?? owner.brandWatermarkScale,
+    brandWatermarkMargin: workspace.brandWatermarkMargin ?? owner.brandWatermarkMargin,
+    brandWatermarkPosition: workspace.brandWatermarkPosition ?? owner.brandWatermarkPosition,
+    brandIntroUrl: workspace.brandIntroUrl ?? owner.brandIntroUrl,
+    brandIntroType: workspace.brandIntroType ?? owner.brandIntroType,
+    brandIntroImageDurationSeconds:
+      workspace.brandIntroImageDurationSeconds ?? owner.brandIntroImageDurationSeconds,
+    brandOutroUrl: workspace.brandOutroUrl ?? owner.brandOutroUrl,
+    brandOutroType: workspace.brandOutroType ?? owner.brandOutroType,
+    brandOutroImageDurationSeconds:
+      workspace.brandOutroImageDurationSeconds ?? owner.brandOutroImageDurationSeconds,
+  };
+}

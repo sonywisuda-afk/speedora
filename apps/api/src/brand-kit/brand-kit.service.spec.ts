@@ -1,5 +1,10 @@
+import { WorkspaceRole } from '@speedora/database';
 import type { PrismaService } from '../prisma/prisma.service';
-import { BrandKitService } from './brand-kit.service';
+import type { WorkspaceAccessService } from '../workspace/workspace-access.service';
+import { BrandKitService, type BrandKitTarget } from './brand-kit.service';
+
+const USER_TARGET: BrandKitTarget = { kind: 'user', id: 'user-1' };
+const WORKSPACE_TARGET: BrandKitTarget = { kind: 'workspace', id: 'workspace-1' };
 
 const BASE_ROW = {
   brandLogoUrl: null,
@@ -46,6 +51,7 @@ describe('BrandKitService', () => {
   let service: BrandKitService;
   let prisma: {
     user: { findUniqueOrThrow: jest.Mock; update: jest.Mock };
+    workspace: { findUniqueOrThrow: jest.Mock; update: jest.Mock };
     brandKitTemplate: {
       create: jest.Mock;
       findMany: jest.Mock;
@@ -54,10 +60,12 @@ describe('BrandKitService', () => {
       delete: jest.Mock;
     };
   };
+  let workspaceAccess: { assertMinRole: jest.Mock };
 
   beforeEach(() => {
     prisma = {
       user: { findUniqueOrThrow: jest.fn(), update: jest.fn() },
+      workspace: { findUniqueOrThrow: jest.fn(), update: jest.fn() },
       brandKitTemplate: {
         create: jest.fn(),
         findMany: jest.fn(),
@@ -66,7 +74,51 @@ describe('BrandKitService', () => {
         delete: jest.fn(),
       },
     };
-    service = new BrandKitService(prisma as unknown as PrismaService);
+    workspaceAccess = { assertMinRole: jest.fn() };
+    service = new BrandKitService(
+      prisma as unknown as PrismaService,
+      workspaceAccess as unknown as WorkspaceAccessService,
+    );
+  });
+
+  // Workspace-level Brand Kit roadmap (P3g).
+  describe('resolveTarget', () => {
+    it('resolves to the user target when no workspaceId is given', async () => {
+      const target = await service.resolveTarget('user-1', undefined, WorkspaceRole.VIEWER);
+
+      expect(target).toEqual(USER_TARGET);
+      expect(workspaceAccess.assertMinRole).not.toHaveBeenCalled();
+    });
+
+    it('resolves to the user target when the given workspaceId is the personal workspace', async () => {
+      prisma.workspace.findUniqueOrThrow.mockResolvedValue({ isPersonal: true });
+
+      const target = await service.resolveTarget('user-1', 'personal-ws', WorkspaceRole.EDITOR);
+
+      expect(workspaceAccess.assertMinRole).toHaveBeenCalledWith(
+        'user-1',
+        'personal-ws',
+        WorkspaceRole.EDITOR,
+      );
+      expect(target).toEqual(USER_TARGET);
+    });
+
+    it('resolves to the workspace target for a non-personal workspace with sufficient role', async () => {
+      prisma.workspace.findUniqueOrThrow.mockResolvedValue({ isPersonal: false });
+
+      const target = await service.resolveTarget('user-1', 'workspace-1', WorkspaceRole.EDITOR);
+
+      expect(target).toEqual(WORKSPACE_TARGET);
+    });
+
+    it('propagates the ForbiddenException/NotFoundException from assertMinRole for insufficient role', async () => {
+      workspaceAccess.assertMinRole.mockRejectedValue(new Error('Forbidden'));
+
+      await expect(
+        service.resolveTarget('user-1', 'workspace-1', WorkspaceRole.EDITOR),
+      ).rejects.toThrow('Forbidden');
+      expect(prisma.workspace.findUniqueOrThrow).not.toHaveBeenCalled();
+    });
   });
 
   describe('get', () => {
@@ -89,7 +141,7 @@ describe('BrandKitService', () => {
         brandOutroImageDurationSeconds: null,
       });
 
-      const result = await service.get('user-1');
+      const result = await service.get(USER_TARGET);
 
       expect(result).toEqual({
         logoUrl: '/brand-kit/logo',
@@ -113,7 +165,7 @@ describe('BrandKitService', () => {
     it('reports a null logoUrl/watermarkUrl/introUrl/outroUrl when none has been uploaded', async () => {
       prisma.user.findUniqueOrThrow.mockResolvedValue(BASE_ROW);
 
-      const result = await service.get('user-1');
+      const result = await service.get(USER_TARGET);
 
       expect(result.logoUrl).toBeNull();
       expect(result.watermarkUrl).toBeNull();
@@ -122,13 +174,28 @@ describe('BrandKitService', () => {
       expect(result.outroUrl).toBeNull();
       expect(result.outroType).toBeNull();
     });
+
+    it('reads from the Workspace row (not User) for a workspace target', async () => {
+      prisma.workspace.findUniqueOrThrow.mockResolvedValue({
+        ...BASE_ROW,
+        brandPrimaryColor: '#00AACC',
+      });
+
+      const result = await service.get(WORKSPACE_TARGET);
+
+      expect(prisma.workspace.findUniqueOrThrow).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'workspace-1' } }),
+      );
+      expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
+      expect(result.primaryColor).toBe('#00AACC');
+    });
   });
 
   describe('update', () => {
     it('only updates the fields actually sent', async () => {
       prisma.user.update.mockResolvedValue({ ...BASE_ROW, brandPrimaryColor: '#FF0000' });
 
-      await service.update('user-1', { primaryColor: '#FF0000' });
+      await service.update(USER_TARGET, { primaryColor: '#FF0000' });
 
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
@@ -160,7 +227,7 @@ describe('BrandKitService', () => {
         brandSecondaryColor: '#00FF00',
       });
 
-      await service.update('user-1', { primaryColor: '#FF0000', secondaryColor: '#00FF00' });
+      await service.update(USER_TARGET, { primaryColor: '#FF0000', secondaryColor: '#00FF00' });
 
       expect(prisma.user.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -172,7 +239,7 @@ describe('BrandKitService', () => {
     it('updates fontFamily when sent, same "only fields actually sent" convention as the colors', async () => {
       prisma.user.update.mockResolvedValue({ ...BASE_ROW, brandFontFamily: 'Montserrat' });
 
-      const result = await service.update('user-1', { fontFamily: 'Montserrat' });
+      const result = await service.update(USER_TARGET, { fontFamily: 'Montserrat' });
 
       expect(prisma.user.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: { brandFontFamily: 'Montserrat' } }),
@@ -189,7 +256,7 @@ describe('BrandKitService', () => {
         brandWatermarkPosition: 'TOP_LEFT',
       });
 
-      const result = await service.update('user-1', {
+      const result = await service.update(USER_TARGET, {
         watermarkOpacity: 0.5,
         watermarkScale: 0.2,
         watermarkMargin: 0.05,
@@ -213,7 +280,7 @@ describe('BrandKitService', () => {
     it('updates introImageDurationSeconds when sent', async () => {
       prisma.user.update.mockResolvedValue({ ...BASE_ROW, brandIntroImageDurationSeconds: 5 });
 
-      const result = await service.update('user-1', { introImageDurationSeconds: 5 });
+      const result = await service.update(USER_TARGET, { introImageDurationSeconds: 5 });
 
       expect(prisma.user.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: { brandIntroImageDurationSeconds: 5 } }),
@@ -224,12 +291,23 @@ describe('BrandKitService', () => {
     it('updates outroImageDurationSeconds when sent', async () => {
       prisma.user.update.mockResolvedValue({ ...BASE_ROW, brandOutroImageDurationSeconds: 4 });
 
-      const result = await service.update('user-1', { outroImageDurationSeconds: 4 });
+      const result = await service.update(USER_TARGET, { outroImageDurationSeconds: 4 });
 
       expect(prisma.user.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: { brandOutroImageDurationSeconds: 4 } }),
       );
       expect(result.outroImageDurationSeconds).toBe(4);
+    });
+
+    it('writes to the Workspace row (not User) for a workspace target', async () => {
+      prisma.workspace.update.mockResolvedValue({ ...BASE_ROW, brandPrimaryColor: '#123456' });
+
+      await service.update(WORKSPACE_TARGET, { primaryColor: '#123456' });
+
+      expect(prisma.workspace.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'workspace-1' } }),
+      );
+      expect(prisma.user.update).not.toHaveBeenCalled();
     });
   });
 
@@ -237,7 +315,7 @@ describe('BrandKitService', () => {
     it('stores the raw storage key and returns the endpoint-path DTO', async () => {
       prisma.user.update.mockResolvedValue({ ...BASE_ROW, brandLogoUrl: 'brand-logos/xyz.png' });
 
-      const result = await service.saveLogo('user-1', 'brand-logos/xyz.png');
+      const result = await service.saveLogo(USER_TARGET, 'brand-logos/xyz.png');
 
       expect(prisma.user.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: { brandLogoUrl: 'brand-logos/xyz.png' } }),
@@ -248,17 +326,20 @@ describe('BrandKitService', () => {
 
   describe('findLogoKeyOrThrow', () => {
     it('returns the raw key without throwing when a logo exists', async () => {
-      prisma.user.findUniqueOrThrow.mockResolvedValue({ brandLogoUrl: 'brand-logos/xyz.png' });
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        ...BASE_ROW,
+        brandLogoUrl: 'brand-logos/xyz.png',
+      });
 
-      expect(await service.findLogoKeyOrThrow('user-1')).toEqual({
+      expect(await service.findLogoKeyOrThrow(USER_TARGET)).toEqual({
         logoKey: 'brand-logos/xyz.png',
       });
     });
 
     it('returns a null logoKey (not a throw) when no logo has been uploaded', async () => {
-      prisma.user.findUniqueOrThrow.mockResolvedValue({ brandLogoUrl: null });
+      prisma.user.findUniqueOrThrow.mockResolvedValue(BASE_ROW);
 
-      expect(await service.findLogoKeyOrThrow('user-1')).toEqual({ logoKey: null });
+      expect(await service.findLogoKeyOrThrow(USER_TARGET)).toEqual({ logoKey: null });
     });
   });
 
@@ -266,7 +347,7 @@ describe('BrandKitService', () => {
     it('stores the raw storage key and returns the endpoint-path DTO', async () => {
       prisma.user.update.mockResolvedValue({ ...BASE_ROW, brandWatermarkUrl: 'watermarks/xyz.png' });
 
-      const result = await service.saveWatermark('user-1', 'watermarks/xyz.png');
+      const result = await service.saveWatermark(USER_TARGET, 'watermarks/xyz.png');
 
       expect(prisma.user.update).toHaveBeenCalledWith(
         expect.objectContaining({ data: { brandWatermarkUrl: 'watermarks/xyz.png' } }),
@@ -278,31 +359,34 @@ describe('BrandKitService', () => {
   describe('findWatermarkKeyOrThrow', () => {
     it('returns the raw key without throwing when a watermark exists', async () => {
       prisma.user.findUniqueOrThrow.mockResolvedValue({
+        ...BASE_ROW,
         brandWatermarkUrl: 'watermarks/xyz.png',
       });
 
-      expect(await service.findWatermarkKeyOrThrow('user-1')).toEqual({
+      expect(await service.findWatermarkKeyOrThrow(USER_TARGET)).toEqual({
         watermarkKey: 'watermarks/xyz.png',
       });
     });
 
     it('returns a null watermarkKey (not a throw) when no watermark has been uploaded', async () => {
-      prisma.user.findUniqueOrThrow.mockResolvedValue({ brandWatermarkUrl: null });
+      prisma.user.findUniqueOrThrow.mockResolvedValue(BASE_ROW);
 
-      expect(await service.findWatermarkKeyOrThrow('user-1')).toEqual({ watermarkKey: null });
+      expect(await service.findWatermarkKeyOrThrow(USER_TARGET)).toEqual({ watermarkKey: null });
     });
   });
 
   describe('removeWatermark', () => {
     it('clears the watermark key', async () => {
-      prisma.user.update.mockResolvedValue({});
+      prisma.user.update.mockResolvedValue(BASE_ROW);
 
-      await service.removeWatermark('user-1');
+      await service.removeWatermark(USER_TARGET);
 
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
-        data: { brandWatermarkUrl: null },
-      });
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'user-1' },
+          data: { brandWatermarkUrl: null },
+        }),
+      );
     });
   });
 
@@ -314,7 +398,7 @@ describe('BrandKitService', () => {
         brandIntroType: 'video',
       });
 
-      const result = await service.saveIntro('user-1', 'intros/xyz.mp4', 'video');
+      const result = await service.saveIntro(USER_TARGET, 'intros/xyz.mp4', 'video');
 
       expect(prisma.user.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -328,30 +412,35 @@ describe('BrandKitService', () => {
 
   describe('findIntroKeyOrThrow', () => {
     it('returns the raw key without throwing when an intro exists', async () => {
-      prisma.user.findUniqueOrThrow.mockResolvedValue({ brandIntroUrl: 'intros/xyz.mp4' });
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        ...BASE_ROW,
+        brandIntroUrl: 'intros/xyz.mp4',
+      });
 
-      expect(await service.findIntroKeyOrThrow('user-1')).toEqual({
+      expect(await service.findIntroKeyOrThrow(USER_TARGET)).toEqual({
         introKey: 'intros/xyz.mp4',
       });
     });
 
     it('returns a null introKey (not a throw) when no intro has been uploaded', async () => {
-      prisma.user.findUniqueOrThrow.mockResolvedValue({ brandIntroUrl: null });
+      prisma.user.findUniqueOrThrow.mockResolvedValue(BASE_ROW);
 
-      expect(await service.findIntroKeyOrThrow('user-1')).toEqual({ introKey: null });
+      expect(await service.findIntroKeyOrThrow(USER_TARGET)).toEqual({ introKey: null });
     });
   });
 
   describe('removeIntro', () => {
     it('clears both the intro key and type', async () => {
-      prisma.user.update.mockResolvedValue({});
+      prisma.user.update.mockResolvedValue(BASE_ROW);
 
-      await service.removeIntro('user-1');
+      await service.removeIntro(USER_TARGET);
 
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
-        data: { brandIntroUrl: null, brandIntroType: null },
-      });
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'user-1' },
+          data: { brandIntroUrl: null, brandIntroType: null },
+        }),
+      );
     });
   });
 
@@ -363,7 +452,7 @@ describe('BrandKitService', () => {
         brandOutroType: 'video',
       });
 
-      const result = await service.saveOutro('user-1', 'outros/xyz.mp4', 'video');
+      const result = await service.saveOutro(USER_TARGET, 'outros/xyz.mp4', 'video');
 
       expect(prisma.user.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -377,30 +466,35 @@ describe('BrandKitService', () => {
 
   describe('findOutroKeyOrThrow', () => {
     it('returns the raw key without throwing when an outro exists', async () => {
-      prisma.user.findUniqueOrThrow.mockResolvedValue({ brandOutroUrl: 'outros/xyz.mp4' });
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        ...BASE_ROW,
+        brandOutroUrl: 'outros/xyz.mp4',
+      });
 
-      expect(await service.findOutroKeyOrThrow('user-1')).toEqual({
+      expect(await service.findOutroKeyOrThrow(USER_TARGET)).toEqual({
         outroKey: 'outros/xyz.mp4',
       });
     });
 
     it('returns a null outroKey (not a throw) when no outro has been uploaded', async () => {
-      prisma.user.findUniqueOrThrow.mockResolvedValue({ brandOutroUrl: null });
+      prisma.user.findUniqueOrThrow.mockResolvedValue(BASE_ROW);
 
-      expect(await service.findOutroKeyOrThrow('user-1')).toEqual({ outroKey: null });
+      expect(await service.findOutroKeyOrThrow(USER_TARGET)).toEqual({ outroKey: null });
     });
   });
 
   describe('removeOutro', () => {
     it('clears both the outro key and type', async () => {
-      prisma.user.update.mockResolvedValue({});
+      prisma.user.update.mockResolvedValue(BASE_ROW);
 
-      await service.removeOutro('user-1');
+      await service.removeOutro(USER_TARGET);
 
-      expect(prisma.user.update).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
-        data: { brandOutroUrl: null, brandOutroType: null },
-      });
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'user-1' },
+          data: { brandOutroUrl: null, brandOutroType: null },
+        }),
+      );
     });
   });
 
@@ -433,7 +527,7 @@ describe('BrandKitService', () => {
         outroImageDurationSeconds: 3,
       });
 
-      const result = await service.createTemplate('user-1', 'My Template');
+      const result = await service.createTemplate('user-1', 'My Template', USER_TARGET);
 
       expect(prisma.brandKitTemplate.create).toHaveBeenCalledWith({
         data: {
@@ -471,6 +565,24 @@ describe('BrandKitService', () => {
         outroType: 'image',
         createdAt: '2026-01-01T00:00:00.000Z',
       });
+    });
+
+    it('snapshots from the Workspace row when the target is a workspace', async () => {
+      prisma.workspace.findUniqueOrThrow.mockResolvedValue({
+        ...BASE_ROW,
+        brandPrimaryColor: '#00AACC',
+      });
+      prisma.brandKitTemplate.create.mockResolvedValue({
+        ...BASE_TEMPLATE_ROW,
+        primaryColor: '#00AACC',
+      });
+
+      await service.createTemplate('user-1', 'Team Template', WORKSPACE_TARGET);
+
+      expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
+      expect(prisma.brandKitTemplate.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ primaryColor: '#00AACC' }) }),
+      );
     });
   });
 
@@ -552,7 +664,7 @@ describe('BrandKitService', () => {
   });
 
   describe('applyTemplate', () => {
-    it("copies the template's fields back onto the user's live Brand Kit fields", async () => {
+    it("copies the template's fields back onto the target's live Brand Kit fields", async () => {
       prisma.brandKitTemplate.findUnique.mockResolvedValue({
         ...BASE_TEMPLATE_ROW,
         logoUrl: 'brand-logos/abc.png',
@@ -586,7 +698,7 @@ describe('BrandKitService', () => {
         brandOutroImageDurationSeconds: 3,
       });
 
-      const result = await service.applyTemplate('user-1', 'template-1');
+      const result = await service.applyTemplate('user-1', 'template-1', USER_TARGET);
 
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
@@ -614,13 +726,25 @@ describe('BrandKitService', () => {
       expect(result.outroType).toBe('image');
     });
 
+    it('writes to the Workspace row (not User) when applied to a workspace target', async () => {
+      prisma.brandKitTemplate.findUnique.mockResolvedValue(BASE_TEMPLATE_ROW);
+      prisma.workspace.update.mockResolvedValue(BASE_ROW);
+
+      await service.applyTemplate('user-1', 'template-1', WORKSPACE_TARGET);
+
+      expect(prisma.workspace.update).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'workspace-1' } }),
+      );
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
     it('404s when the template belongs to a different user', async () => {
       prisma.brandKitTemplate.findUnique.mockResolvedValue({
         ...BASE_TEMPLATE_ROW,
         userId: 'other-user',
       });
 
-      await expect(service.applyTemplate('user-1', 'template-1')).rejects.toThrow(
+      await expect(service.applyTemplate('user-1', 'template-1', USER_TARGET)).rejects.toThrow(
         'Brand Kit template template-1 not found',
       );
       expect(prisma.user.update).not.toHaveBeenCalled();

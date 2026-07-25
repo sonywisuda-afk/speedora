@@ -1,14 +1,20 @@
+import { WorkspaceRole } from '@speedora/database';
 import { getObjectStream } from '@speedora/storage';
 import type { Response } from 'express';
+import type { BrandKitTarget } from './brand-kit.service';
 import type { BrandKitService } from './brand-kit.service';
 import { BrandKitController } from './brand-kit.controller';
 import type { StorageService } from '../storage/storage.service';
 
 jest.mock('@speedora/storage', () => ({ getObjectStream: jest.fn() }));
 
+const USER_TARGET: BrandKitTarget = { kind: 'user', id: 'user-1' };
+const WORKSPACE_TARGET: BrandKitTarget = { kind: 'workspace', id: 'workspace-1' };
+
 describe('BrandKitController', () => {
   let controller: BrandKitController;
   let brandKit: {
+    resolveTarget: jest.Mock;
     get: jest.Mock;
     update: jest.Mock;
     saveLogo: jest.Mock;
@@ -38,6 +44,7 @@ describe('BrandKitController', () => {
 
   beforeEach(() => {
     brandKit = {
+      resolveTarget: jest.fn().mockResolvedValue(USER_TARGET),
       get: jest.fn(),
       update: jest.fn(),
       saveLogo: jest.fn(),
@@ -68,21 +75,37 @@ describe('BrandKitController', () => {
       storage as unknown as StorageService,
     );
     jest.clearAllMocks();
+    brandKit.resolveTarget.mockResolvedValue(USER_TARGET);
   });
 
   describe('get', () => {
-    it('delegates to the service', async () => {
+    it('resolves the target (no workspaceId -> VIEWER on the user\'s own row) and delegates', async () => {
       brandKit.get.mockResolvedValue({ logoUrl: null, primaryColor: null, secondaryColor: null });
 
       const result = await controller.get(user);
 
-      expect(brandKit.get).toHaveBeenCalledWith('user-1');
+      expect(brandKit.resolveTarget).toHaveBeenCalledWith('user-1', undefined, WorkspaceRole.VIEWER);
+      expect(brandKit.get).toHaveBeenCalledWith(USER_TARGET);
       expect(result).toEqual({ logoUrl: null, primaryColor: null, secondaryColor: null });
+    });
+
+    it('forwards an explicit workspaceId to resolveTarget', async () => {
+      brandKit.resolveTarget.mockResolvedValue(WORKSPACE_TARGET);
+      brandKit.get.mockResolvedValue({ logoUrl: null, primaryColor: '#00AACC', secondaryColor: null });
+
+      await controller.get(user, 'workspace-1');
+
+      expect(brandKit.resolveTarget).toHaveBeenCalledWith(
+        'user-1',
+        'workspace-1',
+        WorkspaceRole.VIEWER,
+      );
+      expect(brandKit.get).toHaveBeenCalledWith(WORKSPACE_TARGET);
     });
   });
 
   describe('update', () => {
-    it('forwards the requester id and DTO', async () => {
+    it('resolves EDITOR+ and forwards the target and DTO', async () => {
       brandKit.update.mockResolvedValue({
         logoUrl: null,
         primaryColor: '#1D4ED8',
@@ -91,12 +114,13 @@ describe('BrandKitController', () => {
 
       await controller.update(user, { primaryColor: '#1D4ED8' });
 
-      expect(brandKit.update).toHaveBeenCalledWith('user-1', { primaryColor: '#1D4ED8' });
+      expect(brandKit.resolveTarget).toHaveBeenCalledWith('user-1', undefined, WorkspaceRole.EDITOR);
+      expect(brandKit.update).toHaveBeenCalledWith(USER_TARGET, { primaryColor: '#1D4ED8' });
     });
   });
 
   describe('uploadLogo', () => {
-    it('saves the file to storage then records the key on the brand kit', async () => {
+    it('saves the file to storage then records the key on the resolved target', async () => {
       storage.saveBrandLogo.mockResolvedValue('brand-logos/abc.png');
       brandKit.saveLogo.mockResolvedValue({
         logoUrl: '/brand-kit/logo',
@@ -112,7 +136,7 @@ describe('BrandKitController', () => {
       const result = await controller.uploadLogo(user, file);
 
       expect(storage.saveBrandLogo).toHaveBeenCalledWith(file);
-      expect(brandKit.saveLogo).toHaveBeenCalledWith('user-1', 'brand-logos/abc.png');
+      expect(brandKit.saveLogo).toHaveBeenCalledWith(USER_TARGET, 'brand-logos/abc.png');
       expect(result.logoUrl).toBe('/brand-kit/logo');
     });
   });
@@ -126,6 +150,7 @@ describe('BrandKitController', () => {
 
       await controller.downloadLogo(user, res);
 
+      expect(brandKit.findLogoKeyOrThrow).toHaveBeenCalledWith(USER_TARGET);
       expect(getObjectStream).toHaveBeenCalledWith('brand-logos/abc.png');
       expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'image/png');
       expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'private, max-age=86400');
@@ -154,7 +179,7 @@ describe('BrandKitController', () => {
   });
 
   describe('uploadWatermark', () => {
-    it('saves the file to storage then records the key on the brand kit', async () => {
+    it('saves the file to storage then records the key on the resolved target', async () => {
       storage.saveBrandWatermark.mockResolvedValue('watermarks/abc.png');
       brandKit.saveWatermark.mockResolvedValue({ watermarkUrl: '/brand-kit/watermark' });
       const file = {
@@ -166,7 +191,7 @@ describe('BrandKitController', () => {
       const result = await controller.uploadWatermark(user, file);
 
       expect(storage.saveBrandWatermark).toHaveBeenCalledWith(file);
-      expect(brandKit.saveWatermark).toHaveBeenCalledWith('user-1', 'watermarks/abc.png');
+      expect(brandKit.saveWatermark).toHaveBeenCalledWith(USER_TARGET, 'watermarks/abc.png');
       expect(result.watermarkUrl).toBe('/brand-kit/watermark');
     });
   });
@@ -197,10 +222,11 @@ describe('BrandKitController', () => {
   });
 
   describe('removeWatermark', () => {
-    it('delegates to the service', async () => {
+    it('resolves EDITOR+ and delegates to the service', async () => {
       await controller.removeWatermark(user);
 
-      expect(brandKit.removeWatermark).toHaveBeenCalledWith('user-1');
+      expect(brandKit.resolveTarget).toHaveBeenCalledWith('user-1', undefined, WorkspaceRole.EDITOR);
+      expect(brandKit.removeWatermark).toHaveBeenCalledWith(USER_TARGET);
     });
   });
 
@@ -217,7 +243,7 @@ describe('BrandKitController', () => {
       const result = await controller.uploadIntro(user, file);
 
       expect(storage.saveBrandIntro).toHaveBeenCalledWith(file);
-      expect(brandKit.saveIntro).toHaveBeenCalledWith('user-1', 'intros/abc.mp4', 'video');
+      expect(brandKit.saveIntro).toHaveBeenCalledWith(USER_TARGET, 'intros/abc.mp4', 'video');
       expect(result.introUrl).toBe('/brand-kit/intro');
     });
 
@@ -232,7 +258,7 @@ describe('BrandKitController', () => {
 
       await controller.uploadIntro(user, file);
 
-      expect(brandKit.saveIntro).toHaveBeenCalledWith('user-1', 'intros/abc.png', 'image');
+      expect(brandKit.saveIntro).toHaveBeenCalledWith(USER_TARGET, 'intros/abc.png', 'image');
     });
   });
 
@@ -272,10 +298,11 @@ describe('BrandKitController', () => {
   });
 
   describe('removeIntro', () => {
-    it('delegates to the service', async () => {
+    it('resolves EDITOR+ and delegates to the service', async () => {
       await controller.removeIntro(user);
 
-      expect(brandKit.removeIntro).toHaveBeenCalledWith('user-1');
+      expect(brandKit.resolveTarget).toHaveBeenCalledWith('user-1', undefined, WorkspaceRole.EDITOR);
+      expect(brandKit.removeIntro).toHaveBeenCalledWith(USER_TARGET);
     });
   });
 
@@ -292,7 +319,7 @@ describe('BrandKitController', () => {
       const result = await controller.uploadOutro(user, file);
 
       expect(storage.saveBrandOutro).toHaveBeenCalledWith(file);
-      expect(brandKit.saveOutro).toHaveBeenCalledWith('user-1', 'outros/abc.mp4', 'video');
+      expect(brandKit.saveOutro).toHaveBeenCalledWith(USER_TARGET, 'outros/abc.mp4', 'video');
       expect(result.outroUrl).toBe('/brand-kit/outro');
     });
 
@@ -307,7 +334,7 @@ describe('BrandKitController', () => {
 
       await controller.uploadOutro(user, file);
 
-      expect(brandKit.saveOutro).toHaveBeenCalledWith('user-1', 'outros/abc.png', 'image');
+      expect(brandKit.saveOutro).toHaveBeenCalledWith(USER_TARGET, 'outros/abc.png', 'image');
     });
   });
 
@@ -347,31 +374,34 @@ describe('BrandKitController', () => {
   });
 
   describe('removeOutro', () => {
-    it('delegates to the service', async () => {
+    it('resolves EDITOR+ and delegates to the service', async () => {
       await controller.removeOutro(user);
 
-      expect(brandKit.removeOutro).toHaveBeenCalledWith('user-1');
+      expect(brandKit.resolveTarget).toHaveBeenCalledWith('user-1', undefined, WorkspaceRole.EDITOR);
+      expect(brandKit.removeOutro).toHaveBeenCalledWith(USER_TARGET);
     });
   });
 
   describe('createTemplate', () => {
-    it('forwards the requester id and template name', async () => {
+    it('resolves VIEWER+ (read-only snapshot) and forwards the requester id, name, and target', async () => {
       brandKit.createTemplate.mockResolvedValue({ id: 'template-1', name: 'My Template' });
 
       const result = await controller.createTemplate(user, { name: 'My Template' });
 
-      expect(brandKit.createTemplate).toHaveBeenCalledWith('user-1', 'My Template');
+      expect(brandKit.resolveTarget).toHaveBeenCalledWith('user-1', undefined, WorkspaceRole.VIEWER);
+      expect(brandKit.createTemplate).toHaveBeenCalledWith('user-1', 'My Template', USER_TARGET);
       expect(result).toEqual({ id: 'template-1', name: 'My Template' });
     });
   });
 
   describe('listTemplates', () => {
-    it('delegates to the service', async () => {
+    it('delegates to the service without any target resolution (templates are always userId-owned)', async () => {
       brandKit.listTemplates.mockResolvedValue({ templates: [] });
 
       const result = await controller.listTemplates(user);
 
       expect(brandKit.listTemplates).toHaveBeenCalledWith('user-1');
+      expect(brandKit.resolveTarget).not.toHaveBeenCalled();
       expect(result).toEqual({ templates: [] });
     });
   });
@@ -396,12 +426,13 @@ describe('BrandKitController', () => {
   });
 
   describe('applyTemplate', () => {
-    it('delegates to the service', async () => {
+    it('resolves EDITOR+ (mutates the kit) and forwards the requester id, template id, and target', async () => {
       brandKit.applyTemplate.mockResolvedValue({ logoUrl: '/brand-kit/logo' });
 
       const result = await controller.applyTemplate(user, 'template-1');
 
-      expect(brandKit.applyTemplate).toHaveBeenCalledWith('user-1', 'template-1');
+      expect(brandKit.resolveTarget).toHaveBeenCalledWith('user-1', undefined, WorkspaceRole.EDITOR);
+      expect(brandKit.applyTemplate).toHaveBeenCalledWith('user-1', 'template-1', USER_TARGET);
       expect(result.logoUrl).toBe('/brand-kit/logo');
     });
   });

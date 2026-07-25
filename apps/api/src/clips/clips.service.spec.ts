@@ -36,6 +36,8 @@ describe('ClipsService', () => {
     clipPlatformCopy: { create: jest.Mock; count: jest.Mock; findMany: jest.Mock };
     auditLogEntry: { create: jest.Mock };
     user: { findUniqueOrThrow: jest.Mock };
+    // Workspace-level Brand Kit roadmap (P3g).
+    workspace: { findUniqueOrThrow: jest.Mock };
     $transaction: jest.Mock;
     $queryRaw: jest.Mock;
   };
@@ -80,6 +82,12 @@ describe('ClipsService', () => {
       },
       auditLogEntry: { create: jest.fn().mockResolvedValue({}) },
       user: { findUniqueOrThrow: jest.fn() },
+      // Workspace-level Brand Kit roadmap (P3g) - defaults to a personal
+      // workspace (mergeBrandKitFields short-circuits to the owner's fields
+      // untouched), so every pre-P3g render() test below keeps working
+      // unchanged unless it explicitly overrides this for a workspace-kit
+      // test.
+      workspace: { findUniqueOrThrow: jest.fn().mockResolvedValue({ isPersonal: true }) },
       $transaction: jest.fn(),
       $queryRaw: jest.fn(),
     };
@@ -1125,7 +1133,7 @@ describe('ClipsService', () => {
       ctaText: null,
       publishRecords: [],
       updatedAt: new Date('2026-01-01'),
-      video: { ownerId: 'user-1', sourceUrl: 'videos/abc.mp4' },
+      video: { ownerId: 'user-1', sourceUrl: 'videos/abc.mp4', workspaceId: 'personal-ws-1' },
     };
 
     it('clears outputUrl, enqueues render-clip with the recomputed transcript and captionStyle, and returns the cleared dto', async () => {
@@ -1293,10 +1301,12 @@ describe('ClipsService', () => {
 
       await service.render('clip-1', 'user-1');
 
-      expect(prisma.user.findUniqueOrThrow).toHaveBeenCalledWith({
-        where: { id: 'user-1' },
-        select: { brandFontFamily: true },
-      });
+      // Workspace-level Brand Kit roadmap (P3g) - resolveEffectiveBrandKit
+      // fetches the full 15-field Brand Kit select in one shared call (was
+      // a narrow { brandFontFamily: true } select pre-P3g).
+      expect(prisma.user.findUniqueOrThrow).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'user-1' } }),
+      );
       expect(renderClipQueue.add).toHaveBeenCalledWith(
         QueueName.RENDER_CLIP,
         expect.objectContaining({ fontFamily: 'Roboto' }),
@@ -1536,6 +1546,80 @@ describe('ClipsService', () => {
         QueueName.RENDER_CLIP,
         expect.objectContaining({ outro: null }),
       );
+    });
+
+    // Workspace-level Brand Kit roadmap (P3g).
+    describe('workspace-level Brand Kit', () => {
+      it("prefers the video's workspace Brand Kit field over the owner's personal one when set", async () => {
+        prisma.clip.findUnique.mockResolvedValue({
+          ...clip,
+          video: { ...clip.video, workspaceId: 'team-ws-1' },
+          applyBrandKit: true,
+          fontFamily: null,
+        });
+        prisma.transcriptSegment.findMany.mockResolvedValue([]);
+        prisma.clip.update.mockResolvedValue({ ...clip, outputUrl: null });
+        prisma.workspace.findUniqueOrThrow.mockResolvedValue({
+          isPersonal: false,
+          brandFontFamily: 'Oswald',
+        });
+        prisma.user.findUniqueOrThrow.mockResolvedValue({ brandFontFamily: 'Roboto' });
+
+        await service.render('clip-1', 'user-1');
+
+        expect(prisma.workspace.findUniqueOrThrow).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { id: 'team-ws-1' } }),
+        );
+        expect(renderClipQueue.add).toHaveBeenCalledWith(
+          QueueName.RENDER_CLIP,
+          expect.objectContaining({ fontFamily: 'Oswald' }),
+        );
+      });
+
+      it("falls back to the owner's personal field when the workspace hasn't set that field", async () => {
+        prisma.clip.findUnique.mockResolvedValue({
+          ...clip,
+          video: { ...clip.video, workspaceId: 'team-ws-1' },
+          applyBrandKit: true,
+          fontFamily: null,
+        });
+        prisma.transcriptSegment.findMany.mockResolvedValue([]);
+        prisma.clip.update.mockResolvedValue({ ...clip, outputUrl: null });
+        prisma.workspace.findUniqueOrThrow.mockResolvedValue({
+          isPersonal: false,
+          brandFontFamily: null,
+        });
+        prisma.user.findUniqueOrThrow.mockResolvedValue({ brandFontFamily: 'Roboto' });
+
+        await service.render('clip-1', 'user-1');
+
+        expect(renderClipQueue.add).toHaveBeenCalledWith(
+          QueueName.RENDER_CLIP,
+          expect.objectContaining({ fontFamily: 'Roboto' }),
+        );
+      });
+
+      it("ignores the workspace's fields entirely for the owner's personal workspace", async () => {
+        prisma.clip.findUnique.mockResolvedValue({
+          ...clip,
+          applyBrandKit: true,
+          fontFamily: null,
+        });
+        prisma.transcriptSegment.findMany.mockResolvedValue([]);
+        prisma.clip.update.mockResolvedValue({ ...clip, outputUrl: null });
+        prisma.workspace.findUniqueOrThrow.mockResolvedValue({
+          isPersonal: true,
+          brandFontFamily: 'Oswald',
+        });
+        prisma.user.findUniqueOrThrow.mockResolvedValue({ brandFontFamily: 'Roboto' });
+
+        await service.render('clip-1', 'user-1');
+
+        expect(renderClipQueue.add).toHaveBeenCalledWith(
+          QueueName.RENDER_CLIP,
+          expect.objectContaining({ fontFamily: 'Roboto' }),
+        );
+      });
     });
   });
 

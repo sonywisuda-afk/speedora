@@ -35,6 +35,9 @@ describe('VideosService', () => {
       delete: jest.Mock;
     };
     transcriptTranslationRequest: { count: jest.Mock; create: jest.Mock };
+    // Workspace-level Brand Kit roadmap (P3g).
+    user: { findUniqueOrThrow: jest.Mock };
+    workspace: { findUniqueOrThrow: jest.Mock };
     $transaction: jest.Mock;
   };
   let workspaceAccess: {
@@ -84,6 +87,12 @@ describe('VideosService', () => {
         count: jest.fn().mockResolvedValue(0),
         create: jest.fn().mockResolvedValue({}),
       },
+      // Workspace-level Brand Kit roadmap (P3g) - workspace defaults to
+      // personal (mergeBrandKitFields short-circuits to the owner's fields
+      // untouched), same "existing tests keep working unchanged" reasoning
+      // as ClipsService's own spec.
+      user: { findUniqueOrThrow: jest.fn() },
+      workspace: { findUniqueOrThrow: jest.fn().mockResolvedValue({ isPersonal: true }) },
       // Supports both call shapes used by VideosService: the interactive
       // form (upload/importFromYoutube, which need the just-created video's
       // id before writing its first VideoStatusEvent) and the array form
@@ -1416,6 +1425,117 @@ describe('VideosService', () => {
       });
       expect(transcribeQueue.add).not.toHaveBeenCalled();
       expect(detectClipsQueue.add).not.toHaveBeenCalled();
+    });
+
+    it("resolves the owner's Brand Kit font when a clip has applyBrandKit on and no override", async () => {
+      const segments = [{ start: 0, end: 5, text: 'hi' }];
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        workspaceId: 'personal-ws-1',
+        sourceUrl: 'videos/abc.mp4',
+        status: VideoStatus.FAILED,
+        transcriptSegments: segments,
+        clips: [
+          {
+            id: 'clip-1',
+            startTime: 0,
+            endTime: 5,
+            outputUrl: null,
+            captionStyle: 'DEFAULT',
+            keywords: [],
+            publishRecords: [],
+            applyBrandKit: true,
+            fontFamily: null,
+          },
+        ],
+      });
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ brandFontFamily: 'Poppins' });
+
+      await service.retry('video-1', 'user-1');
+
+      expect(renderClipQueue.add).toHaveBeenCalledWith(
+        QueueName.RENDER_CLIP,
+        expect.objectContaining({ fontFamily: 'Poppins' }),
+      );
+    });
+
+    // Workspace-level Brand Kit roadmap (P3g).
+    describe('workspace-level Brand Kit', () => {
+      it("prefers the video's workspace Brand Kit field over the owner's personal one when set", async () => {
+        prisma.video.findUnique.mockResolvedValue({
+          id: 'video-1',
+          ownerId: 'user-1',
+          workspaceId: 'team-ws-1',
+          sourceUrl: 'videos/abc.mp4',
+          status: VideoStatus.FAILED,
+          transcriptSegments: [{ start: 0, end: 5, text: 'hi' }],
+          clips: [
+            {
+              id: 'clip-1',
+              startTime: 0,
+              endTime: 5,
+              outputUrl: null,
+              captionStyle: 'DEFAULT',
+              keywords: [],
+              publishRecords: [],
+              applyBrandKit: true,
+              fontFamily: null,
+            },
+          ],
+        });
+        prisma.workspace.findUniqueOrThrow.mockResolvedValue({
+          isPersonal: false,
+          brandFontFamily: 'Oswald',
+        });
+        prisma.user.findUniqueOrThrow.mockResolvedValue({ brandFontFamily: 'Roboto' });
+
+        await service.retry('video-1', 'user-1');
+
+        expect(prisma.workspace.findUniqueOrThrow).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { id: 'team-ws-1' } }),
+        );
+        expect(renderClipQueue.add).toHaveBeenCalledWith(
+          QueueName.RENDER_CLIP,
+          expect.objectContaining({ fontFamily: 'Oswald' }),
+        );
+      });
+
+      it("ignores the workspace's fields entirely for the owner's personal workspace", async () => {
+        prisma.video.findUnique.mockResolvedValue({
+          id: 'video-1',
+          ownerId: 'user-1',
+          workspaceId: 'personal-ws-1',
+          sourceUrl: 'videos/abc.mp4',
+          status: VideoStatus.FAILED,
+          transcriptSegments: [{ start: 0, end: 5, text: 'hi' }],
+          clips: [
+            {
+              id: 'clip-1',
+              startTime: 0,
+              endTime: 5,
+              outputUrl: null,
+              captionStyle: 'DEFAULT',
+              keywords: [],
+              publishRecords: [],
+              applyBrandKit: true,
+              fontFamily: null,
+            },
+          ],
+        });
+        prisma.workspace.findUniqueOrThrow.mockResolvedValue({
+          isPersonal: true,
+          brandFontFamily: 'Oswald',
+        });
+        prisma.user.findUniqueOrThrow.mockResolvedValue({ brandFontFamily: 'Roboto' });
+
+        await service.retry('video-1', 'user-1');
+
+        expect(renderClipQueue.add).toHaveBeenCalledWith(
+          QueueName.RENDER_CLIP,
+          expect.objectContaining({ fontFamily: 'Roboto' }),
+        );
+      });
     });
 
     it('self-heals to RENDERED when every clip already has output', async () => {

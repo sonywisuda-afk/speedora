@@ -1587,6 +1587,36 @@ model Workspace {
   isPersonal Boolean  @default(false)
   ownerId    String
   owner      User     @relation("WorkspaceCreator", fields: [ownerId], references: [id], onDelete: Cascade)
+  // Workspace-level Brand Kit roadmap (P3g) - an additive sibling to User's
+  // own brand* fields above (same 15 fields, same shape), not a migration -
+  // this codebase's stronger, more-repeated convention is additive
+  // coexistence over replacement (see docs/data-ownership.md). Render
+  // resolution (ClipsService.render()/VideosService.retry()/
+  // detect-clips.worker.ts) merges per-field: a video's workspace kit wins
+  // when a given field is set, falling back to the video owner's personal
+  // (User) kit field-by-field otherwise - and is skipped entirely when the
+  // video's workspace isPersonal (the common case - a personal workspace's
+  // Brand Kit IS the owner's User row, unchanged from P3a-f). Editing:
+  // GET/PUT/upload /brand-kit accept an optional workspaceId query param -
+  // omitted (or the requester's own personal workspace) edits these User
+  // fields unchanged; any other workspace the requester has EDITOR+ on
+  // edits these Workspace fields instead. See BrandKitService's
+  // resolveTarget().
+  brandLogoUrl                String?
+  brandPrimaryColor           String?
+  brandSecondaryColor         String?
+  brandFontFamily              String?
+  brandWatermarkUrl           String?
+  brandWatermarkOpacity       Float?
+  brandWatermarkScale         Float?
+  brandWatermarkMargin        Float?
+  brandWatermarkPosition      String?
+  brandIntroUrl                String?
+  brandIntroType                String?
+  brandIntroImageDurationSeconds Float?
+  brandOutroUrl                String?
+  brandOutroType                String?
+  brandOutroImageDurationSeconds Float?
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
