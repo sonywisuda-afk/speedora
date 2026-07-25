@@ -1,5 +1,5 @@
 import { FONT_FAMILIES } from '@speedora/contracts';
-import { WATERMARK_POSITIONS } from '@speedora/shared';
+import { MAX_INTRO_DURATION_SECONDS, WATERMARK_POSITIONS } from '@speedora/shared';
 import { IsHexColor, IsIn, IsNumber, IsOptional, Max, Min } from 'class-validator';
 
 export class UpdateBrandKitDto {
@@ -43,4 +43,14 @@ export class UpdateBrandKitDto {
   @IsOptional()
   @IsIn(WATERMARK_POSITIONS)
   watermarkPosition?: string;
+
+  // Intro roadmap (P3d) - only meaningful when the current intro is an
+  // image (a still has no inherent duration); stored regardless of the
+  // current brandIntroType, same "just a field, resolved contextually at
+  // render time" posture as every other conditional Brand Kit field.
+  @IsOptional()
+  @IsNumber()
+  @Min(0.5)
+  @Max(MAX_INTRO_DURATION_SECONDS)
+  introImageDurationSeconds?: number;
 }

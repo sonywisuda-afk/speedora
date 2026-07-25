@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { BrandKitDto, WatermarkPosition } from '@speedora/shared';
+import type { BrandKitDto, IntroType, WatermarkPosition } from '@speedora/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import type { UpdateBrandKitDto } from './dto/update-brand-kit.dto';
 
@@ -13,6 +13,9 @@ interface BrandKitRow {
   brandWatermarkScale: number | null;
   brandWatermarkMargin: number | null;
   brandWatermarkPosition: string | null;
+  brandIntroUrl: string | null;
+  brandIntroType: string | null;
+  brandIntroImageDurationSeconds: number | null;
 }
 
 const BRAND_KIT_SELECT = {
@@ -25,6 +28,9 @@ const BRAND_KIT_SELECT = {
   brandWatermarkScale: true,
   brandWatermarkMargin: true,
   brandWatermarkPosition: true,
+  brandIntroUrl: true,
+  brandIntroType: true,
+  brandIntroImageDurationSeconds: true,
 } as const;
 
 @Injectable()
@@ -58,6 +64,9 @@ export class BrandKitService {
           : {}),
         ...(dto.watermarkPosition !== undefined
           ? { brandWatermarkPosition: dto.watermarkPosition }
+          : {}),
+        ...(dto.introImageDurationSeconds !== undefined
+          ? { brandIntroImageDurationSeconds: dto.introImageDurationSeconds }
           : {}),
       },
       select: BRAND_KIT_SELECT,
@@ -111,6 +120,35 @@ export class BrandKitService {
     });
   }
 
+  // Intro roadmap (P3d) - same shape as saveWatermark/findWatermarkKeyOrThrow/
+  // removeWatermark above. saveIntro also writes brandIntroType (determined
+  // by the controller from the upload's mimetype) in the same update, since
+  // a new intro upload always replaces both together - there's no valid
+  // state where the URL changes but the type doesn't.
+  async saveIntro(userId: string, introKey: string, introType: IntroType): Promise<BrandKitDto> {
+    const user = await this.prisma.user.update({
+      where: { id: userId },
+      data: { brandIntroUrl: introKey, brandIntroType: introType },
+      select: BRAND_KIT_SELECT,
+    });
+    return this.toDto(user);
+  }
+
+  async findIntroKeyOrThrow(userId: string): Promise<{ introKey: string | null }> {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { brandIntroUrl: true },
+    });
+    return { introKey: user.brandIntroUrl };
+  }
+
+  async removeIntro(userId: string): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { brandIntroUrl: null, brandIntroType: null },
+    });
+  }
+
   private toDto(user: BrandKitRow): BrandKitDto {
     return {
       logoUrl: user.brandLogoUrl ? '/brand-kit/logo' : null,
@@ -122,6 +160,9 @@ export class BrandKitService {
       watermarkScale: user.brandWatermarkScale,
       watermarkMargin: user.brandWatermarkMargin,
       watermarkPosition: (user.brandWatermarkPosition as WatermarkPosition | null) ?? null,
+      introUrl: user.brandIntroUrl ? '/brand-kit/intro' : null,
+      introType: (user.brandIntroType as IntroType | null) ?? null,
+      introImageDurationSeconds: user.brandIntroImageDurationSeconds,
     };
   }
 }

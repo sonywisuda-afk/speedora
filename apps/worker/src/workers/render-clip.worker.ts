@@ -60,6 +60,7 @@ import {
 } from '../broll';
 import { faceDetectionDeps } from '../faceDetectionDeps';
 import {
+  concatIntro,
   extractAnimatedPreview,
   extractBlurPlaceholder,
   extractThumbnail,
@@ -396,6 +397,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             captionLanguage,
             fontFamily,
             watermark,
+            intro,
             keywords,
             scores,
           } = job.data;
@@ -440,6 +442,13 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           let sendCmdPath: string | null = null;
           let brollPaths: string[] = [];
           let watermarkPath: string | null = null;
+          let introPath: string | null = null;
+          // Only ever set when concatIntro() actually creates a NEW scratch
+          // file below - stays null (nothing extra to clean up) whenever
+          // there's no intro, or concat fails and the pipeline falls back to
+          // uploading the plain renderedPath (already covered by outputPath/
+          // trimmedPath's own cleanup entries).
+          let introConcatPath: string | null = null;
           let thumbPath: string | null = null;
           let blurPath: string | null = null;
           let animatedThumbnailPath: string | null = null;
@@ -520,6 +529,24 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               } catch (error) {
                 logger.warn('watermark download failed, rendering without one', { clipId }, error);
                 watermarkPath = null;
+              }
+            }
+
+            // Intro roadmap (P3d) - same best-effort download shape as
+            // watermark above. Downloaded here (not later, alongside the
+            // concat pass itself) so a slow/failing download doesn't waste
+            // the crop/B-roll/subtitles/watermark render work that follows.
+            if (intro) {
+              try {
+                introPath = await reserveScratchPath(
+                  'intro',
+                  path.extname(intro.key) || (intro.type === 'video' ? '.mp4' : '.png'),
+                );
+                const introStream = await getObjectStream(intro.key);
+                await pipeline(introStream, createWriteStream(introPath));
+              } catch (error) {
+                logger.warn('intro download failed, rendering without one', { clipId }, error);
+                introPath = null;
               }
             }
 
@@ -607,22 +634,60 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               }
             }
 
+            // Intro roadmap (P3d) - a THIRD pass, after the cutlist trim
+            // above, prepending the Brand Kit intro onto the fully-finished
+            // clip (crop/B-roll/subtitles/watermark/cutlist-trim already
+            // applied). finalOutputPath (not renderedPath) is what gets
+            // checksummed/uploaded/sized below - thumbnail/storyboard/
+            // hover-preview extraction further down deliberately keeps
+            // reading renderedPath unchanged, so a thumbnail represents the
+            // clip's own highlight content, not a generic intro card.
+            // Best-effort, same "degrade gracefully, never fail the job"
+            // posture as watermark/B-roll: a concat failure just uploads the
+            // clip without its intro rather than failing an otherwise-
+            // successful render.
+            let finalOutputPath = renderedPath;
+            if (introPath && intro) {
+              try {
+                introConcatPath = await reserveScratchPath('with-intro', '.mp4');
+                await concatIntro(
+                  renderedPath,
+                  {
+                    filePath: introPath,
+                    type: intro.type,
+                    imageDurationSeconds: intro.imageDurationSeconds,
+                  },
+                  reframe.outputWidth,
+                  reframe.outputHeight,
+                  introConcatPath,
+                );
+                finalOutputPath = introConcatPath;
+              } catch (error) {
+                logger.warn('intro concat failed, uploading without one', { clipId }, error);
+                finalOutputPath = renderedPath;
+              }
+            }
+
             const outputKey = `renders/${clipId}.mp4`;
             // Computed before the upload, from the exact same local file the
             // upload is about to stream - see verifyUploadChecksum's comment.
-            const expectedMd5 = await computeFileMd5Hex(renderedPath);
+            const expectedMd5 = await computeFileMd5Hex(finalOutputPath);
             // Sprint 1-2 (Dashboard Redesign) - the file's already on disk
             // (same file computeFileMd5Hex just streamed), so this costs
             // nothing extra. Feeds the Dashboard's per-owner Storage Used
             // stat - see Clip.outputSizeBytes.
-            const { size: outputSizeBytes } = await stat(renderedPath);
+            const { size: outputSizeBytes } = await stat(finalOutputPath);
             // Streamed straight from disk (not read into a Buffer first) - same
             // "no timeout at all on a plain readFile()" reasoning as
             // import-youtube.worker.ts's own upload, now applied here too. A
             // rendered clip can be tens to hundreds of MB, and this makes the
             // step subject to uploadObject's own requestTimeout instead of
             // being able to hang indefinitely.
-            const etag = await uploadObject(outputKey, createReadStream(renderedPath), 'video/mp4');
+            const etag = await uploadObject(
+              outputKey,
+              createReadStream(finalOutputPath),
+              'video/mp4',
+            );
             verifyUploadChecksum(etag, expectedMd5, clipId);
 
             // Product Experience roadmap - a Clip's gallery-card thumbnail.
@@ -947,6 +1012,8 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             for (const storyboardPath of storyboardPaths) await cleanupTempFile(storyboardPath);
             for (const brollPath of brollPaths) await cleanupTempFile(brollPath);
             if (watermarkPath) await cleanupTempFile(watermarkPath);
+            if (introPath) await cleanupTempFile(introPath);
+            if (introConcatPath) await cleanupTempFile(introConcatPath);
           }
         },
         RENDER_CLIP_JOB_TIMEOUT_MS,

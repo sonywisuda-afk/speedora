@@ -1,6 +1,13 @@
 'use client';
 
-import { CaptionStyle, FONT_FAMILIES, WATERMARK_POSITIONS, type WatermarkPosition } from '@speedora/shared';
+import {
+  CaptionStyle,
+  DEFAULT_INTRO_IMAGE_DURATION_SECONDS,
+  FONT_FAMILIES,
+  MAX_INTRO_DURATION_SECONDS,
+  WATERMARK_POSITIONS,
+  type WatermarkPosition,
+} from '@speedora/shared';
 import Link from 'next/link';
 import { useState } from 'react';
 import useSWR from 'swr';
@@ -9,13 +16,16 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
+  brandKitIntroUrl,
   brandKitLogoUrl,
   brandKitWatermarkUrl,
   deleteSubtitlePreset,
   getBrandKit,
   listSubtitlePresets,
+  removeBrandIntro,
   removeBrandWatermark,
   updateBrandKit,
+  uploadBrandIntro,
   uploadBrandLogo,
   uploadBrandWatermark,
 } from '@/lib/api';
@@ -89,6 +99,14 @@ export default function BrandKitPage() {
   const [watermarkMarginPct, setWatermarkMarginPct] = useState<number | null>(null);
   const [watermarkPosition, setWatermarkPosition] = useState<WatermarkPosition | null>(null);
 
+  // Intro roadmap (P3d) - same "null means read from brandKit" pattern as
+  // the watermark fields above. introImageDurationSeconds only matters when
+  // the current intro is an image - a video's own duration isn't
+  // user-editable (it plays at its own length, capped server-side).
+  const [uploadingIntro, setUploadingIntro] = useState(false);
+  const [removingIntro, setRemovingIntro] = useState(false);
+  const [introImageDurationSeconds, setIntroImageDurationSeconds] = useState<number | null>(null);
+
   const primary = primaryColor || brandKit?.primaryColor || '';
   const secondary = secondaryColor || brandKit?.secondaryColor || '';
   const font = fontFamily || brandKit?.fontFamily || '';
@@ -108,6 +126,10 @@ export default function BrandKitPage() {
       ? Math.round(brandKit.watermarkMargin * 100)
       : DEFAULT_WATERMARK_MARGIN_PCT);
   const position = watermarkPosition ?? brandKit?.watermarkPosition ?? 'BOTTOM_RIGHT';
+  const imageDurationSeconds =
+    introImageDurationSeconds ??
+    brandKit?.introImageDurationSeconds ??
+    DEFAULT_INTRO_IMAGE_DURATION_SECONDS;
 
   async function handleLogoChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
@@ -146,6 +168,7 @@ export default function BrandKitPage() {
         watermarkScale: scalePct / 100,
         watermarkMargin: marginPct / 100,
         watermarkPosition: position,
+        introImageDurationSeconds: imageDurationSeconds,
       });
       await mutate(updated, false);
       setSaved(true);
@@ -182,6 +205,35 @@ export default function BrandKitPage() {
       setSaveError(err instanceof Error ? err.message : 'Gagal menghapus watermark');
     } finally {
       setRemovingWatermark(false);
+    }
+  }
+
+  async function handleIntroChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSaveError(null);
+    setUploadingIntro(true);
+    try {
+      const updated = await uploadBrandIntro(file);
+      await mutate(updated, false);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Gagal mengunggah intro');
+    } finally {
+      setUploadingIntro(false);
+      e.target.value = '';
+    }
+  }
+
+  async function handleRemoveIntro() {
+    setSaveError(null);
+    setRemovingIntro(true);
+    try {
+      await removeBrandIntro();
+      await mutate({ ...brandKit!, introUrl: null, introType: null }, false);
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : 'Gagal menghapus intro');
+    } finally {
+      setRemovingIntro(false);
     }
   }
 
@@ -431,6 +483,82 @@ export default function BrandKitPage() {
                       />
                     </div>
                   </div>
+                </section>
+
+                <section className="space-y-3">
+                  <Label className="text-xs uppercase tracking-wide text-muted-foreground">
+                    Intro
+                  </Label>
+                  <p className="font-body text-xs text-muted-foreground">
+                    Video atau gambar yang diputar sebelum setiap clip baru (bisa dimatikan
+                    per-clip di editor). Video diputar dengan durasi aslinya (maks.{' '}
+                    {MAX_INTRO_DURATION_SECONDS} detik); gambar ditahan selama durasi di bawah.
+                  </p>
+                  <div className="flex items-center gap-4">
+                    {brandKit.introUrl ? (
+                      brandKit.introType === 'video' ? (
+                        <video
+                          src={brandKitIntroUrl()}
+                          crossOrigin="use-credentials"
+                          muted
+                          className="h-20 w-20 rounded-md border border-border bg-slate-panel object-contain"
+                        />
+                      ) : (
+                        <img
+                          src={brandKitIntroUrl()}
+                          crossOrigin="use-credentials"
+                          alt="Intro brand"
+                          className="h-20 w-20 rounded-md border border-border bg-slate-panel object-contain"
+                        />
+                      )
+                    ) : (
+                      <div className="flex h-20 w-20 items-center justify-center rounded-md border border-dashed border-border font-mono text-[10px] text-muted-foreground">
+                        Kosong
+                      </div>
+                    )}
+                    <div className="flex flex-col gap-2">
+                      <label>
+                        <Button size="sm" variant="outline" asChild disabled={uploadingIntro}>
+                          <span>{uploadingIntro ? 'Mengunggah...' : 'Unggah Intro'}</span>
+                        </Button>
+                        <input
+                          type="file"
+                          accept="video/mp4,video/quicktime,image/png,image/jpeg,image/webp"
+                          onChange={handleIntroChange}
+                          disabled={uploadingIntro}
+                          className="hidden"
+                        />
+                      </label>
+                      {brandKit.introUrl && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={removingIntro}
+                          onClick={handleRemoveIntro}
+                          className="text-destructive hover:text-destructive"
+                        >
+                          {removingIntro ? 'Menghapus...' : 'Hapus Intro'}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {brandKit.introType === 'image' && (
+                    <div className="flex flex-col gap-1">
+                      <span className="font-mono text-[10px] text-muted-foreground">
+                        Durasi gambar (detik)
+                      </span>
+                      <Input
+                        type="number"
+                        min={0.5}
+                        max={MAX_INTRO_DURATION_SECONDS}
+                        step={0.5}
+                        value={imageDurationSeconds}
+                        onChange={(e) => setIntroImageDurationSeconds(Number(e.target.value))}
+                        className="w-20"
+                      />
+                    </div>
+                  )}
                 </section>
 
                 <section className="space-y-3">

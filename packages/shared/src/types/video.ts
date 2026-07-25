@@ -1016,6 +1016,9 @@ export interface Clip {
   // Kit watermark, same shape as applyBrandKit (composable with it - a clip
   // can use the Brand Kit's font while skipping its watermark).
   watermarkEnabled: boolean;
+  // Intro roadmap (P3d) - per-clip on/off gate for the owner's Brand Kit
+  // intro, same shape as watermarkEnabled.
+  introEnabled: boolean;
   hookText: string | null;
   hashtags: string[];
   // Fase 8 (Content Intelligence) - see ClipCandidate/ClipScores above.
@@ -1201,6 +1204,9 @@ export interface UpdateClipInput {
   // Watermark roadmap (P3c) - per-clip on/off gate, same shape as
   // applyBrandKit; plain boolean, no omitted-vs-null distinction needed.
   watermarkEnabled?: boolean;
+  // Intro roadmap (P3d) - per-clip on/off gate, same shape as
+  // watermarkEnabled.
+  introEnabled?: boolean;
   hookText?: string;
   hashtags?: string[];
 }

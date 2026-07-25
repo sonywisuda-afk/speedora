@@ -1240,6 +1240,9 @@ export async function updateBrandKit(input: {
   watermarkScale?: number;
   watermarkMargin?: number;
   watermarkPosition?: string;
+  // Intro roadmap (P3d) - only meaningful when the current intro is an
+  // image (a video's own duration isn't user-editable).
+  introImageDurationSeconds?: number;
 }): Promise<BrandKitDto> {
   const res = await apiFetch('/brand-kit', {
     method: 'PUT',
@@ -1277,6 +1280,23 @@ export function brandKitWatermarkUrl(): string {
 
 export async function removeBrandWatermark(): Promise<void> {
   await apiFetch('/brand-kit/watermark', { method: 'DELETE' });
+}
+
+// Intro roadmap (P3d) - same upload/download/delete shape as the watermark
+// above.
+export async function uploadBrandIntro(file: File): Promise<BrandKitDto> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await apiFetch('/brand-kit/intro', { method: 'POST', body: formData });
+  return parseJsonOrThrow<BrandKitDto>(res);
+}
+
+export function brandKitIntroUrl(): string {
+  return `${API_URL}/brand-kit/intro`;
+}
+
+export async function removeBrandIntro(): Promise<void> {
+  await apiFetch('/brand-kit/intro', { method: 'DELETE' });
 }
 
 // Subtitle Presets roadmap (P3b) - a named, user-saved bundle of

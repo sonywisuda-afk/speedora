@@ -10,6 +10,7 @@ import {
   type ClipScores,
   type DetectClipsJobData,
   type DetectClipsJobResult,
+  type IntroType,
   type RenderClipJobData,
   type TranscriptSegment,
   type WatermarkPosition,
@@ -193,6 +194,9 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
                   brandWatermarkScale: true,
                   brandWatermarkMargin: true,
                   brandWatermarkPosition: true,
+                  brandIntroUrl: true,
+                  brandIntroType: true,
+                  brandIntroImageDurationSeconds: true,
                 },
               });
               const ownerWatermark: RenderClipJobData['watermark'] = owner.brandWatermarkUrl
@@ -206,6 +210,15 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
                       DEFAULT_WATERMARK_POSITION,
                   }
                 : null;
+              // Intro roadmap (P3d) - same shape as ownerWatermark above.
+              const ownerIntro: RenderClipJobData['intro'] =
+                owner.brandIntroUrl && owner.brandIntroType
+                  ? {
+                      key: owner.brandIntroUrl,
+                      type: owner.brandIntroType as IntroType,
+                      imageDurationSeconds: owner.brandIntroImageDurationSeconds,
+                    }
+                  : null;
               await Promise.all(
                 candidates.map((candidate, index) =>
                   renderClipQueue.add(QueueName.RENDER_CLIP, {
@@ -237,6 +250,10 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
                     // "always true, written for precedence consistency
                     // anyway" reasoning as fontFamily's own comment above.
                     watermark: clips[index].watermarkEnabled ? ownerWatermark : null,
+                    // Intro roadmap (P3d) - same "always true for a
+                    // brand-new clip, Brand-Kit-driven in practice" reasoning
+                    // as watermark above.
+                    intro: clips[index].introEnabled ? ownerIntro : null,
                     keywords: candidate.keywords,
                     scores: candidate.scores,
                   }),

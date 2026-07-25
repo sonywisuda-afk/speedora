@@ -51,6 +51,12 @@ export class UpdateClipDto {
   @IsBoolean()
   watermarkEnabled?: boolean;
 
+  // Intro roadmap (P3d) - per-clip on/off gate, same shape as
+  // watermarkEnabled above.
+  @IsOptional()
+  @IsBoolean()
+  introEnabled?: boolean;
+
   // Suggested opener line/hashtags from the detect-clips LLM call - purely
   // metadata (not baked into the rendered video), user-editable same as
   // everything else on this DTO.

@@ -14,6 +14,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import type { IntroType } from '@speedora/shared';
 import { getObjectStream } from '@speedora/storage';
 import type { Response } from 'express';
 import type { SafeUser } from '../auth/auth.service';
@@ -28,6 +29,9 @@ import { UpdateBrandKitDto } from './dto/update-brand-kit.dto';
 const MAX_LOGO_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
 // Watermark roadmap (P3c) - same small-image cap as the logo.
 const MAX_WATERMARK_SIZE_BYTES = 5 * 1024 * 1024; // 5MB
+// Intro roadmap (P3d) - a short intro clip, so far bigger than a logo/
+// watermark image but nowhere near VideosController's 2GB main-video cap.
+const MAX_INTRO_SIZE_BYTES = 100 * 1024 * 1024; // 100MB
 
 // getObjectStream returns just a Readable, no stored Content-Type metadata
 // (same reason VideosController/ClipsController derive thumbnailContentType
@@ -49,6 +53,28 @@ function imageContentType(key: string): string {
       return 'image/gif';
     case 'svg':
       return 'image/svg+xml';
+    default:
+      return 'application/octet-stream';
+  }
+}
+
+// Intro roadmap (P3d) - same key's-own-extension-sniffing reasoning as
+// imageContentType above, but an intro can be either a video or a still
+// image, so this covers both.
+function introContentType(key: string): string {
+  const ext = key.split('.').pop()?.toLowerCase();
+  switch (ext) {
+    case 'mp4':
+      return 'video/mp4';
+    case 'mov':
+      return 'video/quicktime';
+    case 'png':
+      return 'image/png';
+    case 'jpg':
+    case 'jpeg':
+      return 'image/jpeg';
+    case 'webp':
+      return 'image/webp';
     default:
       return 'application/octet-stream';
   }
@@ -142,5 +168,45 @@ export class BrandKitController {
   @HttpCode(204)
   removeWatermark(@CurrentUser() user: SafeUser) {
     return this.brandKit.removeWatermark(user.id);
+  }
+
+  // Intro roadmap (P3d) - same upload/download/delete shape as watermark
+  // above. Accepts video (MP4/MOV) or still image (PNG/JPEG/WebP), never
+  // SVG (an intro asset is never rasterized the way a watermark can be).
+  // introType is derived from the validated mimetype, not the file
+  // extension - saveIntro() persists both together in one update.
+  @Post('intro')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: MAX_INTRO_SIZE_BYTES } }))
+  async uploadIntro(
+    @CurrentUser() user: SafeUser,
+    @UploadedFile(
+      new ParseFilePipeBuilder()
+        .addFileTypeValidator({ fileType: /^(video\/(mp4|quicktime)|image\/(png|jpe?g|webp))$/ })
+        .build({ fileIsRequired: true }),
+    )
+    file: Express.Multer.File,
+  ) {
+    const introType: IntroType = file.mimetype.startsWith('video/') ? 'video' : 'image';
+    const introKey = await this.storage.saveBrandIntro(file);
+    return this.brandKit.saveIntro(user.id, introKey, introType);
+  }
+
+  @Get('intro')
+  async downloadIntro(@CurrentUser() user: SafeUser, @Res() res: Response) {
+    const { introKey } = await this.brandKit.findIntroKeyOrThrow(user.id);
+    if (!introKey) {
+      throw new NotFoundException('No brand intro has been uploaded yet');
+    }
+
+    const stream = await getObjectStream(introKey);
+    res.setHeader('Content-Type', introContentType(introKey));
+    res.setHeader('Cache-Control', 'private, max-age=86400');
+    stream.pipe(res);
+  }
+
+  @Delete('intro')
+  @HttpCode(204)
+  removeIntro(@CurrentUser() user: SafeUser) {
+    return this.brandKit.removeIntro(user.id);
   }
 }

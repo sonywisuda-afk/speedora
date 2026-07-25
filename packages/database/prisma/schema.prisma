@@ -179,6 +179,22 @@ model User {
   brandWatermarkScale         Float?
   brandWatermarkMargin        Float?
   brandWatermarkPosition      String?
+  // Intro roadmap (P3d) - brandIntroUrl is a raw storage key
+  // (intros/<uuid><ext>, same convention as brandWatermarkUrl). brandIntroType
+  // is 'video' | 'image', set at upload time from the validated mimetype
+  // (BrandKitController) rather than sniffed from the extension at render
+  // time - the worker needs it instantly without re-probing the file.
+  // brandIntroImageDurationSeconds only matters when brandIntroType is
+  // 'image' (a still has no inherent duration, unlike a video) - null means
+  // ClipsService/ffmpeg.ts's own default (3s) applies, same "null means the
+  // sensible default" posture every other Brand Kit field already uses. A
+  // video intro's duration is never stored - it's re-derived (and capped)
+  // fresh at every render via ffprobe, since apps/api has no ffmpeg/ffprobe
+  // dependency to compute it at upload time (see concatIntro()'s own
+  // comment).
+  brandIntroUrl                String?
+  brandIntroType                String?
+  brandIntroImageDurationSeconds Float?
   createdAt                   DateTime  @default(now())
   updatedAt                   DateTime  @updatedAt
 
@@ -603,6 +619,10 @@ model Clip {
   // its watermark, or vice versa. True by default, same "brand gives a good
   // default, user opts out per clip" posture as applyBrandKit.
   watermarkEnabled        Boolean      @default(true)
+  // Intro roadmap (P3d) - per-clip on/off gate for the owner's Brand Kit
+  // intro, same shape/reasoning as watermarkEnabled - composable with it and
+  // applyBrandKit independently.
+  introEnabled            Boolean      @default(true)
   // Suggested 3-second-opener hook line and social hashtags (without a
   // leading '#') from the same detect-clips LLM call that scores virality -
   // not baked into the rendered video, purely metadata for the

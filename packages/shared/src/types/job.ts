@@ -1,4 +1,4 @@
-import type { WatermarkPosition } from './brand-kit';
+import type { IntroType, WatermarkPosition } from './brand-kit';
 import type {
   CaptionStyle,
   ClipCandidate,
@@ -138,6 +138,17 @@ export interface RenderClipJobData {
     scale: number;
     margin: number;
     position: WatermarkPosition;
+  } | null;
+  // Intro roadmap (P3d) - resolved once at enqueue time from the owner's
+  // Brand Kit when Clip.introEnabled is true and an intro is configured
+  // (see ClipsService.resolveIntro's precedence) - null means "no intro for
+  // this render". imageDurationSeconds only matters when type is 'image'
+  // (see BrandKitDto's own comment); a video intro's duration is re-derived
+  // (and capped) fresh by apps/worker at render time, never carried here.
+  intro: {
+    key: string;
+    type: IntroType;
+    imageDurationSeconds: number | null;
   } | null;
   // Fase 15 (Auto B-roll) - the clip's own Fase 8 keywords, used to search
   // for matching stock footage moments (see broll.ts's findBRollMoments).

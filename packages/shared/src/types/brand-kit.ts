@@ -21,6 +21,18 @@ export interface BrandKitDto {
   watermarkScale: number | null;
   watermarkMargin: number | null;
   watermarkPosition: WatermarkPosition | null;
+  // Intro roadmap (P3d) - introUrl is a `/brand-kit/intro` endpoint path,
+  // same "never the raw storage key" convention as logoUrl/watermarkUrl.
+  // introType tells the client (and the render pipeline) whether to treat
+  // it as a video or a still image - null only when introUrl itself is
+  // null. introImageDurationSeconds only matters when introType is
+  // 'image' (a still has no inherent duration); null means the code-level
+  // default (3s) applies. A video intro's own duration is never exposed
+  // here - it's re-derived fresh per render (see apps/worker's
+  // concatIntro()).
+  introUrl: string | null;
+  introType: IntroType | null;
+  introImageDurationSeconds: number | null;
 }
 
 // Brand Kit roadmap (P3a) - apps/web's own copy of packages/contracts's
@@ -54,3 +66,16 @@ export const WATERMARK_POSITIONS = [
   'CENTER',
 ] as const;
 export type WatermarkPosition = (typeof WATERMARK_POSITIONS)[number];
+
+// Intro roadmap (P3d) - same "small closed set, single copy" shape as
+// WATERMARK_POSITIONS above. Mirrors StockAsset's own 'video' | 'image'
+// distinction (B-roll), not a new vocabulary.
+export const INTRO_TYPES = ['video', 'image'] as const;
+export type IntroType = (typeof INTRO_TYPES)[number];
+
+// Intro roadmap (P3d) - shared between apps/api's UpdateBrandKitDto (bounds
+// introImageDurationSeconds) and apps/worker's concatIntro() (bounds a video
+// intro's own real length, and the fallback when introImageDurationSeconds
+// is null) - one constant, not two independently-tuned copies.
+export const MAX_INTRO_DURATION_SECONDS = 10;
+export const DEFAULT_INTRO_IMAGE_DURATION_SECONDS = 3;

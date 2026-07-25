@@ -2,7 +2,12 @@ import { execFile } from 'node:child_process';
 import { rename, unlink } from 'node:fs/promises';
 import { promisify } from 'node:util';
 import { computeCutJunctionTimestamps, type CutRange } from '@speedora/cutlist';
-import type { WatermarkPosition } from '@speedora/shared';
+import {
+  DEFAULT_INTRO_IMAGE_DURATION_SECONDS,
+  MAX_INTRO_DURATION_SECONDS,
+  type IntroType,
+  type WatermarkPosition,
+} from '@speedora/shared';
 import { limitExecFile } from './subprocessLimiter';
 
 const execFileAsync = limitExecFile(promisify(execFile));
@@ -844,4 +849,138 @@ export async function trimCutRanges(
     outputPath,
     TRIM_TIMEOUT_MS,
   );
+}
+
+// Intro roadmap (P3d) - probes whether a video file has an audio stream at
+// all (a muted intro upload, or one that was never given audio) - same
+// ffprobe-select-stream shape as getVideoCodec above, just checking
+// presence rather than reading a specific field. concatIntro() below uses
+// this to decide whether to reference the intro's own `0:a` or synthesize
+// a silent one instead.
+async function hasAudioStream(inputPath: string): Promise<boolean> {
+  const { stdout } = await execFileAsync(FFPROBE_PATH, [
+    '-v',
+    'error',
+    '-select_streams',
+    'a:0',
+    '-show_entries',
+    'stream=codec_type',
+    '-of',
+    'csv=p=0',
+    inputPath,
+  ]);
+  return stdout.trim().length > 0;
+}
+
+const INTRO_AUDIO_SAMPLE_RATE = 44100;
+const INTRO_AUDIO_CHANNEL_LAYOUT = 'stereo';
+
+export interface IntroAsset {
+  filePath: string;
+  type: IntroType;
+  // Only used when type === 'image' - a still has no inherent duration.
+  imageDurationSeconds: number | null;
+}
+
+// Intro roadmap (P3d) - concatenates a Brand Kit intro (video or static
+// image) onto the front of an already-fully-rendered clip (crop/B-roll/
+// subtitles/watermark/cutlist-trim all already applied - see
+// render-clip.worker.ts's own comment on where this slots in the pipeline).
+// A THIRD pass, sibling to trimCutRanges above, not folded into
+// renderClip() itself - renderClip() only ever sees the clip BEFORE the
+// cutlist trim, and this needs the fully-finished file.
+//
+// Duration is bounded via `trim=`/`atrim=` FILTERS inside the filter graph,
+// not a bare `-t` CLI flag. A `-t` positioned after this function's first
+// `-i` would silently rebind onto whichever `-i` comes NEXT (the clip
+// input) once a second one exists - the exact same argument-binding bug
+// renderClip() itself shipped and had to fix (see execFfmpegAtomically's
+// call site comment above in this file). Expressing the bound declaratively
+// inside the filter graph, against the correctly-labeled stream, sidesteps
+// that entire class of bug rather than relying on careful CLI ordering.
+//
+// A single -filter_complex pass, no intermediate file - unlike B-roll's
+// trimAndFadeInBRoll/fadeOutBRoll, nothing here needs an alpha channel (no
+// fade in v1), so there's no reason for B-roll's qtrle/.mov lossless-alpha
+// detour or its two-pass split (that split exists specifically to work
+// around chaining two `fade` filters corrupting the whole output, which
+// doesn't apply here since zero `fade` filters are used).
+//
+// A video intro's duration is never stored - it's re-derived (and capped
+// at MAX_INTRO_DURATION_SECONDS) fresh here via ffprobe every render, since
+// apps/api has no ffmpeg/ffprobe dependency to compute it at upload time.
+export async function concatIntro(
+  clipPath: string,
+  intro: IntroAsset,
+  outputWidth: number,
+  outputHeight: number,
+  outputPath: string,
+): Promise<void> {
+  const introDuration =
+    intro.type === 'image'
+      ? (intro.imageDurationSeconds ?? DEFAULT_INTRO_IMAGE_DURATION_SECONDS)
+      : Math.min(await getMediaDurationSeconds(intro.filePath), MAX_INTRO_DURATION_SECONDS);
+
+  const introHasAudio = intro.type === 'video' && (await hasAudioStream(intro.filePath));
+
+  const introInputArgs =
+    intro.type === 'image'
+      ? ['-f', 'image2', '-loop', '1', '-i', intro.filePath]
+      : ['-i', intro.filePath];
+
+  const args = ['-y', ...introInputArgs, '-i', clipPath];
+  // A silent audio branch is synthesized via its own lavfi input (a real
+  // input, referenced by a fixed index alongside the other two `-i`s)
+  // rather than ffmpeg's `anullsrc` used as a bare filter source - both
+  // work, this is simpler to wire into the filter graph below.
+  if (!introHasAudio) {
+    args.push(
+      '-f',
+      'lavfi',
+      '-i',
+      `anullsrc=sample_rate=${INTRO_AUDIO_SAMPLE_RATE}:channel_layout=${INTRO_AUDIO_CHANNEL_LAYOUT}`,
+    );
+  }
+
+  const introAudioLabel = introHasAudio ? '0:a' : '2:a';
+  const complexParts = [
+    // setsar=1 at the end of BOTH video branches is required, not cosmetic -
+    // confirmed against a real ffmpeg build (P3d integration test): even
+    // when scale+crop already produce matching pixel WIDTHxHEIGHT on both
+    // branches, ffmpeg's scale filter can independently compute a non-1:1
+    // sample aspect ratio when force_original_aspect_ratio=increase's
+    // intermediate scale step doesn't land on an exact integer ratio (e.g.
+    // it emitted 1280:1281 instead of 1:1 for one real width/height pair
+    // tested here) - concat requires an EXACT SAR match between
+    // corresponding streams, not just equal pixel dimensions, and silently
+    // fails ("Input link parameters do not match") otherwise.
+    `[0:v]scale=${outputWidth}:${outputHeight}:force_original_aspect_ratio=increase,` +
+      `crop=${outputWidth}:${outputHeight},fps=${BROLL_TARGET_FPS},` +
+      `colorspace=iall=${BROLL_COLOR_SPACE}:all=${BROLL_COLOR_SPACE}:range=tv,format=yuv420p,` +
+      `setsar=1,trim=duration=${introDuration},setpts=PTS-STARTPTS[introv]`,
+    `[${introAudioLabel}]aformat=sample_rates=${INTRO_AUDIO_SAMPLE_RATE}:` +
+      `channel_layouts=${INTRO_AUDIO_CHANNEL_LAYOUT},atrim=duration=${introDuration},` +
+      `asetpts=PTS-STARTPTS[introa]`,
+    `[1:v]fps=${BROLL_TARGET_FPS},format=yuv420p,setsar=1[clipv]`,
+    `[1:a]aformat=sample_rates=${INTRO_AUDIO_SAMPLE_RATE}:` +
+      `channel_layouts=${INTRO_AUDIO_CHANNEL_LAYOUT}[clipa]`,
+    '[introv][introa][clipv][clipa]concat=n=2:v=1:a=1[outv][outa]',
+  ];
+
+  args.push(
+    '-filter_complex',
+    complexParts.join(';'),
+    '-map',
+    '[outv]',
+    '-map',
+    '[outa]',
+    '-c:v',
+    'libx264',
+    '-c:a',
+    'aac',
+    '-movflags',
+    '+faststart',
+  );
+
+  await execFfmpegAtomically(() => args, outputPath, RENDER_TIMEOUT_MS);
 }

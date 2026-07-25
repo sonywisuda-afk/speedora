@@ -53,6 +53,21 @@ export class StorageService {
     return key;
   }
 
+  // Intro roadmap (P3d) - same shape as saveBrandLogo above, a different key
+  // prefix. No rasterization step (unlike saveBrandWatermark) - an intro
+  // only ever accepts raster video (MP4/MOV) or raster image (PNG/JPEG/
+  // WebP) types, never SVG, so nothing needs pre-processing at upload time;
+  // normalization (scale/crop/fps/color space) happens per-render in
+  // apps/worker instead, since the target resolution varies per clip (see
+  // concatIntro()'s own comment).
+  async saveBrandIntro(file: Express.Multer.File): Promise<string> {
+    const ext = path.extname(file.originalname).toLowerCase();
+    const key = `intros/${randomUUID()}${ext}`;
+    await uploadObject(key, file.buffer, file.mimetype);
+
+    return key;
+  }
+
   // Sprint 5C (Comments) - same shape as saveBrandLogo above, a different
   // key prefix. Keeps the original filename in the returned key's basename
   // (URL-unsafe characters aside) so a stored object stays identifiable

@@ -27,6 +27,7 @@ import {
   type ClipVersionDto,
   type ClipVersionListDto,
   type GeneratePlatformCopyJobData,
+  type IntroType,
   type PublishClipJobData,
   type PublishRecord,
   type RenderClipJobData,
@@ -622,6 +623,7 @@ export class ClipsService {
     const speakerColorCaptions = input.speakerColorCaptions ?? clip.speakerColorCaptions;
     const applyBrandKit = input.applyBrandKit ?? clip.applyBrandKit;
     const watermarkEnabled = input.watermarkEnabled ?? clip.watermarkEnabled;
+    const introEnabled = input.introEnabled ?? clip.introEnabled;
     const hookText = input.hookText ?? clip.hookText;
     const hashtags = input.hashtags ? sanitizeHashtags(input.hashtags) : clip.hashtags;
 
@@ -639,6 +641,7 @@ export class ClipsService {
         speakerColorCaptions,
         applyBrandKit,
         watermarkEnabled,
+        introEnabled,
         // Explicit undefined check (not ??) - null is a real, distinct
         // value here (clears back to the original/untranslated text), same
         // "omitted vs. explicitly null" distinction MoveVideoDto's own
@@ -675,6 +678,7 @@ export class ClipsService {
       clip.fontFamily,
     );
     const watermark = await this.resolveWatermark(clip.video.ownerId, clip.watermarkEnabled);
+    const intro = await this.resolveIntro(clip.video.ownerId, clip.introEnabled);
 
     // Sprint 5E (Version Compare & History) + cleared-before-enqueueing, in
     // one transaction: the pre-render state is snapshotted into ClipVersion
@@ -729,6 +733,7 @@ export class ClipsService {
       captionLanguage: clip.captionLanguage,
       fontFamily,
       watermark,
+      intro,
       keywords: clip.keywords,
       scores: toSharedClipScores(clip.scores),
     });
@@ -793,6 +798,32 @@ export class ClipsService {
       scale: owner.brandWatermarkScale ?? DEFAULT_WATERMARK_SCALE,
       margin: owner.brandWatermarkMargin ?? DEFAULT_WATERMARK_MARGIN,
       position: (owner.brandWatermarkPosition as WatermarkPosition | null) ?? DEFAULT_WATERMARK_POSITION,
+    };
+  }
+
+  // Intro roadmap (P3d) - same shape/reasoning as resolveWatermark above.
+  // imageDurationSeconds is passed through as-is (null included) - the
+  // DEFAULT_INTRO_IMAGE_DURATION_SECONDS fallback is applied by
+  // apps/worker's concatIntro() at render time, not here, since it's only
+  // ever relevant when type is 'image'.
+  private async resolveIntro(
+    ownerId: string,
+    clipIntroEnabled: boolean,
+  ): Promise<RenderClipJobData['intro']> {
+    if (!clipIntroEnabled) return null;
+    const owner = await this.prisma.user.findUniqueOrThrow({
+      where: { id: ownerId },
+      select: {
+        brandIntroUrl: true,
+        brandIntroType: true,
+        brandIntroImageDurationSeconds: true,
+      },
+    });
+    if (!owner.brandIntroUrl || !owner.brandIntroType) return null;
+    return {
+      key: owner.brandIntroUrl,
+      type: owner.brandIntroType as IntroType,
+      imageDurationSeconds: owner.brandIntroImageDurationSeconds,
     };
   }
 
@@ -995,6 +1026,7 @@ export class ClipsService {
     applyBrandKit: boolean;
     fontFamily: string | null;
     watermarkEnabled: boolean;
+    introEnabled: boolean;
     hookText: string | null;
     hashtags: string[];
     scores: unknown;
@@ -1074,6 +1106,7 @@ export class ClipsService {
       applyBrandKit: clip.applyBrandKit,
       fontFamily: clip.fontFamily,
       watermarkEnabled: clip.watermarkEnabled,
+      introEnabled: clip.introEnabled,
       hookText: clip.hookText,
       hashtags: clip.hashtags,
       scores: toSharedClipScores(clip.scores),

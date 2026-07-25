@@ -11,6 +11,9 @@ const BASE_ROW = {
   brandWatermarkScale: null,
   brandWatermarkMargin: null,
   brandWatermarkPosition: null,
+  brandIntroUrl: null,
+  brandIntroType: null,
+  brandIntroImageDurationSeconds: null,
 };
 
 describe('BrandKitService', () => {
@@ -34,6 +37,9 @@ describe('BrandKitService', () => {
         brandWatermarkScale: 0.15,
         brandWatermarkMargin: 0.03,
         brandWatermarkPosition: 'BOTTOM_RIGHT',
+        brandIntroUrl: 'intros/abc.mp4',
+        brandIntroType: 'video',
+        brandIntroImageDurationSeconds: null,
       });
 
       const result = await service.get('user-1');
@@ -48,16 +54,21 @@ describe('BrandKitService', () => {
         watermarkScale: 0.15,
         watermarkMargin: 0.03,
         watermarkPosition: 'BOTTOM_RIGHT',
+        introUrl: '/brand-kit/intro',
+        introType: 'video',
+        introImageDurationSeconds: null,
       });
     });
 
-    it('reports a null logoUrl/watermarkUrl when neither has been uploaded', async () => {
+    it('reports a null logoUrl/watermarkUrl/introUrl when none has been uploaded', async () => {
       prisma.user.findUniqueOrThrow.mockResolvedValue(BASE_ROW);
 
       const result = await service.get('user-1');
 
       expect(result.logoUrl).toBeNull();
       expect(result.watermarkUrl).toBeNull();
+      expect(result.introUrl).toBeNull();
+      expect(result.introType).toBeNull();
     });
   });
 
@@ -80,6 +91,9 @@ describe('BrandKitService', () => {
           brandWatermarkScale: true,
           brandWatermarkMargin: true,
           brandWatermarkPosition: true,
+          brandIntroUrl: true,
+          brandIntroType: true,
+          brandIntroImageDurationSeconds: true,
         },
       });
     });
@@ -139,6 +153,17 @@ describe('BrandKitService', () => {
       );
       expect(result.watermarkOpacity).toBe(0.5);
       expect(result.watermarkPosition).toBe('TOP_LEFT');
+    });
+
+    it('updates introImageDurationSeconds when sent', async () => {
+      prisma.user.update.mockResolvedValue({ ...BASE_ROW, brandIntroImageDurationSeconds: 5 });
+
+      const result = await service.update('user-1', { introImageDurationSeconds: 5 });
+
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { brandIntroImageDurationSeconds: 5 } }),
+      );
+      expect(result.introImageDurationSeconds).toBe(5);
     });
   });
 
@@ -211,6 +236,55 @@ describe('BrandKitService', () => {
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
         data: { brandWatermarkUrl: null },
+      });
+    });
+  });
+
+  describe('saveIntro', () => {
+    it('stores the raw storage key and type together, returns the endpoint-path DTO', async () => {
+      prisma.user.update.mockResolvedValue({
+        ...BASE_ROW,
+        brandIntroUrl: 'intros/xyz.mp4',
+        brandIntroType: 'video',
+      });
+
+      const result = await service.saveIntro('user-1', 'intros/xyz.mp4', 'video');
+
+      expect(prisma.user.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: { brandIntroUrl: 'intros/xyz.mp4', brandIntroType: 'video' },
+        }),
+      );
+      expect(result.introUrl).toBe('/brand-kit/intro');
+      expect(result.introType).toBe('video');
+    });
+  });
+
+  describe('findIntroKeyOrThrow', () => {
+    it('returns the raw key without throwing when an intro exists', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ brandIntroUrl: 'intros/xyz.mp4' });
+
+      expect(await service.findIntroKeyOrThrow('user-1')).toEqual({
+        introKey: 'intros/xyz.mp4',
+      });
+    });
+
+    it('returns a null introKey (not a throw) when no intro has been uploaded', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ brandIntroUrl: null });
+
+      expect(await service.findIntroKeyOrThrow('user-1')).toEqual({ introKey: null });
+    });
+  });
+
+  describe('removeIntro', () => {
+    it('clears both the intro key and type', async () => {
+      prisma.user.update.mockResolvedValue({});
+
+      await service.removeIntro('user-1');
+
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { brandIntroUrl: null, brandIntroType: null },
       });
     });
   });

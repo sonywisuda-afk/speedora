@@ -1181,6 +1181,7 @@ describe('ClipsService', () => {
         captionStyle: CaptionStyle.KARAOKE,
         fontFamily: null,
         watermark: null,
+        intro: null,
         keywords: [],
         scores: null,
       });
@@ -1389,6 +1390,78 @@ describe('ClipsService', () => {
       expect(renderClipQueue.add).toHaveBeenCalledWith(
         QueueName.RENDER_CLIP,
         expect.objectContaining({ watermark: null }),
+      );
+    });
+
+    // Intro roadmap (P3d).
+    it('does not resolve an intro (or look up the owner) when introEnabled is false', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, introEnabled: false });
+      prisma.transcriptSegment.findMany.mockResolvedValue([]);
+      prisma.clip.update.mockResolvedValue({ ...clip, outputUrl: null });
+
+      await service.render('clip-1', 'user-1');
+
+      expect(renderClipQueue.add).toHaveBeenCalledWith(
+        QueueName.RENDER_CLIP,
+        expect.objectContaining({ intro: null }),
+      );
+    });
+
+    it('resolves the Brand Kit intro when introEnabled is true and one is configured', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, introEnabled: true });
+      prisma.transcriptSegment.findMany.mockResolvedValue([]);
+      prisma.clip.update.mockResolvedValue({ ...clip, outputUrl: null });
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        brandIntroUrl: 'intros/abc.mp4',
+        brandIntroType: 'video',
+        brandIntroImageDurationSeconds: null,
+      });
+
+      await service.render('clip-1', 'user-1');
+
+      expect(renderClipQueue.add).toHaveBeenCalledWith(
+        QueueName.RENDER_CLIP,
+        expect.objectContaining({
+          intro: { key: 'intros/abc.mp4', type: 'video', imageDurationSeconds: null },
+        }),
+      );
+    });
+
+    it('resolves an image intro with its custom hold duration', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, introEnabled: true });
+      prisma.transcriptSegment.findMany.mockResolvedValue([]);
+      prisma.clip.update.mockResolvedValue({ ...clip, outputUrl: null });
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        brandIntroUrl: 'intros/abc.png',
+        brandIntroType: 'image',
+        brandIntroImageDurationSeconds: 5,
+      });
+
+      await service.render('clip-1', 'user-1');
+
+      expect(renderClipQueue.add).toHaveBeenCalledWith(
+        QueueName.RENDER_CLIP,
+        expect.objectContaining({
+          intro: { key: 'intros/abc.png', type: 'image', imageDurationSeconds: 5 },
+        }),
+      );
+    });
+
+    it('resolves null when introEnabled is true but no Brand Kit intro is configured', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, introEnabled: true });
+      prisma.transcriptSegment.findMany.mockResolvedValue([]);
+      prisma.clip.update.mockResolvedValue({ ...clip, outputUrl: null });
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        brandIntroUrl: null,
+        brandIntroType: null,
+        brandIntroImageDurationSeconds: null,
+      });
+
+      await service.render('clip-1', 'user-1');
+
+      expect(renderClipQueue.add).toHaveBeenCalledWith(
+        QueueName.RENDER_CLIP,
+        expect.objectContaining({ intro: null }),
       );
     });
   });

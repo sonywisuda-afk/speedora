@@ -30,6 +30,7 @@ jest.mock('node:fs/promises', () => ({
 }));
 
 import {
+  concatIntro,
   escapeFfmpegFilterPath,
   extractAnimatedPreview,
   extractAudio,
@@ -1067,5 +1068,192 @@ describe('trimCutRanges', () => {
 
     const [, , options] = execFileMock.mock.calls[0];
     expect((options as { timeout: number }).timeout).toBeGreaterThan(0);
+  });
+});
+
+describe('concatIntro (P3d)', () => {
+  beforeEach(() => {
+    execFileMock.mockClear();
+    renameMock.mockClear();
+    unlinkMock.mockClear();
+  });
+
+  // Queues one ffprobe-shaped success response, consumed in call order by
+  // whichever probe concatIntro() issues first (duration, then audio
+  // presence, for a video-type intro) - mirrors getMediaDurationSeconds'
+  // own spec's mockImplementationOnce shape.
+  function queueProbeResponse(stdout: string) {
+    execFileMockBehavior.mockImplementationOnce(
+      (
+        _file: string,
+        _args: string[],
+        callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+      ) => {
+        callback(null, { stdout, stderr: '' });
+      },
+    );
+  }
+
+  it('builds the image-intro filter graph: -f image2 -loop 1, default hold duration, synthesized silent audio, no ffprobe calls', async () => {
+    await concatIntro(
+      '/tmp/clip.mp4',
+      { filePath: '/tmp/intro.png', type: 'image', imageDurationSeconds: null },
+      608,
+      1080,
+      '/tmp/output.mp4',
+    );
+
+    // No ffprobe needed at all for an image intro - duration comes from the
+    // (defaulted) imageDurationSeconds, and it never has audio to probe for.
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    const [file, args] = execFileMock.mock.calls[0];
+    expect(file).toBe('ffmpeg');
+    expect(args).toEqual(
+      expect.arrayContaining(['-f', 'image2', '-loop', '1', '-i', '/tmp/intro.png']),
+    );
+    expect(args).toEqual(
+      expect.arrayContaining([
+        '-f',
+        'lavfi',
+        '-i',
+        'anullsrc=sample_rate=44100:channel_layout=stereo',
+      ]),
+    );
+    const fc = args[args.indexOf('-filter_complex') + 1];
+    expect(fc).toBe(
+      '[0:v]scale=608:1080:force_original_aspect_ratio=increase,crop=608:1080,fps=30,' +
+        'colorspace=iall=bt709:all=bt709:range=tv,format=yuv420p,' +
+        'setsar=1,trim=duration=3,setpts=PTS-STARTPTS[introv];' +
+        '[2:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=duration=3,' +
+        'asetpts=PTS-STARTPTS[introa];' +
+        '[1:v]fps=30,format=yuv420p,setsar=1[clipv];' +
+        '[1:a]aformat=sample_rates=44100:channel_layouts=stereo[clipa];' +
+        '[introv][introa][clipv][clipa]concat=n=2:v=1:a=1[outv][outa]',
+    );
+    expect(args).toEqual(expect.arrayContaining(['-map', '[outv]', '-map', '[outa]']));
+  });
+
+  it('uses a custom image hold duration when imageDurationSeconds is set', async () => {
+    await concatIntro(
+      '/tmp/clip.mp4',
+      { filePath: '/tmp/intro.png', type: 'image', imageDurationSeconds: 5 },
+      608,
+      1080,
+      '/tmp/output.mp4',
+    );
+
+    const [, args] = execFileMock.mock.calls[0];
+    const fc = args[args.indexOf('-filter_complex') + 1];
+    expect(fc).toContain('trim=duration=5,setpts=PTS-STARTPTS[introv]');
+    expect(fc).toContain('atrim=duration=5,asetpts=PTS-STARTPTS[introa]');
+  });
+
+  it('probes duration and audio presence for a video intro, and references its own 0:a when audio exists', async () => {
+    queueProbeResponse('4.2'); // getMediaDurationSeconds
+    queueProbeResponse('audio'); // hasAudioStream - non-empty codec_type means present
+
+    await concatIntro(
+      '/tmp/clip.mp4',
+      { filePath: '/tmp/intro.mp4', type: 'video', imageDurationSeconds: null },
+      608,
+      1080,
+      '/tmp/output.mp4',
+    );
+
+    expect(execFileMock).toHaveBeenCalledTimes(3);
+    const [probe1File, probe1Args] = execFileMock.mock.calls[0];
+    expect(probe1File).toBe('ffprobe');
+    expect(probe1Args).toEqual(expect.arrayContaining(['/tmp/intro.mp4']));
+    const [probe2File, probe2Args] = execFileMock.mock.calls[1];
+    expect(probe2File).toBe('ffprobe');
+    expect(probe2Args).toEqual(expect.arrayContaining(['-select_streams', 'a:0']));
+
+    const [, renderArgs] = execFileMock.mock.calls[2];
+    expect(renderArgs).toEqual(expect.arrayContaining(['-i', '/tmp/intro.mp4']));
+    expect(renderArgs).not.toContain('anullsrc=sample_rate=44100:channel_layout=stereo');
+    const fc = renderArgs[renderArgs.indexOf('-filter_complex') + 1];
+    expect(fc).toContain('trim=duration=4.2,setpts=PTS-STARTPTS[introv]');
+    expect(fc).toContain(
+      '[0:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=duration=4.2,' +
+        'asetpts=PTS-STARTPTS[introa]',
+    );
+  });
+
+  it('synthesizes silent audio for a video intro with no audio stream', async () => {
+    queueProbeResponse('4.2'); // getMediaDurationSeconds
+    queueProbeResponse(''); // hasAudioStream - empty means no audio stream
+
+    await concatIntro(
+      '/tmp/clip.mp4',
+      { filePath: '/tmp/intro.mp4', type: 'video', imageDurationSeconds: null },
+      608,
+      1080,
+      '/tmp/output.mp4',
+    );
+
+    const [, args] = execFileMock.mock.calls[2];
+    expect(args).toEqual(
+      expect.arrayContaining([
+        '-f',
+        'lavfi',
+        '-i',
+        'anullsrc=sample_rate=44100:channel_layout=stereo',
+      ]),
+    );
+    const fc = args[args.indexOf('-filter_complex') + 1];
+    expect(fc).toContain(
+      '[2:a]aformat=sample_rates=44100:channel_layouts=stereo,atrim=duration=4.2,' +
+        'asetpts=PTS-STARTPTS[introa]',
+    );
+  });
+
+  it('caps a video intro longer than MAX_INTRO_DURATION_SECONDS', async () => {
+    queueProbeResponse('999'); // way over the cap
+    queueProbeResponse('audio');
+
+    await concatIntro(
+      '/tmp/clip.mp4',
+      { filePath: '/tmp/intro.mp4', type: 'video', imageDurationSeconds: null },
+      608,
+      1080,
+      '/tmp/output.mp4',
+    );
+
+    const [, args] = execFileMock.mock.calls[2];
+    const fc = args[args.indexOf('-filter_complex') + 1];
+    expect(fc).toContain('trim=duration=10,setpts=PTS-STARTPTS[introv]');
+  });
+
+  it('atomically renames the .tmp output onto the real path only after ffmpeg succeeds', async () => {
+    await concatIntro(
+      '/tmp/clip.mp4',
+      { filePath: '/tmp/intro.png', type: 'image', imageDurationSeconds: null },
+      608,
+      1080,
+      '/tmp/output.mp4',
+    );
+
+    expect(renameMock).toHaveBeenCalledWith('/tmp/output.mp4.tmp', '/tmp/output.mp4');
+    expect(unlinkMock).not.toHaveBeenCalled();
+  });
+
+  it('cleans up the .tmp output and does not rename when ffmpeg fails', async () => {
+    execFileMock.mockImplementationOnce((_file, _args, ...rest) => {
+      const callback = rest[rest.length - 1] as (error: Error, result: unknown) => void;
+      callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
+    });
+
+    await expect(
+      concatIntro(
+        '/tmp/clip.mp4',
+        { filePath: '/tmp/intro.png', type: 'image', imageDurationSeconds: null },
+        608,
+        1080,
+        '/tmp/output.mp4',
+      ),
+    ).rejects.toThrow('ffmpeg exited with code 1');
+
+    expect(unlinkMock).toHaveBeenCalledWith('/tmp/output.mp4.tmp');
+    expect(renameMock).not.toHaveBeenCalled();
   });
 });

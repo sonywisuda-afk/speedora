@@ -47,6 +47,9 @@ export interface TimelineClip {
   // Watermark roadmap (P3c) - per-clip on/off gate for the owner's Brand
   // Kit watermark, same shape as applyBrandKit (composable with it).
   watermarkEnabled: boolean;
+  // Intro roadmap (P3d) - per-clip on/off gate, same shape as
+  // watermarkEnabled above.
+  introEnabled: boolean;
   // Suggested opener line/hashtags from the detect-clips LLM call - purely
   // metadata (not baked into the rendered video), editable same as
   // captionStyle below.
@@ -102,6 +105,8 @@ interface TimelineState {
   // Watermark roadmap (P3c) - same shape as applyBrandKit would be if it had
   // frontend surface (it doesn't yet - see /brand-kit page's own comment).
   setWatermarkEnabled(id: string, watermarkEnabled: boolean): void;
+  // Intro roadmap (P3d) - same shape as setWatermarkEnabled above.
+  setIntroEnabled(id: string, introEnabled: boolean): void;
   setHookText(id: string, hookText: string): void;
   setHashtags(id: string, hashtags: string[]): void;
   saveClip(id: string): Promise<void>;
@@ -130,6 +135,7 @@ function toTimelineClip(clip: Clip): TimelineClip {
     captionLanguage: clip.captionLanguage,
     fontFamily: clip.fontFamily,
     watermarkEnabled: clip.watermarkEnabled,
+    introEnabled: clip.introEnabled,
     hookText: clip.hookText,
     hashtags: clip.hashtags,
     scores: clip.scores,
@@ -244,6 +250,14 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
     }));
   },
 
+  setIntroEnabled(id, introEnabled) {
+    set((state) => ({
+      clips: state.clips.map((clip) =>
+        clip.id === id ? { ...clip, introEnabled, dirty: true, saveError: null } : clip,
+      ),
+    }));
+  },
+
   setHookText(id, hookText) {
     set((state) => ({
       clips: state.clips.map((clip) =>
@@ -277,6 +291,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
         captionLanguage: clip.captionLanguage,
         fontFamily: clip.fontFamily,
         watermarkEnabled: clip.watermarkEnabled,
+        introEnabled: clip.introEnabled,
         hookText: clip.hookText ?? undefined,
         hashtags: clip.hashtags,
       });
@@ -292,6 +307,7 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
                 captionLanguage: updated.captionLanguage,
                 fontFamily: updated.fontFamily,
                 watermarkEnabled: updated.watermarkEnabled,
+                introEnabled: updated.introEnabled,
                 hookText: updated.hookText,
                 hashtags: updated.hashtags,
                 updatedAt: updated.updatedAt,

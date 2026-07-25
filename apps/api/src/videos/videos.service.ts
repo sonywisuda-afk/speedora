@@ -19,6 +19,7 @@ import {
   TranscriptionProvider,
   type DetectClipsJobData,
   type ImportYoutubeJobData,
+  type IntroType,
   type RenderClipJobData,
   type ThumbnailFallbackLevel,
   type TranscribeJobData,
@@ -533,6 +534,27 @@ export class VideosService {
               DEFAULT_WATERMARK_POSITION,
           }
         : null;
+      // Intro roadmap (P3d) - same "one owner lookup shared by every clip,
+      // skipped entirely when nothing needs it" shape as ownerWatermark
+      // above.
+      const ownerIntro = unrendered.some((clip) => clip.introEnabled)
+        ? await this.prisma.user.findUniqueOrThrow({
+            where: { id: video.ownerId },
+            select: {
+              brandIntroUrl: true,
+              brandIntroType: true,
+              brandIntroImageDurationSeconds: true,
+            },
+          })
+        : null;
+      const resolvedIntro: RenderClipJobData['intro'] =
+        ownerIntro?.brandIntroUrl && ownerIntro.brandIntroType
+          ? {
+              key: ownerIntro.brandIntroUrl,
+              type: ownerIntro.brandIntroType as IntroType,
+              imageDurationSeconds: ownerIntro.brandIntroImageDurationSeconds,
+            }
+          : null;
       await Promise.all(
         unrendered.map((clip) =>
           this.renderClipQueue.add(QueueName.RENDER_CLIP, {
@@ -551,6 +573,7 @@ export class VideosService {
             captionLanguage: clip.captionLanguage,
             fontFamily: clip.fontFamily ?? (clip.applyBrandKit ? ownerBrandFontFamily : null),
             watermark: clip.watermarkEnabled ? resolvedWatermark : null,
+            intro: clip.introEnabled ? resolvedIntro : null,
             keywords: clip.keywords,
             scores: toSharedClipScores(clip.scores),
           }),
