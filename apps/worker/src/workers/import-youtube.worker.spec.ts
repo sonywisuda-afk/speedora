@@ -20,22 +20,31 @@ jest.mock('@speedora/storage', () => ({
   uploadObject: (...args: unknown[]) => uploadObjectMock(...args),
 }));
 
-const downloadYoutubeVideoMock = jest.fn();
-const getYoutubeVideoTitleMock = jest.fn();
-jest.mock('../youtube', () => ({
-  downloadYoutubeVideo: (...args: unknown[]) => downloadYoutubeVideoMock(...args),
-  getYoutubeVideoTitle: (...args: unknown[]) => getYoutubeVideoTitleMock(...args),
+// Mocks only the "which engine" seam (per docs/testing.md's adapter-test
+// convention) - VideoImportError, loadVideoImportEngineConfig, and the pure
+// toSuccessMetricEvent/toFailureMetricEvent translators are left real via
+// requireActual, same as an adapter test leaving a pure derive function real.
+const resolveEngineMock = jest.fn();
+jest.mock('@speedora/video-import-engine', () => ({
+  ...jest.requireActual('@speedora/video-import-engine'),
+  resolveEngine: (...args: unknown[]) => resolveEngineMock(...args),
+}));
+
+const recordVideoImportOutcomeMock = jest.fn();
+jest.mock('@speedora/shared', () => ({
+  ...jest.requireActual('@speedora/shared'),
+  recordVideoImportOutcome: (...args: unknown[]) => recordVideoImportOutcomeMock(...args),
 }));
 
 const statMock = jest.fn();
 jest.mock('node:fs/promises', () => ({
   stat: (...args: unknown[]) => statMock(...args),
+  mkdir: jest.fn(),
+  unlink: jest.fn(),
 }));
 
-const reserveScratchPathMock = jest.fn();
 const cleanupTempFileMock = jest.fn();
 jest.mock('../storage', () => ({
-  reserveScratchPath: (...args: unknown[]) => reserveScratchPathMock(...args),
   cleanupTempFile: (...args: unknown[]) => cleanupTempFileMock(...args),
 }));
 
@@ -84,12 +93,26 @@ function getProcessor() {
   }) => Promise<unknown>;
 }
 
+function createFakeEngine(overrides: Partial<Record<string, jest.Mock>> = {}) {
+  return {
+    name: 'yt-dlp',
+    fetchMetadata: jest.fn().mockResolvedValue({ title: 'My YouTube Video' }),
+    download: jest.fn().mockResolvedValue({
+      outputPath: '/tmp/youtube-import-abc.mp4',
+      durationMs: 1234,
+      retries: 0,
+    }),
+    checkVersion: jest
+      .fn()
+      .mockResolvedValue({ engineName: 'yt-dlp', engineVersion: '2025.06.30', status: 'healthy' }),
+    ...overrides,
+  };
+}
+
 describe('import-youtube worker', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    reserveScratchPathMock.mockResolvedValue('/tmp/youtube-import-abc.mp4');
-    downloadYoutubeVideoMock.mockResolvedValue(undefined);
-    getYoutubeVideoTitleMock.mockResolvedValue('My YouTube Video');
+    resolveEngineMock.mockReturnValue(createFakeEngine());
     statMock.mockResolvedValue({ size: 123456 });
     createReadStreamMock.mockReturnValue('fake-read-stream');
     uploadObjectMock.mockResolvedValue(undefined);
@@ -104,9 +127,10 @@ describe('import-youtube worker', () => {
     videoStatusEventCreateMock.mockResolvedValue({});
     transcribeQueueAdd.mockResolvedValue(undefined);
     cleanupTempFileMock.mockResolvedValue(undefined);
+    recordVideoImportOutcomeMock.mockResolvedValue(undefined);
   });
 
-  it('downloads, uploads to storage, marks UPLOADED, and enqueues transcribe (forwarding provider) on success', async () => {
+  it('resolves an engine for the url, downloads, uploads to storage, marks UPLOADED, and enqueues transcribe (forwarding provider) on success', async () => {
     const processor = getProcessor();
     const result = await processor({
       data: {
@@ -116,10 +140,15 @@ describe('import-youtube worker', () => {
       },
     });
 
-    expect(downloadYoutubeVideoMock).toHaveBeenCalledWith(
+    expect(resolveEngineMock).toHaveBeenCalledWith(
       'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-      '/tmp/youtube-import-abc.mp4',
-      expect.any(Function),
+      expect.any(Object),
+    );
+    const engine = resolveEngineMock.mock.results[0].value;
+    expect(engine.download).toHaveBeenCalledWith(
+      { url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ' },
+      expect.any(Object),
+      expect.objectContaining({ onProgress: expect.any(Function), signal: expect.any(Object) }),
     );
     expect(createReadStreamMock).toHaveBeenCalledWith('/tmp/youtube-import-abc.mp4');
     expect(uploadObjectMock).toHaveBeenCalledWith(
@@ -132,9 +161,7 @@ describe('import-youtube worker', () => {
       where: { id: 'video-1' },
       data: { importProgress: 0 },
     });
-    // ...and cleared back to null once UPLOADED, same "irrelevant past this
-    // stage" convention as transcribeProgress. title/sourceSizeBytes (Sprint
-    // 1-2, Dashboard Redesign) are written in the same update.
+    // ...and cleared back to null once UPLOADED.
     expect(statMock).toHaveBeenCalledWith('/tmp/youtube-import-abc.mp4');
     expect(videoUpdateMock).toHaveBeenCalledWith({
       where: { id: 'video-1' },
@@ -152,16 +179,26 @@ describe('import-youtube worker', () => {
       provider: TranscriptionProvider.OPENAI,
     });
     expect(cleanupTempFileMock).toHaveBeenCalledWith('/tmp/youtube-import-abc.mp4');
+    expect(recordVideoImportOutcomeMock).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({
+        outcome: 'success',
+        engineName: 'yt-dlp',
+        engineVersion: '2025.06.30',
+        engineHealthStatus: 'healthy',
+      }),
+    );
     expect(result).toEqual({ videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' });
   });
 
-  it('reports each real download percentage from yt-dlp to Video.importProgress', async () => {
-    downloadYoutubeVideoMock.mockImplementation(
-      async (_url: string, _path: string, onProgress: (percent: number) => void) => {
-        onProgress(12.7);
-        onProgress(88.4);
-      },
-    );
+  it('reports each real download percentage from the engine to Video.importProgress', async () => {
+    const engine = createFakeEngine();
+    engine.download.mockImplementation(async (_input, _deps, options) => {
+      options.onProgress(12.7);
+      options.onProgress(88.4);
+      return { outputPath: '/tmp/youtube-import-abc.mp4', durationMs: 1000, retries: 0 };
+    });
+    resolveEngineMock.mockReturnValue(engine);
 
     const processor = getProcessor();
     await processor({
@@ -173,7 +210,7 @@ describe('import-youtube worker', () => {
     });
 
     // Rounded to the nearest integer - Video.importProgress is an Int
-    // column, yt-dlp's own percentages are fractional.
+    // column, the engine's own percentages are fractional.
     expect(videoUpdateMock).toHaveBeenCalledWith({
       where: { id: 'video-1' },
       data: { importProgress: 13 },
@@ -197,15 +234,13 @@ describe('import-youtube worker', () => {
     });
 
     expect(result).toEqual({ videoId: 'video-1', sourceUrl: '' });
-    // No download, no upload, no progress/status writes, no downstream
-    // enqueue - the job is a pure no-op once the video is gone.
-    expect(downloadYoutubeVideoMock).not.toHaveBeenCalled();
+    expect(resolveEngineMock).not.toHaveBeenCalled();
     expect(uploadObjectMock).not.toHaveBeenCalled();
     expect(videoUpdateMock).not.toHaveBeenCalled();
     expect(transcribeQueueAdd).not.toHaveBeenCalled();
   });
 
-  it('skips a job for a video already past IMPORTING, to avoid a duplicate yt-dlp download', async () => {
+  it('skips a job for a video already past IMPORTING, to avoid a duplicate download', async () => {
     videoFindUniqueMock.mockResolvedValue({ status: VideoStatus.UPLOADED });
 
     const processor = getProcessor();
@@ -218,15 +253,22 @@ describe('import-youtube worker', () => {
     });
 
     expect(result).toEqual({ videoId: 'video-1', sourceUrl: '' });
-    expect(downloadYoutubeVideoMock).not.toHaveBeenCalled();
+    expect(resolveEngineMock).not.toHaveBeenCalled();
     expect(uploadObjectMock).not.toHaveBeenCalled();
     expect(videoUpdateMock).not.toHaveBeenCalled();
     expect(transcribeQueueAdd).not.toHaveBeenCalled();
   });
 
-  it('marks the video FAILED, reports to Sentry, and still cleans up the scratch file when the download fails', async () => {
-    const error = new Error('yt-dlp exited with code 1');
-    downloadYoutubeVideoMock.mockRejectedValue(error);
+  it('marks the video FAILED, reports to Sentry, records failure metrics, and still cleans up the scratch file when the download fails', async () => {
+    const { VideoImportError } = jest.requireActual('@speedora/video-import-engine');
+    const error = new VideoImportError('yt-dlp exited with code 1', {
+      category: 'network',
+      engineName: 'yt-dlp',
+      exitCode: 1,
+    });
+    const engine = createFakeEngine();
+    engine.download.mockRejectedValue(error);
+    resolveEngineMock.mockReturnValue(engine);
 
     const processor = getProcessor();
 
@@ -246,10 +288,89 @@ describe('import-youtube worker', () => {
       data: { status: VideoStatus.FAILED },
     });
     expect(transcribeQueueAdd).not.toHaveBeenCalled();
-    expect(cleanupTempFileMock).toHaveBeenCalledWith('/tmp/youtube-import-abc.mp4');
+    // download() never resolved, so there is no outputPath to clean up -
+    // the engine itself already cleaned up its own per-attempt scratch file.
+    expect(cleanupTempFileMock).not.toHaveBeenCalled();
+    expect(recordVideoImportOutcomeMock).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({ outcome: 'failure', category: 'network', engineName: 'yt-dlp' }),
+    );
     // Milestone 04c - deps.publish wired through to updateVideoStatus.
     expect(publishNotificationMock).toHaveBeenCalledWith(
       expect.objectContaining({ type: 'RENDER_FAILED' }),
     );
+  });
+
+  it('rejects a non-allowlisted URL before ever calling any engine method', async () => {
+    const { VideoImportError } = jest.requireActual('@speedora/video-import-engine');
+    const error = new VideoImportError('"vimeo.com" is not a supported import domain', {
+      category: 'unsupported',
+      engineName: 'yt-dlp',
+      retryable: false,
+    });
+    resolveEngineMock.mockImplementation(() => {
+      throw error;
+    });
+
+    const processor = getProcessor();
+
+    await expect(
+      processor({
+        data: {
+          videoId: 'video-1',
+          url: 'https://vimeo.com/123',
+          provider: TranscriptionProvider.GROQ,
+        },
+      }),
+    ).rejects.toThrow('not a supported import domain');
+
+    expect(uploadObjectMock).not.toHaveBeenCalled();
+    expect(recordVideoImportOutcomeMock).toHaveBeenCalledWith(
+      undefined,
+      expect.objectContaining({
+        outcome: 'failure',
+        category: 'unsupported',
+        engineName: 'yt-dlp',
+      }),
+    );
+  });
+
+  it('aborts the engine via AbortSignal when the job-level timeout fires', async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const engine = createFakeEngine();
+    engine.download.mockImplementation(
+      async (_input: unknown, _deps: unknown, options: { signal: AbortSignal }) => {
+        capturedSignal = options.signal;
+        return new Promise(() => {
+          // Never resolves - simulates a hung download so the outer
+          // withJobTimeout wins the race.
+        });
+      },
+    );
+    resolveEngineMock.mockReturnValue(engine);
+
+    jest.useFakeTimers();
+    try {
+      const processor = getProcessor();
+      const resultPromise = processor({
+        data: {
+          videoId: 'video-1',
+          url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+          provider: TranscriptionProvider.GROQ,
+        },
+      });
+
+      // Let the orphan/idempotency-guard queries and resolveEngine/
+      // fetchMetadata microtasks resolve before advancing timers.
+      for (let i = 0; i < 15; i += 1) {
+        await Promise.resolve();
+      }
+
+      jest.advanceTimersByTime(75 * 60 * 1000);
+      await expect(resultPromise).rejects.toThrow('exceeded');
+      expect(capturedSignal?.aborted).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

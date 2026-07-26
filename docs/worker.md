@@ -8,9 +8,18 @@ adapter pattern every AI module here follows. See `worker-architecture.md` for t
 
 ## Job handlers (`src/workers/*.worker.ts`)
 
-- **`import-youtube`** — downloads via `yt-dlp` (`src/youtube.ts`, `spawn` with
-  `--progress-template` streamed line-by-line for real progress, prefers H.264/AAC over AV1 for
-  browser compatibility), uploads to `videos/<videoId>.mp4`, self-chains `transcribe`.
+- **`import-youtube`** — downloads via a `VideoImportEngine` abstraction (`@speedora/video-import-engine`,
+  today's only implementation is `YtDlpEngine` wrapping `yt-dlp`: `spawn` with `--progress-template`
+  streamed line-by-line for real progress, prefers H.264/AAC over AV1 for browser compatibility),
+  uploads to `videos/<videoId>.mp4`, self-chains `transcribe`. The interface (config-driven engine
+  selection via `resolveEngine()`, typed `VideoImportError` with a retry/metrics `category`,
+  exponential backoff, `AbortSignal`-based cancellation wired through the adapter's own `.catch()` on
+  `withJobTimeout`'s returned promise, and a `checkVersion()` health check) means a future non-YouTube
+  source needs only a new engine + registry entry, not a worker rewrite. Binary
+  path/timeout/retry/backoff/cookies/proxy/allowed-domains/scratch-dir/min-version are all configurable
+  via env (see `.env.example`); yt-dlp itself is updated via the manual `pnpm yt-dlp:version` /
+  `yt-dlp:update` / `yt-dlp:rollback` scripts (`apps/worker/src/scripts/`) as part of a Docker image
+  rebuild/redeploy, never at runtime by the worker process itself.
 - **`transcribe`** — downloads source straight from object storage into Whisper (no local disk for
   this stage), writes `TranscriptSegment` rows with word-level timestamps, runs Diarization +
   Vocal Emotion + Audio Intelligence on the full audio track (see `ai/audio.md`), self-chains

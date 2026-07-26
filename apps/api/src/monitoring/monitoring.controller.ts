@@ -10,6 +10,8 @@ import {
   isQueueBacklogged,
   isWorkerOffline,
   QueueName,
+  readVideoImportMetrics,
+  type RedisLike,
 } from '@speedora/shared';
 import { checkStorageConnection, getBucketUsage } from '@speedora/storage';
 import type { Queue } from 'bullmq';
@@ -98,26 +100,43 @@ export class MonitoringController {
     const windowHours = 24;
     const windowStart = new Date(Date.now() - windowHours * 60 * 60 * 1000);
 
-    const [videosByStatusRaw, videoFailures, jobExecutions, nodeExecutionsByStatusRaw] =
-      await Promise.all([
-        this.prisma.video.groupBy({
-          by: ['status'],
-          _count: { _all: true },
-          where: { updatedAt: { gte: windowStart } },
-        }),
-        this.prisma.videoStatusEvent.count({
-          where: { toStatus: 'FAILED', createdAt: { gte: windowStart } },
-        }),
-        this.prisma.jobExecution.findMany({
-          where: { startedAt: { gte: windowStart }, totalDurationMs: { not: null } },
-          select: { totalDurationMs: true },
-        }),
-        this.prisma.nodeExecution.groupBy({
-          by: ['status'],
-          _count: { _all: true },
-          where: { startedAt: { gte: windowStart } },
-        }),
-      ]);
+    const [
+      videosByStatusRaw,
+      videoFailures,
+      jobExecutions,
+      nodeExecutionsByStatusRaw,
+      videoImport,
+    ] = await Promise.all([
+      this.prisma.video.groupBy({
+        by: ['status'],
+        _count: { _all: true },
+        where: { updatedAt: { gte: windowStart } },
+      }),
+      this.prisma.videoStatusEvent.count({
+        where: { toStatus: 'FAILED', createdAt: { gte: windowStart } },
+      }),
+      this.prisma.jobExecution.findMany({
+        where: { startedAt: { gte: windowStart }, totalDurationMs: { not: null } },
+        select: { totalDurationMs: true },
+      }),
+      this.prisma.nodeExecution.groupBy({
+        by: ['status'],
+        _count: { _all: true },
+        where: { startedAt: { gte: windowStart } },
+      }),
+      // Cross-process, all-time counters written by apps/worker's
+      // import-youtube.worker.ts after every import (see
+      // @speedora/shared's video-import-metrics.ts) - reuses the same
+      // shared Redis client checkRedis() already pulls off this queue, no
+      // new connection. BullMQ's own IRedisClient type doesn't declare
+      // incr/incrby/hincrby even though the real ioredis client backing it
+      // (this deployment's only adapter) has them - same gap checkRedis()
+      // works around for .info(), cast here instead of widening RedisLike
+      // to match bullmq's narrower declared surface.
+      this.queues[0].queue.client.then((client) =>
+        readVideoImportMetrics(client as unknown as RedisLike),
+      ),
+    ]);
 
     const videosByStatus = Object.fromEntries(
       videosByStatusRaw.map((row) => [row.status, row._count._all]),
@@ -164,6 +183,24 @@ export class MonitoringController {
         videoFailures,
         renderJobs: { count: renderDurations.length, avgDurationMs: avgRenderDurationMs },
         nodeExecutions: { byStatus: nodeStatusCounts, failureRate: nodeFailureRate },
+      },
+      // All-time (not windowed like the pipeline section above) - matches
+      // VideoImportMetricsSnapshot's own "all-time counters" framing, see
+      // video-import-metrics.ts.
+      videoImport: {
+        totalImports: videoImport.totalImports,
+        successfulImports: videoImport.successfulImports,
+        failedImports: videoImport.failedImports,
+        successRate: videoImport.successRate,
+        retryCount: videoImport.retryCount,
+        avgDurationMs: videoImport.avgDurationMs,
+        timeoutCount: videoImport.timeoutCount,
+        cancellationCount: videoImport.cancellationCount,
+        failuresByCategory: videoImport.failuresByCategory,
+        engineName: videoImport.engineName,
+        engineVersion: videoImport.engineVersion,
+        engineHealthStatus: videoImport.engineHealthStatus,
+        lastSuccessfulImportAt: videoImport.lastSuccessfulImportAt,
       },
     };
   }

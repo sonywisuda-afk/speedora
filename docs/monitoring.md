@@ -13,7 +13,7 @@ video/user data, only operational numbers.
 
 ## `GET /metrics`
 
-Three sections in one response:
+Four sections in one response:
 
 - **`process`** - uptime, memory (`rssBytes`/`heapUsedBytes`/`heapTotalBytes`), CPU time
   (`userMs`/`systemMs`, cumulative since process start - diff two snapshots for a rate). All Node
@@ -25,19 +25,31 @@ Three sections in one response:
   `VideoStatusEvent` where `toStatus = FAILED`), `renderJobs` (count + average duration from
   `JobExecution.totalDurationMs` - the render-graph telemetry documented in `worker.md`), and
   `nodeExecutions` (per-status counts and failure rate from `NodeExecution`).
+- **`videoImport`** - all-time (not windowed) counters for the YouTube import subsystem
+  (`@speedora/video-import-engine`/`YtDlpEngine`), written by `apps/worker`'s
+  `import-youtube.worker.ts` after every import and read back via `@speedora/shared`'s
+  `readVideoImportMetrics()`: `totalImports`/`successfulImports`/`failedImports`/`successRate`,
+  `retryCount`, `avgDurationMs`, `timeoutCount`, `cancellationCount`, a `failuresByCategory` breakdown
+  (`network`/`extractor`/`unavailable`/`private`/`age_restricted`/`rate_limited`/`unsupported`/
+  `timeout`/`cancelled`/`storage`/`internal`), the current `engineName`/`engineVersion`/
+  `engineHealthStatus` (`healthy`/`stale`/`unreachable`, from the engine's `checkVersion()`), and
+  `lastSuccessfulImportAt`.
 
 ```json
 {
   "process": { "uptimeSeconds": 102, "memory": { "rssBytes": 220618752, "heapUsedBytes": 135794272, "heapTotalBytes": 142757888 }, "cpu": { "userMs": 12843, "systemMs": 8406 } },
   "http": { "totalRequests": 8, "byStatusClass": { "2xx": 8, "3xx": 0, "4xx": 0, "5xx": 0, "other": 0 } },
-  "pipeline": { "windowHours": 24, "videosByStatus": { "RENDERED": 1 }, "videoFailures": 7, "renderJobs": { "count": 7, "avgDurationMs": 93915 }, "nodeExecutions": { "byStatus": { "FALLBACK": 35, "SUCCESS": 182 }, "failureRate": 0 } }
+  "pipeline": { "windowHours": 24, "videosByStatus": { "RENDERED": 1 }, "videoFailures": 7, "renderJobs": { "count": 7, "avgDurationMs": 93915 }, "nodeExecutions": { "byStatus": { "FALLBACK": 35, "SUCCESS": 182 }, "failureRate": 0 } },
+  "videoImport": { "totalImports": 12, "successfulImports": 11, "failedImports": 1, "successRate": 0.9166666666666666, "retryCount": 2, "avgDurationMs": 48213, "timeoutCount": 0, "cancellationCount": 0, "failuresByCategory": { "network": 1 }, "engineName": "yt-dlp", "engineVersion": "2025.06.30", "engineHealthStatus": "healthy", "lastSuccessfulImportAt": "2026-07-26T01:15:32.209Z" }
 }
 ```
 
 **Caveat**: `http` counters (`apps/api/src/monitoring/metrics-registry.ts`) are process-local, same
 limitation as `apps/worker`'s `subprocessLimiter.ts` - with N horizontally-scaled `apps/api`
 replicas, each one reports only its own share of requests. Fine as a quick "is this instance under
-load" signal; not a substitute for a real aggregated backend if that's ever adopted.
+load" signal; not a substitute for a real aggregated backend if that's ever adopted. `videoImport` is
+**not** subject to this caveat - it's backed by Redis `INCR`/`HINCRBY` (see `docs/redis.md`), so it
+stays correct across worker restarts and multiple worker replicas.
 
 ## `GET /queues`
 

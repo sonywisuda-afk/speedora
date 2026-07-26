@@ -10,9 +10,11 @@ WORKDIR /repo
 FROM base AS build
 COPY . .
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @speedora/shared build \
-    && pnpm --filter @speedora/database build \
-    && pnpm --filter @speedora/storage build \
+# Same pre-existing bug fixed in apps/worker/Dockerfile (see its comment) -
+# hand-listing 3 of many workspace package dependencies goes stale as more
+# get added. Building every package first, same "./packages/**" pattern the
+# root package.json's own `pnpm build` script already uses successfully.
+RUN pnpm --filter "./packages/**" build \
     && pnpm --filter @speedora/api build
 # Bundles apps/api's dist output with only its production dependencies
 # (workspace deps included as real copies, not symlinks) into a

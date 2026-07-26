@@ -13,6 +13,12 @@ packages/database/src/generated/
 # apps/worker/Dockerfile and README.md), not tracked in git as a binary blob.
 apps/worker/models/
 
+# yt-dlp binary managed by the manual pnpm yt-dlp:update/:rollback scripts
+# (packages/video-import-engine, apps/worker/src/scripts/yt-dlp-*.ts) - a
+# fetched, platform-specific binary blob, not source; production instead
+# gets yt-dlp via the Dockerfile's `pip install`, same as apps/worker/models/.
+apps/worker/bin/
+
 # env
 .env
 .env.local

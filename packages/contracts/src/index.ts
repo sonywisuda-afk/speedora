@@ -30,5 +30,6 @@ export * from './speaking-style';
 export * from './subtitles';
 export * from './thumbnail-selection';
 export * from './transcript-word';
+export * from './video-import';
 export * from './vocal-emotion';
 export * from './voice-activity';

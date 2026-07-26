@@ -148,10 +148,19 @@ services:
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@postgres:5432/${POSTGRES_DB:-viralclip}
       REDIS_URL: redis://redis:6379
-      # Overrides whatever host-specific FFMPEG_PATH is in .env for local
-      # dev - the image already has a real ffmpeg on PATH (see
-      # apps/worker/Dockerfile).
+      # Overrides whatever host-specific FFMPEG_PATH/YTDLP_PATH is in .env
+      # for local dev - the image already has a real ffmpeg and yt-dlp on
+      # PATH (see apps/worker/Dockerfile). Pre-existing gap found during
+      # VideoImportEngine verification: FFMPEG_PATH was already overridden
+      # here for exactly this reason, but YTDLP_PATH (which has the same
+      # host-specific-path problem - confirmed for real, a Windows dev
+      # machine's YTDLP_PATH pointing at a local pythoncore Scripts
+      # directory leaked into the Linux container and broke every import
+      # with ENOENT) was never added alongside it, since nothing had
+      # actually run a real end-to-end YouTube import through this compose
+      # stack before.
       FFMPEG_PATH: ffmpeg
+      YTDLP_PATH: yt-dlp
     # By far the heaviest process in this stack - FFmpeg encodes plus
     # concurrent Python/MediaPipe subprocesses (bounded by
     # subprocessLimiter.ts's MAX_CONCURRENT_SUBPROCESSES, but each one can

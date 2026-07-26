@@ -10,9 +10,18 @@ WORKDIR /repo
 FROM base AS build
 COPY . .
 RUN pnpm install --frozen-lockfile
-RUN pnpm --filter @speedora/shared build \
-    && pnpm --filter @speedora/database build \
-    && pnpm --filter @speedora/storage build \
+# Pre-existing bug found and fixed during VideoImportEngine verification: this
+# used to hand-list only 3 of apps/worker's ~30 workspace package
+# dependencies (shared/database/storage), which happened to be enough back
+# when the Dockerfile was written but silently went stale as more packages
+# were added (e.g. @speedora/social, @speedora/audio-intelligence,
+# @speedora/speaker-diarization, @speedora/subtitle-translate -
+# pre-existing, unrelated to video-import) - a real `docker build --no-cache`
+# failed with "Cannot find module '@speedora/social'" etc. Building every
+# package first, same "./packages/**" pattern the root package.json's own
+# `pnpm build` script already uses successfully, is correct regardless of
+# how apps/worker's dependency list changes in the future.
+RUN pnpm --filter "./packages/**" build \
     && pnpm --filter @speedora/worker build
 # Bundles apps/worker's dist output with only its production dependencies
 # (workspace deps included as real copies, not symlinks) into a
@@ -36,6 +45,21 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 \
     python3-pip \
     curl \
+    # Pre-existing gap found and fixed during VideoImportEngine verification
+    # (unrelated to video-import): webrtcvad (Speaker Intelligence's Voice
+    # Activity Detection dependency, installed via pip below) ships no
+    # prebuilt Linux wheel and compiles a small C extension at install time -
+    # a real `docker build --no-cache` failed first with "gcc: No such file
+    # or directory" (fixed by build-essential), then with "Python.h: No such
+    # file or directory" once gcc actually ran (fixed by python3-dev,
+    # gcc needs Python's headers to compile a CPython extension, a separate
+    # apt package from the python3/python3-pip runtime already listed here).
+    # Confirms this Dockerfile's own longstanding comment further down
+    # (soundfile/pyannote.audio/transformers/torch were already flagged as
+    # never verified here) - this image's Python dependency chain hadn't
+    # been exercised end-to-end in a while.
+    build-essential \
+    python3-dev \
     # Brand Kit roadmap (P3a) - libass (ffmpeg's `subtitles` filter) resolves
     # caption fonts through the system's fontconfig index. Without this
     # package (and the font files installed below), build-ass.ts's Fontname

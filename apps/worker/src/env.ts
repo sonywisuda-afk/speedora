@@ -53,6 +53,21 @@
 // platform's credentials are unset, rather than the whole worker refusing
 // to start for everyone who hasn't set up Google Cloud OAuth, a TikTok
 // Developer app, or a Meta app yet.
+// YTDLP_PATH already defaults to "yt-dlp" (assumed on PATH) and is also
+// deliberately NOT in this list. Everything the VideoImportEngine
+// refactor added (@speedora/video-import-engine's loadVideoImportEngineConfig)
+// follows the same "safe default, optional at boot" treatment - none of
+// these have any effect until a YouTube import job actually runs, and each
+// has a documented default: VIDEO_IMPORT_TIMEOUT_MS (60 min),
+// VIDEO_IMPORT_MAX_RETRIES (2), VIDEO_IMPORT_BACKOFF_BASE_MS (2000),
+// VIDEO_IMPORT_BACKOFF_FACTOR (2), VIDEO_IMPORT_BACKOFF_MAX_MS (30000),
+// YTDLP_COOKIES_FILE/YTDLP_PROXY_URL/YTDLP_EXTRA_ARGS (unset - no cookies/
+// proxy/extra args), YTDLP_ALLOWED_DOMAINS (youtube.com/www.youtube.com/
+// m.youtube.com/youtu.be), VIDEO_IMPORT_SCRATCH_DIR (a speedora/video-import
+// subdirectory of the OS temp dir), YTDLP_MIN_VERSION (unset - no staleness
+// warning), VIDEO_IMPORT_MAX_FILE_SIZE_BYTES (unset - no cap), and
+// VIDEO_IMPORT_KILL_GRACE_MS (5000, SIGTERM-to-SIGKILL grace period on
+// timeout/cancellation). See packages/video-import-engine/src/config.ts.
 const REQUIRED_ENV_VARS = [
   'DATABASE_URL',
   'REDIS_URL',
