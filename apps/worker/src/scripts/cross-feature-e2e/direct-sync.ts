@@ -2,7 +2,11 @@ import * as Sentry from '@sentry/node';
 import { PublishStatus } from '@speedora/database';
 import { computeEngagementScore, resolveAccessToken } from '@speedora/social';
 import { prisma } from '../../prisma';
-import { platformRegistry, platformsWithFollowerSync, platformsWithStatsSync } from '../../publish/platform-registry';
+import {
+  platformRegistry,
+  platformsWithFollowerSync,
+  platformsWithStatsSync,
+} from '../../publish/platform-registry';
 
 // This dev environment already has a separate, real `apps/worker dev`
 // process running and consuming the exact same BullMQ queues this script
@@ -47,10 +51,16 @@ export async function runSyncPublishStatsOnce(): Promise<{ synced: number; pendi
 
       const resolved = await resolveAccessToken(record.socialAccount, adapter.oauth);
       if (resolved.refreshed && resolved.updated) {
-        await prisma.socialAccount.update({ where: { id: record.socialAccountId }, data: resolved.updated });
+        await prisma.socialAccount.update({
+          where: { id: record.socialAccountId },
+          data: resolved.updated,
+        });
       }
 
-      const result = await adapter.syncStats({ accessToken: resolved.accessToken, platformPostId: record.platformPostId });
+      const result = await adapter.syncStats({
+        accessToken: resolved.accessToken,
+        platformPostId: record.platformPostId,
+      });
       if (result.kind === 'pending') {
         pending += 1;
         continue;
@@ -84,8 +94,13 @@ export async function runSyncPublishStatsOnce(): Promise<{ synced: number; pendi
       });
       synced += 1;
     } catch (error) {
-      console.log(`[e2e] (real sync-publish-stats logic) record ${record.id} failed:`, (error as Error).message);
-      Sentry.captureException(error, { tags: { publishRecordId: record.id, socialAccountId: record.socialAccountId } });
+      console.log(
+        `[e2e] (real sync-publish-stats logic) record ${record.id} failed:`,
+        (error as Error).message,
+      );
+      Sentry.captureException(error, {
+        tags: { publishRecordId: record.id, socialAccountId: record.socialAccountId },
+      });
     }
   }
   return { synced, pending };
@@ -112,10 +127,15 @@ export async function runSyncFollowerCountOnce(): Promise<{ synced: number }> {
         platformAccountId: account.platformAccountId,
       });
 
-      await prisma.socialAccountFollowerSnapshot.create({ data: { socialAccountId: account.id, followerCount } });
+      await prisma.socialAccountFollowerSnapshot.create({
+        data: { socialAccountId: account.id, followerCount },
+      });
       synced += 1;
     } catch (error) {
-      console.log(`[e2e] (real sync-follower-count logic) account ${account.id} failed:`, (error as Error).message);
+      console.log(
+        `[e2e] (real sync-follower-count logic) account ${account.id} failed:`,
+        (error as Error).message,
+      );
       Sentry.captureException(error, { tags: { socialAccountId: account.id } });
     }
   }

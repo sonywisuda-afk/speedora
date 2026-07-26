@@ -64,7 +64,9 @@ describe('ThreadsOAuthClient', () => {
 
       const tokens = await client.exchangeCode('the-code');
 
-      expect(String(fetchMock.mock.calls[0][0])).toBe('https://graph.threads.net/oauth/access_token');
+      expect(String(fetchMock.mock.calls[0][0])).toBe(
+        'https://graph.threads.net/oauth/access_token',
+      );
       const firstBody = fetchMock.mock.calls[0][1].body as URLSearchParams;
       expect(firstBody.get('code')).toBe('the-code');
       expect(firstBody.get('grant_type')).toBe('authorization_code');

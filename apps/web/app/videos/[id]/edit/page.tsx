@@ -19,7 +19,10 @@ import { useAuth } from '../../../../lib/useAuth';
 // the Export Center's Dialog/Tabs/SWR-polling machinery is only needed
 // once a user actually clicks "Export", not on every editor page load.
 const ExportCenterDialog = dynamic(
-  () => import('../../../../components/export/ExportCenterDialog').then((mod) => mod.ExportCenterDialog),
+  () =>
+    import('../../../../components/export/ExportCenterDialog').then(
+      (mod) => mod.ExportCenterDialog,
+    ),
   {
     ssr: false,
     loading: () => (

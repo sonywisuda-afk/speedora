@@ -201,7 +201,10 @@ export default function AnalyticsPage() {
                     </AnalyticsCard>
 
                     <div className="grid gap-4 sm:grid-cols-3">
-                      <UnavailableMetric label="Audience Retention" reason={heatmap.retention.reason} />
+                      <UnavailableMetric
+                        label="Audience Retention"
+                        reason={heatmap.retention.reason}
+                      />
                       <UnavailableMetric label="Drop Off" reason={heatmap.dropOff.reason} />
                       <UnavailableMetric label="Replay" reason={heatmap.replay.reason} />
                     </div>

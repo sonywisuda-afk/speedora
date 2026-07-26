@@ -1,6 +1,11 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { WorkspaceRole } from '@speedora/database';
-import type { BrandKitDto, BrandKitTemplateDto, IntroType, WatermarkPosition } from '@speedora/shared';
+import type {
+  BrandKitDto,
+  BrandKitTemplateDto,
+  IntroType,
+  WatermarkPosition,
+} from '@speedora/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceAccessService } from '../workspace/workspace-access.service';
 import type { UpdateBrandKitDto } from './dto/update-brand-kit.dto';
@@ -98,7 +103,9 @@ export class BrandKitService {
       where: { id: workspaceId },
       select: { isPersonal: true },
     });
-    return workspace.isPersonal ? { kind: 'user', id: userId } : { kind: 'workspace', id: workspaceId };
+    return workspace.isPersonal
+      ? { kind: 'user', id: userId }
+      : { kind: 'workspace', id: workspaceId };
   }
 
   private async readRow(target: BrandKitTarget): Promise<BrandKitRow> {
@@ -108,12 +115,19 @@ export class BrandKitService {
         select: BRAND_KIT_SELECT,
       });
     }
-    return this.prisma.user.findUniqueOrThrow({ where: { id: target.id }, select: BRAND_KIT_SELECT });
+    return this.prisma.user.findUniqueOrThrow({
+      where: { id: target.id },
+      select: BRAND_KIT_SELECT,
+    });
   }
 
   private async writeRow(target: BrandKitTarget, data: Partial<BrandKitRow>): Promise<BrandKitRow> {
     if (target.kind === 'workspace') {
-      return this.prisma.workspace.update({ where: { id: target.id }, data, select: BRAND_KIT_SELECT });
+      return this.prisma.workspace.update({
+        where: { id: target.id },
+        data,
+        select: BRAND_KIT_SELECT,
+      });
     }
     return this.prisma.user.update({ where: { id: target.id }, data, select: BRAND_KIT_SELECT });
   }
@@ -131,7 +145,9 @@ export class BrandKitService {
       ...(dto.primaryColor !== undefined ? { brandPrimaryColor: dto.primaryColor } : {}),
       ...(dto.secondaryColor !== undefined ? { brandSecondaryColor: dto.secondaryColor } : {}),
       ...(dto.fontFamily !== undefined ? { brandFontFamily: dto.fontFamily } : {}),
-      ...(dto.watermarkOpacity !== undefined ? { brandWatermarkOpacity: dto.watermarkOpacity } : {}),
+      ...(dto.watermarkOpacity !== undefined
+        ? { brandWatermarkOpacity: dto.watermarkOpacity }
+        : {}),
       ...(dto.watermarkScale !== undefined ? { brandWatermarkScale: dto.watermarkScale } : {}),
       ...(dto.watermarkMargin !== undefined ? { brandWatermarkMargin: dto.watermarkMargin } : {}),
       ...(dto.watermarkPosition !== undefined

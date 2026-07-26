@@ -38,9 +38,13 @@ export function AnalyticsReportExport() {
     }
   }, [jobList, jobId]);
 
-  const { data: job } = useSWR(jobId ? ['export-job', jobId] : null, () => getExportJob(jobId as string), {
-    refreshInterval: (latest) => (latest && isExportJobInFlight(latest.status) ? 2000 : 0),
-  });
+  const { data: job } = useSWR(
+    jobId ? ['export-job', jobId] : null,
+    () => getExportJob(jobId as string),
+    {
+      refreshInterval: (latest) => (latest && isExportJobInFlight(latest.status) ? 2000 : 0),
+    },
+  );
 
   async function handleGenerate() {
     setCreateError(null);
@@ -68,9 +72,7 @@ export function AnalyticsReportExport() {
 
       {!job || job.status === 'FAILED' ? (
         <>
-          {createError && (
-            <span className="font-body text-xs text-destructive">{createError}</span>
-          )}
+          {createError && <span className="font-body text-xs text-destructive">{createError}</span>}
           <Button size="sm" variant="outline" disabled={creating} onClick={handleGenerate}>
             {creating ? 'Membuat...' : job ? 'Coba Lagi' : 'Export'}
           </Button>

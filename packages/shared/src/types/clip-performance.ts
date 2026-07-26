@@ -70,10 +70,7 @@ export type ClipAudienceSection = UnavailableSection;
 // highlightExplainability.topFactors/highlightBreakdown already use)
 // rather than inventing a parallel signal shape.
 export type ClipPerformanceClassification =
-  | 'over_performed'
-  | 'under_performed'
-  | 'as_expected'
-  | 'not_enough_data';
+  'over_performed' | 'under_performed' | 'as_expected' | 'not_enough_data';
 
 export interface ClipInsightSection {
   classification: ClipPerformanceClassification;

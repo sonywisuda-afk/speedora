@@ -3,7 +3,7 @@ import { computeNextSlot } from './next-slot.util';
 describe('computeNextSlot', () => {
   // 2024-01-01 is a Monday (weekday 1) - a fixed, easily-verified anchor
   // date rather than relying on the system clock.
-  it('returns today\'s slot when the time has not passed yet, in a fixed-offset zone (Asia/Jakarta, UTC+7)', () => {
+  it("returns today's slot when the time has not passed yet, in a fixed-offset zone (Asia/Jakarta, UTC+7)", () => {
     const after = new Date('2024-01-01T00:00:00Z'); // 07:00 Jakarta local
     const slot = computeNextSlot(
       { timezone: 'Asia/Jakarta', daysOfWeek: [1], timeOfDay: '09:00' },
@@ -13,7 +13,7 @@ describe('computeNextSlot', () => {
     expect(slot.toISOString()).toBe('2024-01-01T02:00:00.000Z'); // 09:00 Jakarta = 02:00 UTC
   });
 
-  it('rolls to the next matching weekday when today\'s slot has already passed', () => {
+  it("rolls to the next matching weekday when today's slot has already passed", () => {
     const after = new Date('2024-01-01T03:00:00Z'); // 10:00 Jakarta local, past 09:00
     const slot = computeNextSlot(
       { timezone: 'Asia/Jakarta', daysOfWeek: [1], timeOfDay: '09:00' },
@@ -74,10 +74,7 @@ describe('computeNextSlot', () => {
 
   it('throws on an invalid timeOfDay format', () => {
     expect(() =>
-      computeNextSlot(
-        { timezone: 'Asia/Jakarta', daysOfWeek: [1], timeOfDay: '9:00' },
-        new Date(),
-      ),
+      computeNextSlot({ timezone: 'Asia/Jakarta', daysOfWeek: [1], timeOfDay: '9:00' }, new Date()),
     ).toThrow(/Invalid timeOfDay/);
   });
 

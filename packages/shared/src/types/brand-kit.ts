@@ -48,7 +48,7 @@ export interface BrandKitDto {
 // per-template asset-serving endpoint (only the active Brand Kit's assets
 // are ever streamed), so a raw key here wouldn't be usable as an <img src>
 // anyway. The switcher list only needs to summarize what a template
-// contains (has*/​*Position/*Type) well enough to pick between saved
+// contains (has*/*Position/*Type) well enough to pick between saved
 // templates, not preview their images - same "Campaign's named-entity list,
 // no live preview" precedent this sub-phase's plan called out.
 export interface BrandKitTemplateDto {

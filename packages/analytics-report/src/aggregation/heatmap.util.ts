@@ -51,7 +51,9 @@ export function computePublishTimeHeatmap(records: HeatmapRecord[]): HeatmapCell
   }
 
   for (const record of records) {
-    const cell = cells.get(cellKey(record.publishedAt.getUTCDay(), record.publishedAt.getUTCHours()));
+    const cell = cells.get(
+      cellKey(record.publishedAt.getUTCDay(), record.publishedAt.getUTCHours()),
+    );
     if (!cell) continue;
     cell.publishCount += 1;
     cell.totalViews += record.viewCount ?? 0;

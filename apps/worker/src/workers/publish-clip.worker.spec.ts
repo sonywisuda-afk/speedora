@@ -581,7 +581,9 @@ describe('publish-clip worker', () => {
     });
 
     it('marks the record FAILED with a billing/quota-shaped error message, same honest-status path as any other failure', async () => {
-      uploadXVideoMock.mockRejectedValue(new Error('X media/upload INIT failed: 403 quota exceeded'));
+      uploadXVideoMock.mockRejectedValue(
+        new Error('X media/upload INIT failed: 403 quota exceeded'),
+      );
       publishRecordFindUniqueOrThrowMock.mockResolvedValue(xRecord);
 
       const processor = getProcessor();

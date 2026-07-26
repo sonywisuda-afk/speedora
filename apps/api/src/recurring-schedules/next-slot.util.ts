@@ -58,7 +58,13 @@ function zonedTimeToUtc(wall: WallClock, timeZone: string): Date {
   let guess = Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute);
   for (let i = 0; i < 2; i++) {
     const observed = wallClockInZone(new Date(guess), timeZone);
-    const observedUtc = Date.UTC(observed.year, observed.month - 1, observed.day, observed.hour, observed.minute);
+    const observedUtc = Date.UTC(
+      observed.year,
+      observed.month - 1,
+      observed.day,
+      observed.hour,
+      observed.minute,
+    );
     const desiredUtc = Date.UTC(wall.year, wall.month - 1, wall.day, wall.hour, wall.minute);
     const diff = desiredUtc - observedUtc;
     if (diff === 0) break;

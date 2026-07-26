@@ -11,8 +11,12 @@ export interface RetryOutcome {
 
 // (a) Worker gagal -> retry: a video that failed with segments-but-no-clips
 // must resume at CLIPS_DETECTED (detect-clips), never re-run transcribe.
-export function checkRetryResumedCorrectStage(outcome: RetryOutcome): { pass: boolean; detail: string } {
-  const pass = outcome.hasTranscriptSegments && !outcome.hasClips && outcome.latestStatus === 'TRANSCRIBED';
+export function checkRetryResumedCorrectStage(outcome: RetryOutcome): {
+  pass: boolean;
+  detail: string;
+} {
+  const pass =
+    outcome.hasTranscriptSegments && !outcome.hasClips && outcome.latestStatus === 'TRANSCRIBED';
   return {
     pass,
     detail: `status=${outcome.latestStatus} segments=${outcome.hasTranscriptSegments} clips=${outcome.hasClips}`,

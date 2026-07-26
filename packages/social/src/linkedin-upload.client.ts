@@ -81,7 +81,9 @@ export async function uploadLinkedInVideo(
     });
     const etag = partRes.headers.get('etag') ?? partRes.headers.get('ETag');
     if (!partRes.ok || !etag) {
-      throw new Error(`LinkedIn video part upload failed: ${partRes.status} ${await partRes.text()}`);
+      throw new Error(
+        `LinkedIn video part upload failed: ${partRes.status} ${await partRes.text()}`,
+      );
     }
     uploadedPartIds.push(etag);
   }
@@ -107,7 +109,11 @@ export async function uploadLinkedInVideo(
       author: personUrn,
       commentary,
       visibility: 'PUBLIC',
-      distribution: { feedDistribution: 'MAIN_FEED', targetEntities: [], thirdPartyDistributionChannels: [] },
+      distribution: {
+        feedDistribution: 'MAIN_FEED',
+        targetEntities: [],
+        thirdPartyDistributionChannels: [],
+      },
       content: { media: { title, id: videoUrn } },
       lifecycleState: 'PUBLISHED',
       isReshareDisabledByAuthor: false,
@@ -116,7 +122,9 @@ export async function uploadLinkedInVideo(
   const postUrn = postRes.headers.get('x-restli-id') ?? postRes.headers.get('X-RestLi-Id');
   if (!postRes.ok || !postUrn) {
     const postBody = (await postRes.json().catch(() => ({}))) as LinkedInErrorBody;
-    throw new Error(`LinkedIn posts create failed: ${postRes.status} ${postBody.message ?? ''}`.trim());
+    throw new Error(
+      `LinkedIn posts create failed: ${postRes.status} ${postBody.message ?? ''}`.trim(),
+    );
   }
 
   return { postUrn };

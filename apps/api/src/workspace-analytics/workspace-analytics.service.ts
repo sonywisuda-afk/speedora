@@ -142,7 +142,11 @@ export class WorkspaceAnalyticsService {
   // getLeaderboard's own candidate fetch is - only publishedAt and the
   // latest snapshot are needed here, not the fuller candidate shape
   // computeLeaderboard() requires.
-  async getHeatmap(userId: string, workspaceId: string, days: number): Promise<AnalyticsHeatmapDto> {
+  async getHeatmap(
+    userId: string,
+    workspaceId: string,
+    days: number,
+  ): Promise<AnalyticsHeatmapDto> {
     await this.access.assertMinRole(userId, workspaceId, WorkspaceRole.VIEWER);
 
     const windowStart = new Date();
@@ -228,4 +232,3 @@ export class WorkspaceAnalyticsService {
     };
   }
 }
-

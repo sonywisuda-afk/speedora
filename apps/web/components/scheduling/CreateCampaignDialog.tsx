@@ -87,7 +87,11 @@ export function CreateCampaignDialog({
             <label className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
               Name
             </label>
-            <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Launch Week" />
+            <Input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Launch Week"
+            />
           </div>
           <div className="space-y-1.5">
             <label className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
@@ -106,11 +110,7 @@ export function CreateCampaignDialog({
               <label className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
                 Start Date
               </label>
-              <Input
-                type="date"
-                value={startDate}
-                onChange={(e) => setStartDate(e.target.value)}
-              />
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
             </div>
             <div className="flex-1 space-y-1.5">
               <label className="font-mono text-xs uppercase tracking-wide text-muted-foreground">

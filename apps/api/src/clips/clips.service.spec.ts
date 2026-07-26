@@ -629,7 +629,7 @@ describe('ClipsService', () => {
       expect(result.insight.comparedAgainst).toBe(5);
     });
 
-    it("reports prediction.available: false when the owner has fewer than 20 other published clips", async () => {
+    it('reports prediction.available: false when the owner has fewer than 20 other published clips', async () => {
       prisma.clip.findUnique.mockResolvedValue(clipWithPerformance);
       prisma.publishRecord.findMany.mockResolvedValue([
         { clip: { highlightScore: 40 }, statsSnapshots: [{ engagementScore: 0.05 }] },
@@ -693,9 +693,7 @@ describe('ClipsService', () => {
     it('throws NotFoundException when the clip does not exist', async () => {
       prisma.clip.findUnique.mockResolvedValue(null);
 
-      await expect(service.getPerformance('missing', 'user-1')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(service.getPerformance('missing', 'user-1')).rejects.toThrow(NotFoundException);
     });
 
     it('throws when the requester has no workspace access', async () => {
@@ -746,18 +744,14 @@ describe('ClipsService', () => {
     it('throws NotFoundException when the clip does not exist', async () => {
       prisma.clip.findUnique.mockResolvedValue(null);
 
-      await expect(service.getPlatformFit('missing', 'user-1')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(service.getPlatformFit('missing', 'user-1')).rejects.toThrow(NotFoundException);
     });
 
     it('throws NotFoundException when the requester has no workspace access', async () => {
       prisma.clip.findUnique.mockResolvedValue({ ...clip, video: { workspaceId: 'ws-1' } });
       workspaceAccess.assertMinRole.mockRejectedValueOnce(new NotFoundException());
 
-      await expect(service.getPlatformFit('clip-1', 'user-1')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(service.getPlatformFit('clip-1', 'user-1')).rejects.toThrow(NotFoundException);
     });
   });
 
@@ -1875,7 +1869,10 @@ describe('ClipsService', () => {
       it('validates and stamps campaignId onto the created record', async () => {
         prisma.clip.findUnique.mockResolvedValue(clipInWorkspace);
         socialAccounts.findOwnedOrThrow.mockResolvedValue(account);
-        prisma.publishRecord.create.mockResolvedValue({ ...createdRecord, campaignId: 'campaign-1' });
+        prisma.publishRecord.create.mockResolvedValue({
+          ...createdRecord,
+          campaignId: 'campaign-1',
+        });
 
         await service.publish('clip-1', 'user-1', {
           socialAccountId: 'account-1',
@@ -1891,10 +1888,15 @@ describe('ClipsService', () => {
       it('propagates the campaign validation error rather than creating a record', async () => {
         prisma.clip.findUnique.mockResolvedValue(clipInWorkspace);
         socialAccounts.findOwnedOrThrow.mockResolvedValue(account);
-        campaigns.assertUsableForQueue.mockRejectedValue(new BadRequestException('Campaign campaign-1 is cancelled'));
+        campaigns.assertUsableForQueue.mockRejectedValue(
+          new BadRequestException('Campaign campaign-1 is cancelled'),
+        );
 
         await expect(
-          service.publish('clip-1', 'user-1', { socialAccountId: 'account-1', campaignId: 'campaign-1' }),
+          service.publish('clip-1', 'user-1', {
+            socialAccountId: 'account-1',
+            campaignId: 'campaign-1',
+          }),
         ).rejects.toThrow(BadRequestException);
         expect(prisma.publishRecord.create).not.toHaveBeenCalled();
       });
@@ -2300,7 +2302,7 @@ describe('ClipsService', () => {
       });
     });
 
-    it("throws NotFoundException for a missing project, same as findAllFiltered", async () => {
+    it('throws NotFoundException for a missing project, same as findAllFiltered', async () => {
       prisma.project.findUnique.mockResolvedValueOnce(null);
 
       await expect(

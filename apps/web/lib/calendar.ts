@@ -51,9 +51,7 @@ export function parseDateKey(key: string): Date {
 // Buckets entries by their own `date` field (already the server-computed
 // publishedAt ?? scheduledAt ?? createdAt fallback - see CalendarEntryDto)
 // into the same local-date keys buildMonthGrid's cells use.
-export function groupEntriesByDate(
-  entries: CalendarEntryDto[],
-): Map<string, CalendarEntryDto[]> {
+export function groupEntriesByDate(entries: CalendarEntryDto[]): Map<string, CalendarEntryDto[]> {
   const grouped = new Map<string, CalendarEntryDto[]>();
   for (const entry of entries) {
     const key = dateKey(new Date(entry.date));

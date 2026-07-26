@@ -77,7 +77,10 @@ describe('ClipQueryParserService', () => {
 
   it('passes the target workspace/project through to getTopicFacets and forwards its topics as availableTopics', async () => {
     clipsService.getTopicFacets.mockResolvedValue({
-      topics: [{ value: 'marketing', count: 5 }, { value: 'finance', count: 2 }],
+      topics: [
+        { value: 'marketing', count: 5 },
+        { value: 'finance', count: 2 },
+      ],
     });
     parseClipQueryMock.mockResolvedValue({ summary: 'Marketing clips.', topics: ['marketing'] });
 

@@ -156,7 +156,10 @@ export default function ClipPerformancePage({ params }: { params: { id: string }
                         <CardTitle className="text-base">Traffic</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <ClipTrafficTable traffic={performance.traffic} workspaceId={video.workspaceId} />
+                        <ClipTrafficTable
+                          traffic={performance.traffic}
+                          workspaceId={video.workspaceId}
+                        />
                       </CardContent>
                     </Card>
 
@@ -165,10 +168,7 @@ export default function ClipPerformancePage({ params }: { params: { id: string }
                         <CardTitle className="text-base">Audience</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <UnavailableMetric
-                          label="Audience"
-                          reason={performance.audience.reason}
-                        />
+                        <UnavailableMetric label="Audience" reason={performance.audience.reason} />
                       </CardContent>
                     </Card>
                   </>

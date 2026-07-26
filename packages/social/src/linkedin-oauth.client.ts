@@ -1,5 +1,9 @@
 import { OAuthNotConfiguredError } from './errors';
-import { LINKEDIN_OAUTH_AUTHORIZE_URL, LINKEDIN_OAUTH_TOKEN_URL, LINKEDIN_USERINFO_URL } from './linkedin-graph';
+import {
+  LINKEDIN_OAUTH_AUTHORIZE_URL,
+  LINKEDIN_OAUTH_TOKEN_URL,
+  LINKEDIN_USERINFO_URL,
+} from './linkedin-graph';
 import type { OAuthRefreshClient } from './resolve-access-token';
 
 // openid+profile (OpenID Connect "Sign In with LinkedIn") is what
@@ -127,6 +131,7 @@ export class LinkedInOAuthClient implements OAuthRefreshClient {
   // LinkedIn's API has no documented token-revoke endpoint - disconnect
   // just removes the local row, same posture as Threads' revokeToken().
   async revokeToken(_token: string): Promise<void> {
+    void _token;
     return Promise.resolve();
   }
 }

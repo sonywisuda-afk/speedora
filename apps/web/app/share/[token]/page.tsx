@@ -17,7 +17,9 @@ export default function SharedVideoPage({ params }: { params: { token: string } 
     getSharedVideo(params.token)
       .then(setData)
       .catch((err) =>
-        setError(err instanceof Error ? err.message : 'Link ini tidak valid atau sudah tidak berlaku'),
+        setError(
+          err instanceof Error ? err.message : 'Link ini tidak valid atau sudah tidak berlaku',
+        ),
       );
   }, [params.token]);
 

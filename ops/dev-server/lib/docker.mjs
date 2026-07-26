@@ -61,7 +61,10 @@ export function upDetached() {
   });
 }
 
-export async function waitForHealthy(services = INFRA_SERVICES, { timeoutMs = 60_000, intervalMs = 2000 } = {}) {
+export async function waitForHealthy(
+  services = INFRA_SERVICES,
+  { timeoutMs = 60_000, intervalMs = 2000 } = {},
+) {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const status = composeStatus(services);

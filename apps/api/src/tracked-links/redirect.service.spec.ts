@@ -21,7 +21,10 @@ describe('RedirectService', () => {
     };
     dedup = { isFirstOccurrence: jest.fn() };
 
-    service = new RedirectService(prisma as unknown as PrismaService, dedup as unknown as ClickDedupService);
+    service = new RedirectService(
+      prisma as unknown as PrismaService,
+      dedup as unknown as ClickDedupService,
+    );
   });
 
   it('returns null for an unknown slug - RedirectController turns this into a 404', async () => {
@@ -113,9 +116,21 @@ describe('RedirectService', () => {
     prisma.trackedLink.findUnique.mockResolvedValue(link);
     dedup.isFirstOccurrence.mockResolvedValue(true);
 
-    await service.recordClickAndResolve('abc123', { ip: '1.2.3.4', userAgent: 'Mozilla/5.0', referrer: undefined });
-    await service.recordClickAndResolve('abc123', { ip: '1.2.3.4', userAgent: 'Mozilla/5.0', referrer: undefined });
-    await service.recordClickAndResolve('abc123', { ip: '9.9.9.9', userAgent: 'Mozilla/5.0', referrer: undefined });
+    await service.recordClickAndResolve('abc123', {
+      ip: '1.2.3.4',
+      userAgent: 'Mozilla/5.0',
+      referrer: undefined,
+    });
+    await service.recordClickAndResolve('abc123', {
+      ip: '1.2.3.4',
+      userAgent: 'Mozilla/5.0',
+      referrer: undefined,
+    });
+    await service.recordClickAndResolve('abc123', {
+      ip: '9.9.9.9',
+      userAgent: 'Mozilla/5.0',
+      referrer: undefined,
+    });
 
     const [firstKey, windowSeconds] = dedup.isFirstOccurrence.mock.calls[0];
     const [secondKey] = dedup.isFirstOccurrence.mock.calls[1];

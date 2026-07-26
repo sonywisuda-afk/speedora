@@ -29,9 +29,7 @@ function average(values: number[]): number | null {
 // PUBLISHED jobs yet (or none at all) gets real zeros/nulls back, never an
 // exception. Same "no data is not zero" convention as
 // AnalyticsOverviewDto.averageEngagementScore.
-export function computeCampaignTotals(
-  records: CampaignAnalyticsRecord[],
-): CampaignAnalyticsTotals {
+export function computeCampaignTotals(records: CampaignAnalyticsRecord[]): CampaignAnalyticsTotals {
   const engagementScores = records
     .map((r) => r.engagementScore)
     .filter((v): v is number => v !== null);

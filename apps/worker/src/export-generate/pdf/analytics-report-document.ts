@@ -36,8 +36,7 @@ export function buildAnalyticsReportDocument(
   brandKit: BrandKitForDocument,
 ): React.ReactElement {
   const styles = createStyles(brandKit.primaryColor ?? undefined);
-  const { kv, heading, subheading, muted, divider, buildBrandLogo } =
-    createSectionBuilders(styles);
+  const { kv, heading, subheading, muted, divider, buildBrandLogo } = createSectionBuilders(styles);
 
   function buildCoverBlock(): React.ReactElement {
     return React.createElement(

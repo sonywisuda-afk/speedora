@@ -12,7 +12,11 @@ import {
   UserPlus,
   Unplug,
 } from 'lucide-react';
-import { NOTIFICATION_SEVERITY, NotificationType, type NotificationSeverity } from '@speedora/shared';
+import {
+  NOTIFICATION_SEVERITY,
+  NotificationType,
+  type NotificationSeverity,
+} from '@speedora/shared';
 
 // Notification Center Sprint 4A - the client-side half of the type registry
 // (icon needs lucide-react, so it can't live in packages/shared alongside

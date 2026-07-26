@@ -98,7 +98,9 @@ describe('WorkspaceAnalyticsService', () => {
 
     it('falls back to a generic video label when hookText is null, same convention as AnalyticsService', async () => {
       prisma.publishRecord.findMany.mockResolvedValue([
-        publishRecordRow({ clip: { hookText: null, videoId: 'video-abcdefgh', video: publishRecordRow().clip.video } }),
+        publishRecordRow({
+          clip: { hookText: null, videoId: 'video-abcdefgh', video: publishRecordRow().clip.video },
+        }),
       ]);
 
       const result = await service.getLeaderboard('user-1', 'ws-1', {

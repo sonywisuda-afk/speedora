@@ -18,7 +18,12 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { clipDownloadUrl, createSubtitlePreset, listSubtitlePresets, videoSourceUrl } from '@/lib/api';
+import {
+  clipDownloadUrl,
+  createSubtitlePreset,
+  listSubtitlePresets,
+  videoSourceUrl,
+} from '@/lib/api';
 import { FONT_FAMILY_CSS } from '@/lib/subtitleFonts';
 import { cn } from '@/lib/utils';
 import { useTimelineStore, type TimelineClip } from '@/lib/timelineStore';
@@ -311,9 +316,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
             const style = selectedClip?.captionStyle ?? CaptionStyle.DEFAULT;
             const speakerColorCaptions = selectedClip?.speakerColorCaptions ?? false;
             const baseColor =
-              speakerColorCaptions && active.speaker
-                ? speakerHexColor(active.speaker)
-                : 'white';
+              speakerColorCaptions && active.speaker ? speakerHexColor(active.speaker) : 'white';
             const fontCss = previewFontCss(selectedClip?.fontFamily);
             const styledWords = toStyledWords(active, style, video.currentTime, baseColor);
             const lines = wrapStyledWords(ctx, styledWords, regionWidth * 0.92, fontSize, fontCss);
@@ -613,11 +616,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
             </div>
 
             {savingPresetName === null ? (
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => setSavingPresetName('')}
-              >
+              <Button size="sm" variant="outline" onClick={() => setSavingPresetName('')}>
                 Simpan sebagai preset
               </Button>
             ) : (
@@ -645,9 +644,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
               </div>
             )}
           </div>
-          {presetError && (
-            <p className="mt-1 font-body text-xs text-destructive">{presetError}</p>
-          )}
+          {presetError && <p className="mt-1 font-body text-xs text-destructive">{presetError}</p>}
 
           <div className="mt-3">
             <Label className="text-xs uppercase tracking-wide text-muted-foreground">
@@ -741,9 +738,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
                 </Label>
                 <select
                   value={selectedClip.captionLanguage ?? ''}
-                  onChange={(e) =>
-                    setCaptionLanguage(selectedClip.id, e.target.value || null)
-                  }
+                  onChange={(e) => setCaptionLanguage(selectedClip.id, e.target.value || null)}
                   className="h-8 rounded-md border border-input bg-slate-panel px-2 font-mono text-xs text-foreground"
                 >
                   <option value="">Asli (tidak diterjemahkan)</option>

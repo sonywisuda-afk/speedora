@@ -428,9 +428,7 @@ export default function BrandKitPage() {
             <Nav user={user} onLogout={logout} />
 
             {error && (
-              <p className="mt-4 font-body text-sm text-destructive">
-                Gagal memuat Brand Kit
-              </p>
+              <p className="mt-4 font-body text-sm text-destructive">Gagal memuat Brand Kit</p>
             )}
 
             {!isLoading && brandKit && (
@@ -518,8 +516,8 @@ export default function BrandKitPage() {
                     Font Caption
                   </Label>
                   <p className="font-body text-xs text-muted-foreground">
-                    Dipakai untuk membakar caption ke setiap clip baru dari akun ini
-                    (kecuali dimatikan per-clip).
+                    Dipakai untuk membakar caption ke setiap clip baru dari akun ini (kecuali
+                    dimatikan per-clip).
                   </p>
                   <select
                     value={font}
@@ -584,9 +582,7 @@ export default function BrandKitPage() {
 
                   <div className="flex flex-wrap items-end gap-4">
                     <div className="flex flex-col gap-1">
-                      <span className="font-mono text-[10px] text-muted-foreground">
-                        Posisi
-                      </span>
+                      <span className="font-mono text-[10px] text-muted-foreground">Posisi</span>
                       <select
                         value={position}
                         onChange={(e) => setWatermarkPosition(e.target.value as WatermarkPosition)}
@@ -646,8 +642,8 @@ export default function BrandKitPage() {
                     Intro
                   </Label>
                   <p className="font-body text-xs text-muted-foreground">
-                    Video atau gambar yang diputar sebelum setiap clip baru (bisa dimatikan
-                    per-clip di editor). Video diputar dengan durasi aslinya (maks.{' '}
+                    Video atau gambar yang diputar sebelum setiap clip baru (bisa dimatikan per-clip
+                    di editor). Video diputar dengan durasi aslinya (maks.{' '}
                     {MAX_INTRO_DURATION_SECONDS} detik); gambar ditahan selama durasi di bawah.
                   </p>
                   <div className="flex items-center gap-4">
@@ -722,8 +718,8 @@ export default function BrandKitPage() {
                     Outro
                   </Label>
                   <p className="font-body text-xs text-muted-foreground">
-                    Video atau gambar yang diputar setelah setiap clip baru (bisa dimatikan
-                    per-clip di editor). Video diputar dengan durasi aslinya (maks.{' '}
+                    Video atau gambar yang diputar setelah setiap clip baru (bisa dimatikan per-clip
+                    di editor). Video diputar dengan durasi aslinya (maks.{' '}
                     {MAX_INTRO_DURATION_SECONDS} detik); gambar ditahan selama durasi di bawah.
                   </p>
                   <div className="flex items-center gap-4">
@@ -798,7 +794,8 @@ export default function BrandKitPage() {
                     Preset Subtitle
                   </Label>
                   <p className="font-body text-xs text-muted-foreground">
-                    Preset yang sudah Anda simpan dari Timeline Editor (&quot;Simpan sebagai preset&quot;).
+                    Preset yang sudah Anda simpan dari Timeline Editor (&quot;Simpan sebagai
+                    preset&quot;).
                   </p>
                   {presetsError && (
                     <p className="font-body text-xs text-destructive">Gagal memuat preset</p>
@@ -845,8 +842,8 @@ export default function BrandKitPage() {
                     Template Brand Kit
                   </Label>
                   <p className="font-body text-xs text-muted-foreground">
-                    Simpan kombinasi logo, warna, font, watermark, intro, dan outro saat ini
-                    sebagai template bernama, lalu beralih di antara beberapa template kapan pun.
+                    Simpan kombinasi logo, warna, font, watermark, intro, dan outro saat ini sebagai
+                    template bernama, lalu beralih di antara beberapa template kapan pun.
                   </p>
 
                   <div className="flex items-center gap-2">
@@ -941,9 +938,7 @@ export default function BrandKitPage() {
                   )}
                 </div>
 
-                {saveError && (
-                  <p className="font-body text-xs text-destructive">{saveError}</p>
-                )}
+                {saveError && <p className="font-body text-xs text-destructive">{saveError}</p>}
               </div>
             )}
           </>

@@ -39,7 +39,12 @@ type JobSummaryInput = Pick<PublishRecordRow, 'status' | 'clipId'> & {
 function summarize(
   cancelledAt: Date | null,
   jobs: JobSummaryInput[],
-): { status: CampaignStatus; clipCount: number; platformCount: number; progress: CampaignProgress } {
+): {
+  status: CampaignStatus;
+  clipCount: number;
+  platformCount: number;
+  progress: CampaignProgress;
+} {
   return {
     status: computeCampaignStatus(cancelledAt, jobs),
     clipCount: new Set(jobs.map((j) => j.clipId)).size,
@@ -111,13 +116,18 @@ export class CampaignsService {
     return toDto(campaign, []);
   }
 
-  async listByWorkspace(userId: string, workspaceId: string): Promise<{ campaigns: CampaignDto[] }> {
+  async listByWorkspace(
+    userId: string,
+    workspaceId: string,
+  ): Promise<{ campaigns: CampaignDto[] }> {
     await this.access.assertMinRole(userId, workspaceId, WorkspaceRole.VIEWER);
     const campaigns = await this.prisma.campaign.findMany({
       where: { workspaceId },
       orderBy: { createdAt: 'desc' },
       include: {
-        publishRecords: { select: { status: true, clipId: true, socialAccount: { select: { platform: true } } } },
+        publishRecords: {
+          select: { status: true, clipId: true, socialAccount: { select: { platform: true } } },
+        },
       },
       // Stabilization Pass (API Contract Audit) - was fully unbounded.
       take: 200,
@@ -268,7 +278,9 @@ export class CampaignsService {
       where: { id },
       data: { name: dto.name, description: dto.description, tag: dto.tag, startDate, endDate },
       include: {
-        publishRecords: { select: { status: true, clipId: true, socialAccount: { select: { platform: true } } } },
+        publishRecords: {
+          select: { status: true, clipId: true, socialAccount: { select: { platform: true } } },
+        },
       },
     });
     return toDto(updated, updated.publishRecords);
@@ -291,7 +303,9 @@ export class CampaignsService {
       where: { id },
       data: { cancelledAt: new Date() },
       include: {
-        publishRecords: { select: { status: true, clipId: true, socialAccount: { select: { platform: true } } } },
+        publishRecords: {
+          select: { status: true, clipId: true, socialAccount: { select: { platform: true } } },
+        },
       },
     });
 

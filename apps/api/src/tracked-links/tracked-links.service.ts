@@ -61,7 +61,9 @@ export class TrackedLinksService {
     }
     const apiHost = new URL(apiBaseUrl()).host;
     if (destination.host === apiHost && destination.pathname.startsWith('/r/')) {
-      throw new BadRequestException("destinationUrl cannot point back to this app's own tracked links");
+      throw new BadRequestException(
+        "destinationUrl cannot point back to this app's own tracked links",
+      );
     }
   }
 
@@ -95,7 +97,9 @@ export class TrackedLinksService {
         select: { clip: { select: { video: { select: { workspaceId: true } } } } },
       });
       if (!record || record.clip.video.workspaceId !== workspaceId) {
-        throw new NotFoundException(`PublishRecord ${dto.publishRecordId} not found in this workspace`);
+        throw new NotFoundException(
+          `PublishRecord ${dto.publishRecordId} not found in this workspace`,
+        );
       }
     } else if (dto.campaignId) {
       const campaign = await this.prisma.campaign.findUnique({

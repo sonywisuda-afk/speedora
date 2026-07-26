@@ -1,5 +1,9 @@
 import { OAuthNotConfiguredError } from './errors';
-import { PINTEREST_API_BASE_URL, PINTEREST_OAUTH_AUTHORIZE_URL, PINTEREST_OAUTH_TOKEN_URL } from './pinterest-graph';
+import {
+  PINTEREST_API_BASE_URL,
+  PINTEREST_OAUTH_AUTHORIZE_URL,
+  PINTEREST_OAUTH_TOKEN_URL,
+} from './pinterest-graph';
 import type { OAuthRefreshClient } from './resolve-access-token';
 
 // boards:read is what fetchAccountInfo() needs to pick a target board (see
@@ -86,7 +90,10 @@ export class PinterestOAuthClient implements OAuthRefreshClient {
   async refreshAccessToken(
     refreshToken: string,
   ): Promise<{ accessToken: string; refreshToken: string; expiresAt: Date }> {
-    const tokens = await requestTokens({ grant_type: 'refresh_token', refresh_token: refreshToken });
+    const tokens = await requestTokens({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    });
     return {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken || refreshToken,
@@ -119,7 +126,9 @@ export class PinterestOAuthClient implements OAuthRefreshClient {
     }
     const board = boardsBody.items?.[0];
     if (!board) {
-      throw new Error('No Pinterest board found - create at least one board to connect this account');
+      throw new Error(
+        'No Pinterest board found - create at least one board to connect this account',
+      );
     }
 
     return { boardId: board.id, displayName: `${accountBody.username} — ${board.name}` };
@@ -129,6 +138,7 @@ export class PinterestOAuthClient implements OAuthRefreshClient {
   // just removes the local row, same posture as Threads'/LinkedIn's
   // revokeToken().
   async revokeToken(_token: string): Promise<void> {
+    void _token;
     return Promise.resolve();
   }
 }

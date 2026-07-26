@@ -35,7 +35,10 @@ describe('uploadLinkedInVideo', () => {
       // 4. finalizeUpload
       .mockResolvedValueOnce({ ok: true })
       // 5. create post
-      .mockResolvedValueOnce({ ok: true, headers: fakeHeaders({ 'x-restli-id': 'urn:li:share:1' }) });
+      .mockResolvedValueOnce({
+        ok: true,
+        headers: fakeHeaders({ 'x-restli-id': 'urn:li:share:1' }),
+      });
     global.fetch = fetchMock as unknown as typeof fetch;
     const videoStream = Readable.from([Buffer.from('0123456789')]); // 10 bytes -> 2x 5-byte parts
 
@@ -120,7 +123,9 @@ describe('uploadLinkedInVideo', () => {
         json: async () => ({
           value: {
             video: 'urn:li:video:abc',
-            uploadInstructions: [{ uploadUrl: 'https://rupload.example.com/part-0', firstByte: 0, lastByte: 0 }],
+            uploadInstructions: [
+              { uploadUrl: 'https://rupload.example.com/part-0', firstByte: 0, lastByte: 0 },
+            ],
           },
         }),
       })
@@ -150,7 +155,9 @@ describe('uploadLinkedInVideo', () => {
         json: async () => ({
           value: {
             video: 'urn:li:video:abc',
-            uploadInstructions: [{ uploadUrl: 'https://rupload.example.com/part-0', firstByte: 0, lastByte: 0 }],
+            uploadInstructions: [
+              { uploadUrl: 'https://rupload.example.com/part-0', firstByte: 0, lastByte: 0 },
+            ],
           },
         }),
       })
@@ -180,7 +187,9 @@ describe('uploadLinkedInVideo', () => {
         json: async () => ({
           value: {
             video: 'urn:li:video:abc',
-            uploadInstructions: [{ uploadUrl: 'https://rupload.example.com/part-0', firstByte: 0, lastByte: 0 }],
+            uploadInstructions: [
+              { uploadUrl: 'https://rupload.example.com/part-0', firstByte: 0, lastByte: 0 },
+            ],
           },
         }),
       })

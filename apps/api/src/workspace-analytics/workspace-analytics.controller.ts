@@ -12,7 +12,13 @@ import { WorkspaceAnalyticsService } from './workspace-analytics.service';
 // posture as AnalyticsController's own parseDays/parsePlatform.
 const VALID_DAYS = [7, 30, 90, 180, 365];
 const DEFAULT_DAYS = 30;
-const VALID_METRICS: LeaderboardMetric[] = ['views', 'likes', 'comments', 'shares', 'engagementScore'];
+const VALID_METRICS: LeaderboardMetric[] = [
+  'views',
+  'likes',
+  'comments',
+  'shares',
+  'engagementScore',
+];
 const DEFAULT_METRIC: LeaderboardMetric = 'engagementScore';
 const DEFAULT_LIMIT = 10;
 // "Top 10 or Top 20" - a hard ceiling, not just a default, so a client

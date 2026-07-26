@@ -104,7 +104,11 @@ describe('FacebookOAuthClient', () => {
 
       const page = await client.fetchAccountInfo('long-lived-user-token');
 
-      expect(page).toEqual({ pageId: 'page-1', pageName: 'My Page', pageAccessToken: 'page-token' });
+      expect(page).toEqual({
+        pageId: 'page-1',
+        pageName: 'My Page',
+        pageAccessToken: 'page-token',
+      });
     });
 
     it('throws when the user manages no Facebook Page', async () => {

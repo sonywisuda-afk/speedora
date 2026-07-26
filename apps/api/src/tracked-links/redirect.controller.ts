@@ -1,4 +1,14 @@
-import { Controller, Get, Headers, HttpStatus, Ip, NotFoundException, Param, Res, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Headers,
+  HttpStatus,
+  Ip,
+  NotFoundException,
+  Param,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import type { Response } from 'express';
 import { RedirectService } from './redirect.service';

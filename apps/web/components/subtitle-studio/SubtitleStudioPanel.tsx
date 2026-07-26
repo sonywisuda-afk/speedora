@@ -149,7 +149,12 @@ function SegmentRow({
               ),
             )}
           </select>
-          <Button size="sm" variant="outline" disabled={saving || splitAt === null} onClick={handleSplit}>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={saving || splitAt === null}
+            onClick={handleSplit}
+          >
             Pisah
           </Button>
         </div>

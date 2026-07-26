@@ -43,7 +43,7 @@ describe('generatePlatformCopy', () => {
     });
   });
 
-  it("includes platform in the prompt and passes only already-computed clip fields, never a transcript", async () => {
+  it('includes platform in the prompt and passes only already-computed clip fields, never a transcript', async () => {
     const openai = fakeOpenAI({ caption: 'x', hashtags: [], description: null });
 
     await generatePlatformCopy(baseInput({ platform: 'YOUTUBE' }), { openai });

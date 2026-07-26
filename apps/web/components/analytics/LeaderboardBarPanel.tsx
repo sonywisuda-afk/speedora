@@ -20,7 +20,12 @@ const MIN_HEIGHT = 160;
 // page. Horizontal bars (layout="vertical", per AnalyticsBarChart's own
 // naming) - the natural shape for a ranked list. Height scales with row
 // count so a Top 20 list doesn't cram into the same fixed height as Top 5.
-export function LeaderboardBarPanel({ title, rows, valueLabel, emptyMessage }: LeaderboardBarPanelProps) {
+export function LeaderboardBarPanel({
+  title,
+  rows,
+  valueLabel,
+  emptyMessage,
+}: LeaderboardBarPanelProps) {
   return (
     <AnalyticsCard title={title}>
       <AnalyticsBarChart

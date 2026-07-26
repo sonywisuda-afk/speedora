@@ -50,7 +50,10 @@ describe('generateClipNarrative', () => {
 
   it("classifies 'over_performed' when the outcome is well above the owner's median", () => {
     const result = generateClipNarrative(
-      { topFactors: [factor({ signal: 'audio', description: 'Loud audio' })], breakdown: [contribution()] },
+      {
+        topFactors: [factor({ signal: 'audio', description: 'Loud audio' })],
+        breakdown: [contribution()],
+      },
       { engagementScore: 0.6, ownerEngagementScores: BASELINE_HISTORY },
     );
 
@@ -64,7 +67,14 @@ describe('generateClipNarrative', () => {
     const result = generateClipNarrative(
       {
         topFactors: [factor()],
-        breakdown: [contribution({ signal: 'facial', feature: 'smileRate', weight: 0.2, weightedContribution: 0.01 })],
+        breakdown: [
+          contribution({
+            signal: 'facial',
+            feature: 'smileRate',
+            weight: 0.2,
+            weightedContribution: 0.01,
+          }),
+        ],
       },
       { engagementScore: 0.1, ownerEngagementScores: BASELINE_HISTORY },
     );

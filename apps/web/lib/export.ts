@@ -85,9 +85,7 @@ export const ACCOUNT_EXPORT_TYPES: ExportType[] = [ExportType.ANALYTICS_REPORT];
 // createdAt DESC (ExportService.listRecent's query), so keeping only the
 // first job seen per type is enough to get "most recent job per type"
 // without a second sort here.
-export function latestJobByType(
-  jobs: ExportJobDto[],
-): Partial<Record<ExportType, ExportJobDto>> {
+export function latestJobByType(jobs: ExportJobDto[]): Partial<Record<ExportType, ExportJobDto>> {
   const result: Partial<Record<ExportType, ExportJobDto>> = {};
   for (const job of jobs) {
     if (!result[job.type]) {

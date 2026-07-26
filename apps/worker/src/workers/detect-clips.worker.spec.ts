@@ -233,7 +233,9 @@ describe('detect-clips worker (adapter)', () => {
   // Workspace-level Brand Kit roadmap (P3g).
   it("prefers the video's workspace Brand Kit font over the owner's personal one when set", async () => {
     scoreClipCandidatesMock.mockResolvedValue({
-      candidates: [scoredCandidate({ startTime: 5, endTime: 10, viralityScore: 90, hookText: 'hook' })],
+      candidates: [
+        scoredCandidate({ startTime: 5, endTime: 10, viralityScore: 90, hookText: 'hook' }),
+      ],
     });
     videoFindUniqueOrThrowMock.mockResolvedValue({
       id: 'video-1',

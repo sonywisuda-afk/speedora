@@ -128,14 +128,18 @@ describe('buildAss', () => {
   // Subtitle Studio roadmap (P2c).
   describe('speakerColorCaptions', () => {
     it('does nothing when false, even with a speaker on the segment', () => {
-      const segments: SubtitleSegment[] = [{ start: 10, end: 12, text: 'hi', speaker: 'Speaker A' }];
+      const segments: SubtitleSegment[] = [
+        { start: 10, end: 12, text: 'hi', speaker: 'Speaker A' },
+      ];
       const ass = buildAss({ ...baseOptions, segments, speakerColorCaptions: false });
 
       expect(ass).not.toContain('\\3c');
     });
 
     it('wraps the text in an outline-colour override when true and a speaker is present', () => {
-      const segments: SubtitleSegment[] = [{ start: 10, end: 12, text: 'hi', speaker: 'Speaker A' }];
+      const segments: SubtitleSegment[] = [
+        { start: 10, end: 12, text: 'hi', speaker: 'Speaker A' },
+      ];
       const ass = buildAss({ ...baseOptions, segments, speakerColorCaptions: true });
 
       expect(ass).toContain(',,{\\3c&HD6E622&}hi');
@@ -149,7 +153,9 @@ describe('buildAss', () => {
     });
 
     it('picks a different colour for Speaker B, deterministically by letter', () => {
-      const segments: SubtitleSegment[] = [{ start: 10, end: 12, text: 'hi', speaker: 'Speaker B' }];
+      const segments: SubtitleSegment[] = [
+        { start: 10, end: 12, text: 'hi', speaker: 'Speaker B' },
+      ];
       const ass = buildAss({ ...baseOptions, segments, speakerColorCaptions: true });
 
       expect(ass).toContain('{\\3c&H7F3BFF&}hi');
@@ -174,8 +180,6 @@ describe('buildAss', () => {
 
   it('rejects an input that fails the buildAssInputSchema contract', () => {
     const segments: SubtitleSegment[] = [{ start: 10, end: 12, text: 'hi' }];
-    expect(() =>
-      buildAss({ ...baseOptions, segments, style: 'COMIC_SANS' as never }),
-    ).toThrow();
+    expect(() => buildAss({ ...baseOptions, segments, style: 'COMIC_SANS' as never })).toThrow();
   });
 });

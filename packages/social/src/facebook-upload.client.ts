@@ -39,8 +39,10 @@ export async function uploadFacebookReel(
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams({ upload_phase: 'start', access_token: accessToken }),
   });
-  const startBody = (await startRes.json()) as { video_id?: string; upload_url?: string } &
-    GraphErrorBody;
+  const startBody = (await startRes.json()) as {
+    video_id?: string;
+    upload_url?: string;
+  } & GraphErrorBody;
   if (!startRes.ok || !startBody.video_id) {
     throw new Error(
       `Facebook video_reels start failed: ${startRes.status} ${startBody.error?.message ?? ''}`.trim(),
@@ -56,8 +58,9 @@ export async function uploadFacebookReel(
       file_url: videoUrl,
     },
   });
-  const uploadBody = (await uploadRes.json().catch(() => ({}))) as { success?: boolean } &
-    GraphErrorBody;
+  const uploadBody = (await uploadRes.json().catch(() => ({}))) as {
+    success?: boolean;
+  } & GraphErrorBody;
   if (!uploadRes.ok || uploadBody.success === false) {
     throw new Error(
       `Facebook video upload failed: ${uploadRes.status} ${uploadBody.error?.message ?? ''}`.trim(),

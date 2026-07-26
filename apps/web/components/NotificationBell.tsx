@@ -90,7 +90,8 @@ export function NotificationBell() {
           (n) => !lastSeenCreatedAt.current || n.createdAt > lastSeenCreatedAt.current,
         );
         for (const n of newest.slice().reverse()) {
-          const toastEnabled = preferences?.preferences.find((p) => p.type === n.type)?.toast ?? true;
+          const toastEnabled =
+            preferences?.preferences.find((p) => p.type === n.type)?.toast ?? true;
           if (toastEnabled) {
             toast({ title: n.title, description: n.body, tone: notificationTone(n.type) });
           }

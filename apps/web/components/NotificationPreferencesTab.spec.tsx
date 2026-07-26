@@ -253,9 +253,7 @@ describe('NotificationPreferencesTab', () => {
       const saveButtons = screen.getAllByRole('button', { name: 'Simpan' });
       fireEvent.click(saveButtons[saveButtons.length - 1]);
 
-      await waitFor(() =>
-        expect(mockUpsertTelegramWebhook).toHaveBeenCalledWith('123:abcdefghij'),
-      );
+      await waitFor(() => expect(mockUpsertTelegramWebhook).toHaveBeenCalledWith('123:abcdefghij'));
     });
 
     it('renders a t.me deep link and "Menunggu konfirmasi..." status while pending', async () => {

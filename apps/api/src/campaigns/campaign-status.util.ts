@@ -12,10 +12,14 @@ export function computeCampaignStatus(
 ): CampaignStatus {
   if (cancelledAt) return CampaignStatus.CANCELLED;
   if (jobs.length === 0) return CampaignStatus.DRAFT;
-  if (jobs.every((j) => j.status === PublishStatus.PUBLISHED || j.status === PublishStatus.FAILED)) {
+  if (
+    jobs.every((j) => j.status === PublishStatus.PUBLISHED || j.status === PublishStatus.FAILED)
+  ) {
     return CampaignStatus.COMPLETED;
   }
-  if (jobs.some((j) => j.status === PublishStatus.PUBLISHING || j.status === PublishStatus.PUBLISHED)) {
+  if (
+    jobs.some((j) => j.status === PublishStatus.PUBLISHING || j.status === PublishStatus.PUBLISHED)
+  ) {
     return CampaignStatus.RUNNING;
   }
   return CampaignStatus.SCHEDULED; // all still SCHEDULED/QUEUED, none started

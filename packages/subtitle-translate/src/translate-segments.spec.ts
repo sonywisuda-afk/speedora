@@ -15,10 +15,7 @@ describe('translateSegments', () => {
   it('returns no translations and skips the LLM call when there are no segments', async () => {
     const openai = fakeOpenAI([]);
 
-    const result = await translateSegments(
-      { segments: [], languageCode: 'en' },
-      { openai },
-    );
+    const result = await translateSegments({ segments: [], languageCode: 'en' }, { openai });
 
     expect(openai.chat.completions.create).not.toHaveBeenCalled();
     expect(result).toEqual({ translations: [] });

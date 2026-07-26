@@ -56,7 +56,11 @@ describe('useNotificationStream', () => {
 
     act(() =>
       instance.onmessage?.({
-        data: JSON.stringify({ userId: 'user-1', notificationId: 'notif-1', type: 'UPLOAD_COMPLETE' }),
+        data: JSON.stringify({
+          userId: 'user-1',
+          notificationId: 'notif-1',
+          type: 'UPLOAD_COMPLETE',
+        }),
       }),
     );
     expect(onEvent).toHaveBeenCalledTimes(1);

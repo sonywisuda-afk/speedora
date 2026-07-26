@@ -41,9 +41,7 @@ export function PlatformFitPanel({ clipId }: { clipId: string }) {
   }
   if (!data || data.rankings.length === 0) {
     return (
-      <p className="font-body text-xs text-muted-foreground">
-        Belum ada skor AI untuk klip ini.
-      </p>
+      <p className="font-body text-xs text-muted-foreground">Belum ada skor AI untuk klip ini.</p>
     );
   }
 

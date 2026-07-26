@@ -1153,10 +1153,13 @@ export async function getExportJob(id: string): Promise<ExportJobDto> {
 // state from the server instead of always starting blank. `videoId` scopes
 // the existing per-video tabs; `type` (ANALYTICS_REPORT has no videoId to
 // scope by) covers the account-wide list - callers pass exactly one.
-export async function listExportJobs(
-  filter: { videoId?: string; type?: ExportType },
-): Promise<ExportJobListDto> {
-  const res = await apiFetch(`/export${toQueryString(filter as Record<string, string | undefined>)}`);
+export async function listExportJobs(filter: {
+  videoId?: string;
+  type?: ExportType;
+}): Promise<ExportJobListDto> {
+  const res = await apiFetch(
+    `/export${toQueryString(filter as Record<string, string | undefined>)}`,
+  );
   return parseJsonOrThrow<ExportJobListDto>(res);
 }
 
@@ -1308,10 +1311,7 @@ export function brandKitLogoUrl(workspaceId?: string): string {
 }
 
 // Watermark roadmap (P3c) - same upload/download shape as the logo above.
-export async function uploadBrandWatermark(
-  file: File,
-  workspaceId?: string,
-): Promise<BrandKitDto> {
+export async function uploadBrandWatermark(file: File, workspaceId?: string): Promise<BrandKitDto> {
   const formData = new FormData();
   formData.append('file', file);
   const res = await apiFetch(`/brand-kit/watermark${toQueryString({ workspaceId })}`, {
@@ -1549,10 +1549,7 @@ export async function removeCommentReaction(id: string, emoji: string): Promise<
   return parseJsonOrThrow<CommentDto>(res);
 }
 
-export async function addCommentAttachment(
-  id: string,
-  file: File,
-): Promise<CommentAttachmentDto> {
+export async function addCommentAttachment(id: string, file: File): Promise<CommentAttachmentDto> {
   const formData = new FormData();
   formData.append('file', file);
   const res = await apiFetch(`/comments/${id}/attachments`, { method: 'POST', body: formData });

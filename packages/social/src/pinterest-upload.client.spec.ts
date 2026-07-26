@@ -103,7 +103,11 @@ describe('uploadPinterestVideo', () => {
           upload_parameters: {},
         }),
       })
-      .mockResolvedValueOnce({ ok: false, status: 403, text: async () => 'expired' }) as unknown as typeof fetch;
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 403,
+        text: async () => 'expired',
+      }) as unknown as typeof fetch;
 
     await expect(
       uploadPinterestVideo({
@@ -129,7 +133,10 @@ describe('uploadPinterestVideo', () => {
         }),
       })
       .mockResolvedValueOnce({ ok: true })
-      .mockResolvedValueOnce({ ok: true, json: async () => ({ status: 'failed' }) }) as unknown as typeof fetch;
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ status: 'failed' }),
+      }) as unknown as typeof fetch;
 
     await expect(
       uploadPinterestVideo({

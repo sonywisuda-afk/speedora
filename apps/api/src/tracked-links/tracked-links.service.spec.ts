@@ -14,7 +14,12 @@ function p2002(): Prisma.PrismaClientKnownRequestError {
 describe('TrackedLinksService', () => {
   let service: TrackedLinksService;
   let prisma: {
-    trackedLink: { create: jest.Mock; findMany: jest.Mock; findUnique: jest.Mock; delete: jest.Mock };
+    trackedLink: {
+      create: jest.Mock;
+      findMany: jest.Mock;
+      findUnique: jest.Mock;
+      delete: jest.Mock;
+    };
     publishRecord: { findUnique: jest.Mock };
     campaign: { findUnique: jest.Mock };
   };
@@ -53,7 +58,9 @@ describe('TrackedLinksService', () => {
     const dto = { destinationUrl: 'https://creator.example/landing', publishRecordId: 'pr-1' };
 
     it('requires EDITOR+', async () => {
-      prisma.publishRecord.findUnique.mockResolvedValue({ clip: { video: { workspaceId: 'ws-1' } } });
+      prisma.publishRecord.findUnique.mockResolvedValue({
+        clip: { video: { workspaceId: 'ws-1' } },
+      });
       prisma.trackedLink.create.mockResolvedValue(createdLink);
 
       await service.create('user-1', 'ws-1', dto as never);
@@ -62,9 +69,9 @@ describe('TrackedLinksService', () => {
     });
 
     it('rejects when neither publishRecordId nor campaignId is provided', async () => {
-      await expect(service.create('user-1', 'ws-1', { destinationUrl: 'https://x.example' } as never)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        service.create('user-1', 'ws-1', { destinationUrl: 'https://x.example' } as never),
+      ).rejects.toThrow(BadRequestException);
       expect(prisma.trackedLink.create).not.toHaveBeenCalled();
     });
 
@@ -103,21 +110,30 @@ describe('TrackedLinksService', () => {
 
     it('rejects an unparseable destinationUrl', async () => {
       await expect(
-        service.create('user-1', 'ws-1', { destinationUrl: 'not-a-url', publishRecordId: 'pr-1' } as never),
+        service.create('user-1', 'ws-1', {
+          destinationUrl: 'not-a-url',
+          publishRecordId: 'pr-1',
+        } as never),
       ).rejects.toThrow(BadRequestException);
     });
 
     it('rejects when the publishRecordId does not belong to this workspace', async () => {
-      prisma.publishRecord.findUnique.mockResolvedValue({ clip: { video: { workspaceId: 'other-ws' } } });
+      prisma.publishRecord.findUnique.mockResolvedValue({
+        clip: { video: { workspaceId: 'other-ws' } },
+      });
 
-      await expect(service.create('user-1', 'ws-1', dto as never)).rejects.toThrow(NotFoundException);
+      await expect(service.create('user-1', 'ws-1', dto as never)).rejects.toThrow(
+        NotFoundException,
+      );
       expect(prisma.trackedLink.create).not.toHaveBeenCalled();
     });
 
     it('rejects when the publishRecordId does not exist at all', async () => {
       prisma.publishRecord.findUnique.mockResolvedValue(null);
 
-      await expect(service.create('user-1', 'ws-1', dto as never)).rejects.toThrow(NotFoundException);
+      await expect(service.create('user-1', 'ws-1', dto as never)).rejects.toThrow(
+        NotFoundException,
+      );
     });
 
     it('rejects when the campaignId does not belong to this workspace', async () => {
@@ -133,7 +149,9 @@ describe('TrackedLinksService', () => {
     });
 
     it('creates a link attributed to a publishRecordId in this workspace and shapes the DTO, including redirectUrl', async () => {
-      prisma.publishRecord.findUnique.mockResolvedValue({ clip: { video: { workspaceId: 'ws-1' } } });
+      prisma.publishRecord.findUnique.mockResolvedValue({
+        clip: { video: { workspaceId: 'ws-1' } },
+      });
       prisma.trackedLink.create.mockResolvedValue(createdLink);
 
       const result = await service.create('user-1', 'ws-1', dto as never);
@@ -161,7 +179,11 @@ describe('TrackedLinksService', () => {
 
     it('creates a link attributed to a campaignId in this workspace', async () => {
       prisma.campaign.findUnique.mockResolvedValue({ workspaceId: 'ws-1' });
-      prisma.trackedLink.create.mockResolvedValue({ ...createdLink, publishRecordId: null, campaignId: 'camp-1' });
+      prisma.trackedLink.create.mockResolvedValue({
+        ...createdLink,
+        publishRecordId: null,
+        campaignId: 'camp-1',
+      });
 
       const result = await service.create('user-1', 'ws-1', {
         destinationUrl: 'https://creator.example/landing',
@@ -173,7 +195,9 @@ describe('TrackedLinksService', () => {
     });
 
     it('retries slug generation on a P2002 collision and succeeds on the next attempt', async () => {
-      prisma.publishRecord.findUnique.mockResolvedValue({ clip: { video: { workspaceId: 'ws-1' } } });
+      prisma.publishRecord.findUnique.mockResolvedValue({
+        clip: { video: { workspaceId: 'ws-1' } },
+      });
       prisma.trackedLink.create.mockRejectedValueOnce(p2002()).mockResolvedValueOnce(createdLink);
 
       const result = await service.create('user-1', 'ws-1', dto as never);
@@ -183,7 +207,9 @@ describe('TrackedLinksService', () => {
     });
 
     it('gives up after MAX_SLUG_ATTEMPTS consecutive collisions and surfaces the error', async () => {
-      prisma.publishRecord.findUnique.mockResolvedValue({ clip: { video: { workspaceId: 'ws-1' } } });
+      prisma.publishRecord.findUnique.mockResolvedValue({
+        clip: { video: { workspaceId: 'ws-1' } },
+      });
       prisma.trackedLink.create.mockRejectedValue(p2002());
 
       await expect(service.create('user-1', 'ws-1', dto as never)).rejects.toThrow();
@@ -191,11 +217,15 @@ describe('TrackedLinksService', () => {
     });
 
     it('does not retry on a non-collision error', async () => {
-      prisma.publishRecord.findUnique.mockResolvedValue({ clip: { video: { workspaceId: 'ws-1' } } });
+      prisma.publishRecord.findUnique.mockResolvedValue({
+        clip: { video: { workspaceId: 'ws-1' } },
+      });
       const dbError = new Error('connection lost');
       prisma.trackedLink.create.mockRejectedValue(dbError);
 
-      await expect(service.create('user-1', 'ws-1', dto as never)).rejects.toThrow('connection lost');
+      await expect(service.create('user-1', 'ws-1', dto as never)).rejects.toThrow(
+        'connection lost',
+      );
       expect(prisma.trackedLink.create).toHaveBeenCalledTimes(1);
     });
   });

@@ -55,7 +55,12 @@ export function findRepoDevProcesses() {
 
     const filterMatch = proc.command.match(FILTER_PATTERN);
     if (filterMatch) {
-      matches.push({ pid: proc.pid, ppid: proc.ppid, command: proc.command, matchedPackage: filterMatch[1] });
+      matches.push({
+        pid: proc.pid,
+        ppid: proc.ppid,
+        command: proc.command,
+        matchedPackage: filterMatch[1],
+      });
       continue;
     }
 

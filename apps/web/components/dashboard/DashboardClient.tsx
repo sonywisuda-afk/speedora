@@ -273,11 +273,7 @@ export function DashboardClient({
     );
   }
 
-  async function handlePublish(
-    clipId: string,
-    socialAccountId: string,
-    campaignId?: string,
-  ) {
+  async function handlePublish(clipId: string, socialAccountId: string, campaignId?: string) {
     setPublishError(null);
     setPublishingClipId(clipId);
     try {
@@ -705,7 +701,9 @@ export function DashboardClient({
                                   )}
                                   {clip.publishRecords.length > 0 && (
                                     <Button size="sm" variant="outline" asChild>
-                                      <Link href={`/videos/${video.id}/performance?clip=${clip.id}`}>
+                                      <Link
+                                        href={`/videos/${video.id}/performance?clip=${clip.id}`}
+                                      >
                                         Performance
                                       </Link>
                                     </Button>
@@ -967,7 +965,9 @@ export function DashboardClient({
                                               }}
                                               className="h-8 rounded-md border border-input bg-slate-panel px-2 font-mono text-xs text-muted-foreground"
                                             >
-                                              <option value="">Publish now / schedule manually</option>
+                                              <option value="">
+                                                Publish now / schedule manually
+                                              </option>
                                               {publishableSchedules.map((s) => (
                                                 <option key={s.id} value={s.id}>
                                                   {s.name} ({platformLabel(s.platform)})

@@ -32,9 +32,8 @@ export function VersionHistoryPanel() {
 
   const currentClip = clips.find((c) => c.id === selectedClipId) ?? null;
 
-  const { data, mutate } = useSWR(
-    selectedClipId ? ['clip-versions', selectedClipId] : null,
-    () => listClipVersions(selectedClipId as string),
+  const { data, mutate } = useSWR(selectedClipId ? ['clip-versions', selectedClipId] : null, () =>
+    listClipVersions(selectedClipId as string),
   );
 
   const [compareId, setCompareId] = useState<string | null>(null);
@@ -146,9 +145,7 @@ export function VersionHistoryPanel() {
             </dl>
           </div>
           <div>
-            <p className="font-mono text-xs uppercase tracking-wide text-signal-cyan">
-              Saat Ini
-            </p>
+            <p className="font-mono text-xs uppercase tracking-wide text-signal-cyan">Saat Ini</p>
             <dl className="mt-2 space-y-1 font-body text-xs text-muted-foreground">
               <div>
                 Trim: {formatTimestamp(currentClip.startTime)}–

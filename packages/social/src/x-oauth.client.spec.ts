@@ -39,7 +39,9 @@ describe('XOAuthClient', () => {
 
       expect(url.origin + url.pathname).toBe('https://x.com/i/oauth2/authorize');
       expect(url.searchParams.get('client_id')).toBe('x-client-id');
-      expect(url.searchParams.get('scope')).toBe('tweet.read tweet.write users.read offline.access');
+      expect(url.searchParams.get('scope')).toBe(
+        'tweet.read tweet.write users.read offline.access',
+      );
       expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:3001/social/x/callback');
       expect(url.searchParams.get('response_type')).toBe('code');
       expect(url.searchParams.get('state')).toBe('signed-state');
@@ -58,7 +60,9 @@ describe('XOAuthClient', () => {
       const url1 = new URL(client.buildAuthorizeUrl('state-a'));
       const url2 = new URL(client.buildAuthorizeUrl('state-b'));
 
-      expect(url1.searchParams.get('code_challenge')).not.toBe(url2.searchParams.get('code_challenge'));
+      expect(url1.searchParams.get('code_challenge')).not.toBe(
+        url2.searchParams.get('code_challenge'),
+      );
     });
   });
 

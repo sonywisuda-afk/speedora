@@ -77,7 +77,8 @@ export function predictEngagement(
     return {
       ...base,
       available: false,
-      reason: "No meaningful correlation between highlightScore and this creator's real engagement yet.",
+      reason:
+        "No meaningful correlation between highlightScore and this creator's real engagement yet.",
       correlation: null,
       predictedEngagementScore: null,
     };

@@ -36,7 +36,10 @@ export function getNpmPrefix() {
 }
 
 function normalize(p) {
-  return path.resolve(p).toLowerCase().replace(/[/\\]+$/, '');
+  return path
+    .resolve(p)
+    .toLowerCase()
+    .replace(/[/\\]+$/, '');
 }
 
 export function isOnPath(dir, pathValue = process.env.PATH ?? '') {

@@ -71,7 +71,10 @@ export const platformFitWeightsSchema = z.record(
   z.enum(SOCIAL_PLATFORMS),
   z.record(z.enum(CLIP_SCORE_DIMENSIONS), z.number().min(0)),
 );
-export type PlatformFitWeights = Record<ContractSocialPlatform, Partial<Record<ClipScoreDimension, number>>>;
+export type PlatformFitWeights = Record<
+  ContractSocialPlatform,
+  Partial<Record<ClipScoreDimension, number>>
+>;
 
 export const computePlatformFitInputSchema = clipScoresSchema;
 export type ComputePlatformFitInput = z.infer<typeof computePlatformFitInputSchema>;

@@ -88,7 +88,10 @@ describe('RecurringSchedulesService', () => {
         },
       });
       expect(prisma.auditLogEntry.create).toHaveBeenCalledWith({
-        data: expect.objectContaining({ action: 'RECURRING_SCHEDULE_CREATED', targetId: 'schedule-1' }),
+        data: expect.objectContaining({
+          action: 'RECURRING_SCHEDULE_CREATED',
+          targetId: 'schedule-1',
+        }),
       });
       expect(result.id).toBe('schedule-1');
     });
@@ -191,9 +194,9 @@ describe('RecurringSchedulesService', () => {
     it('throws NotFoundException when the schedule belongs to a different workspace', async () => {
       prisma.recurringSchedule.findUnique.mockResolvedValue(baseSchedule);
 
-      await expect(service.resolveSlotForQueue('other-ws', 'schedule-1', 'account-1')).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.resolveSlotForQueue('other-ws', 'schedule-1', 'account-1'),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('throws BadRequestException when the schedule is inactive', async () => {

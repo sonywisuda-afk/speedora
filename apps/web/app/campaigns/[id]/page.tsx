@@ -25,10 +25,11 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
   const { user, checkingAuth, logout } = useAuth();
   const [cancelling, setCancelling] = useState(false);
 
-  const { data: campaign, error, mutate } = useSWR(
-    user ? ['campaign-detail', params.id] : null,
-    () => getCampaign(params.id),
-  );
+  const {
+    data: campaign,
+    error,
+    mutate,
+  } = useSWR(user ? ['campaign-detail', params.id] : null, () => getCampaign(params.id));
 
   async function handleCancel() {
     setCancelling(true);
@@ -115,9 +116,7 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
                     </p>
                   </div>
                   <div className="rounded-lg border border-border bg-slate-panel p-4 text-center">
-                    <p className="font-display text-xl text-foreground">
-                      {campaign.platformCount}
-                    </p>
+                    <p className="font-display text-xl text-foreground">{campaign.platformCount}</p>
                     <p className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
                       Platforms
                     </p>
@@ -127,7 +126,8 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
                       {campaign.progress.published}/{campaign.progress.total}
                     </p>
                     <p className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
-                      Published{campaign.progress.failed > 0 && ` (${campaign.progress.failed} failed)`}
+                      Published
+                      {campaign.progress.failed > 0 && ` (${campaign.progress.failed} failed)`}
                     </p>
                   </div>
                 </div>
@@ -180,7 +180,9 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
                                       ? new Date(record.scheduledAt).toLocaleString()
                                       : ''}
                                 </span>
-                                <Badge variant="outline">{PUBLISH_STATUS_LABELS[record.status]}</Badge>
+                                <Badge variant="outline">
+                                  {PUBLISH_STATUS_LABELS[record.status]}
+                                </Badge>
                               </div>
                             </li>
                           );
@@ -190,7 +192,10 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
                   </TabsContent>
 
                   <TabsContent value="analytics">
-                    <CampaignAnalyticsTab campaignId={params.id} workspaceId={campaign.workspaceId} />
+                    <CampaignAnalyticsTab
+                      campaignId={params.id}
+                      workspaceId={campaign.workspaceId}
+                    />
                   </TabsContent>
                 </Tabs>
               </>
