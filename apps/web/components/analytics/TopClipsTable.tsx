@@ -66,7 +66,7 @@ export function TopClipsTable({ clips }: TopClipsTableProps) {
                 <button
                   type="button"
                   onClick={() => toggleSort(column.key)}
-                  className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground hover:text-signal-cyan"
+                  className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground hover:text-primary"
                 >
                   {column.label}
                   {sortKey === column.key ? (sortDirection === 'desc' ? ' ↓' : ' ↑') : ''}
@@ -97,10 +97,10 @@ export function TopClipsTable({ clips }: TopClipsTableProps) {
               </td>
               <td className="max-w-[12rem] truncate p-2 text-foreground">{clip.videoLabel}</td>
               <td className="p-2 text-muted-foreground">{PLATFORM_LABELS[clip.platform]}</td>
-              <td className="p-2 text-right font-mono text-signal-cyan">
+              <td className="p-2 text-right font-mono text-ai">
                 {clip.highlightScore !== null ? Math.round(clip.highlightScore) : '—'}
               </td>
-              <td className="p-2 text-right font-mono text-signal-cyan">
+              <td className="p-2 text-right font-mono text-primary">
                 {clip.engagementScore !== null ? clip.engagementScore.toFixed(2) : '—'}
               </td>
               <td className="p-2 text-right font-mono text-foreground">{clip.viewCount ?? '—'}</td>

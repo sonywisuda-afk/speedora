@@ -104,8 +104,8 @@ export default function CampaignsPage() {
                       className={cn(
                         'rounded-md px-3 py-1.5 font-mono text-xs transition-colors',
                         statusFilter === status
-                          ? 'bg-slate-panel font-medium text-signal-pink'
-                          : 'text-muted-foreground hover:bg-slate-panel/60 hover:text-foreground',
+                          ? 'bg-primary-surface font-medium text-primary'
+                          : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                       )}
                     >
                       {status === 'ALL' ? 'All' : CAMPAIGN_STATUS_LABELS[status]}
@@ -122,7 +122,7 @@ export default function CampaignsPage() {
                     {campaigns.map((campaign) => (
                       <li
                         key={campaign.id}
-                        className="rounded-lg border border-border bg-slate-panel p-4"
+                        className="rounded-lg border border-border bg-muted p-4"
                       >
                         <div className="flex items-start justify-between gap-4">
                           <div className="min-w-0">

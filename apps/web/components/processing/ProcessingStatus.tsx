@@ -153,7 +153,7 @@ export function ProcessingStatus({
   const activeStage = currentIndex >= 0 ? STAGES[currentIndex] : null;
 
   return (
-    <div className="flex min-h-[calc(100vh-160px)] flex-col items-center justify-center bg-bay-black px-6 py-16">
+    <div className="flex min-h-[calc(100vh-160px)] flex-col items-center justify-center bg-background px-6 py-16">
       <div className={cn('w-full', isDone ? 'max-w-5xl' : 'max-w-2xl')}>
         <p className="text-center font-mono text-xs text-muted-foreground">VIDEO {video.id}</p>
 
@@ -213,7 +213,7 @@ export function ProcessingStatus({
           </div>
         ) : isDone ? (
           <div className="mt-8 flex flex-col items-center text-center">
-            <CheckCircle2 className="h-16 w-16 text-signal-cyan" aria-hidden="true" />
+            <CheckCircle2 className="h-16 w-16 text-success" aria-hidden="true" />
             <h2 className="mt-6 font-display text-3xl uppercase tracking-wide text-foreground">
               Klip Siap
             </h2>
@@ -235,7 +235,7 @@ export function ProcessingStatus({
           </div>
         ) : isImporting ? (
           <div className="mt-8 flex flex-col items-center text-center">
-            <p className="font-mono text-2xl text-signal-cyan">
+            <p className="font-mono text-2xl text-info">
               Mengunduh dari YouTube... {formatElapsed(elapsedSeconds)}
             </p>
             <p className="mt-2 font-body text-sm text-muted-foreground">
@@ -252,7 +252,7 @@ export function ProcessingStatus({
           </div>
         ) : (
           <div className="mt-8">
-            <p className="text-center font-mono text-2xl text-signal-cyan">
+            <p className="text-center font-mono text-2xl text-info">
               Memproses... {formatElapsed(elapsedSeconds)}
             </p>
 

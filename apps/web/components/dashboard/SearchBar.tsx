@@ -120,7 +120,7 @@ export function SearchBar() {
                       href={`#video-${match.videoId}`}
                       className="block rounded px-2 py-1.5 font-body text-sm text-foreground hover:bg-accent"
                     >
-                      <span className="mr-2 font-mono text-xs text-chrome">
+                      <span className="mr-2 font-mono text-xs text-muted-foreground">
                         {formatTranscriptTimestamp(match.start)}
                       </span>
                       {formatTranscriptSnippet(match.text, query)}

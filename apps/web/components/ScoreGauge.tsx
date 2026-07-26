@@ -20,9 +20,10 @@ export interface ScoreGaugeProps {
 }
 
 /**
- * Arc gauge for a 0-100 score — Signal Pink to Signal Cyan duotone stroke
+ * Arc gauge for a 0-100 score — a primary-to-ai-accent duotone stroke
  * standing in for a bare number, since a raw digit doesn't read as a meter
- * at a glance. Originally built for virality score; reusable for any other
+ * at a glance. The ai-accent pole signals this is an AI-computed score, not
+ * a raw fact. Originally built for virality score; reusable for any other
  * 0-100 metric via `label`.
  */
 export function ScoreGauge({
@@ -52,8 +53,8 @@ export function ScoreGauge({
       >
         <defs>
           <linearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="100%">
-            <stop offset="0%" stopColor="#FF3B7F" />
-            <stop offset="100%" stopColor="#22E6D6" />
+            <stop offset="0%" stopColor="hsl(var(--primary))" />
+            <stop offset="100%" stopColor="hsl(var(--ai-accent))" />
           </linearGradient>
         </defs>
         <circle
@@ -61,7 +62,7 @@ export function ScoreGauge({
           cy={size / 2}
           r={radius}
           strokeWidth={strokeWidth}
-          className="fill-none stroke-slate-panel"
+          className="fill-none stroke-muted"
         />
         <circle
           cx={size / 2}

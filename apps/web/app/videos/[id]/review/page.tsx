@@ -105,8 +105,8 @@ export default function ReviewModePage({ params }: { params: { id: string } }) {
                         onClick={() => setMode(m.id)}
                         className={`rounded-md px-3 py-1.5 font-body text-sm ${
                           mode === m.id
-                            ? 'bg-slate-panel font-medium text-signal-pink'
-                            : 'text-muted-foreground hover:bg-slate-panel/60'
+                            ? 'bg-primary-surface font-medium text-primary'
+                            : 'text-muted-foreground hover:bg-accent'
                         }`}
                       >
                         {m.label}

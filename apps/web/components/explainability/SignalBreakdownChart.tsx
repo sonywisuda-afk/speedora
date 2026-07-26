@@ -36,16 +36,16 @@ export function SignalBreakdownChart({ breakdown }: SignalBreakdownChartProps) {
             <span className="w-28 shrink-0 truncate font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
               {group.signal}
             </span>
-            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-panel">
+            <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
               <div
                 className={cn(
                   'h-full rounded-full',
-                  group.active ? 'bg-signal-cyan' : 'bg-muted-foreground/40',
+                  group.active ? 'bg-ai' : 'bg-muted-foreground/40',
                 )}
                 style={{ width: `${toPercent(group.averageNormalizedValue)}%` }}
               />
             </div>
-            <span className="w-10 shrink-0 text-right font-mono text-[10px] text-signal-cyan">
+            <span className="w-10 shrink-0 text-right font-mono text-[10px] text-ai">
               {toPercent(group.averageNormalizedValue)}%
             </span>
             {!group.active ? (

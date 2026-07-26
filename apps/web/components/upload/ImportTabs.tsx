@@ -53,7 +53,7 @@ export function ImportTabs({
       <TabsContent value="youtube">
         <form
           onSubmit={handleSubmit}
-          className="flex min-h-80 flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-slate-panel px-6 py-12 text-center"
+          className="flex min-h-80 flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted px-6 py-12 text-center"
         >
           <Link2 className="h-10 w-10 text-chrome" aria-hidden="true" />
           <p className="mt-4 font-display text-xl uppercase tracking-wide text-foreground">

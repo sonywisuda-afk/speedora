@@ -89,7 +89,7 @@ export function AiPerformanceSummary({ summary }: AiPerformanceSummaryProps) {
           <ul className="mt-2 space-y-2">
             {summary.topHighlightReasons.map((entry) => (
               <li key={entry.clipId} className="flex items-start gap-2">
-                <span className="shrink-0 font-mono text-xs text-signal-cyan">
+                <span className="shrink-0 font-mono text-xs text-ai">
                   {entry.highlightScore !== null ? Math.round(entry.highlightScore) : '—'}
                 </span>
                 <span className="font-body text-sm text-foreground">{entry.reason}</span>

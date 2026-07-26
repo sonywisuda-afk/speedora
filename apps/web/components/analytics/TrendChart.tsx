@@ -61,8 +61,8 @@ export function TrendChart({
             className={cn(
               'rounded-md px-3 py-1.5 font-mono text-xs transition-colors',
               granularity === option.value
-                ? 'bg-slate-panel font-medium text-signal-pink'
-                : 'text-muted-foreground hover:bg-slate-panel/60 hover:text-foreground',
+                ? 'bg-primary-surface font-medium text-primary'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground',
             )}
           >
             {option.label}

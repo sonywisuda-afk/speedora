@@ -48,7 +48,7 @@ export default function SharedVideoPage({ params }: { params: { token: string } 
                 poster={
                   data.video.thumbnailUrl ? sharedThumbnailUrl(data.video.thumbnailUrl) : undefined
                 }
-                className="mt-3 max-h-[70vh] w-full rounded-lg bg-bay-black"
+                className="mt-3 max-h-[70vh] w-full rounded-lg bg-slate-950"
               />
             </div>
 
@@ -61,7 +61,7 @@ export default function SharedVideoPage({ params }: { params: { token: string } 
                   {data.clips.map((clip) => (
                     <li
                       key={clip.id}
-                      className="overflow-hidden rounded-md border border-border bg-slate-panel"
+                      className="overflow-hidden rounded-md border border-border bg-muted"
                     >
                       {clip.streamUrl ? (
                         <video
@@ -71,7 +71,7 @@ export default function SharedVideoPage({ params }: { params: { token: string } 
                           poster={
                             clip.thumbnailUrl ? sharedThumbnailUrl(clip.thumbnailUrl) : undefined
                           }
-                          className="aspect-[9/16] w-full bg-bay-black object-cover"
+                          className="aspect-[9/16] w-full bg-slate-950 object-cover"
                         />
                       ) : (
                         <div className="flex aspect-[9/16] items-center justify-center">

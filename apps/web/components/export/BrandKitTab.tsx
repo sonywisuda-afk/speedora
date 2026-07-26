@@ -27,7 +27,7 @@ export function BrandKitTab() {
               src={brandKitLogoUrl()}
               crossOrigin="use-credentials"
               alt="Logo brand"
-              className="h-14 w-14 rounded-md border border-border bg-slate-panel object-contain"
+              className="h-14 w-14 rounded-md border border-border bg-muted object-contain"
             />
           ) : (
             <div className="flex h-14 w-14 items-center justify-center rounded-md border border-dashed border-border font-mono text-[10px] text-muted-foreground">
@@ -52,7 +52,7 @@ export function BrandKitTab() {
 
       <Link
         href="/brand-kit"
-        className="inline-block font-body text-sm text-signal-pink underline underline-offset-2"
+        className="inline-block font-body text-sm text-primary underline underline-offset-2"
       >
         Edit di Brand Kit →
       </Link>

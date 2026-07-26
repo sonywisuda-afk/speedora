@@ -90,7 +90,7 @@ export function ClipPerformanceHistoryTable({ performance }: ClipPerformanceHist
                             />
                           </td>
                         ))}
-                        <td className="p-2 text-right font-mono text-signal-cyan">
+                        <td className="p-2 text-right font-mono text-primary">
                           {point.engagementScore !== null ? point.engagementScore.toFixed(2) : '—'}
                         </td>
                       </tr>

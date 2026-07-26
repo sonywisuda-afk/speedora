@@ -35,18 +35,18 @@ export function PlatformComparisonTable({ platformComparison }: PlatformComparis
         {platformComparison.map((row) => (
           <tr key={row.platform} className="border-b border-border/50">
             <td className="p-2 text-foreground">{PLATFORM_LABELS[row.platform]}</td>
-            <td className="p-2 text-right font-mono text-signal-cyan">
+            <td className="p-2 text-right font-mono text-primary">
               {formatEngagementScore(row.averageEngagementScore)}
             </td>
-            <td className="p-2 text-right font-mono text-signal-cyan">
+            <td className="p-2 text-right font-mono text-ai">
               {row.averageHighlightScore !== null ? Math.round(row.averageHighlightScore) : '—'}
             </td>
             <td className="p-2 text-right font-mono text-foreground">{row.publishCount}</td>
             <td
               className={cn(
                 'p-2 text-right font-mono',
-                row.growthPct !== null && row.growthPct > 0 && 'text-emerald-400',
-                row.growthPct !== null && row.growthPct < 0 && 'text-rose-400',
+                row.growthPct !== null && row.growthPct > 0 && 'text-success',
+                row.growthPct !== null && row.growthPct < 0 && 'text-destructive',
                 (row.growthPct === null || row.growthPct === 0) && 'text-muted-foreground',
               )}
             >

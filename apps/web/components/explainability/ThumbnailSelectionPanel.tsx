@@ -13,9 +13,9 @@ import { toPercent } from '@/lib/explainability';
 import { cn } from '@/lib/utils';
 
 const TONE_CLASSES: Record<'good' | 'neutral' | 'bad', string> = {
-  good: 'border-emerald-500/40 text-emerald-400',
+  good: 'border-success/40 text-success',
   neutral: 'border-border text-muted-foreground',
-  bad: 'border-rose-500/40 text-rose-400',
+  bad: 'border-destructive/40 text-destructive',
 };
 
 // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection) - a read-only
@@ -98,16 +98,16 @@ export function ThumbnailSelectionPanel({ clip }: { clip: Clip }) {
                   <span className="w-28 shrink-0 truncate font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
                     {contribution.signal}
                   </span>
-                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-panel">
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                     <div
                       className={cn(
                         'h-full rounded-full',
-                        contribution.weight > 0 ? 'bg-signal-cyan' : 'bg-muted-foreground/40',
+                        contribution.weight > 0 ? 'bg-ai' : 'bg-muted-foreground/40',
                       )}
                       style={{ width: `${toPercent(contribution.normalizedValue)}%` }}
                     />
                   </div>
-                  <span className="w-10 shrink-0 text-right font-mono text-[10px] text-signal-cyan">
+                  <span className="w-10 shrink-0 text-right font-mono text-[10px] text-ai">
                     {toPercent(contribution.normalizedValue)}%
                   </span>
                 </div>

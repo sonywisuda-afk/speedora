@@ -18,9 +18,9 @@ export interface RecentProjectsGridProps {
 }
 
 const TONE_CLASSES: Record<'good' | 'neutral' | 'bad', string> = {
-  good: 'border-emerald-500/40 text-emerald-400',
+  good: 'border-success/40 text-success',
   neutral: 'border-border text-muted-foreground',
-  bad: 'border-rose-500/40 text-rose-400',
+  bad: 'border-destructive/40 text-destructive',
 };
 
 // Only switches to a virtualized single-column list past this many loaded
@@ -56,8 +56,8 @@ const ThumbnailImage = memo(function ThumbnailImage({
 
   if (!video.thumbnailUrl && !video.animatedThumbnailUrl) {
     return (
-      <div className="flex aspect-video items-center justify-center rounded-t-lg bg-gradient-to-br from-slate-panel to-bay-black">
-        <Film className="h-8 w-8 text-chrome" aria-hidden="true" />
+      <div className="flex aspect-video items-center justify-center rounded-t-lg bg-muted">
+        <Film className="h-8 w-8 text-muted-foreground" aria-hidden="true" />
       </div>
     );
   }
@@ -73,7 +73,7 @@ const ThumbnailImage = memo(function ThumbnailImage({
 
   return (
     <div
-      className="relative aspect-video w-full overflow-hidden rounded-t-lg bg-slate-panel bg-cover bg-center"
+      className="relative aspect-video w-full overflow-hidden rounded-t-lg bg-muted bg-cover bg-center"
       style={
         video.thumbnailBlurDataUrl
           ? { backgroundImage: `url("${video.thumbnailBlurDataUrl}")` }
@@ -137,7 +137,7 @@ const ProjectCard = memo(function ProjectCard({ video }: { video: VideoWithClips
   const { active: hoverActive, handlers: hoverHandlers } = useHoverPreview();
   return (
     <a href={`#video-${video.id}`} className="block" {...hoverHandlers}>
-      <Card className="transition-colors hover:border-signal-pink/60">
+      <Card className="transition-colors hover:border-primary/60">
         <ThumbnailImage video={video} hoverActive={hoverActive} />
         <CardContent className="space-y-1.5 p-4">
           <p className="truncate font-body text-sm text-foreground">

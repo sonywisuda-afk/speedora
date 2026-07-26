@@ -1,7 +1,7 @@
 import { cn } from '@/lib/utils';
 
 export interface LetterboxBandProps {
-  /** `accent` lifts the line to Signal Pink for a hero/high-emphasis boundary. */
+  /** `accent` lifts the line to the primary color for a hero/high-emphasis boundary. */
   tone?: 'default' | 'accent';
   className?: string;
 }
@@ -15,7 +15,7 @@ export function LetterboxBand({ tone = 'default', className }: LetterboxBandProp
   return (
     <div
       role="presentation"
-      className={cn('h-px w-full', tone === 'accent' ? 'bg-signal-pink' : 'bg-border', className)}
+      className={cn('h-px w-full', tone === 'accent' ? 'bg-primary' : 'bg-border', className)}
     />
   );
 }

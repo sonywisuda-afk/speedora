@@ -47,7 +47,7 @@ export function ForgotPasswordForm({
             />
           </div>
 
-          {message ? <p className="text-sm text-signal-cyan">{message}</p> : null}
+          {message ? <p className="text-sm text-success">{message}</p> : null}
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
 
           <Button type="submit" disabled={submitting} className="w-full">

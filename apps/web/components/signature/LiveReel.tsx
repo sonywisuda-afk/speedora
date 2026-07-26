@@ -60,7 +60,7 @@ function SprocketRow({ className }: { className?: string }) {
       aria-hidden="true"
     >
       {Array.from({ length: 24 }).map((_, i) => (
-        <span key={i} className="h-2 w-2 shrink-0 rounded-[1px] bg-chrome/20" />
+        <span key={i} className="h-2 w-2 shrink-0 rounded-[1px] bg-muted-foreground/20" />
       ))}
     </div>
   );
@@ -75,7 +75,7 @@ function IdleReel({ className }: { className?: string }) {
         {[...bars, ...bars].map((h, i) => (
           <span
             key={i}
-            className="w-1.5 shrink-0 rounded-t-sm bg-gradient-to-t from-signal-pink/40 to-signal-cyan/40"
+            className="w-1.5 shrink-0 rounded-t-sm bg-gradient-to-t from-primary/40 to-secondary/40"
             style={{ height: `${h}%` }}
           />
         ))}
@@ -105,7 +105,7 @@ function ProgressReel({ progress, label, className }: Omit<ProgressProps, 'varia
               key={i}
               className={cn(
                 'w-1.5 shrink-0 rounded-t-sm transition-colors duration-300',
-                filled ? 'bg-signal-pink' : 'bg-slate-panel',
+                filled ? 'bg-info' : 'bg-muted',
               )}
               style={{ height: `${h}%` }}
             />
@@ -114,7 +114,7 @@ function ProgressReel({ progress, label, className }: Omit<ProgressProps, 'varia
       </div>
       <div className="mt-2 flex items-baseline justify-between font-mono text-xs text-muted-foreground">
         <span>{label ?? 'Memproses'}</span>
-        <span className="text-signal-cyan">{Math.round(clamped)}%</span>
+        <span className="text-info">{Math.round(clamped)}%</span>
       </div>
     </div>
   );
@@ -128,8 +128,8 @@ function ThumbnailStripReel({
 }: Omit<ThumbnailStripProps, 'variant'>) {
   const frameClassName = (thumb: LiveReelThumbnail) =>
     cn(
-      'relative aspect-[9/16] w-24 shrink-0 overflow-hidden bg-slate-panel bg-cover bg-center transition-shadow',
-      selectedId === thumb.id && 'ring-2 ring-inset ring-signal-pink',
+      'relative aspect-[9/16] w-24 shrink-0 overflow-hidden bg-muted bg-cover bg-center transition-shadow',
+      selectedId === thumb.id && 'ring-2 ring-inset ring-primary',
     );
   const frameStyle = (thumb: LiveReelThumbnail) => ({ backgroundImage: `url("${thumb.src}")` });
 
@@ -187,7 +187,7 @@ function RulerReel({
 
   return (
     <div
-      className={cn('relative h-10 w-full cursor-pointer select-none bg-slate-panel', className)}
+      className={cn('relative h-10 w-full cursor-pointer select-none bg-muted', className)}
       onClick={handleClick}
       role="slider"
       aria-label="Timeline ruler"
@@ -203,10 +203,10 @@ function RulerReel({
           return (
             <div
               key={i}
-              className="relative h-full flex-1 border-l border-chrome/20 pl-1"
+              className="relative h-full flex-1 border-l border-border pl-1"
               aria-hidden="true"
             >
-              <span className="font-mono text-[10px] text-chrome">
+              <span className="font-mono text-[10px] text-muted-foreground">
                 {minutes}:{secs.toString().padStart(2, '0')}
               </span>
             </div>
@@ -215,7 +215,7 @@ function RulerReel({
       </div>
       {children}
       <div
-        className="pointer-events-none absolute top-0 h-full w-px bg-signal-pink"
+        className="pointer-events-none absolute top-0 h-full w-px bg-primary"
         style={{ left: `${playheadPct}%` }}
         aria-hidden="true"
       />

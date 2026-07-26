@@ -257,7 +257,7 @@ export function OcrReviewer({ videoId, clips }: OcrReviewerProps) {
               className={cn(
                 'rounded-md border px-3 py-1.5 font-mono text-xs',
                 clip.id === selectedClipId
-                  ? 'border-signal-pink bg-signal-pink/10 text-foreground'
+                  ? 'border-primary bg-primary/10 text-foreground'
                   : 'border-border text-muted-foreground hover:text-foreground',
               )}
             >
@@ -268,7 +268,7 @@ export function OcrReviewer({ videoId, clips }: OcrReviewerProps) {
         </div>
       )}
 
-      <div className="relative w-full overflow-hidden bg-bay-black" style={{ aspectRatio: '16/9' }}>
+      <div className="relative w-full overflow-hidden bg-slate-950" style={{ aspectRatio: '16/9' }}>
         <video
           ref={videoRef}
           src={videoSourceUrl(videoId)}
@@ -286,8 +286,8 @@ export function OcrReviewer({ videoId, clips }: OcrReviewerProps) {
         />
         <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
         {previewUnsupported && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-bay-black/85 px-6 text-center">
-            <p className="font-body text-sm text-paper-white">
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-slate-950/85 px-6 text-center">
+            <p className="font-body text-sm text-slate-50">
               Pratinjau tidak bisa diputar di browser ini.
             </p>
           </div>
@@ -321,10 +321,10 @@ export function OcrReviewer({ videoId, clips }: OcrReviewerProps) {
                 className={cn(
                   'absolute top-1 h-6 cursor-pointer rounded-sm',
                   track.trackId === selectedTrackId
-                    ? 'bg-signal-pink'
+                    ? 'bg-primary'
                     : isReviewed
-                      ? 'bg-emerald-500/60 hover:bg-emerald-500/80'
-                      : 'bg-amber-400/60 hover:bg-amber-400/80',
+                      ? 'bg-success/60 hover:bg-success/80'
+                      : 'bg-warning/60 hover:bg-warning/80',
                 )}
                 style={{ left: `${left}%`, width: `${Math.max(width, 0.4)}%` }}
                 title={track.text}
@@ -334,7 +334,7 @@ export function OcrReviewer({ videoId, clips }: OcrReviewerProps) {
       </LiveReel>
 
       <div className="grid grid-cols-1 gap-4 md:grid-cols-[2fr_1fr]">
-        <div className="rounded-lg border border-border bg-slate-panel p-3">
+        <div className="rounded-lg border border-border bg-muted p-3">
           <div className="mb-2 flex items-center justify-between gap-2">
             <p className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
               Track List — {reviewedCount}/{tracks.length} direview ({progressPercent}%)
@@ -345,7 +345,7 @@ export function OcrReviewer({ videoId, clips }: OcrReviewerProps) {
               className={cn(
                 'rounded-sm border px-2 py-1 font-mono text-[10px] uppercase tracking-wide',
                 unreviewedOnly
-                  ? 'border-signal-pink bg-signal-pink/10 text-foreground'
+                  ? 'border-primary bg-primary/10 text-foreground'
                   : 'border-border text-muted-foreground',
               )}
             >
@@ -374,14 +374,14 @@ export function OcrReviewer({ videoId, clips }: OcrReviewerProps) {
                     className={cn(
                       'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left font-body text-sm',
                       track.trackId === selectedTrackId
-                        ? 'bg-signal-pink/10 text-foreground'
+                        ? 'bg-primary/10 text-foreground'
                         : 'text-muted-foreground hover:bg-accent hover:text-foreground',
                     )}
                   >
                     <span
                       className={cn(
                         'h-2 w-2 shrink-0 rounded-full',
-                        isReviewed ? 'bg-emerald-500' : 'bg-amber-400',
+                        isReviewed ? 'bg-success' : 'bg-warning',
                       )}
                       aria-hidden="true"
                     />
@@ -395,7 +395,7 @@ export function OcrReviewer({ videoId, clips }: OcrReviewerProps) {
           </ul>
         </div>
 
-        <div className="rounded-lg border border-border bg-slate-panel p-4">
+        <div className="rounded-lg border border-border bg-muted p-4">
           {selectedTrack ? (
             <>
               <p className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
@@ -418,7 +418,7 @@ export function OcrReviewer({ videoId, clips }: OcrReviewerProps) {
                     className={cn(
                       'rounded-sm border px-2.5 py-1.5 font-mono text-xs',
                       pendingCategory === category
-                        ? 'border-signal-pink bg-signal-pink/10 text-foreground'
+                        ? 'border-primary bg-primary/10 text-foreground'
                         : 'border-border text-muted-foreground hover:text-foreground',
                     )}
                   >

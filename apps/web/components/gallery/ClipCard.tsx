@@ -93,7 +93,7 @@ export function ClipCard({ videoId, clip }: { videoId?: string; clip: Clip }) {
       className={cn(
         'block overflow-hidden rounded-lg border border-border bg-card transition-all duration-300',
         'motion-safe:hover:-translate-y-0.5 motion-safe:hover:scale-[1.02]',
-        'hover:border-signal-pink/50 hover:shadow-[0_0_28px_-8px_rgba(255,59,127,0.4)]',
+        'hover:border-primary/50 hover:shadow-[0_0_28px_-8px_rgba(37,99,235,0.35)]',
       )}
       {...hoverHandlers}
     >
@@ -134,12 +134,10 @@ export function ClipCard({ videoId, clip }: { videoId?: string; clip: Clip }) {
         {isTopScore ? (
           <div className="mt-3 flex items-center gap-1.5">
             <span
-              className="h-1.5 w-1.5 rounded-full bg-signal-pink motion-safe:animate-pulse-slow"
+              className="h-1.5 w-1.5 rounded-full bg-ai motion-safe:animate-pulse-slow"
               aria-hidden="true"
             />
-            <span className="font-mono text-[10px] uppercase tracking-wide text-signal-pink">
-              Top Pick
-            </span>
+            <span className="font-mono text-[10px] uppercase tracking-wide text-ai">Top Pick</span>
           </div>
         ) : null}
 
@@ -150,7 +148,7 @@ export function ClipCard({ videoId, clip }: { videoId?: string; clip: Clip }) {
         ) : null}
 
         {clip.hashtags.length > 0 ? (
-          <p className="mt-2 font-mono text-xs text-chrome">
+          <p className="mt-2 font-mono text-xs text-muted-foreground">
             {clip.hashtags.map((tag) => `#${tag}`).join(' ')}
           </p>
         ) : null}

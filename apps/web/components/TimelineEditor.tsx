@@ -65,27 +65,37 @@ const INTENT_LABELS: Record<string, string> = {
   other: 'Lainnya',
 };
 
-// Fase 12 (Speaker Diarization) - a small fixed palette rather than the
-// app's own 2-color signal-cyan/signal-pink accent pair, which isn't enough
-// to tell more than 2 speakers apart. diarization.ts's assignSpeakerLabels()
-// always names speakers "Speaker A", "Speaker B", ... in order of first
-// appearance, so the letter itself is a stable, deterministic palette index -
-// no hashing needed.
+// Fase 12 (Speaker Diarization) - a small fixed palette, independent of the
+// design system's semantic tokens on purpose: these 5 hex values are a
+// cross-system rendering contract with apps/worker's build-ass.ts (its
+// SPEAKER_ASS_COLORS documents the exact same values) - burned-in captions
+// are rendered server-side from this exact palette, so this UI can't repaint
+// it when the design system's primary/secondary hues change without
+// desyncing from what actually gets rendered into the video. Expressed as
+// Tailwind arbitrary-value classes (not named tokens) for the first two
+// slots so the on-screen speaker label still matches the burned-in caption
+// color exactly. diarization.ts's assignSpeakerLabels() always names
+// speakers "Speaker A", "Speaker B", ... in order of first appearance, so
+// the letter itself is a stable, deterministic palette index - no hashing
+// needed.
 const SPEAKER_COLORS = [
-  'text-signal-cyan',
-  'text-signal-pink',
+  'text-[#22E6D6]',
+  'text-[#FF3B7F]',
   'text-amber-400',
   'text-violet-400',
   'text-emerald-400',
 ];
 
-// Same palette as SPEAKER_COLORS above, as hex - build-ass.ts's own
-// SPEAKER_ASS_COLORS documents the exact same 5 hex values (signal-cyan
-// #22E6D6, signal-pink #FF3B7F, amber-400 #FBBF24, violet-400 #A78BFA,
-// emerald-400 #34D399), used here for the canvas caption preview's
-// speaker-color base fill (Subtitle Presets roadmap, P3b) so the editor and
-// the actual burned-in captions agree, same reasoning as SPEAKER_COLORS'
-// own comment.
+// Same palette as SPEAKER_COLORS above, as hex - used for the canvas caption
+// preview's speaker-color base fill (Subtitle Presets roadmap, P3b) so the
+// editor and the actual burned-in captions agree, same reasoning as
+// SPEAKER_COLORS' own comment.
+//
+// Intentionally hardcoded. Shared with Worker caption renderer
+// (apps/worker's build-ass.ts SPEAKER_ASS_COLORS). Do not convert to
+// semantic tokens without updating the worker renderer to match - the two
+// must stay byte-for-byte identical or the editor preview and the actual
+// burned-in captions will disagree.
 const SPEAKER_HEX_COLORS = ['#22E6D6', '#FF3B7F', '#FBBF24', '#A78BFA', '#34D399'];
 
 function speakerIndex(speaker: string): number {
@@ -444,7 +454,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
       <div>
         <LetterboxBand />
         <div
-          className="relative w-full overflow-hidden bg-bay-black"
+          className="relative w-full overflow-hidden bg-slate-950"
           style={{ aspectRatio: '16/9' }}
         >
           <video
@@ -463,8 +473,8 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
           <canvas ref={canvasRef} className="pointer-events-none absolute inset-0 h-full w-full" />
 
           {previewUnsupported && (
-            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 bg-bay-black/85 px-6 text-center">
-              <p className="font-body text-sm text-paper-white">
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-1 bg-slate-950/85 px-6 text-center">
+              <p className="font-body text-sm text-slate-50">
                 Pratinjau tidak bisa diputar di browser ini.
               </p>
               <p className="font-body text-xs text-muted-foreground">
@@ -480,14 +490,14 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
               centered slice at the eventual output aspect ratio, not a fake
               animated prediction of where it'll actually crop. */}
           <div
-            className="pointer-events-none absolute inset-y-0 left-0 w-[34.18%] border-r border-signal-pink/40 bg-bay-black/70"
+            className="pointer-events-none absolute inset-y-0 left-0 w-[34.18%] border-r border-primary/40 bg-slate-950/70"
             aria-hidden="true"
           />
           <div
-            className="pointer-events-none absolute inset-y-0 right-0 w-[34.18%] border-l border-signal-pink/40 bg-bay-black/70"
+            className="pointer-events-none absolute inset-y-0 right-0 w-[34.18%] border-l border-primary/40 bg-slate-950/70"
             aria-hidden="true"
           />
-          <span className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 font-mono text-[10px] uppercase tracking-wide text-chrome">
+          <span className="pointer-events-none absolute left-1/2 top-2 -translate-x-1/2 font-mono text-[10px] uppercase tracking-wide text-slate-400">
             Pratinjau 9:16
           </span>
         </div>
@@ -516,7 +526,9 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
                     }}
                     className={cn(
                       'absolute top-1 h-8 cursor-pointer rounded-sm transition-colors',
-                      isSelected ? 'bg-signal-pink' : 'bg-chrome/40 hover:bg-chrome/60',
+                      isSelected
+                        ? 'bg-primary'
+                        : 'bg-muted-foreground/40 hover:bg-muted-foreground/60',
                     )}
                     style={{ left: `${left}%`, width: `${width}%` }}
                   >
@@ -524,11 +536,11 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
                       <>
                         <div
                           onPointerDown={startHandleDrag(clip, 'start')}
-                          className="absolute left-0 top-0 h-full w-2 cursor-ew-resize bg-paper-white"
+                          className="absolute left-0 top-0 h-full w-2 cursor-ew-resize bg-primary-foreground"
                         />
                         <div
                           onPointerDown={startHandleDrag(clip, 'end')}
-                          className="absolute right-0 top-0 h-full w-2 cursor-ew-resize bg-paper-white"
+                          className="absolute right-0 top-0 h-full w-2 cursor-ew-resize bg-primary-foreground"
                         />
                       </>
                     )}
@@ -551,9 +563,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
                 // Undefined for a video with no speaker data (diarization
                 // never ran, failed, or found nothing) - falls back to the
                 // original single-color look, same as before Fase 12.
-                const colorClass = seg.speaker
-                  ? speakerColorClass(seg.speaker)
-                  : 'text-signal-cyan';
+                const colorClass = seg.speaker ? speakerColorClass(seg.speaker) : 'text-primary';
                 const emoji = seg.emotion ? EMOTION_EMOJI[seg.emotion] : undefined;
                 const titleParts = [seg.speaker, seg.text].filter(Boolean);
                 return (
@@ -561,7 +571,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
                     key={i}
                     title={titleParts.join(': ')}
                     className={cn(
-                      'absolute h-5 truncate rounded-sm bg-signal-cyan/10 px-1 font-mono text-[10px] leading-5',
+                      'absolute h-5 truncate rounded-sm bg-primary/10 px-1 font-mono text-[10px] leading-5',
                       colorClass,
                     )}
                     style={{ left: `${left}%`, width: `${width}%` }}
@@ -575,10 +585,10 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
       </div>
 
       {selectedClip && (
-        <div className="rounded-lg border border-border bg-slate-panel p-4">
+        <div className="rounded-lg border border-border bg-muted p-4">
           <p className="font-mono text-xs text-muted-foreground">
             {formatTime(selectedClip.startTime)} – {formatTime(selectedClip.endTime)} ·{' '}
-            <span className="text-signal-pink">{Math.round(selectedClip.viralityScore)}</span>/100
+            <span className="text-primary">{Math.round(selectedClip.viralityScore)}</span>/100
           </p>
 
           {/* Subtitle Presets roadmap (P3b) - a convenience bulk-setter over
@@ -593,7 +603,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
               <select
                 value=""
                 onChange={(e) => handleApplyPreset(selectedClip.id, e.target.value)}
-                className="h-8 rounded-md border border-input bg-slate-panel px-2 font-mono text-xs text-foreground"
+                className="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs text-foreground"
               >
                 <option value="">Pilih preset...</option>
                 <optgroup label="Built-in">
@@ -660,7 +670,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
                     'px-3 py-1.5 font-mono text-xs transition-colors',
                     i > 0 && 'border-l border-border',
                     selectedClip.captionStyle === style
-                      ? 'bg-signal-pink text-primary-foreground'
+                      ? 'bg-primary text-primary-foreground'
                       : 'text-muted-foreground hover:text-foreground',
                   )}
                 >
@@ -720,7 +730,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
               <select
                 value={selectedClip.fontFamily ?? ''}
                 onChange={(e) => setFontFamily(selectedClip.id, e.target.value || null)}
-                className="h-8 rounded-md border border-input bg-slate-panel px-2 font-mono text-xs text-foreground"
+                className="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs text-foreground"
               >
                 <option value="">Default (Brand Kit)</option>
                 {FONT_FAMILIES.map((font) => (
@@ -739,7 +749,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
                 <select
                   value={selectedClip.captionLanguage ?? ''}
                   onChange={(e) => setCaptionLanguage(selectedClip.id, e.target.value || null)}
-                  className="h-8 rounded-md border border-input bg-slate-panel px-2 font-mono text-xs text-foreground"
+                  className="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs text-foreground"
                 >
                   <option value="">Asli (tidak diterjemahkan)</option>
                   {availableCaptionLanguages.map((lang) => (
@@ -789,7 +799,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
           </div>
 
           {selectedClip.reason ? (
-            <div className="mt-4 rounded-md border border-border bg-slate-panel p-3">
+            <div className="mt-4 rounded-md border border-border bg-muted p-3">
               <p className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
                 Kenapa klip ini dipilih
               </p>
@@ -802,7 +812,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
                       <span className="font-mono text-[10px] text-muted-foreground">
                         {SCORE_LABELS[key]}
                       </span>
-                      <span className="font-mono text-xs text-signal-cyan">
+                      <span className="font-mono text-xs text-primary">
                         {selectedClip.scores![key]}
                       </span>
                     </div>

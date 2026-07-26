@@ -19,14 +19,14 @@ const CLASSIFICATION_BADGES: Record<ClipPerformanceClassification, Classificatio
 };
 
 const TONE_CLASSES: Record<'good' | 'neutral' | 'bad', string> = {
-  good: 'border-emerald-500/40 text-emerald-400',
+  good: 'border-success/40 text-success',
   neutral: 'border-border text-muted-foreground',
-  bad: 'border-rose-500/40 text-rose-400',
+  bad: 'border-destructive/40 text-destructive',
 };
 
 // Sprint 6I (AI Insight) - a rules-based narrative, reusing
 // AiPerformanceSummary.tsx's own explainability rendering conventions
-// (font-mono uppercase section labels, outline Badges, signal-cyan for
+// (font-mono uppercase section labels, outline Badges, the ai accent for
 // highlighted numbers). topSignals/lowSignals are already frozen AI output
 // (FusionFactor/FusionContribution) - this component only presents them,
 // same "no new inference happens in the UI either" posture as the backend.
@@ -92,7 +92,7 @@ export function AiInsightPanel({ insight }: AiInsightPanelProps) {
         <div className="mt-2">
           {insight.prediction.available ? (
             <div className="flex flex-wrap items-baseline gap-3">
-              <span className="font-display text-2xl text-signal-cyan">
+              <span className="font-display text-2xl text-ai">
                 {insight.prediction.predictedEngagementScore?.toFixed(2)}
               </span>
               <span className="font-mono text-[10px] text-muted-foreground">

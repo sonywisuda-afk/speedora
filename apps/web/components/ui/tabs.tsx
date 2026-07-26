@@ -29,7 +29,7 @@ const TabsTrigger = React.forwardRef<
       'inline-flex items-center gap-2 whitespace-nowrap border-b-2 border-transparent px-3 py-2.5 font-display text-sm uppercase tracking-wide text-muted-foreground transition-colors',
       'hover:text-foreground',
       'disabled:pointer-events-none disabled:opacity-50',
-      'data-[state=active]:border-signal-pink data-[state=active]:text-foreground',
+      'data-[state=active]:border-primary data-[state=active]:text-foreground',
       'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
       className,
     )}

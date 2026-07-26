@@ -504,8 +504,8 @@ export function DashboardClient({
         )}
 
         {videos.length === 0 ? (
-          <div className="mt-8 flex flex-col items-center rounded-lg border border-dashed border-border bg-slate-panel px-6 py-16 text-center">
-            <UploadCloud className="h-10 w-10 text-chrome" aria-hidden="true" />
+          <div className="mt-8 flex flex-col items-center rounded-lg border border-dashed border-border bg-muted px-6 py-16 text-center">
+            <UploadCloud className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
             <p className="mt-4 font-display text-xl uppercase tracking-wide text-foreground">
               Belum Ada Video
             </p>
@@ -535,7 +535,7 @@ export function DashboardClient({
                     {video.clips.length > 0 && (
                       <Link
                         href={`/videos/${video.id}/edit`}
-                        className="font-body text-sm text-foreground underline underline-offset-2 hover:text-signal-pink"
+                        className="font-body text-sm text-foreground underline underline-offset-2 hover:text-primary"
                       >
                         Edit Timeline
                       </Link>
@@ -543,7 +543,7 @@ export function DashboardClient({
                     {video.clips.length > 0 && (
                       <Link
                         href={`/videos/${video.id}/review`}
-                        className="font-body text-sm text-foreground underline underline-offset-2 hover:text-signal-pink"
+                        className="font-body text-sm text-foreground underline underline-offset-2 hover:text-primary"
                       >
                         Review Mode
                       </Link>
@@ -551,7 +551,7 @@ export function DashboardClient({
                     {video.clips.some((clip) => (clip.ocrTracks?.length ?? 0) > 0) && (
                       <Link
                         href={`/videos/${video.id}/ocr-review`}
-                        className="font-body text-sm text-foreground underline underline-offset-2 hover:text-signal-pink"
+                        className="font-body text-sm text-foreground underline underline-offset-2 hover:text-primary"
                       >
                         OCR Review
                       </Link>
@@ -559,7 +559,7 @@ export function DashboardClient({
                     {video.clips.some((clip) => clip.highlightScore !== null) && (
                       <Link
                         href={`/videos/${video.id}/explainability`}
-                        className="font-body text-sm text-foreground underline underline-offset-2 hover:text-signal-pink"
+                        className="font-body text-sm text-foreground underline underline-offset-2 hover:text-primary"
                       >
                         AI Explainability
                       </Link>
@@ -567,7 +567,7 @@ export function DashboardClient({
                     {video.clips.some((clip) => clip.publishRecords.length > 0) && (
                       <Link
                         href={`/videos/${video.id}/performance`}
-                        className="font-body text-sm text-foreground underline underline-offset-2 hover:text-signal-pink"
+                        className="font-body text-sm text-foreground underline underline-offset-2 hover:text-primary"
                       >
                         Performance
                       </Link>
@@ -658,8 +658,8 @@ export function DashboardClient({
                               className={cn(
                                 'rounded-md border p-3',
                                 isBest
-                                  ? 'border-signal-pink/60 bg-signal-pink/5'
-                                  : 'border-border bg-slate-panel',
+                                  ? 'border-primary/60 bg-primary/5'
+                                  : 'border-border bg-muted',
                               )}
                             >
                               <div className="flex flex-wrap items-center justify-between gap-2">
@@ -671,7 +671,7 @@ export function DashboardClient({
                                   {isBest && (
                                     <Badge
                                       variant="outline"
-                                      className="gap-1 border-signal-pink text-signal-pink"
+                                      className="gap-1 border-primary text-primary"
                                     >
                                       <Trophy className="h-3 w-3" aria-hidden="true" />
                                       Performa Terbaik
@@ -795,7 +795,7 @@ export function DashboardClient({
                                   crossOrigin="use-credentials"
                                   controls
                                   preload="metadata"
-                                  className="mt-3 max-h-80 rounded-md bg-bay-black"
+                                  className="mt-3 max-h-80 rounded-md bg-slate-950"
                                   style={{ aspectRatio: '9/16' }}
                                 />
                               )}
@@ -806,7 +806,7 @@ export function DashboardClient({
                                 </p>
                               )}
                               {clip.hashtags.length > 0 && (
-                                <p className="mt-1 font-mono text-xs text-chrome">
+                                <p className="mt-1 font-mono text-xs text-muted-foreground">
                                   {clip.hashtags.map((tag) => `#${tag}`).join(' ')}
                                 </p>
                               )}
@@ -844,7 +844,7 @@ export function DashboardClient({
                                                 [clip.id]: e.target.value,
                                               }))
                                             }
-                                            className="h-8 rounded-md border border-input bg-slate-panel px-2 font-body text-xs text-foreground"
+                                            className="h-8 rounded-md border border-input bg-background px-2 font-body text-xs text-foreground"
                                           >
                                             {accounts.map((account) => (
                                               <option key={account.id} value={account.id}>
@@ -899,7 +899,7 @@ export function DashboardClient({
                                                   [clip.id]: e.target.value,
                                                 }))
                                               }
-                                              className="h-8 rounded-md border border-input bg-slate-panel px-2 font-mono text-xs text-foreground"
+                                              className="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs text-foreground"
                                             />
                                             <Button
                                               size="sm"
@@ -934,7 +934,7 @@ export function DashboardClient({
                                                   [clip.id]: e.target.value,
                                                 }))
                                               }
-                                              className="h-8 rounded-md border border-input bg-slate-panel px-2 font-mono text-xs text-muted-foreground"
+                                              className="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs text-muted-foreground"
                                             >
                                               <option value="">No campaign</option>
                                               {publishableCampaigns.map((c) => (
@@ -963,7 +963,7 @@ export function DashboardClient({
                                                   }));
                                                 }
                                               }}
-                                              className="h-8 rounded-md border border-input bg-slate-panel px-2 font-mono text-xs text-muted-foreground"
+                                              className="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs text-muted-foreground"
                                             >
                                               <option value="">
                                                 Publish now / schedule manually
@@ -1041,7 +1041,7 @@ export function DashboardClient({
                                                     [record.id]: e.target.value,
                                                   }))
                                                 }
-                                                className="h-8 rounded-md border border-input bg-slate-panel px-2 font-mono text-xs text-foreground"
+                                                className="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs text-foreground"
                                               />
                                               <Button
                                                 size="sm"
@@ -1098,9 +1098,7 @@ export function DashboardClient({
                                               <p
                                                 className={cn(
                                                   'mt-0.5 font-mono',
-                                                  isBest
-                                                    ? 'text-signal-cyan'
-                                                    : 'text-muted-foreground',
+                                                  isBest ? 'text-primary' : 'text-muted-foreground',
                                                 )}
                                               >
                                                 {statsLine(record)}

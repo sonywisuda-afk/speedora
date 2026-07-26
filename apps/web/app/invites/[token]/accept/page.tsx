@@ -51,7 +51,7 @@ export default function AcceptInvitePage({ params }: { params: { token: string }
             <p className="font-body text-sm text-muted-foreground">Memuat undangan...</p>
           ) : accepted ? (
             <div className="space-y-4">
-              <p className="font-body text-sm text-emerald-400">
+              <p className="font-body text-sm text-success">
                 Kamu sekarang anggota &quot;{preview.workspaceName}&quot;.
               </p>
               <Button asChild className="w-full">

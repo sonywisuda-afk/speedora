@@ -33,10 +33,10 @@ export function HowItWorks() {
         {STEPS.map((step, i) => (
           <div key={step.number} className="relative">
             <div className="flex items-center gap-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-signal-pink font-mono text-sm text-signal-pink">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-primary font-mono text-sm text-primary">
                 {step.number}
               </span>
-              <span className="font-mono text-xs text-signal-cyan">{step.timecode}</span>
+              <span className="font-mono text-xs text-primary">{step.timecode}</span>
             </div>
             <h3 className="mt-4 font-display text-xl uppercase tracking-wide text-foreground">
               {step.title}

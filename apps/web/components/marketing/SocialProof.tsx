@@ -57,10 +57,10 @@ export function SocialProof() {
               className="flex aspect-[9/16] flex-col justify-between p-4"
               style={{ backgroundColor: clip.tone }}
             >
-              <span className="self-start rounded-sm bg-bay-black/70 px-2 py-1 font-mono text-xs text-paper-white">
+              <span className="self-start rounded-sm bg-slate-950/70 px-2 py-1 font-mono text-xs text-slate-50">
                 {clip.duration}
               </span>
-              <p className="font-body text-sm font-medium leading-snug text-paper-white">
+              <p className="font-body text-sm font-medium leading-snug text-slate-50">
                 {clip.hook}
               </p>
             </div>

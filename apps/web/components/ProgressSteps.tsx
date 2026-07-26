@@ -27,9 +27,7 @@ export function ProgressSteps({ status }: { status: VideoStatus }) {
     );
   }
   if (status === VideoStatus.IMPORTING) {
-    return (
-      <p className="text-sm font-medium text-signal-cyan">{STEP_LABELS[VideoStatus.IMPORTING]}</p>
-    );
+    return <p className="text-sm font-medium text-info">{STEP_LABELS[VideoStatus.IMPORTING]}</p>;
   }
 
   const currentIndex = STEPS.indexOf(status);

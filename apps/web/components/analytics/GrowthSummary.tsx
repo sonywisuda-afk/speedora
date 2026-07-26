@@ -13,7 +13,7 @@ function formatMetricValue(value: number | null): string {
 
 function growthTone(growthPct: number | null): string {
   if (growthPct === null || growthPct === 0) return 'text-muted-foreground';
-  return growthPct > 0 ? 'text-emerald-400' : 'text-rose-400';
+  return growthPct > 0 ? 'text-success' : 'text-destructive';
 }
 
 function Tile({ label, metric }: { label: string; metric: GrowthMetric }) {

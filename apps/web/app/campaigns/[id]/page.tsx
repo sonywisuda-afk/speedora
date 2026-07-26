@@ -109,19 +109,19 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
                     with no mobile breakpoint, unlike this app's other stat grids (see
                     apps/web/components/processing/ProcessingStatus.tsx's matching TODO). */}
                 <div className="mt-6 grid grid-cols-3 gap-3">
-                  <div className="rounded-lg border border-border bg-slate-panel p-4 text-center">
+                  <div className="rounded-lg border border-border bg-muted p-4 text-center">
                     <p className="font-display text-xl text-foreground">{campaign.clipCount}</p>
                     <p className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
                       Clips
                     </p>
                   </div>
-                  <div className="rounded-lg border border-border bg-slate-panel p-4 text-center">
+                  <div className="rounded-lg border border-border bg-muted p-4 text-center">
                     <p className="font-display text-xl text-foreground">{campaign.platformCount}</p>
                     <p className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
                       Platforms
                     </p>
                   </div>
-                  <div className="rounded-lg border border-border bg-slate-panel p-4 text-center">
+                  <div className="rounded-lg border border-border bg-muted p-4 text-center">
                     <p className="font-display text-xl text-foreground">
                       {campaign.progress.published}/{campaign.progress.total}
                     </p>
@@ -150,7 +150,7 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
                           return (
                             <li
                               key={record.id}
-                              className="flex items-center justify-between gap-3 rounded-md border border-border bg-slate-panel p-3"
+                              className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted p-3"
                             >
                               <div className="flex min-w-0 items-center gap-2">
                                 <Icon

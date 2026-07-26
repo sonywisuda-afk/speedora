@@ -13,7 +13,7 @@ export function UploadErrorPanel({
   onChooseAnother: () => void;
 }) {
   return (
-    <div className="rounded-lg border border-destructive bg-slate-panel p-6">
+    <div className="rounded-lg border border-destructive bg-muted p-6">
       <div className="flex items-start gap-3">
         <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden="true" />
         <div>

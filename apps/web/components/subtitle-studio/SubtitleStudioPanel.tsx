@@ -29,7 +29,7 @@ function EmojiSuggestions({ text, onInsert }: { text: string; onInsert: (emoji: 
           type="button"
           onClick={() => onInsert(emoji)}
           title="Sisipkan emoji"
-          className="rounded px-1.5 py-0.5 text-sm hover:bg-slate-panel"
+          className="rounded px-1.5 py-0.5 text-sm hover:bg-accent"
         >
           {emoji}
         </button>
@@ -138,7 +138,7 @@ function SegmentRow({
           <select
             value={splitAt ?? ''}
             onChange={(e) => setSplitAt(e.target.value ? Number(e.target.value) : null)}
-            className="h-8 rounded-md border border-input bg-slate-panel px-2 font-mono text-xs text-foreground"
+            className="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs text-foreground"
           >
             <option value="">Pisah sebelum kata...</option>
             {(words?.map((w) => w.word) ?? text.trim().split(/\s+/)).map((word, i) =>
@@ -189,7 +189,7 @@ export function SubtitleStudioPanel({ videoId }: { videoId: string }) {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-md border border-border bg-slate-panel p-3">
+      <div className="rounded-md border border-border bg-muted p-3">
         <p className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
           Terjemahkan Transkrip
         </p>

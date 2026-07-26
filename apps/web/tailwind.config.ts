@@ -1,6 +1,7 @@
 import type { Config } from 'tailwindcss';
 
 const config: Config = {
+  darkMode: 'class',
   content: [
     './pages/**/*.{js,ts,jsx,tsx,mdx}',
     './components/**/*.{js,ts,jsx,tsx,mdx}',
@@ -9,18 +10,9 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        // Raw design tokens — reach for these when a semantic shadcn slot
-        // doesn't fit (e.g. duotone accents, letterbox bands).
-        'bay-black': '#0B0E14',
-        'slate-panel': '#151922',
-        chrome: '#A8B0BE',
-        'signal-pink': '#FF3B7F',
-        'signal-cyan': '#22E6D6',
-        'paper-white': '#EDEFF2',
-
         // shadcn semantic slots — components read these, backed by the CSS
-        // variables in globals.css so the raw tokens above stay the single
-        // source of truth.
+        // variables in globals.css (light values in :root, dark values in
+        // .dark) so the palette below stays the single source of truth.
         border: 'hsl(var(--border))',
         input: 'hsl(var(--input))',
         ring: 'hsl(var(--ring))',
@@ -28,14 +20,44 @@ const config: Config = {
         foreground: 'hsl(var(--foreground))',
         primary: {
           DEFAULT: 'hsl(var(--primary))',
+          hover: 'hsl(var(--primary-hover))',
+          active: 'hsl(var(--primary-active))',
+          light: 'hsl(var(--primary-light))',
+          surface: 'hsl(var(--primary-surface))',
           foreground: 'hsl(var(--primary-foreground))',
         },
         secondary: {
           DEFAULT: 'hsl(var(--secondary))',
+          hover: 'hsl(var(--secondary-hover))',
+          surface: 'hsl(var(--secondary-surface))',
           foreground: 'hsl(var(--secondary-foreground))',
+        },
+        success: {
+          DEFAULT: 'hsl(var(--success))',
+          surface: 'hsl(var(--success-surface))',
+          foreground: 'hsl(var(--success-foreground))',
+        },
+        warning: {
+          DEFAULT: 'hsl(var(--warning))',
+          surface: 'hsl(var(--warning-surface))',
+          foreground: 'hsl(var(--warning-foreground))',
+        },
+        info: {
+          DEFAULT: 'hsl(var(--info))',
+          surface: 'hsl(var(--info-surface))',
+          foreground: 'hsl(var(--info-foreground))',
+        },
+        // "AI Generated" / AI-feature accent (purple) — used sparingly, per
+        // the brief, so AI-specific surfaces stay visually distinct from
+        // the primary blue CTA color without competing with it.
+        ai: {
+          DEFAULT: 'hsl(var(--ai-accent))',
+          surface: 'hsl(var(--ai-accent-surface))',
+          foreground: 'hsl(var(--ai-accent-foreground))',
         },
         destructive: {
           DEFAULT: 'hsl(var(--destructive))',
+          surface: 'hsl(var(--destructive-surface))',
           foreground: 'hsl(var(--destructive-foreground))',
         },
         muted: {
@@ -54,6 +76,10 @@ const config: Config = {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
+        // Tailwind's built-in `slate` scale already matches the brief's
+        // neutral gray scale (50 #F8FAFC ... 900 #0F172A) value-for-value,
+        // so it isn't redefined here — reach for `slate-*` directly for
+        // neutral text/background/border needs outside the semantic slots.
       },
       fontFamily: {
         display: ['var(--font-display)'],
@@ -61,9 +87,21 @@ const config: Config = {
         mono: ['var(--font-mono)'],
       },
       borderRadius: {
-        lg: 'var(--radius)',
-        md: 'calc(var(--radius) - 2px)',
-        sm: 'calc(var(--radius) - 4px)',
+        sm: '0.5rem' /* 8px */,
+        DEFAULT: '0.625rem' /* 10px */,
+        md: '0.625rem' /* 10px */,
+        lg: 'var(--radius)' /* 12px */,
+        xl: '1rem' /* 16px */,
+        '2xl': '1.25rem' /* 20px */,
+        pill: '9999px',
+      },
+      boxShadow: {
+        card: '0 1px 2px 0 rgb(15 23 42 / 0.04), 0 1px 3px 0 rgb(15 23 42 / 0.06)',
+        dropdown: '0 4px 6px -2px rgb(15 23 42 / 0.05), 0 10px 15px -3px rgb(15 23 42 / 0.08)',
+        popover: '0 4px 6px -2px rgb(15 23 42 / 0.05), 0 10px 15px -3px rgb(15 23 42 / 0.08)',
+        dialog: '0 10px 15px -3px rgb(15 23 42 / 0.1), 0 20px 25px -5px rgb(15 23 42 / 0.1)',
+        toast: '0 4px 6px -2px rgb(15 23 42 / 0.05), 0 10px 15px -3px rgb(15 23 42 / 0.08)',
+        tooltip: '0 2px 4px 0 rgb(15 23 42 / 0.08)',
       },
       keyframes: {
         'accordion-down': {

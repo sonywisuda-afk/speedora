@@ -23,9 +23,9 @@ const QueueItem = memo(function QueueItem({ video }: QueueItemProps) {
           <p className="font-body text-sm text-foreground">{video.title ?? 'Video Tanpa Judul'}</p>
           <span className="font-mono text-xs text-muted-foreground">{stage.label}</span>
         </div>
-        <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-panel">
+        <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-muted">
           <div
-            className="h-full rounded-full bg-signal-cyan transition-all"
+            className="h-full rounded-full bg-info transition-all"
             style={{ width: `${stage.percent}%` }}
           />
         </div>

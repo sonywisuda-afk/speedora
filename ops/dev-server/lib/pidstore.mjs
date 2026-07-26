@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { pidDir } from './paths.mjs';
-import { isAlive, commandOf } from './proc.mjs';
+import { verifyProcessAlive } from './proc.mjs';
 
 function entryPath(name) {
   return path.join(pidDir, `${name}.json`);
@@ -57,8 +57,6 @@ export function listEntries() {
  * and we'd wrongly treat it as "our service, already running".
  */
 export function isEntryLive(entry) {
-  if (!entry || !isAlive(entry.pid)) return false;
-  if (!entry.commandFragment) return true;
-  const live = commandOf(entry.pid);
-  return Boolean(live && live.includes(entry.commandFragment));
+  if (!entry) return false;
+  return verifyProcessAlive(entry.pid, entry.commandFragment);
 }

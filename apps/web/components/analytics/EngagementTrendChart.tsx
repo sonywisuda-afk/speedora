@@ -25,7 +25,7 @@ export function EngagementTrendChart({ engagementTrend }: EngagementTrendChartPr
       {engagementTrend.map((day) => (
         <div
           key={day.date}
-          className="min-w-[2px] flex-1 rounded-t-sm bg-signal-cyan transition-opacity hover:opacity-80"
+          className="min-w-[2px] flex-1 rounded-t-sm bg-primary transition-opacity hover:opacity-80"
           style={{
             height: `${Math.max(toBarPercent(day.totalViews, max), day.publishCount > 0 ? 4 : 0)}%`,
           }}

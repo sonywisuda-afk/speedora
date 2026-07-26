@@ -39,7 +39,7 @@ export function ExplainabilityTimeline({
       <p className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
         Highlight Score di Sepanjang Video
       </p>
-      <div className="relative mt-2 h-8 w-full overflow-hidden rounded-sm bg-slate-panel">
+      <div className="relative mt-2 h-8 w-full overflow-hidden rounded-sm bg-muted">
         {clips.map((clip) => {
           const left = (clip.startTime / duration) * 100;
           const width = ((clip.endTime - clip.startTime) / duration) * 100;
@@ -54,7 +54,7 @@ export function ExplainabilityTimeline({
               onClick={() => onSelectClip(clip.id)}
               className={cn(
                 'absolute inset-y-0 transition-opacity hover:opacity-80',
-                isSelected && 'ring-2 ring-inset ring-signal-cyan',
+                isSelected && 'ring-2 ring-inset ring-ai',
               )}
               style={{
                 left: `${left}%`,

@@ -77,7 +77,7 @@ export function ShareDialog({ videoId }: { videoId: string }) {
       }}
     >
       <DialogTrigger asChild>
-        <button className="font-body text-sm text-foreground underline underline-offset-2 hover:text-signal-pink">
+        <button className="font-body text-sm text-foreground underline underline-offset-2 hover:text-primary">
           Share
         </button>
       </DialogTrigger>
@@ -87,7 +87,7 @@ export function ShareDialog({ videoId }: { videoId: string }) {
         </DialogHeader>
 
         {justCreatedUrl && (
-          <div className="rounded-md border border-signal-cyan/40 bg-signal-cyan/5 p-3">
+          <div className="rounded-md border border-info/40 bg-info/5 p-3">
             <p className="font-body text-xs text-muted-foreground">
               Link ini hanya ditampilkan sekali - simpan sekarang.
             </p>
@@ -95,7 +95,7 @@ export function ShareDialog({ videoId }: { videoId: string }) {
               <input
                 readOnly
                 value={justCreatedUrl}
-                className="h-8 flex-1 rounded-md border border-input bg-slate-panel px-2 font-mono text-xs text-foreground"
+                className="h-8 flex-1 rounded-md border border-input bg-background px-2 font-mono text-xs text-foreground"
                 onFocus={(e) => e.target.select()}
               />
               <Button size="sm" variant="outline" onClick={handleCopy}>
@@ -113,7 +113,7 @@ export function ShareDialog({ videoId }: { videoId: string }) {
             <select
               value={role}
               onChange={(e) => setRole(e.target.value as ShareRole)}
-              className="h-9 w-full rounded-md border border-input bg-slate-panel px-2 font-body text-sm text-foreground"
+              className="h-9 w-full rounded-md border border-input bg-background px-2 font-body text-sm text-foreground"
             >
               {Object.values(ShareRole).map((r) => (
                 <option key={r} value={r}>
@@ -133,7 +133,7 @@ export function ShareDialog({ videoId }: { videoId: string }) {
               placeholder="Never"
               value={expiresInDays}
               onChange={(e) => setExpiresInDays(e.target.value)}
-              className="h-9 w-full rounded-md border border-input bg-slate-panel px-2 font-body text-sm text-foreground"
+              className="h-9 w-full rounded-md border border-input bg-background px-2 font-body text-sm text-foreground"
             />
           </div>
           <Button size="sm" disabled={creating} onClick={handleCreate}>

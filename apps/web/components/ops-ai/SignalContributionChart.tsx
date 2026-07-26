@@ -24,13 +24,13 @@ export function SignalContributionChart({ signals }: SignalContributionChartProp
           <span className="w-28 shrink-0 font-body text-xs text-foreground">
             {signalLabel(entry.signal)}
           </span>
-          <div className="h-2 flex-1 overflow-hidden rounded-full bg-slate-panel">
+          <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
             <div
-              className="h-full rounded-full bg-signal-pink"
+              className="h-full rounded-full bg-ai"
               style={{ width: `${toBarPercent(entry.averageContributionPct, max)}%` }}
             />
           </div>
-          <span className="w-12 shrink-0 text-right font-mono text-xs text-signal-pink">
+          <span className="w-12 shrink-0 text-right font-mono text-xs text-ai">
             {formatPct(entry.averageContributionPct)}
           </span>
           <span className="w-20 shrink-0 text-right font-mono text-[10px] text-muted-foreground">

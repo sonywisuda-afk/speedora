@@ -120,7 +120,7 @@ export default function AuditLogPage({ params }: { params: { id: string } }) {
                   entries.map((entry) => (
                     <div
                       key={entry.id}
-                      className="rounded-md border border-border bg-slate-panel p-3 font-body text-sm"
+                      className="rounded-md border border-border bg-muted p-3 font-body text-sm"
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="font-medium text-foreground">

@@ -148,6 +148,29 @@ export function findPidsOnPort(port) {
     .map(Number);
 }
 
+/**
+ * True only if `pid` is alive, not a POSIX zombie/defunct process, and (when
+ * `commandFragment` is given) its CURRENT command line still contains that
+ * fragment - i.e. it's genuinely the process we think it is, not an
+ * unrelated process that reused the PID after the original one exited.
+ *
+ * A bare isAlive() check is not enough: a process caught mid-teardown can
+ * report alive === true for a beat before the OS finishes reclaiming it, and
+ * PIDs get recycled quickly (especially on Windows). This is what
+ * `dev.mjs`'s adoption path and post-settle verification pass both call
+ * before trusting a candidate PID - see the comment above
+ * `verifyAndRespawnDeadServices` in dev.mjs for the incident that motivated
+ * this (a batch of freshly-"adopted" services reported as already gone by
+ * the first 10s health tick).
+ */
+export function verifyProcessAlive(pid, commandFragment) {
+  if (!isAlive(pid)) return false;
+  const live = commandOf(pid);
+  if (!live || /<defunct>/i.test(live)) return false; // gone, or a POSIX zombie
+  if (commandFragment && !live.includes(commandFragment)) return false;
+  return true;
+}
+
 /** Full command line for a single live pid, or null if it's gone. */
 export function commandOf(pid) {
   if (isWin) {

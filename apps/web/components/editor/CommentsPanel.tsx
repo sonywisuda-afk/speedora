@@ -116,7 +116,7 @@ export function CommentsPanel({ videoId }: { videoId: string }) {
     const isEditing = editingId === comment.id;
     return (
       <div key={comment.id} className={isReply ? 'ml-8 border-l border-border pl-3' : ''}>
-        <div className="rounded-md border border-border bg-slate-panel p-3">
+        <div className="rounded-md border border-border bg-muted p-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2 font-body text-xs text-muted-foreground">
               <span className="font-medium text-foreground">{comment.authorEmail}</span>
@@ -125,15 +125,13 @@ export function CommentsPanel({ videoId }: { videoId: string }) {
               {comment.timestampSeconds !== null && (
                 <button
                   onClick={() => setPlayhead(comment.timestampSeconds as number)}
-                  className="rounded bg-signal-cyan/10 px-1.5 py-0.5 font-mono text-signal-cyan hover:underline"
+                  className="rounded bg-primary/10 px-1.5 py-0.5 font-mono text-primary hover:underline"
                 >
                   {formatTimestamp(comment.timestampSeconds)}
                 </button>
               )}
               {comment.resolved && (
-                <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 text-emerald-400">
-                  Resolved
-                </span>
+                <span className="rounded bg-success/10 px-1.5 py-0.5 text-success">Resolved</span>
               )}
             </div>
             <div className="flex items-center gap-2 font-body text-xs">
@@ -148,7 +146,7 @@ export function CommentsPanel({ videoId }: { videoId: string }) {
                 ) : (
                   <button
                     onClick={() => withErrorHandling(() => resolveComment(comment.id))}
-                    className="text-signal-cyan hover:underline"
+                    className="text-primary hover:underline"
                   >
                     Resolve
                   </button>
@@ -203,7 +201,7 @@ export function CommentsPanel({ videoId }: { videoId: string }) {
                 <li key={a.id}>
                   <a
                     href={commentAttachmentUrl(a.url)}
-                    className="inline-flex items-center gap-1 font-body text-xs text-signal-cyan underline"
+                    className="inline-flex items-center gap-1 font-body text-xs text-primary underline"
                   >
                     <Paperclip className="h-3 w-3" aria-hidden="true" />
                     {a.fileName}
@@ -222,15 +220,15 @@ export function CommentsPanel({ videoId }: { videoId: string }) {
                   onClick={() => handleToggleReaction(comment, emoji)}
                   className={`rounded-full border px-1.5 py-0.5 font-body text-xs ${
                     found?.reactedByMe
-                      ? 'border-signal-pink bg-signal-pink/10 text-signal-pink'
-                      : 'border-border text-muted-foreground hover:bg-slate-panel'
+                      ? 'border-primary bg-primary/10 text-primary'
+                      : 'border-border text-muted-foreground hover:bg-accent'
                   }`}
                 >
                   {emoji} {found?.count ?? ''}
                 </button>
               );
             })}
-            <label className="cursor-pointer rounded-full border border-border px-1.5 py-0.5 text-muted-foreground hover:bg-slate-panel">
+            <label className="cursor-pointer rounded-full border border-border px-1.5 py-0.5 text-muted-foreground hover:bg-accent">
               <Paperclip className="h-3 w-3" aria-hidden="true" />
               <input
                 type="file"
@@ -284,7 +282,7 @@ export function CommentsPanel({ videoId }: { videoId: string }) {
           value={newBody}
           onChange={(e) => setNewBody(e.target.value)}
           placeholder="Tulis komentar..."
-          className="h-9 flex-1 rounded-md border border-input bg-slate-panel px-2 font-body text-sm text-foreground"
+          className="h-9 flex-1 rounded-md border border-input bg-background px-2 font-body text-sm text-foreground"
         />
         <label className="flex items-center gap-1.5 font-body text-xs text-muted-foreground">
           <input

@@ -25,13 +25,13 @@ export function PlatformBreakdown({ breakdown }: PlatformBreakdownProps) {
           <span className="w-20 shrink-0 font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
             {PLATFORM_LABELS[entry.platform]}
           </span>
-          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-panel">
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
             <div
-              className="h-full rounded-full bg-signal-cyan"
+              className="h-full rounded-full bg-primary"
               style={{ width: `${toBarPercent(entry.publishedCount, max)}%` }}
             />
           </div>
-          <span className="w-8 shrink-0 text-right font-mono text-[10px] text-signal-cyan">
+          <span className="w-8 shrink-0 text-right font-mono text-[10px] text-primary">
             {entry.publishedCount}
           </span>
         </div>

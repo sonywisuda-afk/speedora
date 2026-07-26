@@ -86,7 +86,7 @@ export default function SocialMediaPage() {
             <Nav user={user} onLogout={logout} />
 
             {redirectNotice.connected && (
-              <p className="mt-4 font-body text-sm text-signal-cyan">
+              <p className="mt-4 font-body text-sm text-success">
                 {platformLabel(redirectNotice.connected.toUpperCase())} berhasil terhubung.
               </p>
             )}
@@ -120,7 +120,7 @@ export default function SocialMediaPage() {
                 {accounts.map((account) => (
                   <li
                     key={account.id}
-                    className="flex items-center justify-between rounded-lg border border-border bg-slate-panel p-4"
+                    className="flex items-center justify-between rounded-lg border border-border bg-muted p-4"
                   >
                     <div>
                       <div className="flex items-center gap-2">

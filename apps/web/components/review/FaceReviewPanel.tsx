@@ -54,7 +54,7 @@ export function FaceReviewPanel({ clips }: { clips: Clip[] }) {
         <button
           key={clip.id}
           onClick={() => setPlayhead(clip.startTime)}
-          className="block w-full rounded-md border border-border bg-slate-panel p-3 text-left font-body text-sm hover:border-signal-pink/40"
+          className="block w-full rounded-md border border-border bg-muted p-3 text-left font-body text-sm hover:border-primary/40"
         >
           <div className="flex items-center justify-between">
             <span className="font-mono text-xs text-muted-foreground">

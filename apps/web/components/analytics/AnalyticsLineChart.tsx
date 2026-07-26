@@ -33,7 +33,7 @@ export interface AnalyticsLineChartProps<T> {
   isEmpty: boolean;
 }
 
-const DEFAULT_SERIES_COLOR = '#22E6D6'; // signal-cyan
+const DEFAULT_SERIES_COLOR = 'hsl(var(--primary))';
 
 // Sprint 6C.5 (Analytics UI Foundation) - a thin Recharts LineChart wrapper
 // generalized from Sprint 6B's TrendChart (magnitude-over-time, one hue per
