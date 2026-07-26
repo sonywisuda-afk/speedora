@@ -166,6 +166,7 @@ export class ThreadsOAuthClient implements OAuthRefreshClient {
   // clientFor() return type is a union of these concrete classes, so a
   // mismatched arity here would break every call site, not just this one.
   async revokeToken(_token: string): Promise<void> {
+    void _token;
     return Promise.resolve();
   }
 }

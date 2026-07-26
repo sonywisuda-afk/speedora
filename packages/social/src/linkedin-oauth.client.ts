@@ -131,6 +131,7 @@ export class LinkedInOAuthClient implements OAuthRefreshClient {
   // LinkedIn's API has no documented token-revoke endpoint - disconnect
   // just removes the local row, same posture as Threads' revokeToken().
   async revokeToken(_token: string): Promise<void> {
+    void _token;
     return Promise.resolve();
   }
 }

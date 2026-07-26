@@ -138,6 +138,7 @@ export class PinterestOAuthClient implements OAuthRefreshClient {
   // just removes the local row, same posture as Threads'/LinkedIn's
   // revokeToken().
   async revokeToken(_token: string): Promise<void> {
+    void _token;
     return Promise.resolve();
   }
 }
