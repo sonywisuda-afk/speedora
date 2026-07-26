@@ -9,6 +9,7 @@ import type {
   FontFamily,
   SpeakerTurn,
   SubtitleSegment,
+  ThumbnailWeights,
 } from '@speedora/contracts';
 import {
   computeFillerCuts,
@@ -19,14 +20,19 @@ import {
 } from '@speedora/cutlist';
 import {
   Prisma,
+  PublishStatus,
   recordActivityEvent,
   recordNotification,
   updateVideoStatus,
   VideoStatus,
+  type SocialPlatform as PrismaSocialPlatform,
 } from '@speedora/database';
 import { computeHighlightScore, rankClips } from '@speedora/fusion-engine';
 import {
+  migrateProcessingOptions,
+  PUBLISH_RETRY_OPTIONS,
   QueueName,
+  type ProcessingOptions,
   type RenderClipJobData,
   type RenderClipJobResult,
   type TranscriptWord,
@@ -50,6 +56,7 @@ import {
 } from '@speedora/reframe';
 import { getObjectStream, uploadObject } from '@speedora/storage';
 import { buildAss } from '@speedora/subtitles';
+import { DEFAULT_THUMBNAIL_WEIGHTS } from '@speedora/thumbnail-selection';
 import { Worker, type Job } from 'bullmq';
 import { stockAssetService } from '../assets/stockAssetService';
 import {
@@ -77,10 +84,201 @@ import { forStage } from '../logger';
 import { enqueueNotificationDelivery } from '../notificationDeliveryEnqueuer';
 import { publishNotification } from '../notificationPublisher';
 import { prisma } from '../prisma';
+import { generatePlatformCopyQueue, publishClipQueue } from '../queues';
 import { createRedisConnection } from '../redis';
 import { cleanupTempFile, reserveScratchPath } from '../storage';
 
 const logger = forStage('render-clip');
+
+// Pre-Processing Settings roadmap (Phase 0/1) - maps the settings screen's
+// exportQualityPreset onto real ffmpeg -preset/-crf values. 'balanced'
+// intentionally matches reencodeToH264's own preset/crf pair (ffmpeg.ts) for
+// consistency across the two places this codebase picks an explicit x264
+// quality. null/unset (the common case - a video with no processingOptions,
+// or 'balanced' left implicit) resolves to `undefined`, which renderClip()
+// treats as "no explicit -preset/-crf" (ffmpeg's own defaults) - not the
+// same bytes as passing 'balanced' explicitly, but visually equivalent and
+// deliberately left alone rather than silently changing every pre-existing
+// render's encode settings.
+const EXPORT_QUALITY_PRESETS: Record<string, { preset: string; crf: number }> = {
+  maximum_quality: { preset: 'slow', crf: 18 },
+  balanced: { preset: 'fast', crf: 23 },
+  small_size: { preset: 'veryfast', crf: 28 },
+};
+
+function resolveRenderQuality(
+  processingOptions: ProcessingOptions | null,
+): { preset: string; crf: number } | null {
+  const key = processingOptions?.export.qualityPreset;
+  return key ? (EXPORT_QUALITY_PRESETS[key] ?? null) : null;
+}
+
+// Pre-Processing Settings roadmap (Phase 2) - true (run it) for every field
+// when there's no processingOptions at all, matching every pre-Phase-2
+// render exactly (same "null means the pipeline's own default" convention
+// as resolveRenderQuality above).
+function resolveSceneAnalysisFlags(
+  processingOptions: ProcessingOptions | null,
+): RenderGraphContext['sceneAnalysis'] {
+  return {
+    detectSceneCuts: processingOptions?.sceneAnalysis.detectSceneCuts ?? true,
+    detectMotionEnergy: processingOptions?.sceneAnalysis.detectMotionEnergy ?? true,
+    detectCameraMotion: processingOptions?.sceneAnalysis.detectCameraMotion ?? true,
+  };
+}
+
+// Pre-Processing Settings roadmap (Phase 2) - overrides packages/reframe's
+// own MAX_ZOOM_IN_FRACTION constant; undefined (not null) lets
+// buildCropPath() fall back to that constant unchanged, same "omit the
+// param entirely rather than pass a redundant default" convention as
+// renderClip()'s own optional `quality`.
+function resolveZoomInFraction(processingOptions: ProcessingOptions | null): number | undefined {
+  return processingOptions?.smartCrop.zoomInFraction ?? undefined;
+}
+
+// Pre-Processing Settings roadmap (Phase 3) - boosts (not replaces) each
+// preferred signal's own DEFAULT_THUMBNAIL_WEIGHTS entry, so a preference
+// shifts which instant wins without zeroing out every other signal's real
+// contribution. undefined (no preference set - the common case) means
+// thumbnailSelectionNode passes no override at all, identical to every
+// pre-Phase-3 render (see that node's own comment). An unrecognized signal
+// name can't reach this function at all - the DTO layer already rejects it
+// (@IsIn(THUMBNAIL_SIGNALS)) - but ?? 0 below is still the honest fallback
+// if one ever did, rather than throwing.
+const THUMBNAIL_PREFERENCE_BOOST = 2;
+
+function resolveThumbnailWeights(
+  processingOptions: ProcessingOptions | null,
+): ThumbnailWeights | undefined {
+  const preferred = processingOptions?.thumbnail.preferredSignals;
+  if (!preferred || preferred.length === 0) return undefined;
+  const weights: ThumbnailWeights = { ...DEFAULT_THUMBNAIL_WEIGHTS };
+  for (const signal of preferred) {
+    weights[signal] = (DEFAULT_THUMBNAIL_WEIGHTS[signal] ?? 0) * THUMBNAIL_PREFERENCE_BOOST;
+  }
+  return weights;
+}
+
+// Pre-Processing Settings roadmap (Phase 3) - same rate-limit window/cap as
+// ClipsService.generatePlatformCopy() (apps/api), duplicated here rather
+// than shared - same "each render-enqueue site inlines its own resolution"
+// convention DEFAULT_WATERMARK_* etc. already use. In practice this cap is
+// never hit by the automatic trigger itself (a fresh clip has zero prior
+// ClipPlatformCopy rows for a platform); it only matters if this same clip
+// is later re-rendered (VideosService.retry()) with the same platform still
+// selected.
+const PLATFORM_COPY_RATE_LIMIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+const MAX_PLATFORM_COPY_GENERATIONS_PER_DAY = 5;
+
+// Pre-Processing Settings roadmap (Phase 3) - the automatic equivalent of
+// apps/api's POST /clips/:id/platform-copy (ClipsService.generatePlatformCopy()),
+// triggered right after a clip finishes rendering instead of requiring a
+// manual click per platform afterward. Same guards as the manual endpoint -
+// a clip with no hookText yet has nothing to build SEO copy from; the same
+// 24h/5-per-platform rate cap - and the same "create the row synchronously,
+// then enqueue" shape. Never fails the render job itself: best-effort, same
+// "optional signal" posture as ranking/cover-thumbnail-promotion below.
+async function triggerAutoPlatformCopy(
+  clipId: string,
+  hookText: string | null,
+  processingOptions: ProcessingOptions | null,
+): Promise<void> {
+  if (!processingOptions?.seo.autoGeneratePlatformCopy || !hookText) return;
+
+  for (const platform of processingOptions.seo.platforms) {
+    try {
+      const since = new Date(Date.now() - PLATFORM_COPY_RATE_LIMIT_WINDOW_MS);
+      const recentCount = await prisma.clipPlatformCopy.count({
+        where: {
+          clipId,
+          platform: platform as unknown as PrismaSocialPlatform,
+          createdAt: { gte: since },
+        },
+      });
+      if (recentCount >= MAX_PLATFORM_COPY_GENERATIONS_PER_DAY) {
+        logger.info('skipping auto platform-copy generation - rate limit already reached', {
+          clipId,
+          platform,
+        });
+        continue;
+      }
+
+      const row = await prisma.clipPlatformCopy.create({
+        data: { clipId, platform: platform as unknown as PrismaSocialPlatform },
+      });
+      await generatePlatformCopyQueue.add(QueueName.GENERATE_PLATFORM_COPY, {
+        clipPlatformCopyId: row.id,
+      });
+    } catch (error) {
+      logger.warn(
+        'auto platform-copy generation failed, continuing without it',
+        { clipId, platform },
+        error,
+      );
+    }
+  }
+}
+
+// Pre-Processing Settings roadmap (Phase 3) - the automatic equivalent of
+// apps/api's POST /clips/:id/publish (ClipsService.publish()), triggered
+// right after a clip finishes rendering. A pure orchestrator: creates the
+// exact same PublishRecord shape that endpoint creates and either enqueues
+// it on the SAME PUBLISH_CLIP queue with the SAME PUBLISH_RETRY_OPTIONS
+// (immediate) or leaves it SCHEDULED for the ALREADY-RUNNING
+// schedule-publish-clip poller to pick up (future scheduledAt) - no new
+// retry, scheduling, or platform-API logic lives here. A scheduledAt that's
+// already in the past by the time a render finishes (a real possibility for
+// a long/queued video) publishes immediately instead of silently dropping
+// it. `ownerId` gates `socialAccountIds` the same way `findOwnedOrThrow`
+// does for the manual endpoint - a foreign/deleted account id is skipped
+// with a logged warning, never fails the render.
+async function triggerAutoPublish(
+  clipId: string,
+  ownerId: string,
+  processingOptions: ProcessingOptions | null,
+): Promise<void> {
+  if (!processingOptions?.publishing.autoPublish) return;
+
+  for (const socialAccountId of processingOptions.publishing.socialAccountIds) {
+    try {
+      const socialAccount = await prisma.socialAccount.findUnique({
+        where: { id: socialAccountId },
+      });
+      if (!socialAccount || socialAccount.userId !== ownerId) {
+        logger.warn(
+          'processingOptions named a social account that no longer exists or is not owned ' +
+            'by this video - skipping auto-publish for it',
+          { clipId, socialAccountId },
+        );
+        continue;
+      }
+
+      const requestedAt = processingOptions.publishing.scheduledAt
+        ? new Date(processingOptions.publishing.scheduledAt)
+        : null;
+      const scheduledAt = requestedAt && requestedAt.getTime() > Date.now() ? requestedAt : null;
+
+      const record = await prisma.publishRecord.create({
+        data: {
+          clipId,
+          socialAccountId,
+          status: scheduledAt ? PublishStatus.SCHEDULED : PublishStatus.QUEUED,
+          scheduledAt,
+        },
+      });
+
+      if (!scheduledAt) {
+        await publishClipQueue.add(
+          QueueName.PUBLISH_CLIP,
+          { publishRecordId: record.id },
+          PUBLISH_RETRY_OPTIONS,
+        );
+      }
+    } catch (error) {
+      logger.warn('auto-publish failed, continuing without it', { clipId, socialAccountId }, error);
+    }
+  }
+}
 
 // Re-anchors a clip's transcript words onto the clip's own timeline (0 =
 // this clip's start) - the convention shared by @speedora/cutlist's cut
@@ -198,6 +396,9 @@ async function buildReframePlan(
   startTime: number,
   endTime: number,
   transcript: RenderClipJobData['transcript'],
+  // Pre-Processing Settings roadmap (Phase 2) - undefined lets
+  // buildCropPath() fall back to its own MAX_ZOOM_IN_FRACTION default.
+  zoomInFraction?: number,
 ): Promise<ReframeOptions> {
   const { width: sourceWidth, height: sourceHeight } = await getVideoDimensions(sourcePath);
   const crop = computeCropDimensions(sourceWidth, sourceHeight);
@@ -217,6 +418,7 @@ async function buildReframePlan(
     sourceWidth,
     sourceHeight,
     endTime - startTime,
+    zoomInFraction,
   );
   if (!cropPath) {
     return {
@@ -416,7 +618,18 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // second round-trip later since this query already runs first.
             // video.title (Notification Center Sprint 4A) - needed for the
             // CLIP_READY notification below, same reasoning.
-            select: { outputUrl: true, video: { select: { ownerId: true, title: true } } },
+            // video.processingOptions (Pre-Processing Settings roadmap,
+            // Phase 0/1) - resolves this render's export quality, see
+            // resolveRenderQuality above.
+            // hookText (Pre-Processing Settings roadmap, Phase 3) - the
+            // same "clip has no AI-generated hook yet" guard
+            // ClipsService.generatePlatformCopy() itself uses, see
+            // triggerAutoPlatformCopy below.
+            select: {
+              outputUrl: true,
+              hookText: true,
+              video: { select: { ownerId: true, title: true, processingOptions: true } },
+            },
           });
           if (!existingClip) {
             logger.info('clip was deleted - skipping orphaned job', { clipId, videoId });
@@ -435,6 +648,14 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           }
 
           logger.info('rendering clip', { clipId, videoId, startTime, endTime });
+
+          // Pre-Processing Settings roadmap - resolved once, reused for
+          // export quality, scene-analysis toggles, and crop aggressiveness
+          // below. migrateProcessingOptions() (not a bare cast) so a future
+          // version bump is handled in exactly one place.
+          const processingOptions = existingClip.video.processingOptions
+            ? migrateProcessingOptions(existingClip.video.processingOptions)
+            : null;
 
           let sourcePath: string | null = null;
           let subtitlesPath: string | null = null;
@@ -469,7 +690,13 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // Computed before captions - buildAss needs the final (post-crop,
             // post-scale) output dimensions to size/position the subtitle text
             // correctly.
-            const reframe = await buildReframePlan(sourcePath, startTime, endTime, transcript);
+            const reframe = await buildReframePlan(
+              sourcePath,
+              startTime,
+              endTime,
+              transcript,
+              resolveZoomInFraction(processingOptions),
+            );
             sendCmdPath = reframe.sendCmdPath;
 
             // Composing multiple modules: the render-clip Feature Orchestrator (see
@@ -488,6 +715,8 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               audioActivityWindows: toAudioActivityWindows(transcript, startTime),
               speakerTurns: toSpeakerTurns(transcript, startTime),
               reframe: { outputWidth: reframe.outputWidth, outputHeight: reframe.outputHeight },
+              sceneAnalysis: resolveSceneAnalysisFlags(processingOptions),
+              thumbnailWeights: resolveThumbnailWeights(processingOptions),
             };
             const graphResult = (await runInstrumentedRenderGraph(
               renderClipGraph,
@@ -623,6 +852,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                       position: watermark.position,
                     }
                   : null,
+              quality: resolveRenderQuality(processingOptions),
             });
 
             // Second pass (see computeClipCuts's comment) - skipped entirely
@@ -967,6 +1197,9 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             ).catch((error) => {
               logger.warn('failed to record CLIP_READY notification', { clipId }, error);
             });
+
+            await triggerAutoPlatformCopy(clipId, existingClip.hookText, processingOptions);
+            await triggerAutoPublish(clipId, existingClip.video.ownerId, processingOptions);
 
             if (allRendered) {
               // Ranking (Fase 31) - only meaningful once every clip in the

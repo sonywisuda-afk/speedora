@@ -1,10 +1,17 @@
 'use client';
 
-import { TranscriptionProvider, VideoStatus } from '@speedora/shared';
+import {
+  secondsToTimestamp,
+  TranscriptionProvider,
+  VideoStatus,
+  type ProcessingOptions,
+} from '@speedora/shared';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { Nav } from '@/components/Nav';
+import { ProcessingSettings } from '@/components/processing-settings/ProcessingSettings';
 import { ProcessingStatus } from '@/components/processing/ProcessingStatus';
+import { QualityValidation } from '@/components/quality-validation/QualityValidation';
 import { AuthGate } from '@/components/upload/AuthGate';
 import { EngineChoice } from '@/components/upload/EngineChoice';
 import { ForgotPasswordForm } from '@/components/upload/ForgotPasswordForm';
@@ -18,10 +25,12 @@ import {
   login,
   register,
   retryVideo,
+  startProcessing,
   uploadVideo,
   type VideoWithClipsDto,
 } from '@/lib/api';
 import { useAuth } from '@/lib/useAuth';
+import { readBrowserVideoMetadata, type BrowserVideoMetadata } from '@/lib/video-metadata';
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -54,6 +63,30 @@ export default function UploadPage() {
   const [video, setVideo] = useState<VideoWithClipsDto | null>(null);
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState<string | null>(null);
+
+  // Quality Validation roadmap (Fase 0 design, Phase 1) - Processing
+  // Settings now renders AFTER upload, once probing finishes (status
+  // PENDING_SETTINGS is unambiguous). While status is still UPLOADED, width
+  // stays null until probe-video.worker.ts writes it - the same "one coarse
+  // status, a data field as the real sub-state signal" convention
+  // transcribeProgress/importProgress already use - so this distinguishes
+  // "still probing" from "a real transcribe pass in progress" (status is
+  // UPLOADED again after startProcessing, this time with width populated).
+  const isProbing = video?.status === VideoStatus.UPLOADED && video.width == null;
+  const isPendingSettings = video?.status === VideoStatus.PENDING_SETTINGS;
+  const [startingProcessing, setStartingProcessing] = useState(false);
+  const [startProcessingError, setStartProcessingError] = useState<string | null>(null);
+
+  // Quality Validation roadmap (Fase 0 design, Phase 3) - the browser tier's
+  // instant preview (see lib/video-metadata.ts), read the moment a local
+  // file is picked, shown only while isProbing. Best-effort/display-only -
+  // never sent to the server, never blocks the real upload, and simply
+  // absent for a YouTube import (no local File to read - see the Fase 0
+  // design's explicit browser-vs-import asymmetry note).
+  const [browserPreview, setBrowserPreview] = useState<BrowserVideoMetadata | null>(null);
+  // Gates ProcessingSettings behind the QualityValidation check-list screen
+  // once a video reaches PENDING_SETTINGS - reset per video, not global.
+  const [validationAcknowledged, setValidationAcknowledged] = useState(false);
 
   useEffect(() => {
     if (!video || video.status === VideoStatus.RENDERED || video.status === VideoStatus.FAILED) {
@@ -117,11 +150,22 @@ export default function UploadPage() {
     setUploadError(null);
     setUploading(true);
     setUploadProgress(0);
+    setBrowserPreview(null);
+    // Fire-and-forget - a failed/unsupported browser read just leaves the
+    // preview absent (isProbing's screen still works fine without it), same
+    // "best-effort, never blocks the real flow" posture as every other
+    // optional preview in this codebase.
+    readBrowserVideoMetadata(toUpload)
+      .then(setBrowserPreview)
+      .catch(() => {});
 
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
-    uploadVideo(toUpload, provider, { onProgress: setUploadProgress, signal: controller.signal })
+    uploadVideo(toUpload, provider, {
+      onProgress: setUploadProgress,
+      signal: controller.signal,
+    })
       .then((uploaded) => {
         setVideo({ ...uploaded, clips: [] });
         setFile(null);
@@ -172,6 +216,41 @@ export default function UploadPage() {
     setFile(null);
     setUploadError(null);
     setProvider(null);
+    setStartProcessingError(null);
+    setBrowserPreview(null);
+    setValidationAcknowledged(false);
+  }
+
+  // Quality Validation roadmap (Fase 0 design, Phase 1) - "Kembali" from
+  // Processing Settings. Unlike the pre-Phase-1 flow (where "back" meant
+  // "go back to EngineChoice, before any file existed"), the file/video
+  // already exists at this point - abandons this upload attempt (the video
+  // row is simply left sitting in PENDING_SETTINGS server-side, same as a
+  // user closing the tab mid-flow at any other stage already does today)
+  // and returns to file/URL selection for the same provider choice.
+  function handleBackFromSettings() {
+    setVideo(null);
+    setFile(null);
+    setUploadError(null);
+    setStartProcessingError(null);
+    setBrowserPreview(null);
+    setValidationAcknowledged(false);
+  }
+
+  async function handleStartProcessing(options: ProcessingOptions) {
+    if (!video) return;
+    setStartProcessingError(null);
+    setStartingProcessing(true);
+    try {
+      const updated = await startProcessing(video.id, options);
+      setVideo(updated);
+    } catch (err) {
+      setStartProcessingError(
+        err instanceof Error ? err.message : 'Gagal memulai pemrosesan. Coba lagi.',
+      );
+    } finally {
+      setStartingProcessing(false);
+    }
   }
 
   async function handleRetryPipeline() {
@@ -271,7 +350,57 @@ export default function UploadPage() {
         </div>
       ) : null}
 
-      {user && !checkingAuth && video ? (
+      {/* Quality Validation roadmap (Fase 0 design, Phase 1/3) - "still
+          probing" gets its own lightweight screen rather than falling into
+          ProcessingStatus's 3-stage bar, which doesn't have a slot for this
+          pre-Transcribe stage. browserPreview (Phase 3's browser tier) is
+          shown here as a provisional preview while the authoritative
+          server-side probe is still in flight - absent for a YouTube
+          import or if the browser couldn't read it. */}
+      {user && !checkingAuth && video && isProbing ? (
+        <div className="flex min-h-[calc(100vh-160px)] flex-col items-center justify-center px-6 py-16 text-center">
+          <p className="font-mono text-2xl text-info">Menganalisis video...</p>
+          <p className="mt-2 max-w-md font-body text-sm text-muted-foreground">
+            Memeriksa resolusi, durasi, dan kualitas video sebelum lanjut ke pengaturan.
+          </p>
+          {browserPreview ? (
+            <p className="mt-4 font-mono text-xs text-muted-foreground">
+              {browserPreview.width}×{browserPreview.height} ·{' '}
+              {secondsToTimestamp(browserPreview.durationSeconds)} ·{' '}
+              {(browserPreview.sizeBytes / 1024 ** 2).toFixed(1)} MB
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {user && !checkingAuth && video && isPendingSettings && !validationAcknowledged ? (
+        <div className="px-6 py-6">
+          <div className="mx-auto max-w-xl">
+            <QualityValidation
+              video={video}
+              onContinue={() => setValidationAcknowledged(true)}
+              onBack={handleBackFromSettings}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {user && !checkingAuth && video && isPendingSettings && validationAcknowledged ? (
+        <div className="px-6 py-6">
+          <div className="mx-auto max-w-xl">
+            {startProcessingError ? (
+              <p className="mb-4 font-body text-sm text-destructive">{startProcessingError}</p>
+            ) : null}
+            <ProcessingSettings
+              onReady={handleStartProcessing}
+              onBack={() => setValidationAcknowledged(false)}
+              submitting={startingProcessing}
+            />
+          </div>
+        </div>
+      ) : null}
+
+      {user && !checkingAuth && video && !isProbing && !isPendingSettings ? (
         <ProcessingStatus
           video={video}
           retrying={retrying}

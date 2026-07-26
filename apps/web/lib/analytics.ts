@@ -29,6 +29,8 @@ export interface StatusBadge {
 
 const VIDEO_STATUS_BADGES: Record<VideoStatus, StatusBadge> = {
   [VideoStatus.IMPORTING]: { label: 'Mengimpor', tone: 'neutral' },
+  // Quality Validation roadmap (Fase 0 design, Phase 1).
+  [VideoStatus.PENDING_SETTINGS]: { label: 'Menunggu Pengaturan', tone: 'neutral' },
   [VideoStatus.UPLOADED]: { label: 'Diunggah', tone: 'neutral' },
   [VideoStatus.TRANSCRIBED]: { label: 'Transkrip Selesai', tone: 'neutral' },
   [VideoStatus.CLIPS_DETECTED]: { label: 'Klip Terdeteksi', tone: 'neutral' },

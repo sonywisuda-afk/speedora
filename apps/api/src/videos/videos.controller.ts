@@ -25,10 +25,12 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import type { SafeUser } from '../auth/auth.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { withUtf8Bom } from '../common/csv.util';
+import { toProcessingOptions } from '../processing-presets/dto/processing-options.dto';
 import { ImportYoutubeDto } from './dto/import-youtube.dto';
 import { MergeTranscriptSegmentsDto } from './dto/merge-transcript-segments.dto';
 import { MoveVideoDto } from './dto/move-video.dto';
 import { SplitTranscriptSegmentDto } from './dto/split-transcript-segment.dto';
+import { StartProcessingDto } from './dto/start-processing.dto';
 import { TranslateTranscriptDto } from './dto/translate-transcript.dto';
 import { UpdateTranscriptSegmentDto } from './dto/update-transcript-segment.dto';
 import { UploadVideoDto } from './dto/upload-video.dto';
@@ -80,6 +82,7 @@ export class VideosController {
       file,
       dto.transcriptionProvider ?? TranscriptionProvider.GROQ,
       dto.workspaceId,
+      dto.processingOptions ? toProcessingOptions(dto.processingOptions) : undefined,
     );
   }
 
@@ -95,6 +98,7 @@ export class VideosController {
       dto.url,
       dto.transcriptionProvider ?? TranscriptionProvider.GROQ,
       dto.workspaceId,
+      dto.processingOptions ? toProcessingOptions(dto.processingOptions) : undefined,
     );
   }
 
@@ -256,6 +260,24 @@ export class VideosController {
   @HttpCode(200)
   retry(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.videosService.retry(id, user.id);
+  }
+
+  // Quality Validation roadmap (Fase 0 design, Phase 1) - submits Processing
+  // Settings once a video has finished probing (status PENDING_SETTINGS),
+  // persisting processingOptions and enqueueing TRANSCRIBE. See
+  // VideosService.startProcessing.
+  @Post(':id/start-processing')
+  @HttpCode(200)
+  startProcessing(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Body() dto: StartProcessingDto,
+  ) {
+    return this.videosService.startProcessing(
+      id,
+      user.id,
+      toProcessingOptions(dto.processingOptions),
+    );
   }
 
   // Separate from findOne() - only the timeline editor needs transcript

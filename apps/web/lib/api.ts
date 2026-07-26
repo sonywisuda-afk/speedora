@@ -52,6 +52,9 @@ import type {
   PendingInviteDto,
   PremiumCheckoutResult,
   PremiumCreditAvailability,
+  ProcessingOptions,
+  ProcessingPresetDto,
+  ProcessingPresetListDto,
   PublishRecord,
   RecurringScheduleDto,
   RecurringScheduleListDto,
@@ -190,11 +193,21 @@ export async function me(): Promise<UserDto | null> {
 export function uploadVideo(
   file: File,
   provider: TranscriptionProvider,
-  options?: { onProgress?: (percent: number) => void; signal?: AbortSignal },
+  options?: {
+    onProgress?: (percent: number) => void;
+    signal?: AbortSignal;
+    processingOptions?: ProcessingOptions;
+  },
 ): Promise<VideoDto> {
   const formData = new FormData();
   formData.append('file', file);
   formData.append('transcriptionProvider', provider);
+  // Pre-Processing Settings roadmap (Phase 0/1) - a multipart form field can
+  // only ever be a string, so this is JSON-encoded here and decoded by
+  // UploadVideoDto's own @Transform (see that DTO's comment).
+  if (options?.processingOptions) {
+    formData.append('processingOptions', JSON.stringify(options.processingOptions));
+  }
 
   return new Promise<VideoDto>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
@@ -237,17 +250,34 @@ export function uploadVideo(
 export async function importYoutubeVideo(
   url: string,
   provider: TranscriptionProvider,
+  processingOptions?: ProcessingOptions,
 ): Promise<VideoDto> {
   const res = await apiFetch('/videos/import-youtube', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ url, transcriptionProvider: provider }),
+    body: JSON.stringify({ url, transcriptionProvider: provider, processingOptions }),
   });
   return parseJsonOrThrow<VideoDto>(res);
 }
 
 export async function getVideo(id: string): Promise<VideoWithClipsDto> {
   const res = await apiFetch(`/videos/${id}`);
+  return parseJsonOrThrow<VideoWithClipsDto>(res);
+}
+
+// Quality Validation roadmap (Fase 0 design, Phase 1) - submits Processing
+// Settings once a video has finished probing (status PENDING_SETTINGS),
+// persisting processingOptions and enqueueing TRANSCRIBE. See
+// VideosService.startProcessing.
+export async function startProcessing(
+  id: string,
+  processingOptions: ProcessingOptions,
+): Promise<VideoWithClipsDto> {
+  const res = await apiFetch(`/videos/${id}/start-processing`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ processingOptions }),
+  });
   return parseJsonOrThrow<VideoWithClipsDto>(res);
 }
 
@@ -1444,6 +1474,29 @@ export async function createSubtitlePreset(input: {
 
 export async function deleteSubtitlePreset(id: string): Promise<void> {
   await apiFetch(`/subtitle-presets/${id}`, { method: 'DELETE' });
+}
+
+// Pre-Processing Settings roadmap (Phase 0/1) - same CRUD shape as the
+// SubtitlePreset functions just above.
+export async function listProcessingPresets(): Promise<ProcessingPresetListDto> {
+  const res = await apiFetch('/processing-presets');
+  return parseJsonOrThrow<ProcessingPresetListDto>(res);
+}
+
+export async function createProcessingPreset(input: {
+  name: string;
+  config: ProcessingOptions;
+}): Promise<ProcessingPresetDto> {
+  const res = await apiFetch('/processing-presets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return parseJsonOrThrow<ProcessingPresetDto>(res);
+}
+
+export async function deleteProcessingPreset(id: string): Promise<void> {
+  await apiFetch(`/processing-presets/${id}`, { method: 'DELETE' });
 }
 
 // Sprint 5B (Shared Clips) - a link holder needs no Speedora account, so

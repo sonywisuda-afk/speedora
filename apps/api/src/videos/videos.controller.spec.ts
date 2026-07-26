@@ -1,6 +1,8 @@
+import { CaptionStyle } from '@speedora/database';
 import { TranscriptionProvider } from '@speedora/shared';
 import { getObjectStream, getObjectStreamRange } from '@speedora/storage';
 import type { Response } from 'express';
+import type { ProcessingOptionsDto } from '../processing-presets/dto/processing-options.dto';
 import type { VideosService } from './videos.service';
 import { VideosController } from './videos.controller';
 
@@ -71,6 +73,7 @@ describe('VideosController', () => {
         file,
         TranscriptionProvider.GROQ,
         undefined,
+        undefined,
       );
     });
 
@@ -83,6 +86,7 @@ describe('VideosController', () => {
         'user-1',
         file,
         TranscriptionProvider.OPENAI,
+        undefined,
         undefined,
       );
     });
@@ -97,6 +101,42 @@ describe('VideosController', () => {
         file,
         TranscriptionProvider.GROQ,
         'ws-1',
+        undefined,
+      );
+    });
+
+    // Pre-Processing Settings roadmap (Phase 0/1).
+    it('normalizes a submitted processingOptions DTO before forwarding it', async () => {
+      const file = { buffer: Buffer.from('x') } as Express.Multer.File;
+
+      await controller.upload(user, file, {
+        processingOptions: {
+          clipGeneration: { clipCount: 5 },
+          subtitle: {
+            captionStyle: CaptionStyle.KARAOKE,
+            speakerColorCaptions: true,
+          },
+        } as ProcessingOptionsDto,
+      });
+
+      expect(videosService.upload).toHaveBeenCalledWith(
+        'user-1',
+        file,
+        TranscriptionProvider.GROQ,
+        undefined,
+        expect.objectContaining({
+          project: { name: null, tags: [] },
+          clipGeneration: {
+            clipCount: 5,
+            minClipDurationSeconds: null,
+            maxClipDurationSeconds: null,
+          },
+          subtitle: {
+            captionStyle: CaptionStyle.KARAOKE,
+            speakerColorCaptions: true,
+            fontFamily: null,
+          },
+        }),
       );
     });
   });
@@ -142,6 +182,7 @@ describe('VideosController', () => {
         'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
         TranscriptionProvider.GROQ,
         undefined,
+        undefined,
       );
     });
 
@@ -155,6 +196,7 @@ describe('VideosController', () => {
         'user-1',
         'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
         TranscriptionProvider.OPENAI,
+        undefined,
         undefined,
       );
     });
@@ -170,6 +212,7 @@ describe('VideosController', () => {
         'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
         TranscriptionProvider.GROQ,
         'ws-1',
+        undefined,
       );
     });
   });

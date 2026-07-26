@@ -30,7 +30,7 @@ import { forStage } from '../logger';
 import { enqueueNotificationDelivery } from '../notificationDeliveryEnqueuer';
 import { publishNotification } from '../notificationPublisher';
 import { prisma } from '../prisma';
-import { transcribeQueue } from '../queues';
+import { probeVideoQueue } from '../queues';
 import { createRedisConnection } from '../redis';
 import { cleanupTempFile } from '../storage';
 import { limitExecFile } from '../subprocessLimiter';
@@ -126,7 +126,13 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
 
       return withJobTimeout(
         async () => {
-          const { videoId, url, provider } = job.data;
+          // provider isn't needed here since import 2026-07-26 (Quality
+          // Validation roadmap) - this job now self-chains into PROBE_VIDEO,
+          // which doesn't call Whisper. It's still on Video.transcriptionProvider
+          // (set at creation time) for whichever job eventually needs it
+          // (apps/api's start-processing enqueues TRANSCRIBE with a fresh
+          // read of that column).
+          const { videoId, url } = job.data;
 
           // Same orphaned-job guard as transcribe/detect-clips/render-clip
           // workers - a video can be deleted while this job is still queued,
@@ -224,7 +230,7 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
               engineHealthStatus: health.status,
             }).catch(() => {});
 
-            await transcribeQueue.add(QueueName.TRANSCRIBE, { videoId, sourceUrl, provider });
+            await probeVideoQueue.add(QueueName.PROBE_VIDEO, { videoId, sourceUrl });
 
             return { videoId, sourceUrl };
           } catch (error) {

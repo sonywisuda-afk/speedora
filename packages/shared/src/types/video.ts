@@ -1,3 +1,4 @@
+import type { ProcessingOptions } from './processing-options';
 import type { PublishRecord } from './social';
 
 export enum VideoStatus {
@@ -7,10 +8,37 @@ export enum VideoStatus {
   // downloading the source video before it has a real sourceUrl to store.
   IMPORTING = 'IMPORTING',
   UPLOADED = 'UPLOADED',
+  // Quality Validation roadmap (Fase 0 design, Phase 1) - reached once
+  // probe-video.worker.ts's ffprobe pass succeeds (see schema.prisma's own
+  // comment on this value for the full lifecycle). While a probe is still
+  // running the status stays UPLOADED - the frontend distinguishes "still
+  // probing" from "ready for a real transcribe pass" by whether width/
+  // height are populated yet (see apps/web/app/upload/page.tsx), the same
+  // "one coarse status, a data field as the real sub-state signal"
+  // convention importProgress/transcribeProgress already use.
+  PENDING_SETTINGS = 'PENDING_SETTINGS',
   TRANSCRIBED = 'TRANSCRIBED',
   CLIPS_DETECTED = 'CLIPS_DETECTED',
   RENDERED = 'RENDERED',
   FAILED = 'FAILED',
+}
+
+// Quality Validation roadmap (Fase 0 design, Phase 2) - mirrors
+// @speedora/contracts' ValidationFinding/ValidationReport rather than
+// importing them - same duplication precedent as ClipScores/
+// FacialEmotionSample above. errors is always [] (Error-tier is a hard
+// probe-video.worker.ts failure, never reaches this field at all - see
+// ValidationReport's own comment in @speedora/contracts); info is always []
+// in Phase 2 (a separate cost/time estimate feature, not duplicated here).
+export interface ValidationFinding {
+  id: string;
+  message: string;
+}
+
+export interface ValidationReport {
+  errors: ValidationFinding[];
+  warnings: ValidationFinding[];
+  info: ValidationFinding[];
 }
 
 export interface TranscriptWord {
@@ -911,6 +939,24 @@ export interface Video {
   // Sprint 1-2 (Dashboard Redesign) - feeds the Dashboard's per-owner
   // Storage Used stat (see schema.prisma's comment on Video.sourceSizeBytes).
   sourceSizeBytes: number | null;
+  // Quality Validation roadmap (Fase 0 design, Phase 1) - written once by
+  // probe-video.worker.ts's ffprobe pass (see schema.prisma's own comment
+  // on these columns). All null until that pass completes, or for any
+  // pre-existing row.
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+  videoCodec: string | null;
+  videoBitrate: number | null;
+  audioCodec: string | null;
+  audioSampleRate: number | null;
+  audioChannels: number | null;
+  audioBitrate: number | null;
+  // The structured Error/Warning/Info result of packages/video-validation's
+  // rule evaluation (Phase 2), written by probe-video.worker.ts - null for
+  // any video whose probe failed with an Error-tier finding (see
+  // ValidationReport's own comment) or predates this field.
+  validationReport: ValidationReport | null;
   // Product Experience roadmap - already a `/videos/:id/thumbnail` relative
   // endpoint path (see VideosService.mapVideoWithClips), never the raw
   // object-storage key - same treatment as Clip.downloadUrl below. Null
@@ -954,6 +1000,11 @@ export interface Video {
   // frontend's per-stage progress bar ignores it otherwise.
   transcribeProgress: number | null;
   transcriptionProvider: TranscriptionProvider;
+  // Pre-Processing Settings roadmap (Phase 0/1) - the settings snapshot
+  // chosen on the pre-upload settings screen (see ProcessingOptions' own
+  // comment); null for every video created before this field existed, or
+  // when the settings screen was skipped.
+  processingOptions: ProcessingOptions | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -146,6 +146,10 @@ export function buildCropPath(
   sourceWidth: number,
   sourceHeight: number,
   clipDurationSeconds: number,
+  // Pre-Processing Settings roadmap (Phase 2) - overrides MAX_ZOOM_IN_FRACTION
+  // above; undefined keeps this function's exact prior behavior for every
+  // existing caller/test.
+  maxZoomInFraction: number = MAX_ZOOM_IN_FRACTION,
 ): CropWindow[] | null {
   const hasFaceData = samples.some((sample) => sample.box !== null);
   if (!hasFaceData && emphasisWords.length === 0) {
@@ -184,7 +188,7 @@ export function buildCropPath(
       (max, start) => Math.max(max, zoomEnvelopeAt(clampedT, start)),
       0,
     );
-    const scale = 1 - zoom * MAX_ZOOM_IN_FRACTION;
+    const scale = 1 - zoom * maxZoomInFraction;
     const width = roundToEven(crop.width * scale);
     const height = roundToEven(crop.height * scale);
 

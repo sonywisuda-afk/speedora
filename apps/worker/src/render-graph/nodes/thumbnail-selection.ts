@@ -24,17 +24,26 @@ export const thumbnailSelectionNode: GraphNode<RenderGraphContext, SelectThumbna
       'primarySubjectSamples',
     ],
     optional: false,
+    // Pre-Processing Settings roadmap (Phase 3) - ctx.thumbnailWeights is
+    // undefined for every pre-Phase-3 render (and any render with no
+    // preferredSignals set), in which case selectThumbnailTimestamp()'s own
+    // `weights = DEFAULT_THUMBNAIL_WEIGHTS` parameter default applies -
+    // passing `undefined` explicitly here is identical to omitting the
+    // argument.
     run: (get, ctx) =>
-      selectThumbnailTimestamp({
-        clipDurationSeconds: ctx.endTime - ctx.startTime,
-        faceLandmarks: get('faceLandmarks'),
-        facialEmotions: get('facialEmotions'),
-        ocrTracks: get('ocrTracks'),
-        gestures: get('gestures'),
-        motionEnergy: get('motionEnergy'),
-        sceneCutEvents: get('sceneCutEvents'),
-        primarySubjectSamples: get('primarySubjectSamples'),
-      }),
+      selectThumbnailTimestamp(
+        {
+          clipDurationSeconds: ctx.endTime - ctx.startTime,
+          faceLandmarks: get('faceLandmarks'),
+          facialEmotions: get('facialEmotions'),
+          ocrTracks: get('ocrTracks'),
+          gestures: get('gestures'),
+          motionEnergy: get('motionEnergy'),
+          sceneCutEvents: get('sceneCutEvents'),
+          primarySubjectSamples: get('primarySubjectSamples'),
+        },
+        ctx.thumbnailWeights,
+      ),
   };
 
 export const thumbnailSelectionNodes = [thumbnailSelectionNode];

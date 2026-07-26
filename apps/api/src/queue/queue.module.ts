@@ -17,6 +17,11 @@ function parseRedisConnection() {
 // apps/worker's import-youtube job consumes it and self-chains into
 // transcribeQueue below, same shape as every other stage in this pipeline.
 const importYoutubeQueue = BullModule.registerQueue({ name: QueueName.IMPORT_YOUTUBE });
+// Quality Validation roadmap (Fase 0 design, Phase 1) - apps/api enqueues
+// directly into this from upload()/importFromYoutube()/retry() (replacing
+// what used to be a direct TRANSCRIBE enqueue - see QueueName.PROBE_VIDEO's
+// own comment), same shape as transcribeQueue below.
+const probeVideoQueue = BullModule.registerQueue({ name: QueueName.PROBE_VIDEO });
 const transcribeQueue = BullModule.registerQueue({ name: QueueName.TRANSCRIBE });
 // apps/api never processes these three - they're only ever consumed by
 // apps/worker - but it does need to be able to enqueue into detectClips/
@@ -71,6 +76,7 @@ const translateTranscriptQueue = BullModule.registerQueue({
       useFactory: () => ({ connection: parseRedisConnection() }),
     }),
     importYoutubeQueue,
+    probeVideoQueue,
     transcribeQueue,
     detectClipsQueue,
     renderClipQueue,
@@ -85,6 +91,7 @@ const translateTranscriptQueue = BullModule.registerQueue({
   providers: [NotificationDeliveryProducer],
   exports: [
     importYoutubeQueue,
+    probeVideoQueue,
     transcribeQueue,
     detectClipsQueue,
     renderClipQueue,
