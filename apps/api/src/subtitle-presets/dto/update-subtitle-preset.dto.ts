@@ -1,6 +1,14 @@
 import { CaptionStyle } from '@speedora/database';
 import { FONT_FAMILIES } from '@speedora/contracts';
-import { IsBoolean, IsEnum, IsIn, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import {
+  IsBoolean,
+  IsEnum,
+  IsIn,
+  IsOptional,
+  IsString,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 export class UpdateSubtitlePresetDto {
   @IsOptional()

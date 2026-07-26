@@ -405,7 +405,9 @@ describe('sync-publish-stats worker', () => {
         data: { consecutiveSyncFailures: 0 },
       });
       expect(socialAccountUpdateMock).not.toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ consecutiveSyncFailures: expect.anything() }) }),
+        expect.objectContaining({
+          data: expect.objectContaining({ consecutiveSyncFailures: expect.anything() }),
+        }),
       );
     });
 
@@ -426,7 +428,11 @@ describe('sync-publish-stats worker', () => {
 
     it('treats the account as healthy when at least one of its records succeeds this tick, even if another fails', async () => {
       const error = new Error('this specific post was deleted on the platform');
-      const secondYoutubeRecord = { ...youtubeRecord, id: 'record-1b', platformPostId: 'yt-video-1b' };
+      const secondYoutubeRecord = {
+        ...youtubeRecord,
+        id: 'record-1b',
+        platformPostId: 'yt-video-1b',
+      };
       fetchYouTubeVideoStatsMock.mockRejectedValueOnce(error).mockResolvedValueOnce({
         viewCount: 100,
         likeCount: 10,
@@ -442,7 +448,9 @@ describe('sync-publish-stats worker', () => {
         data: { consecutiveSyncFailures: 0 },
       });
       expect(socialAccountUpdateMock).not.toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ consecutiveSyncFailures: expect.anything() }) }),
+        expect.objectContaining({
+          data: expect.objectContaining({ consecutiveSyncFailures: expect.anything() }),
+        }),
       );
     });
 

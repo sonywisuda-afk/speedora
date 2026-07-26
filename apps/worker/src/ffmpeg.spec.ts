@@ -831,14 +831,7 @@ describe('renderClip', () => {
       const [, args] = execFileMock.mock.calls[0];
       // watermark is input index 2 - main(0) + broll(1) + watermark(2).
       expect(args).toEqual(
-        expect.arrayContaining([
-          '-i',
-          '/tmp/broll0.mov',
-          '-loop',
-          '1',
-          '-i',
-          '/tmp/watermark.png',
-        ]),
+        expect.arrayContaining(['-i', '/tmp/broll0.mov', '-loop', '1', '-i', '/tmp/watermark.png']),
       );
       const fc = args[args.indexOf('-filter_complex') + 1];
       expect(fc).toBe(

@@ -89,9 +89,7 @@ export default function AuditLogPage({ params }: { params: { id: string } }) {
   return (
     <main className="min-h-screen bg-background px-6 py-8">
       <div className="mx-auto max-w-3xl">
-        <h1 className="font-display text-2xl uppercase tracking-wide text-foreground">
-          Audit Log
-        </h1>
+        <h1 className="font-display text-2xl uppercase tracking-wide text-foreground">Audit Log</h1>
         <p className="mt-1 font-body text-sm text-muted-foreground">
           {workspaceName ? `Riwayat aktivitas governance untuk "${workspaceName}".` : 'Memuat...'}
         </p>

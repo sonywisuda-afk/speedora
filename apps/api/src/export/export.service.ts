@@ -114,9 +114,7 @@ export class ExportService {
       type: job.type as unknown as ExportJobDto['type'],
       status: job.status as unknown as ExportJobDto['status'],
       resultUrl:
-        job.status === ExportJobStatus.READY && job.resultUrl
-          ? `/export/${job.id}/download`
-          : null,
+        job.status === ExportJobStatus.READY && job.resultUrl ? `/export/${job.id}/download` : null,
       failReason: job.failReason,
       createdAt: job.createdAt.toISOString(),
       updatedAt: job.updatedAt.toISOString(),

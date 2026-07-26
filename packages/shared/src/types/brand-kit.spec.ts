@@ -20,7 +20,11 @@ const EMPTY: BrandKitFields = {
 
 describe('mergeBrandKitFields', () => {
   it('passes the owner fields through untouched when workspace is null (personal workspace)', () => {
-    const owner: BrandKitFields = { ...EMPTY, brandFontFamily: 'Roboto', brandPrimaryColor: '#111' };
+    const owner: BrandKitFields = {
+      ...EMPTY,
+      brandFontFamily: 'Roboto',
+      brandPrimaryColor: '#111',
+    };
 
     expect(mergeBrandKitFields(null, owner)).toEqual(owner);
   });
@@ -33,8 +37,16 @@ describe('mergeBrandKitFields', () => {
   });
 
   it("falls back to the owner field when the workspace hasn't set that particular field", () => {
-    const workspace: BrandKitFields = { ...EMPTY, brandFontFamily: null, brandPrimaryColor: '#222' };
-    const owner: BrandKitFields = { ...EMPTY, brandFontFamily: 'Roboto', brandPrimaryColor: '#111' };
+    const workspace: BrandKitFields = {
+      ...EMPTY,
+      brandFontFamily: null,
+      brandPrimaryColor: '#222',
+    };
+    const owner: BrandKitFields = {
+      ...EMPTY,
+      brandFontFamily: 'Roboto',
+      brandPrimaryColor: '#111',
+    };
 
     const merged = mergeBrandKitFields(workspace, owner);
 

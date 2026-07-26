@@ -33,7 +33,9 @@ const SPEAKER_ASS_COLORS = [
 export function getSpeakerAssColor(speaker: string): string {
   const letter = speaker.replace('Speaker ', '').charCodeAt(0) - 'A'.charCodeAt(0);
   const index = Number.isNaN(letter) ? 0 : letter;
-  return SPEAKER_ASS_COLORS[((index % SPEAKER_ASS_COLORS.length) + SPEAKER_ASS_COLORS.length) % SPEAKER_ASS_COLORS.length];
+  return SPEAKER_ASS_COLORS[
+    ((index % SPEAKER_ASS_COLORS.length) + SPEAKER_ASS_COLORS.length) % SPEAKER_ASS_COLORS.length
+  ];
 }
 
 // Speaker color is applied to the OUTLINE (\3c), not the fill (\c) - karaoke

@@ -118,7 +118,8 @@ export function generateClipNarrative(
         : "This clip under-performed this creator's typical engagement.";
   } else {
     classification = 'as_expected';
-    summary = "This clip performed roughly as expected compared to this creator's other published clips.";
+    summary =
+      "This clip performed roughly as expected compared to this creator's other published clips.";
   }
 
   return { classification, summary, topSignals, lowSignals, comparedAgainst: validHistory.length };

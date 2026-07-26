@@ -97,8 +97,16 @@ describe('latestJobByType', () => {
   });
 
   it('keeps only the most recent job when a type has multiple jobs (list already sorted DESC)', () => {
-    const newest = job({ id: 'job-newest', type: ExportType.PDF, createdAt: '2026-07-17T02:00:00.000Z' });
-    const oldest = job({ id: 'job-oldest', type: ExportType.PDF, createdAt: '2026-07-17T00:00:00.000Z' });
+    const newest = job({
+      id: 'job-newest',
+      type: ExportType.PDF,
+      createdAt: '2026-07-17T02:00:00.000Z',
+    });
+    const oldest = job({
+      id: 'job-oldest',
+      type: ExportType.PDF,
+      createdAt: '2026-07-17T00:00:00.000Z',
+    });
 
     expect(latestJobByType([newest, oldest])).toEqual({ [ExportType.PDF]: newest });
   });

@@ -82,7 +82,10 @@ describe('parseClipQuery', () => {
   it('drops an emotion outside the 7-class FER+ set', async () => {
     const openai = fakeOpenAI({ ...NULL_RESULT, emotion: 'excited' });
 
-    const result = await parseClipQuery({ query: 'exciting clips', availableTopics: [] }, { openai });
+    const result = await parseClipQuery(
+      { query: 'exciting clips', availableTopics: [] },
+      { openai },
+    );
 
     expect(result.emotion).toBeUndefined();
   });
@@ -101,7 +104,10 @@ describe('parseClipQuery', () => {
   it('drops an invalid platform value', async () => {
     const openai = fakeOpenAI({ ...NULL_RESULT, platform: 'SNAPCHAT' });
 
-    const result = await parseClipQuery({ query: 'clips for snapchat', availableTopics: [] }, { openai });
+    const result = await parseClipQuery(
+      { query: 'clips for snapchat', availableTopics: [] },
+      { openai },
+    );
 
     expect(result.platform).toBeUndefined();
   });
@@ -109,7 +115,10 @@ describe('parseClipQuery', () => {
   it('clamps minScore to 0-100', async () => {
     const openai = fakeOpenAI({ ...NULL_RESULT, minScore: 150 });
 
-    const result = await parseClipQuery({ query: 'the best clips', availableTopics: [] }, { openai });
+    const result = await parseClipQuery(
+      { query: 'the best clips', availableTopics: [] },
+      { openai },
+    );
 
     expect(result.minScore).toBe(100);
   });

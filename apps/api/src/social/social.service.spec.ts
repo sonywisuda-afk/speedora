@@ -492,12 +492,20 @@ describe('SocialAccountsService', () => {
 
     it('stores an empty refreshToken when LinkedIn does not issue one', async () => {
       prisma.socialAccount.upsert.mockImplementation(({ create }) =>
-        Promise.resolve({ id: 'acc-1', ...create, createdAt: new Date('2026-01-01T00:00:00.000Z') }),
+        Promise.resolve({
+          id: 'acc-1',
+          ...create,
+          createdAt: new Date('2026-01-01T00:00:00.000Z'),
+        }),
       );
 
       await service.connectLinkedIn(
         'user-1',
-        { accessToken: 'plain-access', refreshToken: null, expiresAt: new Date('2026-03-01T00:00:00.000Z') },
+        {
+          accessToken: 'plain-access',
+          refreshToken: null,
+          expiresAt: new Date('2026-03-01T00:00:00.000Z'),
+        },
         { personUrn: 'urn:li:person:abc123', name: 'Jane Doe' },
       );
 

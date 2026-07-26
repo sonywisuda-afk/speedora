@@ -35,7 +35,9 @@ export async function fetchXTweetStats(accessToken: string, tweetId: string): Pr
   };
   if (!res.ok) {
     const first = body.errors?.[0];
-    throw new Error(`X tweets fetch failed: ${res.status} ${first?.detail ?? first?.title ?? ''}`.trim());
+    throw new Error(
+      `X tweets fetch failed: ${res.status} ${first?.detail ?? first?.title ?? ''}`.trim(),
+    );
   }
 
   const metrics = body.data?.public_metrics;
@@ -61,7 +63,9 @@ export async function fetchXFollowerCount(accessToken: string): Promise<number> 
   };
   if (!res.ok) {
     const first = body.errors?.[0];
-    throw new Error(`X users/me fetch failed: ${res.status} ${first?.detail ?? first?.title ?? ''}`.trim());
+    throw new Error(
+      `X users/me fetch failed: ${res.status} ${first?.detail ?? first?.title ?? ''}`.trim(),
+    );
   }
   const followersCount = body.data?.public_metrics?.followers_count;
   if (followersCount === undefined) {

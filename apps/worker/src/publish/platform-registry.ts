@@ -1,4 +1,9 @@
-import { SocialPlatform, type Clip, type PublishRecord, type SocialAccount } from '@speedora/database';
+import {
+  SocialPlatform,
+  type Clip,
+  type PublishRecord,
+  type SocialAccount,
+} from '@speedora/database';
 import {
   FacebookOAuthClient,
   fetchFacebookFollowerCount,
@@ -44,7 +49,10 @@ import { getObjectStream, getPresignedDownloadUrl } from '@speedora/storage';
 // YouTube's one-shot upload stay exactly as different as they really are -
 // see each entry below.
 
-export type PublishRecordWithRelations = PublishRecord & { clip: Clip; socialAccount: SocialAccount };
+export type PublishRecordWithRelations = PublishRecord & {
+  clip: Clip;
+  socialAccount: SocialAccount;
+};
 
 export interface PublishResult {
   platformPostId: string;
@@ -188,7 +196,10 @@ export const platformRegistry: Record<SocialPlatform, PlatformPublishAdapter> = 
       if (!publishStatus.videoId) {
         return { kind: 'pending' };
       }
-      return { kind: 'stats', stats: await fetchTikTokVideoStats(accessToken, publishStatus.videoId) };
+      return {
+        kind: 'stats',
+        stats: await fetchTikTokVideoStats(accessToken, publishStatus.videoId),
+      };
     },
     async fetchFollowerCount({ accessToken }) {
       return fetchTikTokFollowerCount(accessToken);
@@ -313,7 +324,10 @@ export const platformRegistry: Record<SocialPlatform, PlatformPublishAdapter> = 
         description: buildCaption(record.clip.hookText, record.clip.hashtags),
         coverImageUrl,
       });
-      return { platformPostId: upload.pinId, logDetail: `published as a Pinterest Pin, pin id ${upload.pinId}` };
+      return {
+        platformPostId: upload.pinId,
+        logDetail: `published as a Pinterest Pin, pin id ${upload.pinId}`,
+      };
     },
     async syncStats({ accessToken, platformPostId }) {
       return { kind: 'stats', stats: await fetchPinterestPinStats(accessToken, platformPostId) };
@@ -337,7 +351,10 @@ export const platformRegistry: Record<SocialPlatform, PlatformPublishAdapter> = 
         videoStream,
         text: buildCaption(record.clip.hookText, record.clip.hashtags),
       });
-      return { platformPostId: upload.tweetId, logDetail: `posted to X, tweet id ${upload.tweetId}` };
+      return {
+        platformPostId: upload.tweetId,
+        logDetail: `posted to X, tweet id ${upload.tweetId}`,
+      };
     },
     async syncStats({ accessToken, platformPostId }) {
       return { kind: 'stats', stats: await fetchXTweetStats(accessToken, platformPostId) };

@@ -96,20 +96,20 @@ export default function ClipLibraryPage() {
             : prev.durationBucket,
         topic:
           result.filters.topics !== undefined
-            ? (result.filters.topics.length === 1 ? result.filters.topics[0] : undefined)
+            ? result.filters.topics.length === 1
+              ? result.filters.topics[0]
+              : undefined
             : prev.topic,
       };
     });
   }
 
-  const { data, error, isLoading } = useSWR(
-    user ? ['clip-library', queryParams] : null,
-    () => getClipLibrary(queryParams),
+  const { data, error, isLoading } = useSWR(user ? ['clip-library', queryParams] : null, () =>
+    getClipLibrary(queryParams),
   );
 
-  const { data: facets } = useSWR(
-    user ? ['clip-library-facets', activeWorkspaceId] : null,
-    () => getClipLibraryFacets({ workspaceId: activeWorkspaceId ?? undefined }),
+  const { data: facets } = useSWR(user ? ['clip-library-facets', activeWorkspaceId] : null, () =>
+    getClipLibraryFacets({ workspaceId: activeWorkspaceId ?? undefined }),
   );
 
   // A filter change invalidates whatever was loaded via "load more" -

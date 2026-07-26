@@ -32,8 +32,20 @@ describe('computeCampaignTotals', () => {
 
   it('sums count metrics and averages engagementScore across records', () => {
     const totals = computeCampaignTotals([
-      record({ viewCount: 100, likeCount: 10, commentCount: 2, shareCount: 1, engagementScore: 0.2 }),
-      record({ viewCount: 200, likeCount: 20, commentCount: 4, shareCount: 2, engagementScore: 0.4 }),
+      record({
+        viewCount: 100,
+        likeCount: 10,
+        commentCount: 2,
+        shareCount: 1,
+        engagementScore: 0.2,
+      }),
+      record({
+        viewCount: 200,
+        likeCount: 20,
+        commentCount: 4,
+        shareCount: 2,
+        engagementScore: 0.4,
+      }),
     ]);
     expect(totals.publishCount).toBe(2);
     expect(totals.totalViews).toBe(300);
@@ -72,7 +84,9 @@ describe('computeCampaignPlatformBreakdown', () => {
   });
 
   it('only includes platforms that actually have a record - no fabricated zero-rows', () => {
-    const rows = computeCampaignPlatformBreakdown([record({ platform: 'YOUTUBE' as SocialPlatform })]);
+    const rows = computeCampaignPlatformBreakdown([
+      record({ platform: 'YOUTUBE' as SocialPlatform }),
+    ]);
     expect(rows).toHaveLength(1);
     expect(rows[0].platform).toBe('YOUTUBE');
   });

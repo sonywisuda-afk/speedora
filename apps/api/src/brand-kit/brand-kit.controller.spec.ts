@@ -79,19 +79,27 @@ describe('BrandKitController', () => {
   });
 
   describe('get', () => {
-    it('resolves the target (no workspaceId -> VIEWER on the user\'s own row) and delegates', async () => {
+    it("resolves the target (no workspaceId -> VIEWER on the user's own row) and delegates", async () => {
       brandKit.get.mockResolvedValue({ logoUrl: null, primaryColor: null, secondaryColor: null });
 
       const result = await controller.get(user);
 
-      expect(brandKit.resolveTarget).toHaveBeenCalledWith('user-1', undefined, WorkspaceRole.VIEWER);
+      expect(brandKit.resolveTarget).toHaveBeenCalledWith(
+        'user-1',
+        undefined,
+        WorkspaceRole.VIEWER,
+      );
       expect(brandKit.get).toHaveBeenCalledWith(USER_TARGET);
       expect(result).toEqual({ logoUrl: null, primaryColor: null, secondaryColor: null });
     });
 
     it('forwards an explicit workspaceId to resolveTarget', async () => {
       brandKit.resolveTarget.mockResolvedValue(WORKSPACE_TARGET);
-      brandKit.get.mockResolvedValue({ logoUrl: null, primaryColor: '#00AACC', secondaryColor: null });
+      brandKit.get.mockResolvedValue({
+        logoUrl: null,
+        primaryColor: '#00AACC',
+        secondaryColor: null,
+      });
 
       await controller.get(user, 'workspace-1');
 
@@ -114,7 +122,11 @@ describe('BrandKitController', () => {
 
       await controller.update(user, { primaryColor: '#1D4ED8' });
 
-      expect(brandKit.resolveTarget).toHaveBeenCalledWith('user-1', undefined, WorkspaceRole.EDITOR);
+      expect(brandKit.resolveTarget).toHaveBeenCalledWith(
+        'user-1',
+        undefined,
+        WorkspaceRole.EDITOR,
+      );
       expect(brandKit.update).toHaveBeenCalledWith(USER_TARGET, { primaryColor: '#1D4ED8' });
     });
   });
@@ -225,7 +237,11 @@ describe('BrandKitController', () => {
     it('resolves EDITOR+ and delegates to the service', async () => {
       await controller.removeWatermark(user);
 
-      expect(brandKit.resolveTarget).toHaveBeenCalledWith('user-1', undefined, WorkspaceRole.EDITOR);
+      expect(brandKit.resolveTarget).toHaveBeenCalledWith(
+        'user-1',
+        undefined,
+        WorkspaceRole.EDITOR,
+      );
       expect(brandKit.removeWatermark).toHaveBeenCalledWith(USER_TARGET);
     });
   });
@@ -301,7 +317,11 @@ describe('BrandKitController', () => {
     it('resolves EDITOR+ and delegates to the service', async () => {
       await controller.removeIntro(user);
 
-      expect(brandKit.resolveTarget).toHaveBeenCalledWith('user-1', undefined, WorkspaceRole.EDITOR);
+      expect(brandKit.resolveTarget).toHaveBeenCalledWith(
+        'user-1',
+        undefined,
+        WorkspaceRole.EDITOR,
+      );
       expect(brandKit.removeIntro).toHaveBeenCalledWith(USER_TARGET);
     });
   });
@@ -377,7 +397,11 @@ describe('BrandKitController', () => {
     it('resolves EDITOR+ and delegates to the service', async () => {
       await controller.removeOutro(user);
 
-      expect(brandKit.resolveTarget).toHaveBeenCalledWith('user-1', undefined, WorkspaceRole.EDITOR);
+      expect(brandKit.resolveTarget).toHaveBeenCalledWith(
+        'user-1',
+        undefined,
+        WorkspaceRole.EDITOR,
+      );
       expect(brandKit.removeOutro).toHaveBeenCalledWith(USER_TARGET);
     });
   });
@@ -388,7 +412,11 @@ describe('BrandKitController', () => {
 
       const result = await controller.createTemplate(user, { name: 'My Template' });
 
-      expect(brandKit.resolveTarget).toHaveBeenCalledWith('user-1', undefined, WorkspaceRole.VIEWER);
+      expect(brandKit.resolveTarget).toHaveBeenCalledWith(
+        'user-1',
+        undefined,
+        WorkspaceRole.VIEWER,
+      );
       expect(brandKit.createTemplate).toHaveBeenCalledWith('user-1', 'My Template', USER_TARGET);
       expect(result).toEqual({ id: 'template-1', name: 'My Template' });
     });
@@ -431,7 +459,11 @@ describe('BrandKitController', () => {
 
       const result = await controller.applyTemplate(user, 'template-1');
 
-      expect(brandKit.resolveTarget).toHaveBeenCalledWith('user-1', undefined, WorkspaceRole.EDITOR);
+      expect(brandKit.resolveTarget).toHaveBeenCalledWith(
+        'user-1',
+        undefined,
+        WorkspaceRole.EDITOR,
+      );
       expect(brandKit.applyTemplate).toHaveBeenCalledWith('user-1', 'template-1', USER_TARGET);
       expect(result.logoUrl).toBe('/brand-kit/logo');
     });

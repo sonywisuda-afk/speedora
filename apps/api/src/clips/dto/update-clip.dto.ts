@@ -1,6 +1,15 @@
 import { CaptionStyle } from '@speedora/database';
 import { FONT_FAMILIES } from '@speedora/contracts';
-import { IsArray, IsBoolean, IsEnum, IsIn, IsNumber, IsOptional, IsString, Min } from 'class-validator';
+import {
+  IsArray,
+  IsBoolean,
+  IsEnum,
+  IsIn,
+  IsNumber,
+  IsOptional,
+  IsString,
+  Min,
+} from 'class-validator';
 
 export class UpdateClipDto {
   @IsOptional()

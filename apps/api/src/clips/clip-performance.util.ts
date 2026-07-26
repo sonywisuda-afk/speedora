@@ -4,7 +4,11 @@ import type {
   PublishStatus as SharedPublishStatus,
   SocialPlatform as SharedSocialPlatform,
 } from '@speedora/shared';
-import { generateClipNarrative, predictEngagement, type PredictionPair } from '@speedora/analytics-report';
+import {
+  generateClipNarrative,
+  predictEngagement,
+  type PredictionPair,
+} from '@speedora/analytics-report';
 import {
   toSharedHighlightBreakdown,
   toSharedHighlightExplainability,
@@ -134,7 +138,10 @@ export function toClipPerformanceDto(
 
   const narrative = generateClipNarrative(
     { topFactors: sharedExplainability.topFactors, breakdown: sharedBreakdown },
-    { engagementScore: average(ownEngagementScores), ownerEngagementScores: historicalEngagementScores },
+    {
+      engagementScore: average(ownEngagementScores),
+      ownerEngagementScores: historicalEngagementScores,
+    },
   );
   const prediction = predictEngagement(clip.highlightScore, historicalPairs);
   const insight: ClipPerformanceDto['insight'] = { ...narrative, prediction };
@@ -159,7 +166,8 @@ export function toClipPerformanceDto(
     traffic,
     audience: {
       available: false,
-      reason: "No connected platform exposes audience demographics through this app's API access today.",
+      reason:
+        "No connected platform exposes audience demographics through this app's API access today.",
     },
     insight,
   };

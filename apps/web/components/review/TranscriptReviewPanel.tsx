@@ -32,7 +32,9 @@ export function TranscriptReviewPanel() {
             <button
               onClick={() => setPlayhead(segment.start)}
               className={`w-full rounded-md px-2 py-1.5 text-left font-body text-sm ${
-                active ? 'bg-signal-pink/10 text-signal-pink' : 'text-foreground hover:bg-slate-panel'
+                active
+                  ? 'bg-signal-pink/10 text-signal-pink'
+                  : 'text-foreground hover:bg-slate-panel'
               }`}
             >
               <span className="mr-2 font-mono text-xs text-muted-foreground">

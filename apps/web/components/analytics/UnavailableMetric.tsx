@@ -38,7 +38,9 @@ export function UnavailableMetric({
 }: UnavailableMetricProps) {
   if (variant === 'inline') {
     return (
-      <span className={cn('inline-flex items-center gap-1.5 text-xs text-muted-foreground', className)}>
+      <span
+        className={cn('inline-flex items-center gap-1.5 text-xs text-muted-foreground', className)}
+      >
         <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         <span>{reason}</span>
         {action ? (

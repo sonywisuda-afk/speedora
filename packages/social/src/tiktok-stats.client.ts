@@ -118,7 +118,9 @@ export async function fetchTikTokFollowerCount(accessToken: string): Promise<num
     data?: { user?: { follower_count?: number } };
   } & TikTokErrorBody;
   if (!res.ok || isTikTokError(body)) {
-    throw new Error(`TikTok user/info (stats) failed: ${res.status} ${body.error?.message ?? ''}`.trim());
+    throw new Error(
+      `TikTok user/info (stats) failed: ${res.status} ${body.error?.message ?? ''}`.trim(),
+    );
   }
   const followerCount = body.data?.user?.follower_count;
   if (followerCount === undefined) {

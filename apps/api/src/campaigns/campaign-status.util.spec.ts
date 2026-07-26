@@ -49,7 +49,10 @@ describe('computeCampaignStatus', () => {
 
   it('does not treat all-FAILED as RUNNING (FAILED is terminal, not "started but not done")', () => {
     expect(
-      computeCampaignStatus(null, [{ status: PublishStatus.FAILED }, { status: PublishStatus.FAILED }]),
+      computeCampaignStatus(null, [
+        { status: PublishStatus.FAILED },
+        { status: PublishStatus.FAILED },
+      ]),
     ).toBe(CampaignStatus.COMPLETED);
   });
 });

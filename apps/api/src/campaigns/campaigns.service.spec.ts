@@ -51,7 +51,11 @@ describe('CampaignsService', () => {
   });
 
   describe('create', () => {
-    const dto = { name: 'Q3 launch', startDate: '2026-07-01T00:00:00Z', endDate: '2026-07-31T00:00:00Z' };
+    const dto = {
+      name: 'Q3 launch',
+      startDate: '2026-07-01T00:00:00Z',
+      endDate: '2026-07-31T00:00:00Z',
+    };
 
     it('requires EDITOR+, creates the campaign, and returns it as DRAFT (no jobs yet)', async () => {
       prisma.campaign.create.mockResolvedValue(baseCampaign);
@@ -84,11 +88,11 @@ describe('CampaignsService', () => {
 
     it('throws when endDate is not after startDate', async () => {
       await expect(
-        service.create(
-          'user-1',
-          'ws-1',
-          { name: 'x', startDate: '2026-07-31T00:00:00Z', endDate: '2026-07-01T00:00:00Z' } as never,
-        ),
+        service.create('user-1', 'ws-1', {
+          name: 'x',
+          startDate: '2026-07-31T00:00:00Z',
+          endDate: '2026-07-01T00:00:00Z',
+        } as never),
       ).rejects.toThrow(BadRequestException);
       expect(prisma.campaign.create).not.toHaveBeenCalled();
     });
@@ -100,8 +104,16 @@ describe('CampaignsService', () => {
         {
           ...baseCampaign,
           publishRecords: [
-            { status: PublishStatus.PUBLISHED, clipId: 'clip-1', socialAccount: { platform: SocialPlatform.YOUTUBE } },
-            { status: PublishStatus.SCHEDULED, clipId: 'clip-2', socialAccount: { platform: SocialPlatform.TIKTOK } },
+            {
+              status: PublishStatus.PUBLISHED,
+              clipId: 'clip-1',
+              socialAccount: { platform: SocialPlatform.YOUTUBE },
+            },
+            {
+              status: PublishStatus.SCHEDULED,
+              clipId: 'clip-2',
+              socialAccount: { platform: SocialPlatform.TIKTOK },
+            },
           ],
         },
       ]);
@@ -257,7 +269,10 @@ describe('CampaignsService', () => {
 
       const result = await service.getAnalytics('user-1', 'campaign-1', { granularity: 'daily' });
 
-      const breakdownTotalViews = result.platformBreakdown.reduce((sum, row) => sum + row.totalViews, 0);
+      const breakdownTotalViews = result.platformBreakdown.reduce(
+        (sum, row) => sum + row.totalViews,
+        0,
+      );
       expect(breakdownTotalViews).toBe(result.totals.totalViews);
       expect(result.platformBreakdown.map((r) => r.platform).sort()).toEqual(['TIKTOK', 'YOUTUBE']);
     });
@@ -282,7 +297,7 @@ describe('CampaignsService', () => {
       expect(result.conversionCount).toBe(11);
     });
 
-    it('never buckets the trend before the campaign\'s own startDate (regression: off-by-one padded in an extra day)', async () => {
+    it("never buckets the trend before the campaign's own startDate (regression: off-by-one padded in an extra day)", async () => {
       prisma.campaign.findUnique.mockResolvedValue({ ...baseCampaign, publishRecords: [] });
 
       const result = await service.getAnalytics('user-1', 'campaign-1', { granularity: 'daily' });
@@ -311,7 +326,11 @@ describe('CampaignsService', () => {
   describe('update', () => {
     it('requires EDITOR+ and validates the resulting date range, reusing existing dates when omitted', async () => {
       prisma.campaign.findUnique.mockResolvedValue(baseCampaign);
-      prisma.campaign.update.mockResolvedValue({ ...baseCampaign, name: 'Renamed', publishRecords: [] });
+      prisma.campaign.update.mockResolvedValue({
+        ...baseCampaign,
+        name: 'Renamed',
+        publishRecords: [],
+      });
 
       const result = await service.update('user-1', 'campaign-1', { name: 'Renamed' });
 

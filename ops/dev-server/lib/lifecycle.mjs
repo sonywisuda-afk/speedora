@@ -20,7 +20,9 @@ const ORCHESTRATOR_PATTERN = /ops[\\/]dev-server[\\/]dev\.mjs/i;
  * services underneath them.
  */
 export function findOtherOrchestrators() {
-  return listProcesses().filter((p) => p.pid !== process.pid && ORCHESTRATOR_PATTERN.test(p.command ?? ''));
+  return listProcesses().filter(
+    (p) => p.pid !== process.pid && ORCHESTRATOR_PATTERN.test(p.command ?? ''),
+  );
 }
 
 /**

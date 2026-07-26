@@ -62,14 +62,16 @@ const RESPONSE_FORMAT = {
       properties: {
         minScore: {
           type: ['number', 'null'],
-          description: 'Minimum virality score 0-100. Use for vibe/quality words like "best", ' +
+          description:
+            'Minimum virality score 0-100. Use for vibe/quality words like "best", ' +
             '"top", "viral", "funniest", "highest scoring" - there is no dedicated "funny" or ' +
             '"viral" field, this is the closest real signal.',
         },
         platform: {
           type: ['string', 'null'],
           enum: [...PLATFORM_VALUES, null],
-          description: 'Only set when the query names a specific platform (e.g. "for TikTok", ' +
+          description:
+            'Only set when the query names a specific platform (e.g. "for TikTok", ' +
             '"on YouTube").',
         },
         minDuration: {
@@ -83,14 +85,16 @@ const RESPONSE_FORMAT = {
         topics: {
           type: ['array', 'null'],
           items: { type: 'string' },
-          description: 'Zero or more topics from the provided availableTopics list that match ' +
+          description:
+            'Zero or more topics from the provided availableTopics list that match ' +
             'the query. NEVER invent a topic string that is not in availableTopics - if nothing ' +
             'in that list matches, leave this null and use keyword instead.',
         },
         emotion: {
           type: ['string', 'null'],
           enum: [...EMOTION_VALUES, null],
-          description: 'One of the 7 FACIAL EXPRESSION classes shown in the on-camera speaker\'s ' +
+          description:
+            "One of the 7 FACIAL EXPRESSION classes shown in the on-camera speaker's " +
             'face - ONLY set this when the query is genuinely about how someone looks on camera ' +
             '(e.g. "clips where I look happy", "surprised reaction"). Do NOT use this for mood/ ' +
             'quality words like "funny", "sad topic", "exciting" - those are not facial-' +
@@ -98,18 +102,26 @@ const RESPONSE_FORMAT = {
         },
         keyword: {
           type: ['string', 'null'],
-          description: 'A single free-text keyword or short phrase to match against the clip\'s ' +
+          description:
+            "A single free-text keyword or short phrase to match against the clip's " +
             'hook text, hashtags, topics, and keywords - the catch-all for any subject/topic ' +
             'language that is not one of the other structured axes.',
         },
         summary: {
           type: 'string',
-          description: 'One short plain-language sentence restating what filters were applied, ' +
+          description:
+            'One short plain-language sentence restating what filters were applied, ' +
             'in the same language the query was written in.',
         },
       },
       required: [
-        'minScore', 'platform', 'minDuration', 'maxDuration', 'topics', 'emotion', 'keyword',
+        'minScore',
+        'platform',
+        'minDuration',
+        'maxDuration',
+        'topics',
+        'emotion',
+        'keyword',
         'summary',
       ],
       additionalProperties: false,
@@ -166,7 +178,7 @@ export async function parseClipQuery(
       {
         role: 'system',
         content:
-          'You translate a short-form video creator\'s free-text search query into structured ' +
+          "You translate a short-form video creator's free-text search query into structured " +
           'filters for their clip library. Only set a field when the query genuinely implies it - ' +
           'leave everything else null. Never invent a topic that is not in the provided ' +
           'availableTopics list.',

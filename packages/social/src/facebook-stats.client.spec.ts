@@ -68,7 +68,9 @@ describe('fetchFacebookVideoStats', () => {
 
     const engagementUrl = new URL(String(fetchMock.mock.calls[1][0]));
     expect(engagementUrl.pathname).toBe('/v21.0/video-1');
-    expect(engagementUrl.searchParams.get('fields')).toBe('likes.summary(true),comments.summary(true)');
+    expect(engagementUrl.searchParams.get('fields')).toBe(
+      'likes.summary(true),comments.summary(true)',
+    );
 
     expect(stats).toEqual({
       viewCount: 1234,

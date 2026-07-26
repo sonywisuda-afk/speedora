@@ -75,7 +75,10 @@ jest.mock('../queues', () => ({
   syncFollowerCountQueue: { add: (...args: unknown[]) => syncFollowerCountQueueAddMock(...args) },
 }));
 
-import { createSyncFollowerCountWorker, scheduleRepeatingTrigger } from './sync-follower-count.worker';
+import {
+  createSyncFollowerCountWorker,
+  scheduleRepeatingTrigger,
+} from './sync-follower-count.worker';
 
 function getProcessor() {
   createSyncFollowerCountWorker();
@@ -226,7 +229,9 @@ describe('sync-follower-count worker', () => {
         tags: { socialAccountId: 'account-3' },
       });
       expect(followerSnapshotCreateMock).not.toHaveBeenCalledWith(
-        expect.objectContaining({ data: expect.objectContaining({ socialAccountId: 'account-3' }) }),
+        expect.objectContaining({
+          data: expect.objectContaining({ socialAccountId: 'account-3' }),
+        }),
       );
       // The YouTube account after it still gets synced.
       expect(followerSnapshotCreateMock).toHaveBeenCalledWith({

@@ -97,7 +97,10 @@ export class XOAuthClient implements OAuthRefreshClient {
   async refreshAccessToken(
     refreshToken: string,
   ): Promise<{ accessToken: string; refreshToken: string; expiresAt: Date }> {
-    const tokens = await requestTokens({ grant_type: 'refresh_token', refresh_token: refreshToken });
+    const tokens = await requestTokens({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+    });
     return {
       accessToken: tokens.accessToken,
       // X rotates the refresh token on every use (like TikTok) - the
@@ -144,7 +147,10 @@ async function requestTokens(
     },
     body: new URLSearchParams({ ...params, client_id: clientId }),
   });
-  const body = (await res.json()) as XTokenResponse & { error?: string; error_description?: string };
+  const body = (await res.json()) as XTokenResponse & {
+    error?: string;
+    error_description?: string;
+  };
   if (!res.ok || !body.access_token) {
     throw new Error(
       `X oauth2/token failed: ${res.status} ${body.error ?? ''} ${body.error_description ?? ''}`.trim(),

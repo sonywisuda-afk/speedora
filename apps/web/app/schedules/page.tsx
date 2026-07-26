@@ -112,7 +112,10 @@ export default function SchedulesPage() {
                       >
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <Icon className="h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                            <Icon
+                              className="h-3.5 w-3.5 shrink-0 text-muted-foreground"
+                              aria-hidden="true"
+                            />
                             <span className="font-body text-sm font-medium text-foreground">
                               {schedule.name}
                             </span>

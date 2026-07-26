@@ -46,16 +46,12 @@ export function PlatformCopyPanel({
   const [generateError, setGenerateError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
-  const { data, mutate } = useSWR(
-    ['platform-copy', clipId],
-    () => listClipPlatformCopies(clipId),
-    {
-      refreshInterval: (latest) => {
-        const current = latest ? latestPlatformCopy(latest.copies, platform) : undefined;
-        return current && isPlatformCopyInFlight(current.status) ? 2000 : 0;
-      },
+  const { data, mutate } = useSWR(['platform-copy', clipId], () => listClipPlatformCopies(clipId), {
+    refreshInterval: (latest) => {
+      const current = latest ? latestPlatformCopy(latest.copies, platform) : undefined;
+      return current && isPlatformCopyInFlight(current.status) ? 2000 : 0;
     },
-  );
+  });
 
   const current = data ? latestPlatformCopy(data.copies, platform) : undefined;
   const badge = current ? platformCopyStatusBadge(current.status) : null;

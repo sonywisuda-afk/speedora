@@ -9,7 +9,14 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { repoRoot } from './lib/paths.mjs';
 import { getNpmPrefix, isOnPath, fixPath } from './lib/npmpath.mjs';
-import { isDockerAvailable, composeStatus, isHealthy, upDetached, waitForHealthy, INFRA_SERVICES } from './lib/docker.mjs';
+import {
+  isDockerAvailable,
+  composeStatus,
+  isHealthy,
+  upDetached,
+  waitForHealthy,
+  INFRA_SERVICES,
+} from './lib/docker.mjs';
 import { portInUse, findPidsOnPort, killTree } from './lib/proc.mjs';
 import { discoverServices } from './lib/workspace.mjs';
 import * as log from './lib/log.mjs';
@@ -36,7 +43,11 @@ function checkPnpm() {
       shell: process.platform === 'win32', // corepack.cmd requires cmd.exe on Windows
     }).trim();
   } catch {
-    report('pnpm installation', 'fail', 'corepack could not run pnpm at all - check Node/corepack installation');
+    report(
+      'pnpm installation',
+      'fail',
+      'corepack could not run pnpm at all - check Node/corepack installation',
+    );
     return;
   }
 
@@ -52,9 +63,17 @@ function checkPnpm() {
   })();
 
   if (corepackVersion !== pinned) {
-    report('pnpm installation', 'warn', `corepack resolves pnpm@${corepackVersion}, package.json pins @${pinned}`);
+    report(
+      'pnpm installation',
+      'warn',
+      `corepack resolves pnpm@${corepackVersion}, package.json pins @${pinned}`,
+    );
   } else if (!onPath) {
-    report('pnpm installation', 'warn', `pnpm@${corepackVersion} works via corepack, but bare \`pnpm\` is not on PATH`);
+    report(
+      'pnpm installation',
+      'warn',
+      `pnpm@${corepackVersion} works via corepack, but bare \`pnpm\` is not on PATH`,
+    );
   } else {
     report('pnpm installation', 'pass', `pnpm@${corepackVersion}, resolves on PATH`);
   }
@@ -72,9 +91,17 @@ function checkPath() {
   }
   if (FIX) {
     const result = fixPath(prefix);
-    report('PATH', result.changed ? 'pass' : 'warn', `${result.reason} - open a NEW terminal for this to take effect`);
+    report(
+      'PATH',
+      result.changed ? 'pass' : 'warn',
+      `${result.reason} - open a NEW terminal for this to take effect`,
+    );
   } else {
-    report('PATH', 'warn', `npm global prefix (${prefix}) is NOT on PATH - run \`pnpm doctor:fix\` to fix permanently`);
+    report(
+      'PATH',
+      'warn',
+      `npm global prefix (${prefix}) is NOT on PATH - run \`pnpm doctor:fix\` to fix permanently`,
+    );
   }
 }
 
@@ -83,9 +110,17 @@ function checkNode() {
   const required = pkg.engines?.node?.match(/(\d+)/)?.[1];
   const actual = process.versions.node.split('.')[0];
   if (required && Number(actual) < Number(required)) {
-    report('Node version', 'fail', `running Node ${process.versions.node}, requires >= ${required}`);
+    report(
+      'Node version',
+      'fail',
+      `running Node ${process.versions.node}, requires >= ${required}`,
+    );
   } else {
-    report('Node version', 'pass', `Node ${process.versions.node} (requires >= ${required ?? '?'})`);
+    report(
+      'Node version',
+      'pass',
+      `Node ${process.versions.node} (requires >= ${required ?? '?'})`,
+    );
   }
 }
 
@@ -119,7 +154,11 @@ async function checkPorts() {
       continue;
     }
     const owners = findPidsOnPort(service.port);
-    report(`port ${service.port} (${service.shortName})`, 'warn', `in use by pid(s) ${owners.join(', ') || '?'}`);
+    report(
+      `port ${service.port} (${service.shortName})`,
+      'warn',
+      `in use by pid(s) ${owners.join(', ') || '?'}`,
+    );
   }
 }
 
@@ -141,17 +180,27 @@ function checkWorkspaceDeps() {
         return;
       }
     }
-    report('workspace dependencies', 'fail', 'root node_modules missing - run `pnpm doctor:fix` or `pnpm install`');
+    report(
+      'workspace dependencies',
+      'fail',
+      'root node_modules missing - run `pnpm doctor:fix` or `pnpm install`',
+    );
     return;
   }
 
   const services = discoverServices();
-  const missing = services.filter((s) => !fs.existsSync(path.join(s.cwd, 'node_modules')) && s.group !== 'package');
+  const missing = services.filter(
+    (s) => !fs.existsSync(path.join(s.cwd, 'node_modules')) && s.group !== 'package',
+  );
   // packages/* commonly rely on the hoisted root node_modules only; apps
   // typically have their own too. Only flag apps missing node_modules as a
   // hard signal.
   if (missing.length > 0) {
-    report('workspace dependencies', 'warn', `missing node_modules in: ${missing.map((s) => s.shortName).join(', ')}`);
+    report(
+      'workspace dependencies',
+      'warn',
+      `missing node_modules in: ${missing.map((s) => s.shortName).join(', ')}`,
+    );
   } else {
     report('workspace dependencies', 'pass', `${services.length} workspace packages resolved`);
   }

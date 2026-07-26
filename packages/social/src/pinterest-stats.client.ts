@@ -71,7 +71,9 @@ export async function fetchPinterestFollowerCount(accessToken: string): Promise<
   const res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
   const body = (await res.json()) as { follower_count?: number } & PinterestErrorBody;
   if (!res.ok) {
-    throw new Error(`Pinterest user_account fetch failed: ${res.status} ${body.message ?? ''}`.trim());
+    throw new Error(
+      `Pinterest user_account fetch failed: ${res.status} ${body.message ?? ''}`.trim(),
+    );
   }
   if (body.follower_count === undefined) {
     throw new Error('Pinterest user_account did not return a follower_count');

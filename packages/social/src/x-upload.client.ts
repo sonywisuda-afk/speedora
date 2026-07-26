@@ -55,14 +55,24 @@ export async function uploadXVideo(params: XUploadParams): Promise<XUploadResult
   initForm.append('media_type', 'video/mp4');
   initForm.append('total_bytes', String(video.length));
   initForm.append('media_category', 'tweet_video');
-  const initRes = await fetch(MEDIA_UPLOAD_URL, { method: 'POST', headers: authHeaders, body: initForm });
+  const initRes = await fetch(MEDIA_UPLOAD_URL, {
+    method: 'POST',
+    headers: authHeaders,
+    body: initForm,
+  });
   const initBody = (await initRes.json()) as { data?: { id?: string } } & { errors?: XErrorBody[] };
   const mediaId = initBody.data?.id;
   if (!initRes.ok || !mediaId) {
-    throw new Error(`X media/upload INIT failed: ${initRes.status} ${errorMessageOf(initBody)}`.trim());
+    throw new Error(
+      `X media/upload INIT failed: ${initRes.status} ${errorMessageOf(initBody)}`.trim(),
+    );
   }
 
-  for (let offset = 0, segmentIndex = 0; offset < video.length; offset += CHUNK_SIZE_BYTES, segmentIndex++) {
+  for (
+    let offset = 0, segmentIndex = 0;
+    offset < video.length;
+    offset += CHUNK_SIZE_BYTES, segmentIndex++
+  ) {
     const chunk = video.subarray(offset, offset + CHUNK_SIZE_BYTES);
     const appendForm = new FormData();
     appendForm.append('command', 'APPEND');
@@ -75,7 +85,9 @@ export async function uploadXVideo(params: XUploadParams): Promise<XUploadResult
       body: appendForm,
     });
     if (!appendRes.ok) {
-      throw new Error(`X media/upload APPEND failed: ${appendRes.status} ${await appendRes.text()}`);
+      throw new Error(
+        `X media/upload APPEND failed: ${appendRes.status} ${await appendRes.text()}`,
+      );
     }
   }
 
@@ -113,9 +125,13 @@ export async function uploadXVideo(params: XUploadParams): Promise<XUploadResult
       media: { media_ids: [mediaId] },
     }),
   });
-  const tweetBody = (await tweetRes.json()) as { data?: { id?: string } } & { errors?: XErrorBody[] };
+  const tweetBody = (await tweetRes.json()) as { data?: { id?: string } } & {
+    errors?: XErrorBody[];
+  };
   if (!tweetRes.ok || !tweetBody.data?.id) {
-    throw new Error(`X tweets create failed: ${tweetRes.status} ${errorMessageOf(tweetBody)}`.trim());
+    throw new Error(
+      `X tweets create failed: ${tweetRes.status} ${errorMessageOf(tweetBody)}`.trim(),
+    );
   }
 
   return { tweetId: tweetBody.data.id };

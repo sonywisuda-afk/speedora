@@ -59,7 +59,9 @@ export function AiInsightPanel({ insight }: AiInsightPanelProps) {
                 <Badge variant="outline" className="shrink-0">
                   {factor.signal}
                 </Badge>
-                <span className="font-body text-sm text-muted-foreground">{factor.description}</span>
+                <span className="font-body text-sm text-muted-foreground">
+                  {factor.description}
+                </span>
               </li>
             ))}
           </ul>

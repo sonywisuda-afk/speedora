@@ -133,13 +133,23 @@ export default function CalendarPage() {
                     })}
                   </p>
                   <div className="flex items-center gap-1">
-                    <Button size="sm" variant="outline" onClick={goToPrevMonth} aria-label="Previous month">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={goToPrevMonth}
+                      aria-label="Previous month"
+                    >
                       ←
                     </Button>
                     <Button size="sm" variant="outline" onClick={goToToday}>
                       Today
                     </Button>
-                    <Button size="sm" variant="outline" onClick={goToNextMonth} aria-label="Next month">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={goToNextMonth}
+                      aria-label="Next month"
+                    >
                       →
                     </Button>
                   </div>
@@ -195,7 +205,10 @@ export default function CalendarPage() {
                                       STATUS_TONE[entry.status] ?? DEFAULT_TONE,
                                     )}
                                   >
-                                    <Icon className="h-2.5 w-2.5 text-bay-black" aria-hidden="true" />
+                                    <Icon
+                                      className="h-2.5 w-2.5 text-bay-black"
+                                      aria-hidden="true"
+                                    />
                                   </span>
                                 );
                               })}

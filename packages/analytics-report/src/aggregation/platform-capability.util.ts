@@ -8,13 +8,7 @@ import { SocialPlatform } from '@speedora/shared';
 // is per-platform-per-metric because it genuinely varies (e.g. Instagram has
 // real watch-time, TikTok never does) - collapsing this into a single
 // per-platform flag would either hide real data or fabricate missing data.
-export type MetricKey =
-  | 'views'
-  | 'likes'
-  | 'comments'
-  | 'shares'
-  | 'watchTime'
-  | 'followerCount';
+export type MetricKey = 'views' | 'likes' | 'comments' | 'shares' | 'watchTime' | 'followerCount';
 
 // 'needs-reconnect' is distinct from 'unavailable': the data genuinely
 // exists on the platform, but this app doesn't hold the OAuth scope to read
@@ -119,7 +113,7 @@ export const PLATFORM_CAPABILITY: Record<SocialPlatform, PlatformCapability> = {
     comments: available,
     shares: {
       availability: 'unavailable',
-      reason: "Not returned by the scopes this app requests.",
+      reason: 'Not returned by the scopes this app requests.',
     },
     watchTime: {
       availability: 'unavailable',
@@ -132,7 +126,10 @@ export const PLATFORM_CAPABILITY: Record<SocialPlatform, PlatformCapability> = {
   },
   [SocialPlatform.PINTEREST]: {
     views: { availability: 'available', note: 'Reported by Pinterest as impressions.' },
-    likes: { availability: 'available', note: 'Reported by Pinterest as saves — Pinterest has no true "like".' },
+    likes: {
+      availability: 'available',
+      note: 'Reported by Pinterest as saves — Pinterest has no true "like".',
+    },
     comments: {
       availability: 'unavailable',
       reason: "Pinterest's API doesn't expose a comment count for Pins.",
@@ -154,7 +151,7 @@ export const PLATFORM_CAPABILITY: Record<SocialPlatform, PlatformCapability> = {
     shares: { availability: 'available', note: 'Reported by X as retweet_count.' },
     watchTime: {
       availability: 'unavailable',
-      reason: "Not exposed by the X API tier this app uses.",
+      reason: 'Not exposed by the X API tier this app uses.',
     },
     followerCount: available,
   },

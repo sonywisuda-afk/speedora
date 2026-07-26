@@ -203,10 +203,7 @@ export class BrandKitController {
   // to 0.
   @Delete('watermark')
   @HttpCode(204)
-  async removeWatermark(
-    @CurrentUser() user: SafeUser,
-    @Query('workspaceId') workspaceId?: string,
-  ) {
+  async removeWatermark(@CurrentUser() user: SafeUser, @Query('workspaceId') workspaceId?: string) {
     const target = await this.brandKit.resolveTarget(user.id, workspaceId, WorkspaceRole.EDITOR);
     return this.brandKit.removeWatermark(target);
   }

@@ -11,7 +11,12 @@ import { PublishStatus, SocialPlatform } from '@speedora/database';
 import { prisma } from '../../prisma';
 import { ApiClient } from './api-client';
 import { runSyncFollowerCountOnce, runSyncPublishStatsOnce } from './direct-sync';
-import { fakeTikTokDisconnected, fakeYouTubeFollowerCount, fakeYouTubeVariedSuccess, restorePlatformRegistry } from './platform-fakes';
+import {
+  fakeTikTokDisconnected,
+  fakeYouTubeFollowerCount,
+  fakeYouTubeVariedSuccess,
+  restorePlatformRegistry,
+} from './platform-fakes';
 import { Report } from './report';
 import * as Scenarios from './scenarios';
 import {
@@ -47,7 +52,9 @@ const MAIN_CLIP_COUNT = 25;
 const LOW_SAMPLE_CLIP_COUNT = 2;
 
 async function main(): Promise<void> {
-  console.log(`[e2e] starting - DATABASE_URL=${process.env.DATABASE_URL} REDIS_URL=${process.env.REDIS_URL} API_PORT=${process.env.API_PORT}`);
+  console.log(
+    `[e2e] starting - DATABASE_URL=${process.env.DATABASE_URL} REDIS_URL=${process.env.REDIS_URL} API_PORT=${process.env.API_PORT}`,
+  );
   const report = new Report();
 
   console.log('[e2e] checking apps/api reachability...');
@@ -86,7 +93,10 @@ async function main(): Promise<void> {
     lowUserId = lowUser.id;
     const lowWorkspaceId = await findPersonalWorkspaceId(lowUserId);
     console.log(`[e2e] low-sample owner workspace: ${lowWorkspaceId}`);
-    report.check('Register low-sample owner + auto-created personal workspace', Boolean(lowWorkspaceId));
+    report.check(
+      'Register low-sample owner + auto-created personal workspace',
+      Boolean(lowWorkspaceId),
+    );
 
     // --- Phase 1: Upload -> Processing (real status-event state machine) ---
     console.log(`[e2e] seeding main video + ${MAIN_CLIP_COUNT} clips...`);
@@ -98,7 +108,10 @@ async function main(): Promise<void> {
     );
 
     const lowClips = await seedVideoWithClips(lowUserId, lowWorkspaceId, LOW_SAMPLE_CLIP_COUNT);
-    report.check('Upload -> Processing: low-sample owner video seeded', lowClips.length === LOW_SAMPLE_CLIP_COUNT);
+    report.check(
+      'Upload -> Processing: low-sample owner video seeded',
+      lowClips.length === LOW_SAMPLE_CLIP_COUNT,
+    );
 
     const retryVideoId = await seedFailedAtDetectClipsVideo(mainUserId, mainWorkspaceId);
 
@@ -120,7 +133,10 @@ async function main(): Promise<void> {
       startDate: campaignStart,
       endDate: campaignEnd,
     });
-    report.check('Campaign: created a funded and an empty campaign', Boolean(fundedCampaign.id) && Boolean(emptyCampaign.id));
+    report.check(
+      'Campaign: created a funded and an empty campaign',
+      Boolean(fundedCampaign.id) && Boolean(emptyCampaign.id),
+    );
 
     // --- Phase 2: Publish (real HTTP) ---
     // clips[0..19] -> YouTube (happy path); clips[20..24] -> TikTok
@@ -148,14 +164,21 @@ async function main(): Promise<void> {
       const platform = isTikTok ? SocialPlatform.TIKTOK : SocialPlatform.YOUTUBE;
       const campaignId = i < 8 ? fundedCampaign.id : undefined;
       const record = await mainApi.publishClip(clip.id, { socialAccountId, campaignId });
-      publishRecords.push({ clipId: clip.id, recordId: record.id, platform, highlightScore: clip.highlightScore });
+      publishRecords.push({
+        clipId: clip.id,
+        recordId: record.id,
+        platform,
+        highlightScore: clip.highlightScore,
+      });
     }
     report.check(
       'Publish: created PublishRecords across YouTube/TikTok, with and without campaignId',
       publishRecords.length === mainClips.length,
     );
 
-    const lowRecord = await lowApi.publishClip(lowClips[0].id, { socialAccountId: lowAccounts.youtubeId });
+    const lowRecord = await lowApi.publishClip(lowClips[0].id, {
+      socialAccountId: lowAccounts.youtubeId,
+    });
 
     // Flip every created PublishRecord to PUBLISHED - real platform upload
     // is out of scope (see module doc comment above) - spread publishedAt
@@ -168,16 +191,27 @@ async function main(): Promise<void> {
       const pr = publishRecords[i];
       await prisma.publishRecord.update({
         where: { id: pr.recordId },
-        data: { status: PublishStatus.PUBLISHED, publishedAt: publishedAtFor(i), platformPostId: `e2e-${pr.recordId}` },
+        data: {
+          status: PublishStatus.PUBLISHED,
+          publishedAt: publishedAtFor(i),
+          platformPostId: `e2e-${pr.recordId}`,
+        },
       });
     }
     await prisma.publishRecord.update({
       where: { id: lowRecord.id },
-      data: { status: PublishStatus.PUBLISHED, publishedAt: now, platformPostId: `e2e-${lowRecord.id}` },
+      data: {
+        status: PublishStatus.PUBLISHED,
+        publishedAt: now,
+        platformPostId: `e2e-${lowRecord.id}`,
+      },
     });
 
     // --- Phase 3/4: Snapshot + Followers (real worker code, substituted platformRegistry) ---
-    const statsByPostId = new Map<string, { viewCount: number; likeCount: number; commentCount: number }>();
+    const statsByPostId = new Map<
+      string,
+      { viewCount: number; likeCount: number; commentCount: number }
+    >();
     for (const pr of publishRecords.filter((p) => p.platform === SocialPlatform.YOUTUBE)) {
       const viewCount = Math.round(300 + pr.highlightScore * 9700);
       statsByPostId.set(`e2e-${pr.recordId}`, {
@@ -193,7 +227,9 @@ async function main(): Promise<void> {
     fakeYouTubeFollowerCount(mainAccounts.youtubePlatformAccountId, 12_345);
 
     const statsResult = await runSyncPublishStatsOnce();
-    console.log(`[e2e] sync-publish-stats: synced=${statsResult.synced} pending=${statsResult.pending}`);
+    console.log(
+      `[e2e] sync-publish-stats: synced=${statsResult.synced} pending=${statsResult.pending}`,
+    );
     const followerResult = await runSyncFollowerCountOnce();
     console.log(`[e2e] sync-follower-count: synced=${followerResult.synced}`);
 
@@ -210,14 +246,30 @@ async function main(): Promise<void> {
       youtubeRow.statsUpdatedAt !== null && youtubeRow.viewCount !== null,
     );
 
-    const disconnected = Scenarios.checkDisconnectedAccountIsolated(tiktokRow.statsUpdatedAt, youtubeRow.statsUpdatedAt);
-    report.check('Failure scenario: TikTok account not reconnected (isolated per-record failure)', disconnected.pass, disconnected.detail);
+    const disconnected = Scenarios.checkDisconnectedAccountIsolated(
+      tiktokRow.statsUpdatedAt,
+      youtubeRow.statsUpdatedAt,
+    );
+    report.check(
+      'Failure scenario: TikTok account not reconnected (isolated per-record failure)',
+      disconnected.pass,
+      disconnected.detail,
+    );
 
     const [youtubeAccountRow, threadsAccountRow] = await Promise.all([
-      prisma.socialAccount.findUnique({ where: { id: mainAccounts.youtubeId }, include: { followerSnapshots: true } }),
-      prisma.socialAccount.findUnique({ where: { id: mainAccounts.threadsId }, include: { followerSnapshots: true } }),
+      prisma.socialAccount.findUnique({
+        where: { id: mainAccounts.youtubeId },
+        include: { followerSnapshots: true },
+      }),
+      prisma.socialAccount.findUnique({
+        where: { id: mainAccounts.threadsId },
+        include: { followerSnapshots: true },
+      }),
     ]);
-    report.check('Followers: real SocialAccountFollowerSnapshot written for YouTube', (youtubeAccountRow?.followerSnapshots.length ?? 0) > 0);
+    report.check(
+      'Followers: real SocialAccountFollowerSnapshot written for YouTube',
+      (youtubeAccountRow?.followerSnapshots.length ?? 0) > 0,
+    );
 
     const unsupported = Scenarios.checkUnsupportedPlatformSkipped(
       threadsAccountRow && threadsAccountRow.followerSnapshots.length > 0 ? new Date() : null,
@@ -231,20 +283,39 @@ async function main(): Promise<void> {
 
     // --- Phase 5: Overview / Trend / Followers / Heatmap (real HTTP) ---
     const overview = await mainApi.getAnalyticsOverview();
-    report.check('Overview: GET /analytics/overview reachable', typeof overview === 'object' && overview !== null);
+    report.check(
+      'Overview: GET /analytics/overview reachable',
+      typeof overview === 'object' && overview !== null,
+    );
     const performance = await mainApi.getAnalyticsPerformance();
-    report.check('Trend: GET /analytics/performance reachable', typeof performance === 'object' && performance !== null);
+    report.check(
+      'Trend: GET /analytics/performance reachable',
+      typeof performance === 'object' && performance !== null,
+    );
     const followers = await mainApi.getAnalyticsFollowers();
-    report.check('Followers dashboard: GET /analytics/followers reachable', typeof followers === 'object' && followers !== null);
+    report.check(
+      'Followers dashboard: GET /analytics/followers reachable',
+      typeof followers === 'object' && followers !== null,
+    );
     const heatmap = await mainApi.getAnalyticsHeatmap();
-    report.check('Heatmap: GET /analytics/heatmap reachable', typeof heatmap === 'object' && heatmap !== null);
+    report.check(
+      'Heatmap: GET /analytics/heatmap reachable',
+      typeof heatmap === 'object' && heatmap !== null,
+    );
 
     // --- Phase 6: Campaign, incl. campaign-without-publish (real HTTP) ---
     const fundedAnalytics = await mainApi.getCampaignAnalytics(fundedCampaign.id);
-    report.check('Campaign analytics: funded campaign returns real totals', fundedAnalytics.totals !== undefined);
+    report.check(
+      'Campaign analytics: funded campaign returns real totals',
+      fundedAnalytics.totals !== undefined,
+    );
     const emptyAnalytics = await mainApi.getCampaignAnalytics(emptyCampaign.id);
     const emptyCheck = Scenarios.checkEmptyCampaignAnalyticsGraceful(emptyAnalytics);
-    report.check('Failure scenario: campaign without publish returns a graceful empty analytics response', emptyCheck.pass, emptyCheck.detail);
+    report.check(
+      'Failure scenario: campaign without publish returns a graceful empty analytics response',
+      emptyCheck.pass,
+      emptyCheck.detail,
+    );
 
     // --- Phase 7: Insight + Prediction (real HTTP) ---
     // Index 21 - the last of the 22 YouTube (real-synced-data) clips, NOT
@@ -282,8 +353,14 @@ async function main(): Promise<void> {
 
     const noCampaignClip = mainClips[15]; // YouTube, index >= 8 so published without campaignId
     const noCampaignPerf = await mainApi.getClipPerformance(noCampaignClip.id);
-    const publishNoCampaignCheck = Scenarios.checkPublishWithoutCampaignWorks(typeof noCampaignPerf === 'object' && noCampaignPerf !== null);
-    report.check('Failure scenario: publish without campaign still returns a normal clip performance response', publishNoCampaignCheck.pass, publishNoCampaignCheck.detail);
+    const publishNoCampaignCheck = Scenarios.checkPublishWithoutCampaignWorks(
+      typeof noCampaignPerf === 'object' && noCampaignPerf !== null,
+    );
+    report.check(
+      'Failure scenario: publish without campaign still returns a normal clip performance response',
+      publishNoCampaignCheck.pass,
+      publishNoCampaignCheck.detail,
+    );
 
     // --- Phase 8: Tracked Link -> Conversion (real HTTP) ---
     const trackedLink = await mainApi.createTrackedLink(mainWorkspaceId, {
@@ -291,30 +368,61 @@ async function main(): Promise<void> {
       publishRecordId: publishRecords[0].recordId,
     });
 
-    const before = (await prisma.trackedLink.findUniqueOrThrow({ where: { id: trackedLink.id } })).clickCount;
+    const before = (await prisma.trackedLink.findUniqueOrThrow({ where: { id: trackedLink.id } }))
+      .clickCount;
     const normalUa = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) E2ECrossFeatureTest';
     const click1 = await mainApi.clickRedirect(trackedLink.slug, normalUa);
-    const afterFirst = (await prisma.trackedLink.findUniqueOrThrow({ where: { id: trackedLink.id } })).clickCount;
-    report.check('Tracked Link: real click redirects with 302', click1.status === 302, `status=${click1.status}`);
-    report.check('Conversion: real (non-bot) click is counted', afterFirst === before + 1, `before=${before} after=${afterFirst}`);
+    const afterFirst = (
+      await prisma.trackedLink.findUniqueOrThrow({ where: { id: trackedLink.id } })
+    ).clickCount;
+    report.check(
+      'Tracked Link: real click redirects with 302',
+      click1.status === 302,
+      `status=${click1.status}`,
+    );
+    report.check(
+      'Conversion: real (non-bot) click is counted',
+      afterFirst === before + 1,
+      `before=${before} after=${afterFirst}`,
+    );
 
     const click2 = await mainApi.clickRedirect(trackedLink.slug, normalUa);
-    const afterRepeat = (await prisma.trackedLink.findUniqueOrThrow({ where: { id: trackedLink.id } })).clickCount;
+    const afterRepeat = (
+      await prisma.trackedLink.findUniqueOrThrow({ where: { id: trackedLink.id } })
+    ).clickCount;
     const dedupCheck = Scenarios.checkDedupWindowCollapsedRepeatClick(afterFirst, afterRepeat);
-    report.check('Conversion dedup: immediate repeat click (same ip+ua, <5s) is not double-counted', dedupCheck.pass, dedupCheck.detail);
-    report.check('Tracked Link: deduped repeat click still redirects with 302', click2.status === 302, `status=${click2.status}`);
+    report.check(
+      'Conversion dedup: immediate repeat click (same ip+ua, <5s) is not double-counted',
+      dedupCheck.pass,
+      dedupCheck.detail,
+    );
+    report.check(
+      'Tracked Link: deduped repeat click still redirects with 302',
+      click2.status === 302,
+      `status=${click2.status}`,
+    );
 
     const botUa = 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)';
     const click3 = await mainApi.clickRedirect(trackedLink.slug, botUa);
-    const afterBot = (await prisma.trackedLink.findUniqueOrThrow({ where: { id: trackedLink.id } })).clickCount;
+    const afterBot = (await prisma.trackedLink.findUniqueOrThrow({ where: { id: trackedLink.id } }))
+      .clickCount;
     const botCheck = Scenarios.checkBotClickNotCounted(afterRepeat, afterBot);
-    report.check('Failure scenario: bot click is not counted as a conversion', botCheck.pass, botCheck.detail);
-    report.check('Bot click still redirects (real hit, just excluded from clickCount)', click3.status === 302, `status=${click3.status}`);
+    report.check(
+      'Failure scenario: bot click is not counted as a conversion',
+      botCheck.pass,
+      botCheck.detail,
+    );
+    report.check(
+      'Bot click still redirects (real hit, just excluded from clickCount)',
+      click3.status === 302,
+      `status=${click3.status}`,
+    );
 
     const perfAfterClicks = await mainApi.getClipPerformance(mainClips[0].id);
-    const trafficEntry = (perfAfterClicks.traffic as Array<{ publishRecordId: string; conversionCount: number | null }> | undefined)?.find(
-      (t) => t.publishRecordId === publishRecords[0].recordId,
-    );
+    const trafficEntry = (
+      perfAfterClicks.traffic as
+        Array<{ publishRecordId: string; conversionCount: number | null }> | undefined
+    )?.find((t) => t.publishRecordId === publishRecords[0].recordId);
     report.check(
       'Conversion: clip performance traffic.conversionCount reflects the real, deduped, non-bot click count',
       trafficEntry?.conversionCount === afterBot,

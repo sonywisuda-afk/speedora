@@ -4,7 +4,11 @@ import type { Clip } from '@speedora/shared';
 import { clipThumbnailUrl } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { fallbackBadge, formatTimestamp, sortThumbnailContributions } from '@/lib/thumbnail-selection';
+import {
+  fallbackBadge,
+  formatTimestamp,
+  sortThumbnailContributions,
+} from '@/lib/thumbnail-selection';
 import { toPercent } from '@/lib/explainability';
 import { cn } from '@/lib/utils';
 

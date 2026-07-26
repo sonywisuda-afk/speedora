@@ -19,7 +19,9 @@ if (isOnPath(prefix)) {
 const result = fixPath(prefix);
 if (result.changed) {
   log.ok(result.reason);
-  log.warn('Open a NEW terminal for this to take effect (already-running shells keep their old PATH).');
+  log.warn(
+    'Open a NEW terminal for this to take effect (already-running shells keep their old PATH).',
+  );
 } else {
   log.warn(result.reason);
 }

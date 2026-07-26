@@ -90,7 +90,9 @@ export async function uploadPinterestVideo(
   });
   const pinBody = (await pinRes.json()) as { id?: string } & PinterestErrorBody;
   if (!pinRes.ok || !pinBody.id) {
-    throw new Error(`Pinterest pins create failed: ${pinRes.status} ${pinBody.message ?? ''}`.trim());
+    throw new Error(
+      `Pinterest pins create failed: ${pinRes.status} ${pinBody.message ?? ''}`.trim(),
+    );
   }
 
   return { pinId: pinBody.id };

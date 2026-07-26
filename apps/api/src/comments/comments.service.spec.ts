@@ -243,7 +243,9 @@ describe('CommentsService', () => {
 
     it('rejects an author who is no longer a workspace member', async () => {
       prisma.comment.findUnique.mockResolvedValue(BASE_COMMENT);
-      workspaceAccess.assertMinRole.mockRejectedValue(new NotFoundException('Workspace ws-1 not found'));
+      workspaceAccess.assertMinRole.mockRejectedValue(
+        new NotFoundException('Workspace ws-1 not found'),
+      );
 
       await expect(service.update('user-1', 'comment-1', 'edited')).rejects.toThrow(
         NotFoundException,
@@ -273,7 +275,9 @@ describe('CommentsService', () => {
 
     it('rejects an author who is no longer a workspace member', async () => {
       prisma.comment.findUnique.mockResolvedValue(BASE_COMMENT);
-      workspaceAccess.assertMinRole.mockRejectedValue(new NotFoundException('Workspace ws-1 not found'));
+      workspaceAccess.assertMinRole.mockRejectedValue(
+        new NotFoundException('Workspace ws-1 not found'),
+      );
 
       await expect(service.remove('user-1', 'comment-1')).rejects.toThrow(NotFoundException);
       expect(prisma.comment.delete).not.toHaveBeenCalled();

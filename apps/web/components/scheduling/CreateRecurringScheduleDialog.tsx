@@ -140,7 +140,9 @@ export function CreateRecurringScheduleDialog({
                 className="h-9 w-full rounded-md border border-input bg-slate-panel px-2 font-body text-sm text-foreground disabled:opacity-50"
               >
                 <option value="">
-                  {platform && accountsForPlatform.length === 0 ? 'No account connected' : 'Select account'}
+                  {platform && accountsForPlatform.length === 0
+                    ? 'No account connected'
+                    : 'Select account'}
                 </option>
                 {accountsForPlatform.map((a) => (
                   <option key={a.id} value={a.id}>
@@ -169,11 +171,7 @@ export function CreateRecurringScheduleDialog({
               <label className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
                 Time
               </label>
-              <Input
-                type="time"
-                value={timeOfDay}
-                onChange={(e) => setTimeOfDay(e.target.value)}
-              />
+              <Input type="time" value={timeOfDay} onChange={(e) => setTimeOfDay(e.target.value)} />
             </div>
           </div>
 

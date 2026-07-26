@@ -153,10 +153,14 @@ export function commandOf(pid) {
   if (isWin) {
     try {
       const script = `Get-CimInstance Win32_Process -Filter "ProcessId=${pid}" | Select-Object -ExpandProperty CommandLine`;
-      const out = execFileSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], {
-        encoding: 'utf8',
-        windowsHide: true,
-      });
+      const out = execFileSync(
+        'powershell',
+        ['-NoProfile', '-NonInteractive', '-Command', script],
+        {
+          encoding: 'utf8',
+          windowsHide: true,
+        },
+      );
       return out.trim() || null;
     } catch {
       return null;

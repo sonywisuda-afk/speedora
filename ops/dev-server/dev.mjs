@@ -16,10 +16,22 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { repoRoot } from './lib/paths.mjs';
 import { discoverServices } from './lib/workspace.mjs';
-import { groupSweepMatches, resolveServiceState, stopEntry, findOtherOrchestrators } from './lib/lifecycle.mjs';
+import {
+  groupSweepMatches,
+  resolveServiceState,
+  stopEntry,
+  findOtherOrchestrators,
+} from './lib/lifecycle.mjs';
 import { writeEntry } from './lib/pidstore.mjs';
 import { killTree, killSingle, isAlive, portInUse, findPidsOnPort } from './lib/proc.mjs';
-import { isDockerAvailable, composeStatus, isHealthy, upDetached, waitForHealthy, INFRA_SERVICES } from './lib/docker.mjs';
+import {
+  isDockerAvailable,
+  composeStatus,
+  isHealthy,
+  upDetached,
+  waitForHealthy,
+  INFRA_SERVICES,
+} from './lib/docker.mjs';
 import { getNpmPrefix, isOnPath } from './lib/npmpath.mjs';
 import * as log from './lib/log.mjs';
 
@@ -45,7 +57,9 @@ async function preflightDocker() {
     log.ok(`docker infra healthy: ${INFRA_SERVICES.join(', ')}`);
     return;
   }
-  log.warn(`docker infra not all healthy yet (${JSON.stringify(status)}) - running docker compose up -d`);
+  log.warn(
+    `docker infra not all healthy yet (${JSON.stringify(status)}) - running docker compose up -d`,
+  );
   upDetached();
   status = await waitForHealthy(INFRA_SERVICES, { timeoutMs: 60_000 });
   const nowHealthy = INFRA_SERVICES.every((s) => isHealthy(status[s]));
@@ -75,8 +89,12 @@ function spawnService(service) {
     detached: process.platform !== 'win32',
   });
 
-  child.stdout.on('data', (buf) => process.stdout.write(log.line(service.shortName, '') + ' ' + buf));
-  child.stderr.on('data', (buf) => process.stderr.write(log.line(service.shortName, '') + ' ' + buf));
+  child.stdout.on('data', (buf) =>
+    process.stdout.write(log.line(service.shortName, '') + ' ' + buf),
+  );
+  child.stderr.on('data', (buf) =>
+    process.stderr.write(log.line(service.shortName, '') + ' ' + buf),
+  );
 
   return child;
 }
@@ -162,16 +180,20 @@ async function settleService(service, sweepByPackage) {
     return;
   }
 
-  const rootsToKill = state.status === 'tracked' ? [{ pid: state.entry.pid }] : state.roots ?? [];
+  const rootsToKill = state.status === 'tracked' ? [{ pid: state.entry.pid }] : (state.roots ?? []);
   if (rootsToKill.length > 0) {
     const reason = state.status === 'duplicate' ? 'stale duplicate(s)' : 'restart requested';
-    log.warn(`${service.shortName}: stopping ${rootsToKill.length} existing process(es) (${reason})`);
+    log.warn(
+      `${service.shortName}: stopping ${rootsToKill.length} existing process(es) (${reason})`,
+    );
     for (const r of rootsToKill) killTree(r.pid);
   }
 
   if (service.kind === 'http' && service.port) {
     if (await portInUse(service.port)) {
-      const owners = findPidsOnPort(service.port).filter((pid) => !rootsToKill.some((r) => r.pid === pid));
+      const owners = findPidsOnPort(service.port).filter(
+        (pid) => !rootsToKill.some((r) => r.pid === pid),
+      );
       if (owners.length > 0) {
         log.error(
           `${service.shortName}: port ${service.port} is occupied by an unrelated process (pid ${owners.join(
@@ -265,7 +287,9 @@ async function main() {
 
   log.info('waiting for web/api to accept connections...');
   const readiness = await Promise.all(
-    services.filter((s) => s.kind === 'http').map(async (s) => ({ name: s.shortName, ok: await waitReady(s) })),
+    services
+      .filter((s) => s.kind === 'http')
+      .map(async (s) => ({ name: s.shortName, ok: await waitReady(s) })),
   );
   for (const r of readiness) {
     (r.ok ? log.ok : log.error)(`${r.name}: ${r.ok ? 'ready' : 'did not become ready within 45s'}`);

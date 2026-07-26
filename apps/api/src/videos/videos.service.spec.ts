@@ -840,11 +840,7 @@ describe('VideosService', () => {
 
       await service.updateTranscriptSegment('video-1', 'seg-1', 'user-1', 'hiya world');
 
-      expect(workspaceAccess.assertVideoAccess).toHaveBeenCalledWith(
-        'user-1',
-        'video-1',
-        'EDITOR',
-      );
+      expect(workspaceAccess.assertVideoAccess).toHaveBeenCalledWith('user-1', 'video-1', 'EDITOR');
       expect(prisma.transcriptSegment.update).toHaveBeenCalledWith({
         where: { id: 'seg-1' },
         data: { text: 'hiya world' },
@@ -928,7 +924,13 @@ describe('VideosService', () => {
 
     it('drops words entirely when only one side has word-level data', async () => {
       prisma.transcriptSegment.findMany.mockResolvedValue([
-        { id: 'seg-1', start: 0, end: 2, text: 'hello', words: [{ word: 'hello', start: 0, end: 2 }] },
+        {
+          id: 'seg-1',
+          start: 0,
+          end: 2,
+          text: 'hello',
+          words: [{ word: 'hello', start: 0, end: 2 }],
+        },
         { id: 'seg-2', start: 2, end: 4, text: 'world', words: null },
       ]);
       prisma.transcriptSegment.update.mockResolvedValue({});
@@ -1045,9 +1047,9 @@ describe('VideosService', () => {
         ],
       });
 
-      await expect(
-        service.splitTranscriptSegment('video-1', 'seg-1', 'user-1', 5),
-      ).rejects.toThrow(BadRequestException);
+      await expect(service.splitTranscriptSegment('video-1', 'seg-1', 'user-1', 5)).rejects.toThrow(
+        BadRequestException,
+      );
       expect(prisma.transcriptSegment.update).not.toHaveBeenCalled();
     });
 
@@ -1057,9 +1059,9 @@ describe('VideosService', () => {
         videoId: 'other-video',
       });
 
-      await expect(
-        service.splitTranscriptSegment('video-1', 'seg-1', 'user-1', 1),
-      ).rejects.toThrow(NotFoundException);
+      await expect(service.splitTranscriptSegment('video-1', 'seg-1', 'user-1', 1)).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 
@@ -1068,11 +1070,7 @@ describe('VideosService', () => {
     it('records a request row and enqueues the translate job', async () => {
       const result = await service.translateTranscript('video-1', 'user-1', 'en');
 
-      expect(workspaceAccess.assertVideoAccess).toHaveBeenCalledWith(
-        'user-1',
-        'video-1',
-        'EDITOR',
-      );
+      expect(workspaceAccess.assertVideoAccess).toHaveBeenCalledWith('user-1', 'video-1', 'EDITOR');
       expect(prisma.transcriptTranslationRequest.create).toHaveBeenCalledWith({
         data: { videoId: 'video-1', requestedBy: 'user-1', languageCode: 'en' },
       });

@@ -47,7 +47,10 @@ export class ApiClient {
   }
 
   register(email: string, password: string) {
-    return this.request('/auth/register', { method: 'POST', body: JSON.stringify({ email, password }) });
+    return this.request('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ email, password }),
+    });
   }
 
   publishClip(clipId: string, body: { socialAccountId: string; campaignId?: string }) {
@@ -112,7 +115,10 @@ export class ApiClient {
         `${BASE_URL}/r/${slug}`,
         { method: 'GET', headers: userAgent ? { 'User-Agent': userAgent } : {} },
         (res) => {
-          resolve({ status: res.statusCode ?? 0, location: (res.headers.location as string) ?? null });
+          resolve({
+            status: res.statusCode ?? 0,
+            location: (res.headers.location as string) ?? null,
+          });
           res.resume();
         },
       );

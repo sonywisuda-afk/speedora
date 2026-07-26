@@ -1,5 +1,9 @@
 import { OAuthNotConfiguredError } from './errors';
-import { LINKEDIN_OAUTH_AUTHORIZE_URL, LINKEDIN_OAUTH_TOKEN_URL, LINKEDIN_USERINFO_URL } from './linkedin-graph';
+import {
+  LINKEDIN_OAUTH_AUTHORIZE_URL,
+  LINKEDIN_OAUTH_TOKEN_URL,
+  LINKEDIN_USERINFO_URL,
+} from './linkedin-graph';
 import type { OAuthRefreshClient } from './resolve-access-token';
 
 // openid+profile (OpenID Connect "Sign In with LinkedIn") is what

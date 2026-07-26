@@ -38,7 +38,9 @@ describe('PinterestOAuthClient', () => {
 
       expect(url.origin + url.pathname).toBe('https://www.pinterest.com/oauth/');
       expect(url.searchParams.get('client_id')).toBe('pin-app-id');
-      expect(url.searchParams.get('scope')).toBe('boards:read,pins:read,pins:write,user_accounts:read');
+      expect(url.searchParams.get('scope')).toBe(
+        'boards:read,pins:read,pins:write,user_accounts:read',
+      );
       expect(url.searchParams.get('redirect_uri')).toBe(
         'http://localhost:3001/social/pinterest/callback',
       );
@@ -117,7 +119,10 @@ describe('PinterestOAuthClient', () => {
       global.fetch = jest
         .fn()
         .mockResolvedValueOnce({ ok: true, json: async () => ({ username: 'my_pins' }) })
-        .mockResolvedValueOnce({ ok: true, json: async () => ({ items: [] }) }) as unknown as typeof fetch;
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ items: [] }),
+        }) as unknown as typeof fetch;
 
       await expect(client.fetchAccountInfo('access-1')).rejects.toThrow(/No Pinterest board found/);
     });

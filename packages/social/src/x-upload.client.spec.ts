@@ -142,7 +142,11 @@ describe('uploadXVideo', () => {
     global.fetch = jest
       .fn()
       .mockResolvedValueOnce({ ok: true, json: async () => ({ data: { id: 'media-1' } }) })
-      .mockResolvedValueOnce({ ok: false, status: 500, text: async () => 'server error' }) as unknown as typeof fetch;
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 500,
+        text: async () => 'server error',
+      }) as unknown as typeof fetch;
 
     await expect(
       uploadXVideo({
@@ -185,7 +189,9 @@ describe('uploadXVideo', () => {
       .mockResolvedValueOnce({
         ok: false,
         status: 402,
-        json: async () => ({ errors: [{ title: 'Payment Required', detail: 'insufficient credits' }] }),
+        json: async () => ({
+          errors: [{ title: 'Payment Required', detail: 'insufficient credits' }],
+        }),
       }) as unknown as typeof fetch;
 
     await expect(

@@ -73,9 +73,7 @@ describe('AnalyticsService', () => {
         {
           id: 'pr-1',
           socialAccount: { platform: SocialPlatform.YOUTUBE },
-          statsSnapshots: [
-            { capturedAt: new Date('2026-01-01'), engagementScore: 0.4 },
-          ],
+          statsSnapshots: [{ capturedAt: new Date('2026-01-01'), engagementScore: 0.4 }],
         },
         { id: 'pr-2', socialAccount: { platform: SocialPlatform.YOUTUBE }, statsSnapshots: [] },
         { id: 'pr-3', socialAccount: { platform: SocialPlatform.TIKTOK }, statsSnapshots: [] },
@@ -434,7 +432,7 @@ describe('AnalyticsService', () => {
       );
     });
 
-    it("derives latestFollowerCount from the newest snapshot, and returns real history oldest-first", async () => {
+    it('derives latestFollowerCount from the newest snapshot, and returns real history oldest-first', async () => {
       prisma.socialAccount.findMany.mockResolvedValue([
         {
           id: 'account-1',
@@ -489,7 +487,13 @@ describe('AnalyticsService', () => {
         fixtureRecord({
           publishedAt: new Date('2026-07-19T14:00:00.000Z'), // Sunday 14:00 UTC
           statsSnapshots: [
-            { viewCount: 100, likeCount: 10, commentCount: 2, shareCount: 1, engagementScore: 0.19 },
+            {
+              viewCount: 100,
+              likeCount: 10,
+              commentCount: 2,
+              shareCount: 1,
+              engagementScore: 0.19,
+            },
           ],
         }),
       ]);

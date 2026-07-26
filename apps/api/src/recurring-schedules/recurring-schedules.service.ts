@@ -1,5 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PublishStatus, recordAuditLog, WorkspaceRole, type RecurringSchedule } from '@speedora/database';
+import {
+  PublishStatus,
+  recordAuditLog,
+  WorkspaceRole,
+  type RecurringSchedule,
+} from '@speedora/database';
 import type { RecurringScheduleDto } from '@speedora/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { SocialAccountsService } from '../social/social.service';

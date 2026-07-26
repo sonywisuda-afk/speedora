@@ -52,7 +52,10 @@ export function ClipLibraryFilters({ value, onChange, topicOptions }: ClipLibrar
   return (
     <div className="flex flex-wrap items-end gap-3">
       <div className="flex flex-col gap-1">
-        <label htmlFor="clip-library-keyword" className="font-mono text-[10px] uppercase text-muted-foreground">
+        <label
+          htmlFor="clip-library-keyword"
+          className="font-mono text-[10px] uppercase text-muted-foreground"
+        >
           Kata kunci
         </label>
         <Input
@@ -101,14 +104,20 @@ export function ClipLibraryFilters({ value, onChange, topicOptions }: ClipLibrar
       </div>
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="clip-library-platform" className="font-mono text-[10px] uppercase text-muted-foreground">
+        <label
+          htmlFor="clip-library-platform"
+          className="font-mono text-[10px] uppercase text-muted-foreground"
+        >
           Platform
         </label>
         <select
           id="clip-library-platform"
           value={value.platform ?? ''}
           onChange={(e) =>
-            onChange({ ...value, platform: (e.target.value || undefined) as SocialPlatform | undefined })
+            onChange({
+              ...value,
+              platform: (e.target.value || undefined) as SocialPlatform | undefined,
+            })
           }
           className="h-9 rounded-md border border-input bg-slate-panel px-2 font-body text-sm text-foreground"
         >
@@ -122,7 +131,10 @@ export function ClipLibraryFilters({ value, onChange, topicOptions }: ClipLibrar
       </div>
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="clip-library-emotion" className="font-mono text-[10px] uppercase text-muted-foreground">
+        <label
+          htmlFor="clip-library-emotion"
+          className="font-mono text-[10px] uppercase text-muted-foreground"
+        >
           Emosi
         </label>
         <select
@@ -141,7 +153,10 @@ export function ClipLibraryFilters({ value, onChange, topicOptions }: ClipLibrar
       </div>
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="clip-library-topic" className="font-mono text-[10px] uppercase text-muted-foreground">
+        <label
+          htmlFor="clip-library-topic"
+          className="font-mono text-[10px] uppercase text-muted-foreground"
+        >
           Topik
         </label>
         <select
@@ -161,7 +176,10 @@ export function ClipLibraryFilters({ value, onChange, topicOptions }: ClipLibrar
       </div>
 
       <div className="flex flex-col gap-1">
-        <label htmlFor="clip-library-min-score" className="font-mono text-[10px] uppercase text-muted-foreground">
+        <label
+          htmlFor="clip-library-min-score"
+          className="font-mono text-[10px] uppercase text-muted-foreground"
+        >
           Skor minimum
         </label>
         <Input

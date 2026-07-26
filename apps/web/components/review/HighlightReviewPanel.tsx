@@ -12,13 +12,7 @@ import { useTimelineStore } from '@/lib/timelineStore';
 // page (/videos/[id]/explainability) - that page's SignalBreakdownChart/
 // ExplainabilityDetailPanel already do the deep per-signal breakdown well;
 // this panel is a compact triage list that links out to it per clip.
-export function HighlightReviewPanel({
-  videoId,
-  clips,
-}: {
-  videoId: string;
-  clips: Clip[];
-}) {
+export function HighlightReviewPanel({ videoId, clips }: { videoId: string; clips: Clip[] }) {
   const setPlayhead = useTimelineStore((s) => s.setPlayhead);
 
   const ranked = [...clips].sort((a, b) => {

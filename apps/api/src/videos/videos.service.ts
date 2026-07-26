@@ -874,9 +874,7 @@ export class VideosService {
       where: { id: segmentId },
       data: {
         text,
-        ...(wordsStillMatch
-          ? {}
-          : { words: Prisma.JsonNull, speakingRateWordsPerSecond: null }),
+        ...(wordsStillMatch ? {} : { words: Prisma.JsonNull, speakingRateWordsPerSecond: null }),
       },
     });
 

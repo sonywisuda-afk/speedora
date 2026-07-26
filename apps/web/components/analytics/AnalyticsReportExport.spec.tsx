@@ -55,7 +55,9 @@ describe('AnalyticsReportExport', () => {
   });
 
   it('seeds from the most recent ANALYTICS_REPORT job on mount (Recent Exports)', async () => {
-    mockListExportJobs.mockResolvedValue({ jobs: [job({ id: 'job-prev', status: ExportJobStatus.READY })] });
+    mockListExportJobs.mockResolvedValue({
+      jobs: [job({ id: 'job-prev', status: ExportJobStatus.READY })],
+    });
     mockGetExportJob.mockResolvedValue(job({ id: 'job-prev', status: ExportJobStatus.READY }));
 
     renderComponent();
@@ -71,7 +73,9 @@ describe('AnalyticsReportExport', () => {
     renderComponent();
     fireEvent.click(await screen.findByRole('button', { name: 'Export' }));
 
-    await waitFor(() => expect(mockCreateExportJob).toHaveBeenCalledWith(undefined, ExportType.ANALYTICS_REPORT));
+    await waitFor(() =>
+      expect(mockCreateExportJob).toHaveBeenCalledWith(undefined, ExportType.ANALYTICS_REPORT),
+    );
     expect(await screen.findByText('Unduh')).toBeInTheDocument();
   });
 

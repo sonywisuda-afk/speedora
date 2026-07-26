@@ -193,11 +193,7 @@ function TelegramDestinationRow({
       <span
         className={cn(
           'shrink-0 font-mono text-[10px] uppercase tracking-wide',
-          configured
-            ? 'text-emerald-400'
-            : pending
-              ? 'text-signal-pink'
-              : 'text-muted-foreground',
+          configured ? 'text-emerald-400' : pending ? 'text-signal-pink' : 'text-muted-foreground',
         )}
       >
         {configured ? 'Terhubung' : pending ? 'Menunggu konfirmasi...' : 'Belum diatur'}
@@ -388,7 +384,9 @@ export function NotificationPreferencesTab() {
                       {label}
                       <Switch
                         checked={channelRow.enabled}
-                        onChange={(value) => toggleChannel(type, channel, value, () => swr.mutate())}
+                        onChange={(value) =>
+                          toggleChannel(type, channel, value, () => swr.mutate())
+                        }
                         label={`Kirim ${NOTIFICATION_TYPE_LABELS[type]} ke ${label}`}
                       />
                     </label>

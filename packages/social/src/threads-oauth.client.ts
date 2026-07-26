@@ -1,6 +1,10 @@
 import { OAuthNotConfiguredError } from './errors';
 import type { OAuthRefreshClient } from './resolve-access-token';
-import { THREADS_AUTHORIZE_URL, THREADS_GRAPH_BASE_URL, THREADS_OAUTH_BASE_URL } from './threads-graph';
+import {
+  THREADS_AUTHORIZE_URL,
+  THREADS_GRAPH_BASE_URL,
+  THREADS_OAUTH_BASE_URL,
+} from './threads-graph';
 
 // threads_basic is mandatory for any Threads API call; threads_content_publish
 // is what publish-clip.worker.ts needs to actually post. Unlike Instagram/
@@ -108,7 +112,9 @@ export class ThreadsOAuthClient implements OAuthRefreshClient {
     const res = await fetch(url);
     const body = (await res.json()) as ThreadsTokenResponse & ThreadsErrorResponse;
     if (!res.ok || !body.access_token) {
-      throw new Error(`Threads long-lived exchange failed: ${res.status} ${errorMessageOf(body)}`.trim());
+      throw new Error(
+        `Threads long-lived exchange failed: ${res.status} ${errorMessageOf(body)}`.trim(),
+      );
     }
 
     return {

@@ -34,9 +34,7 @@ export function AiSearchBar({ workspaceId, onResult }: AiSearchBarProps) {
       const result = await parseClipQuery(trimmed, { workspaceId });
       onResult(result);
     } catch (err) {
-      setError(
-        err instanceof Error ? err.message : 'Pencarian AI tidak tersedia saat ini',
-      );
+      setError(err instanceof Error ? err.message : 'Pencarian AI tidak tersedia saat ini');
     } finally {
       setLoading(false);
     }

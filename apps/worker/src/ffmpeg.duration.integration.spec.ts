@@ -52,79 +52,75 @@ describeIfFfmpeg('renderClip against real ffmpeg (duration regression guard)', (
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it(
-    'bounds output duration to the requested clip length when a watermark input is added after the source',
-    async () => {
-      const sourcePath = path.join(dir, 'source.mp4');
-      const watermarkPath = path.join(dir, 'watermark.png');
-      const outputPath = path.join(dir, 'output.mp4');
+  it('bounds output duration to the requested clip length when a watermark input is added after the source', async () => {
+    const sourcePath = path.join(dir, 'source.mp4');
+    const watermarkPath = path.join(dir, 'watermark.png');
+    const outputPath = path.join(dir, 'output.mp4');
 
-      // A synthetic 8s source (lavfi test sources - no fixture asset needed), well longer than
-      // the 2s clip requested below. If `-t` silently rebinds onto the watermark input instead of
-      // this one, the bug reproduces as ~8s (the full source) showing up in the output, not ~2s.
-      await execFileAsync(FFMPEG_PATH, [
-        '-y',
-        '-f',
-        'lavfi',
-        '-i',
-        'testsrc2=size=320x240:rate=25',
-        '-f',
-        'lavfi',
-        '-i',
-        'anullsrc=r=44100:cl=mono',
-        '-t',
-        '8',
-        '-c:v',
-        'libx264',
-        '-c:a',
-        'aac',
-        sourcePath,
-      ]);
-      await execFileAsync(FFMPEG_PATH, [
-        '-y',
-        '-f',
-        'lavfi',
-        '-i',
-        'color=c=red:s=64x64',
-        '-frames:v',
-        '1',
-        watermarkPath,
-      ]);
+    // A synthetic 8s source (lavfi test sources - no fixture asset needed), well longer than
+    // the 2s clip requested below. If `-t` silently rebinds onto the watermark input instead of
+    // this one, the bug reproduces as ~8s (the full source) showing up in the output, not ~2s.
+    await execFileAsync(FFMPEG_PATH, [
+      '-y',
+      '-f',
+      'lavfi',
+      '-i',
+      'testsrc2=size=320x240:rate=25',
+      '-f',
+      'lavfi',
+      '-i',
+      'anullsrc=r=44100:cl=mono',
+      '-t',
+      '8',
+      '-c:v',
+      'libx264',
+      '-c:a',
+      'aac',
+      sourcePath,
+    ]);
+    await execFileAsync(FFMPEG_PATH, [
+      '-y',
+      '-f',
+      'lavfi',
+      '-i',
+      'color=c=red:s=64x64',
+      '-frames:v',
+      '1',
+      watermarkPath,
+    ]);
 
-      const requestedDuration = 2;
-      await renderClip({
-        inputPath: sourcePath,
-        startTime: 0,
-        endTime: requestedDuration,
-        subtitlesPath: null,
-        outputPath,
-        reframe: null,
-        broll: null,
-        watermark: {
-          filePath: watermarkPath,
-          opacity: 0.5,
-          scale: 0.3,
-          margin: 0.05,
-          position: 'BOTTOM_RIGHT',
-        },
-      });
+    const requestedDuration = 2;
+    await renderClip({
+      inputPath: sourcePath,
+      startTime: 0,
+      endTime: requestedDuration,
+      subtitlesPath: null,
+      outputPath,
+      reframe: null,
+      broll: null,
+      watermark: {
+        filePath: watermarkPath,
+        opacity: 0.5,
+        scale: 0.3,
+        margin: 0.05,
+        position: 'BOTTOM_RIGHT',
+      },
+    });
 
-      const { stdout } = await execFileAsync(FFPROBE_PATH, [
-        '-v',
-        'error',
-        '-show_entries',
-        'format=duration',
-        '-of',
-        'default=noprint_wrappers=1:nokey=1',
-        outputPath,
-      ]);
-      const actualDuration = Number(stdout.trim());
+    const { stdout } = await execFileAsync(FFPROBE_PATH, [
+      '-v',
+      'error',
+      '-show_entries',
+      'format=duration',
+      '-of',
+      'default=noprint_wrappers=1:nokey=1',
+      outputPath,
+    ]);
+    const actualDuration = Number(stdout.trim());
 
-      // Generous tolerance for keyframe-boundary/encoder rounding - tight enough that the old bug
-      // (output close to the full 8s source, not ~2s) fails this assertion by a wide margin.
-      expect(actualDuration).toBeGreaterThan(0);
-      expect(Math.abs(actualDuration - requestedDuration)).toBeLessThan(1.5);
-    },
-    30000,
-  );
+    // Generous tolerance for keyframe-boundary/encoder rounding - tight enough that the old bug
+    // (output close to the full 8s source, not ~2s) fails this assertion by a wide margin.
+    expect(actualDuration).toBeGreaterThan(0);
+    expect(Math.abs(actualDuration - requestedDuration)).toBeLessThan(1.5);
+  }, 30000);
 });

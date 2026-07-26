@@ -75,51 +75,50 @@ export class AnalyticsService {
   // check-calibration-coverage.ts already uses in apps/worker for its own
   // multi-query report.
   async getOverview(userId: string): Promise<AnalyticsOverviewDto> {
-    const [totalVideos, totalClips, publishedClips, videos, publishedRecords] =
-      await Promise.all([
-        this.prisma.video.count({ where: { ownerId: userId } }),
-        this.prisma.clip.count({ where: { video: { ownerId: userId } } }),
-        this.prisma.clip.count({
-          where: {
-            video: { ownerId: userId },
-            publishRecords: { some: { status: PublishStatus.PUBLISHED } },
+    const [totalVideos, totalClips, publishedClips, videos, publishedRecords] = await Promise.all([
+      this.prisma.video.count({ where: { ownerId: userId } }),
+      this.prisma.clip.count({ where: { video: { ownerId: userId } } }),
+      this.prisma.clip.count({
+        where: {
+          video: { ownerId: userId },
+          publishRecords: { some: { status: PublishStatus.PUBLISHED } },
+        },
+      }),
+      this.prisma.video.findMany({
+        where: { ownerId: userId },
+        select: { status: true, createdAt: true },
+      }),
+      // Stabilization Pass Area 5 tech-debt fix: this used to be a
+      // separate publishRecordStatsSnapshot.findMany() with no
+      // capturedAt bound at all - it fetched an owner's entire snapshot
+      // HISTORY (every sync-publish-stats tick, forever) just to average
+      // one engagementScore, unlike getFollowers()/getHeatmap() below.
+      // averageEngagementScore is documented as an all-time figure ("across
+      // every publish record this user owns" - see AnalyticsOverviewDto),
+      // so a capturedAt window would silently change its meaning, not just
+      // its performance - the actual fix is bounding by parent row instead
+      // of by date: merged into this query as a nested `statsSnapshots: {
+      // orderBy, take: 1 }`, the same "latest snapshot per parent" pattern
+      // fetchPublishedRecords()/apps/worker's dataset-lib.ts
+      // (loadUsableSamples) already use elsewhere in this codebase. Cost
+      // now scales with this owner's published-record COUNT (bounded, same
+      // as totalClips/publishedClips above), not their sync-history LENGTH
+      // (unbounded, grows every 6h forever) - EXPLAIN ANALYZE's original
+      // 64ms-at-35k-rows finding was almost entirely re-synced history for
+      // a small, fixed set of records, not real per-record growth.
+      this.prisma.publishRecord.findMany({
+        where: { status: PublishStatus.PUBLISHED, clip: { video: { ownerId: userId } } },
+        select: {
+          id: true,
+          socialAccount: { select: { platform: true } },
+          statsSnapshots: {
+            orderBy: { capturedAt: 'desc' },
+            take: 1,
+            select: { capturedAt: true, engagementScore: true },
           },
-        }),
-        this.prisma.video.findMany({
-          where: { ownerId: userId },
-          select: { status: true, createdAt: true },
-        }),
-        // Stabilization Pass Area 5 tech-debt fix: this used to be a
-        // separate publishRecordStatsSnapshot.findMany() with no
-        // capturedAt bound at all - it fetched an owner's entire snapshot
-        // HISTORY (every sync-publish-stats tick, forever) just to average
-        // one engagementScore, unlike getFollowers()/getHeatmap() below.
-        // averageEngagementScore is documented as an all-time figure ("across
-        // every publish record this user owns" - see AnalyticsOverviewDto),
-        // so a capturedAt window would silently change its meaning, not just
-        // its performance - the actual fix is bounding by parent row instead
-        // of by date: merged into this query as a nested `statsSnapshots: {
-        // orderBy, take: 1 }`, the same "latest snapshot per parent" pattern
-        // fetchPublishedRecords()/apps/worker's dataset-lib.ts
-        // (loadUsableSamples) already use elsewhere in this codebase. Cost
-        // now scales with this owner's published-record COUNT (bounded, same
-        // as totalClips/publishedClips above), not their sync-history LENGTH
-        // (unbounded, grows every 6h forever) - EXPLAIN ANALYZE's original
-        // 64ms-at-35k-rows finding was almost entirely re-synced history for
-        // a small, fixed set of records, not real per-record growth.
-        this.prisma.publishRecord.findMany({
-          where: { status: PublishStatus.PUBLISHED, clip: { video: { ownerId: userId } } },
-          select: {
-            id: true,
-            socialAccount: { select: { platform: true } },
-            statsSnapshots: {
-              orderBy: { capturedAt: 'desc' },
-              take: 1,
-              select: { capturedAt: true, engagementScore: true },
-            },
-          },
-        }),
-      ]);
+        },
+      }),
+    ]);
 
     const processingStatusCounts = new Map<VideoStatus, number>();
     for (const video of videos) {
@@ -515,4 +514,3 @@ export class AnalyticsService {
     };
   }
 }
-

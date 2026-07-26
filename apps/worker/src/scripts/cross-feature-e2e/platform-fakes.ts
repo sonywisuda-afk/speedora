@@ -39,7 +39,9 @@ function save(platform: SocialPlatform): void {
 // TikTok adapter already models (see platform-registry.ts) - returning it
 // for an unrecognized post id leaves that record completely untouched, same
 // as if this fake didn't exist.
-export function fakeYouTubeVariedSuccess(statsByPostId: Map<string, { viewCount: number; likeCount: number; commentCount: number }>): void {
+export function fakeYouTubeVariedSuccess(
+  statsByPostId: Map<string, { viewCount: number; likeCount: number; commentCount: number }>,
+): void {
   save(SocialPlatform.YOUTUBE);
   platformRegistry[SocialPlatform.YOUTUBE].syncStats = async ({ platformPostId }) => {
     const stats = statsByPostId.get(platformPostId);
@@ -55,11 +57,16 @@ export function fakeYouTubeVariedSuccess(statsByPostId: Map<string, { viewCount:
 // platformAccountId throws instead - isolated per-account by the real
 // worker's own try/catch, same inert-to-unrelated-rows effect as `pending`
 // has for syncStats (no snapshot row gets written either way).
-export function fakeYouTubeFollowerCount(knownPlatformAccountId: string, followerCount: number): void {
+export function fakeYouTubeFollowerCount(
+  knownPlatformAccountId: string,
+  followerCount: number,
+): void {
   save(SocialPlatform.YOUTUBE);
   platformRegistry[SocialPlatform.YOUTUBE].fetchFollowerCount = async ({ platformAccountId }) => {
     if (platformAccountId !== knownPlatformAccountId) {
-      throw new Error('E2E fake: not this run\'s own account, refusing to fabricate a follower count');
+      throw new Error(
+        "E2E fake: not this run's own account, refusing to fabricate a follower count",
+      );
     }
     return followerCount;
   };
@@ -72,7 +79,9 @@ export function fakeYouTubeFollowerCount(knownPlatformAccountId: string, followe
 export function fakeTikTokDisconnected(): void {
   save(SocialPlatform.TIKTOK);
   platformRegistry[SocialPlatform.TIKTOK].syncStats = async () => {
-    throw new Error('E2E-simulated: TikTok API rejected the stored token (account not reconnected)');
+    throw new Error(
+      'E2E-simulated: TikTok API rejected the stored token (account not reconnected)',
+    );
   };
 }
 

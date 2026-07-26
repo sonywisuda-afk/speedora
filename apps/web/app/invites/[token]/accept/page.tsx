@@ -59,9 +59,7 @@ export default function AcceptInvitePage({ params }: { params: { token: string }
               </Button>
             </div>
           ) : preview.status !== 'PENDING' ? (
-            <p className="font-body text-sm text-destructive">
-              Undangan ini sudah tidak berlaku.
-            </p>
+            <p className="font-body text-sm text-destructive">Undangan ini sudah tidak berlaku.</p>
           ) : (
             <div className="space-y-4">
               <p className="font-body text-sm text-foreground">
@@ -71,8 +69,8 @@ export default function AcceptInvitePage({ params }: { params: { token: string }
               {checkingAuth ? null : !user ? (
                 <>
                   <p className="font-body text-xs text-muted-foreground">
-                    Masuk terlebih dahulu dengan email {preview.email}, lalu buka link undangan
-                    ini lagi untuk menerimanya.
+                    Masuk terlebih dahulu dengan email {preview.email}, lalu buka link undangan ini
+                    lagi untuk menerimanya.
                   </p>
                   <Button asChild className="w-full">
                     <Link href="/upload">Masuk</Link>

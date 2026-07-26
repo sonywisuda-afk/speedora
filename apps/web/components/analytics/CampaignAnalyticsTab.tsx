@@ -61,7 +61,8 @@ export function CampaignAnalyticsTab({ campaignId, workspaceId }: CampaignAnalyt
       <AnalyticsCard title="Conversion">
         {data.conversionCount !== null ? (
           <p className="font-mono text-2xl text-foreground">
-            {data.conversionCount.toLocaleString()} <span className="text-sm text-muted-foreground">klik</span>
+            {data.conversionCount.toLocaleString()}{' '}
+            <span className="text-sm text-muted-foreground">klik</span>
           </p>
         ) : justCreated ? (
           <p className="font-body text-sm text-muted-foreground">
@@ -78,7 +79,11 @@ export function CampaignAnalyticsTab({ campaignId, workspaceId }: CampaignAnalyt
       </AnalyticsCard>
 
       <AnalyticsCard title="Tren Views">
-        <TrendChart data={data.engagementTrend} granularity={granularity} onGranularityChange={setGranularity} />
+        <TrendChart
+          data={data.engagementTrend}
+          granularity={granularity}
+          onGranularityChange={setGranularity}
+        />
       </AnalyticsCard>
 
       <AnalyticsCard title="Perbandingan Platform">

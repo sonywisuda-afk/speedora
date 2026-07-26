@@ -345,7 +345,10 @@ describe('BrandKitService', () => {
 
   describe('saveWatermark', () => {
     it('stores the raw storage key and returns the endpoint-path DTO', async () => {
-      prisma.user.update.mockResolvedValue({ ...BASE_ROW, brandWatermarkUrl: 'watermarks/xyz.png' });
+      prisma.user.update.mockResolvedValue({
+        ...BASE_ROW,
+        brandWatermarkUrl: 'watermarks/xyz.png',
+      });
 
       const result = await service.saveWatermark(USER_TARGET, 'watermarks/xyz.png');
 
@@ -587,7 +590,7 @@ describe('BrandKitService', () => {
   });
 
   describe('listTemplates', () => {
-    it('lists the user\'s templates, newest first, as summary DTOs', async () => {
+    it("lists the user's templates, newest first, as summary DTOs", async () => {
       prisma.brandKitTemplate.findMany.mockResolvedValue([BASE_TEMPLATE_ROW]);
 
       const result = await service.listTemplates('user-1');

@@ -494,7 +494,11 @@ export class ClipsService {
     if (!clip) {
       throw new NotFoundException(`Clip ${id} not found`);
     }
-    await this.workspaceAccess.assertMinRole(requesterId, clip.video.workspaceId, WorkspaceRole.VIEWER);
+    await this.workspaceAccess.assertMinRole(
+      requesterId,
+      clip.video.workspaceId,
+      WorkspaceRole.VIEWER,
+    );
 
     // Sprint 6I/6J (AI Insight narrative + prediction) - a second,
     // deliberate query: both classifying this clip's outcome against its
