@@ -3,7 +3,6 @@
 import { AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { secondsToTimestamp } from '@speedora/shared';
 
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import type { VideoWithClipsDto } from '@/lib/api';
 
@@ -49,74 +48,60 @@ const CHECK_ROWS: {
   },
 ];
 
-// Shown once probing succeeds (video.status === PENDING_SETTINGS) - a
-// video that fails an Error-tier check never reaches this component at all
-// (it goes straight to FAILED, handled by ProcessingStatus's existing
-// failure screen, same as every other pipeline-stage failure). Every
-// warning here is non-blocking by design (see the Fase 0 design's
-// Error/Warning/Info split) - "Lanjutkan" is always enabled.
-export function QualityValidation({
-  video,
-  onContinue,
-  onBack,
-}: {
-  video: VideoWithClipsDto;
-  onContinue: () => void;
-  onBack: () => void;
-}) {
+// Shown once probing succeeds (video.status === PENDING_SETTINGS) - a video
+// that fails an Error-tier check never reaches this component at all (it
+// goes straight to FAILED, handled by ProcessingStatus's existing failure
+// screen, same as every other pipeline-stage failure). Every warning here is
+// non-blocking by design (see the Fase 0 design's Error/Warning/Info split).
+//
+// Rendered as the first panel inside ProcessingSettings rather than its own
+// gated step (previous "Lanjutkan ke Pengaturan" click-through removed per
+// the user's 2026-07-27 direction: real ffprobe-backed warnings stay, but
+// reading them no longer requires a screen of its own) - purely
+// presentational, no onContinue/onBack of its own.
+export function QualityValidation({ video }: { video: VideoWithClipsDto }) {
   const warningIds = new Set((video.validationReport?.warnings ?? []).map((w) => w.id));
   const warningMessages = video.validationReport?.warnings ?? [];
   const hasWarnings = warningMessages.length > 0;
 
   return (
-    <div className="space-y-6">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Pemeriksaan Kualitas Video</CardTitle>
-          <CardDescription>
-            {hasWarnings
-              ? `${warningMessages.length} hal perlu diperhatikan - kamu tetap bisa melanjutkan.`
-              : 'Video siap diproses.'}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {CHECK_ROWS.map((row) => {
-            const triggered = warningIds.has(row.ruleId);
-            return (
-              <div key={row.ruleId} className="flex items-center justify-between gap-3 text-sm">
-                <div className="flex items-center gap-2">
-                  {triggered ? (
-                    <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
-                  ) : (
-                    <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
-                  )}
-                  <span className="font-body text-foreground">{row.label}</span>
-                </div>
-                <span className="font-mono text-muted-foreground">{row.formatValue(video)}</span>
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-base">Kualitas Video</CardTitle>
+        <CardDescription>
+          {hasWarnings
+            ? `${warningMessages.length} hal perlu diperhatikan - tidak menghalangi proses.`
+            : 'Video siap diproses.'}
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {CHECK_ROWS.map((row) => {
+          const triggered = warningIds.has(row.ruleId);
+          return (
+            <div key={row.ruleId} className="flex items-center justify-between gap-3 text-sm">
+              <div className="flex items-center gap-2">
+                {triggered ? (
+                  <AlertTriangle className="h-4 w-4 shrink-0 text-warning" aria-hidden="true" />
+                ) : (
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
+                )}
+                <span className="font-body text-foreground">{row.label}</span>
               </div>
-            );
-          })}
+              <span className="font-mono text-muted-foreground">{row.formatValue(video)}</span>
+            </div>
+          );
+        })}
 
-          {hasWarnings ? (
-            <ul className="mt-2 space-y-1 border-t border-border pt-3">
-              {warningMessages.map((warning) => (
-                <li key={warning.id} className="font-body text-xs text-muted-foreground">
-                  {warning.message}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </CardContent>
-      </Card>
-
-      <div className="flex items-center justify-between gap-3">
-        <Button type="button" variant="ghost" onClick={onBack}>
-          Kembali
-        </Button>
-        <Button type="button" onClick={onContinue}>
-          Lanjutkan ke Pengaturan
-        </Button>
-      </div>
-    </div>
+        {hasWarnings ? (
+          <ul className="mt-2 space-y-1 border-t border-border pt-3">
+            {warningMessages.map((warning) => (
+              <li key={warning.id} className="font-body text-xs text-muted-foreground">
+                {warning.message}
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }

@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import '@testing-library/jest-dom';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import type { VideoWithClipsDto } from '@/lib/api';
 import { QualityValidation } from './QualityValidation';
 
@@ -23,7 +23,7 @@ function video(overrides: Partial<VideoWithClipsDto>): VideoWithClipsDto {
 
 describe('QualityValidation', () => {
   it('shows a clean state and real probed values when there are no warnings', () => {
-    render(<QualityValidation video={video({})} onContinue={jest.fn()} onBack={jest.fn()} />);
+    render(<QualityValidation video={video({})} />);
 
     expect(screen.getByText('Video siap diproses.')).toBeInTheDocument();
     expect(screen.getByText('1920×1080')).toBeInTheDocument();
@@ -46,45 +46,11 @@ describe('QualityValidation', () => {
             info: [],
           },
         })}
-        onContinue={jest.fn()}
-        onBack={jest.fn()}
       />,
     );
 
-    expect(
-      screen.getByText('2 hal perlu diperhatikan - kamu tetap bisa melanjutkan.'),
-    ).toBeInTheDocument();
+    expect(screen.getByText('2 hal perlu diperhatikan - tidak menghalangi proses.')).toBeInTheDocument();
     expect(screen.getByText('Resolusi rendah (640x360px).')).toBeInTheDocument();
     expect(screen.getByText('Audio mono (bukan stereo).')).toBeInTheDocument();
-  });
-
-  it('never disables Continue - Warning-tier findings are non-blocking by design', () => {
-    const onContinue = jest.fn();
-    render(
-      <QualityValidation
-        video={video({
-          validationReport: {
-            errors: [],
-            warnings: [{ id: 'mono-audio', message: 'Audio mono (bukan stereo).' }],
-            info: [],
-          },
-        })}
-        onContinue={onContinue}
-        onBack={jest.fn()}
-      />,
-    );
-
-    const continueButton = screen.getByRole('button', { name: 'Lanjutkan ke Pengaturan' });
-    expect(continueButton).toBeEnabled();
-    fireEvent.click(continueButton);
-    expect(onContinue).toHaveBeenCalledTimes(1);
-  });
-
-  it('calls onBack when Kembali is clicked', () => {
-    const onBack = jest.fn();
-    render(<QualityValidation video={video({})} onContinue={jest.fn()} onBack={onBack} />);
-
-    fireEvent.click(screen.getByRole('button', { name: 'Kembali' }));
-    expect(onBack).toHaveBeenCalledTimes(1);
   });
 });

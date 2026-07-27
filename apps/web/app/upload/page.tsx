@@ -11,7 +11,6 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Nav } from '@/components/Nav';
 import { ProcessingSettings } from '@/components/processing-settings/ProcessingSettings';
 import { ProcessingStatus } from '@/components/processing/ProcessingStatus';
-import { QualityValidation } from '@/components/quality-validation/QualityValidation';
 import { AuthGate } from '@/components/upload/AuthGate';
 import { EngineChoice } from '@/components/upload/EngineChoice';
 import { ForgotPasswordForm } from '@/components/upload/ForgotPasswordForm';
@@ -84,9 +83,6 @@ export default function UploadPage() {
   // absent for a YouTube import (no local File to read - see the Fase 0
   // design's explicit browser-vs-import asymmetry note).
   const [browserPreview, setBrowserPreview] = useState<BrowserVideoMetadata | null>(null);
-  // Gates ProcessingSettings behind the QualityValidation check-list screen
-  // once a video reaches PENDING_SETTINGS - reset per video, not global.
-  const [validationAcknowledged, setValidationAcknowledged] = useState(false);
 
   useEffect(() => {
     if (!video || video.status === VideoStatus.RENDERED || video.status === VideoStatus.FAILED) {
@@ -218,7 +214,6 @@ export default function UploadPage() {
     setProvider(null);
     setStartProcessingError(null);
     setBrowserPreview(null);
-    setValidationAcknowledged(false);
   }
 
   // Quality Validation roadmap (Fase 0 design, Phase 1) - "Kembali" from
@@ -234,7 +229,6 @@ export default function UploadPage() {
     setUploadError(null);
     setStartProcessingError(null);
     setBrowserPreview(null);
-    setValidationAcknowledged(false);
   }
 
   async function handleStartProcessing(options: ProcessingOptions) {
@@ -373,27 +367,16 @@ export default function UploadPage() {
         </div>
       ) : null}
 
-      {user && !checkingAuth && video && isPendingSettings && !validationAcknowledged ? (
-        <div className="px-6 py-6">
-          <div className="mx-auto max-w-xl">
-            <QualityValidation
-              video={video}
-              onContinue={() => setValidationAcknowledged(true)}
-              onBack={handleBackFromSettings}
-            />
-          </div>
-        </div>
-      ) : null}
-
-      {user && !checkingAuth && video && isPendingSettings && validationAcknowledged ? (
+      {user && !checkingAuth && video && isPendingSettings ? (
         <div className="px-6 py-6">
           <div className="mx-auto max-w-xl">
             {startProcessingError ? (
               <p className="mb-4 font-body text-sm text-destructive">{startProcessingError}</p>
             ) : null}
             <ProcessingSettings
+              video={video}
               onReady={handleStartProcessing}
-              onBack={() => setValidationAcknowledged(false)}
+              onBack={handleBackFromSettings}
               submitting={startingProcessing}
             />
           </div>

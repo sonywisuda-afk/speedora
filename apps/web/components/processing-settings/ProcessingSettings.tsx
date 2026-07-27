@@ -20,11 +20,13 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { QualityValidation } from '@/components/quality-validation/QualityValidation';
 import {
   createProcessingPreset,
   listBrandKitTemplates,
   listProcessingPresets,
   listSocialAccounts,
+  type VideoWithClipsDto,
 } from '@/lib/api';
 
 const CLIP_COUNT_OPTIONS: (number | 'unlimited')[] = [1, 2, 3, 5, 10, 20, 'unlimited'];
@@ -79,7 +81,6 @@ const COMING_SOON_SECTIONS = [
   'Video Enhancement (sharpen, HDR, stabilization, upscaling)',
   'AI Model selection (OCR / Face / Object detector, Fusion Engine version)',
   'Live GPU / cloud cost estimation',
-  'Quality Validation pre-flight check list (Fase 0 design done, Phase 1 - file selection now happens before this screen; the actual Error/Warning/Info check list UI is Phase 3)',
 ];
 
 const selectClassName =
@@ -112,11 +113,18 @@ function SectionCard({
 // wired pipeline parameter (see @speedora/shared's ProcessingOptions);
 // sections with no backend yet are listed honestly in COMING_SOON_SECTIONS
 // instead of being built as non-functional toggles.
+//
+// "Kualitas Video" (2026-07-27) is the first panel rather than a separate
+// gated QualityValidation step - the user's explicit direction was to keep
+// warnings backed by real ffprobe data (not a browser-side estimate) while
+// removing the extra screen/click needed just to read them.
 export function ProcessingSettings({
+  video,
   onReady,
   onBack,
   submitting,
 }: {
+  video: VideoWithClipsDto;
   onReady: (options: ProcessingOptions) => void;
   onBack: () => void;
   // Quality Validation roadmap (Fase 0 design, Phase 1) - onReady is now
@@ -235,6 +243,8 @@ export function ProcessingSettings({
           Sesuaikan cara video ini diproses, atau langsung mulai dengan pengaturan default.
         </p>
       </div>
+
+      <QualityValidation video={video} />
 
       <SectionCard
         title="Informasi Proyek"
