@@ -17,10 +17,16 @@ import {
 } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
-import { clearAuthCookies, REFRESH_COOKIE_NAME, setAuthCookies } from './auth-cookies.util';
+import {
+  clearAuthCookies,
+  REFRESH_COOKIE_NAME,
+  setAuthCookies,
+  TRUSTED_DEVICE_COOKIE_NAME,
+} from './auth-cookies.util';
 import {
   AuthService,
   RISK_CAPTCHA_THRESHOLD,
+  RISK_TRUSTED_DEVICE_THRESHOLD,
   type SafeUser,
   type SessionTokens,
 } from './auth.service';
@@ -131,6 +137,26 @@ export class AuthController {
     }
 
     await this.loginBackoff.reset(body.email);
+
+    // Tahap 2 Step 2 Sprint 2a (MFA Enforcement) - a trusted-device cookie
+    // only skips the challenge under LOW risk; even a valid cookie is
+    // ignored the moment this login looks meaningfully different (new IP/
+    // device/repeated failures - see RISK_TRUSTED_DEVICE_THRESHOLD's own
+    // comment). No SecurityEvent yet for "challenge issued" - login isn't
+    // complete until the challenge is verified (or skipped), matching how
+    // only the terminal outcome gets logged everywhere else in this file.
+    if (await this.authService.isMfaEnabled(user.id)) {
+      const trusted =
+        risk.score < RISK_TRUSTED_DEVICE_THRESHOLD &&
+        (await this.authService.checkTrustedDevice(
+          user.id,
+          req.cookies?.[TRUSTED_DEVICE_COOKIE_NAME],
+        ));
+      if (!trusted) {
+        return { mfaRequired: true, mfaToken: this.authService.issueMfaChallengeToken(user.id) };
+      }
+    }
+
     await this.authService.recordSecurityEvent({
       userId: user.id,
       email: user.email,

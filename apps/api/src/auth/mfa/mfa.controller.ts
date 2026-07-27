@@ -2,18 +2,24 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
+  Param,
   Post,
   Req,
+  Res,
   UnauthorizedException,
   UseGuards,
 } from '@nestjs/common';
-import type { Request } from 'express';
+import { ThrottlerGuard } from '@nestjs/throttler';
+import type { Request, Response } from 'express';
+import { setAuthCookies, setTrustedDeviceCookie } from '../auth-cookies.util';
 import { AuthService, type SafeUser } from '../auth.service';
 import { CurrentUser } from '../decorators/current-user.decorator';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { PrismaService } from '../../prisma/prisma.service';
+import { MfaChallengeDto } from './dto/mfa-challenge.dto';
 import { MfaCodeDto } from './dto/mfa-code.dto';
 import { MfaService } from './mfa.service';
 
@@ -22,13 +28,15 @@ function userAgentOf(req: Request): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-// Tahap 2 Step 2 Sprint 1 (MFA Foundation) - every route here is "an
-// already-logged-in user manages their own MFA," mirroring
+// Tahap 2 Step 2 Sprint 1/2a (MFA Foundation/Enforcement) - most routes here
+// are "an already-logged-in user manages their own MFA" (JwtAuthGuard on
+// each of those individually, not at the class level any more), mirroring
 // OAuthController's own separate-controller precedent rather than bolting
-// more routes onto the already-large AuthController. No login-flow route
-// lives here yet - that's Sprint 2 (Enforcement).
+// more routes onto the already-large AuthController. `challenge` below is
+// the one deliberate exception - unauthenticated by definition, same
+// posture as AuthController.login itself (nobody has a session yet; that's
+// exactly what a successful challenge produces).
 @Controller('auth/mfa')
-@UseGuards(JwtAuthGuard)
 export class MfaController {
   constructor(
     private readonly prisma: PrismaService,
@@ -37,6 +45,7 @@ export class MfaController {
   ) {}
 
   @Get('status')
+  @UseGuards(JwtAuthGuard)
   async status(@CurrentUser() user: SafeUser) {
     const record = await this.prisma.user.findUniqueOrThrow({
       where: { id: user.id },
@@ -59,6 +68,7 @@ export class MfaController {
   // stays protected under the OLD secret/mfaEnabled=true until confirm
   // succeeds against the new one) - confirm is what actually switches over.
   @Post('enroll')
+  @UseGuards(JwtAuthGuard)
   async enroll(@CurrentUser() user: SafeUser) {
     const secret = this.mfaService.generateSecret();
     await this.prisma.user.update({
@@ -73,6 +83,7 @@ export class MfaController {
 
   @Post('enroll/confirm')
   @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
   async confirmEnroll(
     @CurrentUser() user: SafeUser,
     @Req() req: Request,
@@ -119,6 +130,7 @@ export class MfaController {
 
   @Post('disable')
   @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
   async disable(@CurrentUser() user: SafeUser, @Req() req: Request, @Body() body: MfaCodeDto) {
     const record = await this.prisma.user.findUniqueOrThrow({
       where: { id: user.id },
@@ -143,6 +155,14 @@ export class MfaController {
         data: { mfaEnabled: false, mfaSecret: null, mfaEnabledAt: null },
       });
       await tx.mfaRecoveryCode.deleteMany({ where: { userId: user.id } });
+      // A trusted-device grant only makes sense for the enrollment it was
+      // created under - re-enabling MFA later starts a fresh secret/
+      // recovery-codes cycle, and any device trusted under the old cycle
+      // shouldn't silently skip the challenge for it.
+      await tx.trustedDevice.updateMany({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
     });
 
     await this.authService.recordSecurityEvent({
@@ -158,6 +178,7 @@ export class MfaController {
 
   @Post('recovery-codes/regenerate')
   @HttpCode(200)
+  @UseGuards(JwtAuthGuard)
   async regenerateRecoveryCodes(
     @CurrentUser() user: SafeUser,
     @Req() req: Request,
@@ -200,5 +221,83 @@ export class MfaController {
     });
 
     return { recoveryCodes };
+  }
+
+  // Tahap 2 Step 2 Sprint 2a (MFA Enforcement) - completes a login that
+  // AuthController.login()/OAuthController.callback() deferred because the
+  // account has MFA enabled and no valid low-risk trusted-device cookie was
+  // present. Unauthenticated by definition (mirrors POST /auth/login's own
+  // posture) - mfaToken (not a session) is what proves "this request
+  // belongs to a login attempt that already passed the credential check."
+  // Same ThrottlerGuard as /auth/login, to blunt 6-digit-code brute forcing.
+  @Post('challenge')
+  @HttpCode(200)
+  @UseGuards(ThrottlerGuard)
+  async challenge(
+    @Body() body: MfaChallengeDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const userId = this.authService.verifyMfaChallengeToken(body.mfaToken);
+    const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+    const ipAddress = req.ip;
+    const userAgent = userAgentOf(req);
+
+    const codeVerified =
+      user.mfaSecret &&
+      (await this.mfaService.verifyMfaCodeOrRecoveryCode(user.id, user.mfaSecret, body.code));
+    if (!codeVerified) {
+      await this.authService.recordSecurityEvent({
+        userId: user.id,
+        email: user.email,
+        eventType: 'LOGIN_FAILED',
+        ipAddress,
+        userAgent,
+        metadata: { reason: 'invalid_mfa_code' },
+      });
+      throw new UnauthorizedException('Invalid verification code');
+    }
+
+    await this.authService.recordSecurityEvent({
+      userId: user.id,
+      email: user.email,
+      eventType: 'LOGIN_SUCCESS',
+      ipAddress,
+      userAgent,
+      metadata: { mfaVerified: true },
+    });
+
+    const safeUser: SafeUser = {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      emailVerified: user.emailVerified,
+    };
+    const tokens = await this.authService.createSession(safeUser, userAgent, ipAddress);
+    setAuthCookies(res, tokens);
+
+    if (body.rememberDevice) {
+      const trustedDevice = await this.authService.createTrustedDevice(
+        user.id,
+        userAgent,
+        ipAddress,
+      );
+      setTrustedDeviceCookie(res, trustedDevice.rawToken, trustedDevice.expiresAt);
+    }
+
+    return safeUser;
+  }
+
+  @Get('trusted-devices')
+  @UseGuards(JwtAuthGuard)
+  async listTrustedDevices(@CurrentUser() user: SafeUser) {
+    return this.authService.listTrustedDevices(user.id);
+  }
+
+  @Delete('trusted-devices/:id')
+  @HttpCode(204)
+  @UseGuards(JwtAuthGuard)
+  async revokeTrustedDevice(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    await this.authService.revokeTrustedDeviceById(user.id, id);
   }
 }

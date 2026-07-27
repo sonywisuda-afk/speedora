@@ -17,12 +17,15 @@ import {
   enrollMfa,
   getMfaStatus,
   listSessions,
+  listTrustedDevices,
   logoutOthers,
   regenerateRecoveryCodes,
   revokeSession,
+  revokeTrustedDevice,
   type MfaEnrollmentDto,
   type MfaStatusDto,
   type SessionDto,
+  type TrustedDeviceDto,
 } from '../../lib/api';
 import { useAuth } from '../../lib/useAuth';
 
@@ -77,6 +80,39 @@ export default function AccountsPage() {
   const [regeneratingCodes, setRegeneratingCodes] = useState(false);
   const [regenerateError, setRegenerateError] = useState<string | null>(null);
 
+  // Tahap 2 Step 2 Sprint 2a (MFA Enforcement) - a trusted device is a
+  // different concept from an active Session (a persistent MFA-skip grant
+  // vs. a live login) - kept as its own sibling list rather than merged
+  // into "Perangkat Aktif" above.
+  const [trustedDevices, setTrustedDevices] = useState<TrustedDeviceDto[] | null>(null);
+  const [trustedDevicesError, setTrustedDevicesError] = useState<string | null>(null);
+  const [revokingTrustedDeviceId, setRevokingTrustedDeviceId] = useState<string | null>(null);
+
+  async function fetchTrustedDevices() {
+    try {
+      setTrustedDevices(await listTrustedDevices());
+      setTrustedDevicesError(null);
+    } catch (err) {
+      setTrustedDevicesError(
+        err instanceof Error ? err.message : 'Gagal memuat perangkat terpercaya.',
+      );
+    }
+  }
+
+  async function handleRevokeTrustedDevice(id: string) {
+    setRevokingTrustedDeviceId(id);
+    try {
+      await revokeTrustedDevice(id);
+      await fetchTrustedDevices();
+    } catch (err) {
+      setTrustedDevicesError(
+        err instanceof Error ? err.message : 'Gagal menghapus perangkat terpercaya.',
+      );
+    } finally {
+      setRevokingTrustedDeviceId(null);
+    }
+  }
+
   async function fetchMfaStatus() {
     try {
       setMfaStatus(await getMfaStatus());
@@ -99,6 +135,7 @@ export default function AccountsPage() {
     if (!user) return;
     fetchSessions();
     fetchMfaStatus();
+    fetchTrustedDevices();
     // Only ever meant to run once the user is known, same reasoning as
     // useAuth's own mount-only effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -512,6 +549,56 @@ export default function AccountsPage() {
                   <p className="font-body text-sm text-muted-foreground">
                     Tidak ada perangkat aktif.
                   </p>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="mt-10">
+              <CardHeader>
+                <CardTitle>Perangkat Terpercaya</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="font-body text-sm text-muted-foreground">
+                  Perangkat yang melewati verifikasi 2FA saat masuk (berlaku hingga 60 hari).
+                </p>
+                {trustedDevicesError && (
+                  <p className="text-sm text-destructive">{trustedDevicesError}</p>
+                )}
+                {trustedDevices === null ? (
+                  <p className="font-body text-sm text-muted-foreground">Memuat...</p>
+                ) : trustedDevices.length === 0 ? (
+                  <p className="font-body text-sm text-muted-foreground">
+                    Tidak ada perangkat terpercaya.
+                  </p>
+                ) : (
+                  trustedDevices.map((device) => (
+                    <div
+                      key={device.id}
+                      className="flex items-center justify-between gap-4 rounded-md border border-border p-3"
+                    >
+                      <div className="min-w-0 font-body text-sm">
+                        <p className="font-medium text-foreground">
+                          {device.deviceName ?? 'Perangkat tidak dikenal'}
+                        </p>
+                        <p className="text-muted-foreground">
+                          {[device.browser, device.os].filter(Boolean).join(' · ') ||
+                            'Browser tidak dikenal'}
+                          {device.ipAddress ? ` · ${device.ipAddress}` : ''}
+                        </p>
+                        <p className="text-muted-foreground">
+                          Terakhir digunakan: {new Date(device.lastUsedAt).toLocaleString()}
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={revokingTrustedDeviceId === device.id}
+                        onClick={() => handleRevokeTrustedDevice(device.id)}
+                      >
+                        {revokingTrustedDeviceId === device.id ? 'Memproses...' : 'Hapus'}
+                      </Button>
+                    </div>
+                  ))
                 )}
               </CardContent>
             </Card>

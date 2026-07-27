@@ -42,3 +42,25 @@ export function clearAuthCookies(res: Response): void {
   res.clearCookie(ACCESS_COOKIE_NAME, { path: '/' });
   res.clearCookie(REFRESH_COOKIE_NAME, { path: REFRESH_COOKIE_PATH });
 }
+
+// Tahap 2 Step 2 Sprint 2a (MFA Enforcement) - "remember this device."
+// Path scoped to /auth, same reasoning as REFRESH_COOKIE_PATH above: it
+// needs to reach /auth/login, /auth/mfa/challenge, and
+// /auth/oauth/:provider/callback (the three places a login can originate),
+// but nowhere else.
+export const TRUSTED_DEVICE_COOKIE_NAME = 'trusted_device';
+const TRUSTED_DEVICE_COOKIE_PATH = '/auth';
+
+export function setTrustedDeviceCookie(res: Response, rawToken: string, expiresAt: Date): void {
+  res.cookie(TRUSTED_DEVICE_COOKIE_NAME, rawToken, {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
+    maxAge: Math.max(0, expiresAt.getTime() - Date.now()),
+    path: TRUSTED_DEVICE_COOKIE_PATH,
+  });
+}
+
+export function clearTrustedDeviceCookie(res: Response): void {
+  res.clearCookie(TRUSTED_DEVICE_COOKIE_NAME, { path: TRUSTED_DEVICE_COOKIE_PATH });
+}

@@ -25,7 +25,9 @@ describe('GitHubOAuthLoginProvider', () => {
 
       expect(url).toContain('https://github.com/login/oauth/authorize?');
       expect(url).toContain('client_id=test-client-id');
-      expect(url).toContain('redirect_uri=http%3A%2F%2Flocalhost%3A3001%2Fauth%2Foauth%2Fgithub%2Fcallback');
+      expect(url).toContain(
+        'redirect_uri=http%3A%2F%2Flocalhost%3A3001%2Fauth%2Foauth%2Fgithub%2Fcallback',
+      );
       expect(url).toContain('scope=user%3Aemail');
       expect(url).toContain('state=random-state');
     });

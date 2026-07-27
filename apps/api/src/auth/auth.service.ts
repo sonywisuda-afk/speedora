@@ -48,6 +48,22 @@ export const RISK_CAPTCHA_THRESHOLD = 50;
 const RISK_RECENT_SESSIONS_WINDOW = 10;
 const RISK_REPEATED_FAILURES_THRESHOLD = 3;
 
+// Tahap 2 Step 2 Sprint 2a (MFA Enforcement) - stricter than
+// RISK_CAPTCHA_THRESHOLD: skipping a whole MFA factor via a trusted-device
+// cookie is a bigger trust decision than requiring a CAPTCHA, so even
+// moderate risk (a single new-IP or new-device signal, see
+// computeLoginRisk) should force a fresh challenge despite a valid cookie.
+export const RISK_TRUSTED_DEVICE_THRESHOLD = 30;
+// "Remember this device" - long-lived on purpose (a user who opts in
+// expects to not be re-challenged for weeks), unlike the much shorter
+// DEFAULT_REFRESH_TOKEN_EXPIRES_IN above.
+const DEFAULT_TRUSTED_DEVICE_EXPIRES_IN_MS = 60 * 24 * 60 * 60 * 1000;
+// Short-lived by design - the window between "password/OAuth verified" and
+// "MFA code entered". Same order of magnitude as OAuthController's own
+// anti-CSRF state nonce TTL.
+const MFA_CHALLENGE_TOKEN_TTL = '10m';
+const MFA_CHALLENGE_TOKEN_PURPOSE = 'mfa_challenge';
+
 export interface SafeUser {
   id: string;
   email: string;
@@ -84,6 +100,21 @@ export interface SessionSummary {
   lastSeenAt: Date;
   expiresAt: Date;
   current: boolean;
+}
+
+// Tahap 2 Step 2 Sprint 2a (MFA Enforcement) - what GET
+// /auth/trusted-devices returns per row. Same "never the raw
+// token/refreshTokenHash" convention as SessionSummary above - tokenHash
+// is never exposed.
+export interface TrustedDeviceSummary {
+  id: string;
+  browser: string | null;
+  os: string | null;
+  deviceName: string | null;
+  ipAddress: string | null;
+  createdAt: Date;
+  lastUsedAt: Date;
+  expiresAt: Date;
 }
 
 // Authentication Foundation Sprint 4 (Attack Protection) - result of
@@ -612,6 +643,136 @@ export class AuthService {
     }
 
     return { score: Math.min(score, 100), signals };
+  }
+
+  // Tahap 2 Step 2 Sprint 2a (MFA Enforcement) - a thin Prisma read, called
+  // right after validateUser/resolveOAuthLogin succeed, deliberately never
+  // added to SafeUser (see AuthenticatedUser's own comment on why fields
+  // get added as new type-only interfaces instead of widening SafeUser).
+  async isMfaEnabled(userId: string): Promise<boolean> {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { mfaEnabled: true },
+    });
+    return user.mfaEnabled;
+  }
+
+  // Hashes the incoming trusted_device cookie value and looks up an
+  // unrevoked/unexpired TrustedDevice row scoped to this exact user (a
+  // cookie can never be replayed against a different account). Updates
+  // lastUsedAt on a match, same "touch on use" convention as
+  // rotateRefreshToken's lastSeenAt. Never throws - a missing/invalid/
+  // expired cookie is just "not trusted," same posture as revokeSession's
+  // silent no-op on an unknown token.
+  async checkTrustedDevice(userId: string, rawToken: string | undefined): Promise<boolean> {
+    if (!rawToken) return false;
+
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const device = await this.prisma.trustedDevice.findUnique({ where: { tokenHash } });
+    if (
+      !device ||
+      device.userId !== userId ||
+      device.revokedAt ||
+      device.expiresAt.getTime() < Date.now()
+    ) {
+      return false;
+    }
+
+    await this.prisma.trustedDevice.update({
+      where: { id: device.id },
+      data: { lastUsedAt: new Date() },
+    });
+    return true;
+  }
+
+  // Signs a short-lived, purpose-scoped JWT identifying which account still
+  // needs to complete an MFA challenge - deliberately NOT a Session/access
+  // token (no session exists yet at this point in the login flow).
+  issueMfaChallengeToken(userId: string): string {
+    return this.jwtService.sign(
+      { sub: userId, purpose: MFA_CHALLENGE_TOKEN_PURPOSE },
+      { expiresIn: MFA_CHALLENGE_TOKEN_TTL },
+    );
+  }
+
+  // Throws the same generic UnauthorizedException for "expired," "tampered,"
+  // and "not actually an MFA challenge token" (e.g. someone replaying an
+  // access token here) - the caller only needs to know the challenge can't
+  // proceed, not why.
+  verifyMfaChallengeToken(token: string): string {
+    let payload: { sub?: string; purpose?: string };
+    try {
+      payload = this.jwtService.verify(token);
+    } catch {
+      throw new UnauthorizedException('MFA challenge is invalid or has expired');
+    }
+    if (payload.purpose !== MFA_CHALLENGE_TOKEN_PURPOSE || !payload.sub) {
+      throw new UnauthorizedException('MFA challenge is invalid or has expired');
+    }
+    return payload.sub;
+  }
+
+  // "Remember this device" - called by MfaController's challenge endpoint
+  // when rememberDevice is true. Same raw-token/SHA-256-hash-at-rest
+  // pattern as createSession's refresh token; browser/os/deviceName parsed
+  // once via ua-parser-js, same as createSession.
+  async createTrustedDevice(
+    userId: string,
+    userAgent: string | undefined,
+    ipAddress: string | undefined,
+  ): Promise<{ rawToken: string; expiresAt: Date }> {
+    const { browser, os, device } = UAParser(userAgent ?? '');
+    const deviceName = [device.vendor, device.model].filter(Boolean).join(' ') || null;
+
+    const rawToken = crypto.randomBytes(32).toString('hex');
+    const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+    const expiresAt = new Date(Date.now() + DEFAULT_TRUSTED_DEVICE_EXPIRES_IN_MS);
+
+    await this.prisma.trustedDevice.create({
+      data: {
+        userId,
+        tokenHash,
+        browser: browser.name ?? null,
+        os: os.name ?? null,
+        deviceName,
+        ipAddress: ipAddress ?? null,
+        expiresAt,
+      },
+    });
+
+    return { rawToken, expiresAt };
+  }
+
+  // Mirrors listSessions exactly (same "active means not revoked, not
+  // expired" scoping), applied to TrustedDevice instead of Session.
+  async listTrustedDevices(userId: string): Promise<TrustedDeviceSummary[]> {
+    const devices = await this.prisma.trustedDevice.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { lastUsedAt: 'desc' },
+    });
+
+    return devices.map((device) => ({
+      id: device.id,
+      browser: device.browser,
+      os: device.os,
+      deviceName: device.deviceName,
+      ipAddress: device.ipAddress,
+      createdAt: device.createdAt,
+      lastUsedAt: device.lastUsedAt,
+      expiresAt: device.expiresAt,
+    }));
+  }
+
+  // Mirrors revokeSessionById exactly (ownership-scoped atomic updateMany,
+  // NotFoundException on no match).
+  async revokeTrustedDeviceById(userId: string, id: string): Promise<void> {
+    const { count } = await this.prisma.trustedDevice.updateMany({
+      where: { id, userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    if (count === 0) {
+      throw new NotFoundException(`Trusted device ${id} not found`);
+    }
   }
 
   // Thin wrapper so AuthController never imports @speedora/database's

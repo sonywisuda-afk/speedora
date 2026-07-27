@@ -39,6 +39,10 @@ describe('OAuthController', () => {
     resolveOAuthLogin: jest.Mock;
     createSession: jest.Mock;
     recordSecurityEvent: jest.Mock;
+    isMfaEnabled: jest.Mock;
+    computeLoginRisk: jest.Mock;
+    checkTrustedDevice: jest.Mock;
+    issueMfaChallengeToken: jest.Mock;
   };
   let jwt: { sign: jest.Mock; verify: jest.Mock };
   let google: { buildAuthorizeUrl: jest.Mock; exchangeCode: jest.Mock; fetchProfile: jest.Mock };
@@ -49,6 +53,10 @@ describe('OAuthController', () => {
       resolveOAuthLogin: jest.fn().mockResolvedValue(fakeUser),
       createSession: jest.fn().mockResolvedValue(fakeTokens),
       recordSecurityEvent: jest.fn().mockResolvedValue(undefined),
+      isMfaEnabled: jest.fn().mockResolvedValue(false),
+      computeLoginRisk: jest.fn().mockResolvedValue({ score: 0, signals: [] }),
+      checkTrustedDevice: jest.fn().mockResolvedValue(false),
+      issueMfaChallengeToken: jest.fn().mockReturnValue('mfa-challenge-token'),
     };
     jwt = { sign: jest.fn().mockReturnValue('signed-state'), verify: jest.fn() };
     google = {
@@ -138,6 +146,38 @@ describe('OAuthController', () => {
       expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/upload');
     });
 
+    it('redirects to /mfa-challenge instead of creating a session when MFA is required', async () => {
+      jwt.verify.mockReturnValue({ nonce: 'abc' });
+      authService.isMfaEnabled.mockResolvedValue(true);
+      authService.checkTrustedDevice.mockResolvedValue(false);
+      const req = fakeRequest();
+      const res = fakeResponse();
+
+      await controller.callback('google', 'raw-code', 'valid-state', undefined, req, res);
+
+      expect(authService.createSession).not.toHaveBeenCalled();
+      expect(authService.recordSecurityEvent).not.toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'LOGIN_SUCCESS' }),
+      );
+      expect(res.redirect).toHaveBeenCalledWith(
+        'http://localhost:3000/mfa-challenge?token=mfa-challenge-token',
+      );
+    });
+
+    it('skips the MFA challenge when a valid trusted-device cookie is present under low risk', async () => {
+      jwt.verify.mockReturnValue({ nonce: 'abc' });
+      authService.isMfaEnabled.mockResolvedValue(true);
+      authService.computeLoginRisk.mockResolvedValue({ score: 0, signals: [] });
+      authService.checkTrustedDevice.mockResolvedValue(true);
+      const req = fakeRequest();
+      const res = fakeResponse();
+
+      await controller.callback('google', 'raw-code', 'valid-state', undefined, req, res);
+
+      expect(authService.createSession).toHaveBeenCalled();
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/upload');
+    });
+
     it('redirects with ?error=unknown_provider for an unrecognized provider', async () => {
       const req = fakeRequest();
       const res = fakeResponse();
@@ -155,9 +195,7 @@ describe('OAuthController', () => {
 
       await controller.callback('google', undefined, undefined, 'access_denied', req, res);
 
-      expect(res.redirect).toHaveBeenCalledWith(
-        'http://localhost:3000/upload?error=access_denied',
-      );
+      expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/upload?error=access_denied');
       expect(google.exchangeCode).not.toHaveBeenCalled();
     });
 

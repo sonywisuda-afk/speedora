@@ -37,9 +37,16 @@ describe('AuthService', () => {
     };
     securityEvent: { create: jest.Mock };
     oAuthIdentity: { findUnique: jest.Mock; create: jest.Mock };
+    trustedDevice: {
+      findUnique: jest.Mock;
+      update: jest.Mock;
+      create: jest.Mock;
+      findMany: jest.Mock;
+      updateMany: jest.Mock;
+    };
     $transaction: jest.Mock;
   };
-  let jwtService: { sign: jest.Mock };
+  let jwtService: { sign: jest.Mock; verify: jest.Mock };
   let mailService: { sendPasswordResetEmail: jest.Mock; sendVerificationEmail: jest.Mock };
   let storage: { deleteObjects: jest.Mock };
   let loginBackoff: { getFailureCount: jest.Mock };
@@ -68,9 +75,16 @@ describe('AuthService', () => {
       },
       securityEvent: { create: jest.fn().mockResolvedValue({}) },
       oAuthIdentity: { findUnique: jest.fn(), create: jest.fn() },
+      trustedDevice: {
+        findUnique: jest.fn(),
+        update: jest.fn(),
+        create: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
       $transaction: jest.fn().mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma)),
     };
-    jwtService = { sign: jest.fn() };
+    jwtService = { sign: jest.fn(), verify: jest.fn() };
     mailService = { sendPasswordResetEmail: jest.fn(), sendVerificationEmail: jest.fn() };
     storage = { deleteObjects: jest.fn().mockResolvedValue(undefined) };
     loginBackoff = { getFailureCount: jest.fn().mockResolvedValue(0) };
@@ -144,7 +158,9 @@ describe('AuthService', () => {
       const result = await service.resolveOAuthLogin('GOOGLE', 'google-sub-123', 'a@example.com');
 
       expect(prisma.oAuthIdentity.findUnique).toHaveBeenCalledWith({
-        where: { provider_providerAccountId: { provider: 'GOOGLE', providerAccountId: 'google-sub-123' } },
+        where: {
+          provider_providerAccountId: { provider: 'GOOGLE', providerAccountId: 'google-sub-123' },
+        },
         include: { user: true },
       });
       expect(prisma.user.findUnique).not.toHaveBeenCalled();
@@ -225,7 +241,12 @@ describe('AuthService', () => {
         data: { workspaceId: 'ws-1', userId: 'user-new', role: 'OWNER' },
       });
       expect(prisma.oAuthIdentity.create).toHaveBeenCalledWith({
-        data: { userId: 'user-new', provider: 'GITHUB', providerAccountId: 'gh-456', email: 'new@example.com' },
+        data: {
+          userId: 'user-new',
+          provider: 'GITHUB',
+          providerAccountId: 'gh-456',
+          email: 'new@example.com',
+        },
       });
       expect(result).toEqual({
         id: 'user-new',
@@ -274,9 +295,9 @@ describe('AuthService', () => {
         emailVerified: true,
       });
 
-      await expect(
-        service.validateUser('oauth-only@example.com', 'anything'),
-      ).rejects.toThrow(UnauthorizedException);
+      await expect(service.validateUser('oauth-only@example.com', 'anything')).rejects.toThrow(
+        UnauthorizedException,
+      );
       expect(bcrypt.compare).not.toHaveBeenCalled();
     });
 
@@ -824,9 +845,7 @@ describe('AuthService', () => {
     it('does not throw when the underlying insert fails', async () => {
       prisma.securityEvent.create.mockRejectedValue(new Error('db down'));
 
-      await expect(
-        service.recordSecurityEvent({ eventType: 'LOGOUT' }),
-      ).resolves.toBeUndefined();
+      await expect(service.recordSecurityEvent({ eventType: 'LOGOUT' })).resolves.toBeUndefined();
     });
   });
 
@@ -856,9 +875,9 @@ describe('AuthService', () => {
         password: null,
       });
 
-      await expect(
-        service.changePassword('user-1', 'anything', 'newplaintext'),
-      ).rejects.toThrow(UnauthorizedException);
+      await expect(service.changePassword('user-1', 'anything', 'newplaintext')).rejects.toThrow(
+        UnauthorizedException,
+      );
       expect(bcrypt.compare).not.toHaveBeenCalled();
       expect(prisma.user.update).not.toHaveBeenCalled();
     });
@@ -906,6 +925,167 @@ describe('AuthService', () => {
       await expect(service.deleteAccount('missing')).rejects.toThrow();
       expect(prisma.user.delete).not.toHaveBeenCalled();
       expect(storage.deleteObjects).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('isMfaEnabled', () => {
+    it('returns the current mfaEnabled value for the user', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ mfaEnabled: true });
+
+      await expect(service.isMfaEnabled('user-1')).resolves.toBe(true);
+    });
+  });
+
+  describe('checkTrustedDevice', () => {
+    it('returns false when no cookie was provided', async () => {
+      await expect(service.checkTrustedDevice('user-1', undefined)).resolves.toBe(false);
+      expect(prisma.trustedDevice.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('returns false when no device matches the token hash', async () => {
+      prisma.trustedDevice.findUnique.mockResolvedValue(null);
+
+      await expect(service.checkTrustedDevice('user-1', 'raw-token')).resolves.toBe(false);
+    });
+
+    it('returns false when the matching device belongs to a different user', async () => {
+      prisma.trustedDevice.findUnique.mockResolvedValue({
+        id: 'device-1',
+        userId: 'someone-else',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+
+      await expect(service.checkTrustedDevice('user-1', 'raw-token')).resolves.toBe(false);
+    });
+
+    it('returns false when the device is revoked or expired', async () => {
+      prisma.trustedDevice.findUnique.mockResolvedValue({
+        id: 'device-1',
+        userId: 'user-1',
+        revokedAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+
+      await expect(service.checkTrustedDevice('user-1', 'raw-token')).resolves.toBe(false);
+    });
+
+    it('returns true and updates lastUsedAt on a valid match', async () => {
+      prisma.trustedDevice.findUnique.mockResolvedValue({
+        id: 'device-1',
+        userId: 'user-1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+
+      await expect(service.checkTrustedDevice('user-1', 'raw-token')).resolves.toBe(true);
+      expect(prisma.trustedDevice.update).toHaveBeenCalledWith({
+        where: { id: 'device-1' },
+        data: { lastUsedAt: expect.any(Date) },
+      });
+    });
+  });
+
+  describe('issueMfaChallengeToken / verifyMfaChallengeToken', () => {
+    it('signs a purpose-scoped token and verifyMfaChallengeToken accepts it', () => {
+      jwtService.sign.mockReturnValue('signed-mfa-token');
+      jwtService.verify.mockReturnValue({ sub: 'user-1', purpose: 'mfa_challenge' });
+
+      const token = service.issueMfaChallengeToken('user-1');
+
+      expect(token).toBe('signed-mfa-token');
+      expect(jwtService.sign).toHaveBeenCalledWith(
+        { sub: 'user-1', purpose: 'mfa_challenge' },
+        { expiresIn: '10m' },
+      );
+      expect(service.verifyMfaChallengeToken('signed-mfa-token')).toBe('user-1');
+    });
+
+    it('rejects a token with the wrong purpose claim', () => {
+      jwtService.verify.mockReturnValue({ sub: 'user-1', purpose: 'something_else' });
+
+      expect(() => service.verifyMfaChallengeToken('other-token')).toThrow(UnauthorizedException);
+    });
+
+    it('rejects an expired/tampered token', () => {
+      jwtService.verify.mockImplementation(() => {
+        throw new Error('jwt expired');
+      });
+
+      expect(() => service.verifyMfaChallengeToken('bad-token')).toThrow(UnauthorizedException);
+    });
+  });
+
+  describe('createTrustedDevice', () => {
+    it('creates a TrustedDevice row and returns the raw token', async () => {
+      const result = await service.createTrustedDevice('user-1', 'Mozilla/5.0 (Test)', '127.0.0.1');
+
+      expect(prisma.trustedDevice.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'user-1',
+          tokenHash: expect.any(String),
+          ipAddress: '127.0.0.1',
+          expiresAt: expect.any(Date),
+        }),
+      });
+      expect(result.rawToken).toEqual(expect.any(String));
+      expect(result.expiresAt).toEqual(expect.any(Date));
+    });
+  });
+
+  describe('listTrustedDevices', () => {
+    it('maps active TrustedDevice rows to summaries', async () => {
+      const now = new Date();
+      prisma.trustedDevice.findMany.mockResolvedValue([
+        {
+          id: 'device-1',
+          browser: 'Chrome',
+          os: 'Windows',
+          deviceName: null,
+          ipAddress: '127.0.0.1',
+          createdAt: now,
+          lastUsedAt: now,
+          expiresAt: now,
+        },
+      ]);
+
+      const result = await service.listTrustedDevices('user-1');
+
+      expect(prisma.trustedDevice.findMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', revokedAt: null, expiresAt: { gt: expect.any(Date) } },
+        orderBy: { lastUsedAt: 'desc' },
+      });
+      expect(result).toEqual([
+        {
+          id: 'device-1',
+          browser: 'Chrome',
+          os: 'Windows',
+          deviceName: null,
+          ipAddress: '127.0.0.1',
+          createdAt: now,
+          lastUsedAt: now,
+          expiresAt: now,
+        },
+      ]);
+    });
+  });
+
+  describe('revokeTrustedDeviceById', () => {
+    it('revokes the device when owned by the user', async () => {
+      await service.revokeTrustedDeviceById('user-1', 'device-1');
+
+      expect(prisma.trustedDevice.updateMany).toHaveBeenCalledWith({
+        where: { id: 'device-1', userId: 'user-1', revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+    });
+
+    it('throws NotFoundException when no matching device is owned by the user', async () => {
+      prisma.trustedDevice.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.revokeTrustedDeviceById('user-1', 'device-1')).rejects.toThrow(
+        NotFoundException,
+      );
     });
   });
 });

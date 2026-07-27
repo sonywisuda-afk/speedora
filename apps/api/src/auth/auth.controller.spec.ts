@@ -49,6 +49,9 @@ describe('AuthController', () => {
     deleteAccount: jest.Mock;
     computeLoginRisk: jest.Mock;
     recordSecurityEvent: jest.Mock;
+    isMfaEnabled: jest.Mock;
+    checkTrustedDevice: jest.Mock;
+    issueMfaChallengeToken: jest.Mock;
   };
   let loginBackoff: {
     checkAllowed: jest.Mock;
@@ -77,6 +80,9 @@ describe('AuthController', () => {
       deleteAccount: jest.fn().mockResolvedValue(undefined),
       computeLoginRisk: jest.fn().mockResolvedValue(noRisk),
       recordSecurityEvent: jest.fn().mockResolvedValue(undefined),
+      isMfaEnabled: jest.fn().mockResolvedValue(false),
+      checkTrustedDevice: jest.fn().mockResolvedValue(false),
+      issueMfaChallengeToken: jest.fn().mockReturnValue('mfa-challenge-token'),
     };
     loginBackoff = {
       checkAllowed: jest.fn().mockResolvedValue({ allowed: true, retryAfterMs: 0 }),
@@ -121,10 +127,7 @@ describe('AuthController', () => {
         fakeTokens.refreshToken,
         expect.objectContaining({ httpOnly: true, sameSite: 'lax', path: '/auth' }),
       );
-      expect(authService.sendVerificationEmail).toHaveBeenCalledWith(
-        'user-1',
-        expect.any(String),
-      );
+      expect(authService.sendVerificationEmail).toHaveBeenCalledWith('user-1', expect.any(String));
       expect(result).toEqual(user);
     });
   });
@@ -231,6 +234,56 @@ describe('AuthController', () => {
         controller.login({ email: user.email, password: 'pw', captchaToken: 'bad' }, req, res),
       ).rejects.toThrow(BadRequestException);
       expect(authService.validateUser).not.toHaveBeenCalled();
+    });
+
+    it('returns mfaRequired instead of creating a session when MFA is enabled and no trusted device matches', async () => {
+      authService.validateUser.mockResolvedValue(user);
+      authService.isMfaEnabled.mockResolvedValue(true);
+      authService.checkTrustedDevice.mockResolvedValue(false);
+      const req = fakeRequest();
+      const res = fakeResponse();
+
+      const result = await controller.login({ email: user.email, password: 'pw' }, req, res);
+
+      expect(authService.createSession).not.toHaveBeenCalled();
+      expect(authService.recordSecurityEvent).not.toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'LOGIN_SUCCESS' }),
+      );
+      expect(result).toEqual({ mfaRequired: true, mfaToken: 'mfa-challenge-token' });
+    });
+
+    it('skips the MFA challenge when a valid trusted-device cookie is present under low risk', async () => {
+      authService.validateUser.mockResolvedValue(user);
+      authService.isMfaEnabled.mockResolvedValue(true);
+      authService.computeLoginRisk.mockResolvedValue({ score: 0, signals: [] });
+      authService.checkTrustedDevice.mockResolvedValue(true);
+      const req = fakeRequest({ trusted_device: 'raw-trusted-token' });
+      const res = fakeResponse();
+
+      const result = await controller.login({ email: user.email, password: 'pw' }, req, res);
+
+      expect(authService.checkTrustedDevice).toHaveBeenCalledWith('user-1', 'raw-trusted-token');
+      expect(authService.createSession).toHaveBeenCalled();
+      expect(result).toEqual(user);
+    });
+
+    it('still requires the MFA challenge when a trusted-device cookie is valid but risk is high', async () => {
+      authService.validateUser.mockResolvedValue(user);
+      authService.isMfaEnabled.mockResolvedValue(true);
+      authService.computeLoginRisk.mockResolvedValue({ score: 60, signals: ['new_ip'] });
+      authService.checkTrustedDevice.mockResolvedValue(true);
+      const req = fakeRequest({ trusted_device: 'raw-trusted-token' });
+      const res = fakeResponse();
+
+      const result = await controller.login(
+        { email: user.email, password: 'pw', captchaToken: 'tok' },
+        req,
+        res,
+      );
+
+      expect(authService.checkTrustedDevice).not.toHaveBeenCalled();
+      expect(authService.createSession).not.toHaveBeenCalled();
+      expect(result).toEqual({ mfaRequired: true, mfaToken: 'mfa-challenge-token' });
     });
   });
 

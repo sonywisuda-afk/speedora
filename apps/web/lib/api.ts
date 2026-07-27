@@ -166,6 +166,21 @@ export class RequiresCaptchaError extends Error {
   }
 }
 
+// Tahap 2 Step 2 Sprint 2a (MFA Enforcement) - thrown when POST /auth/login
+// responds 200 with { mfaRequired: true, mfaToken } instead of the full
+// user - credentials were correct, but the account has MFA enabled and no
+// valid low-risk trusted-device cookie skipped the challenge. Carries
+// mfaToken so the caller can route to /mfa-challenge without a second
+// round trip.
+export class MfaRequiredError extends Error {
+  mfaToken: string;
+  constructor(mfaToken: string) {
+    super('MFA verification required');
+    this.name = 'MfaRequiredError';
+    this.mfaToken = mfaToken;
+  }
+}
+
 export async function login(
   email: string,
   password: string,
@@ -177,21 +192,65 @@ export async function login(
     body: JSON.stringify({ email, password, captchaToken }),
   });
 
-  if (!res.ok) {
-    // Cloned so a non-captcha error falls through to parseJsonOrThrow below
-    // and can still read the original response body itself.
-    const body = await res
-      .clone()
-      .json()
-      .catch(() => null);
-    if (body && typeof body === 'object' && body.requiresCaptcha === true) {
-      throw new RequiresCaptchaError(
-        typeof body.message === 'string' ? body.message : 'CAPTCHA verification required',
-      );
-    }
+  // Cloned so a non-mfa/non-captcha response falls through to
+  // parseJsonOrThrow below and can still read the original body itself.
+  const body = await res
+    .clone()
+    .json()
+    .catch(() => null);
+  if (res.ok && body && typeof body === 'object' && body.mfaRequired === true) {
+    throw new MfaRequiredError(body.mfaToken);
+  }
+  if (!res.ok && body && typeof body === 'object' && body.requiresCaptcha === true) {
+    throw new RequiresCaptchaError(
+      typeof body.message === 'string' ? body.message : 'CAPTCHA verification required',
+    );
   }
 
   return parseJsonOrThrow<UserDto>(res);
+}
+
+// Tahap 2 Step 2 Sprint 2a (MFA Enforcement) - completes a login that
+// returned MfaRequiredError above, from either the password-login path or
+// the OAuth-callback redirect (/mfa-challenge?token=...) - one shared
+// endpoint and one shared frontend page for both entry points.
+export async function submitMfaChallenge(
+  mfaToken: string,
+  code: string,
+  rememberDevice?: boolean,
+): Promise<UserDto> {
+  const res = await apiFetch('/auth/mfa/challenge', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mfaToken, code, rememberDevice }),
+  });
+  return parseJsonOrThrow<UserDto>(res);
+}
+
+export interface TrustedDeviceDto {
+  id: string;
+  browser: string | null;
+  os: string | null;
+  deviceName: string | null;
+  ipAddress: string | null;
+  createdAt: string;
+  lastUsedAt: string;
+  expiresAt: string;
+}
+
+export async function listTrustedDevices(): Promise<TrustedDeviceDto[]> {
+  const res = await apiFetch('/auth/mfa/trusted-devices');
+  return parseJsonOrThrow<TrustedDeviceDto[]>(res);
+}
+
+export async function revokeTrustedDevice(id: string): Promise<void> {
+  const res = await apiFetch(`/auth/mfa/trusted-devices/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message =
+      body && typeof body === 'object' && 'message' in body ? body.message : res.statusText;
+    throw new Error(typeof message === 'string' ? message : 'Gagal menghapus perangkat terpercaya');
+  }
 }
 
 export async function logout(): Promise<void> {

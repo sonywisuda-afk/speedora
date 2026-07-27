@@ -4,8 +4,8 @@ import type { OAuthProvider } from '@speedora/database';
 import { OAuthNotConfiguredError } from '@speedora/social';
 import * as crypto from 'node:crypto';
 import type { Request, Response } from 'express';
-import { setAuthCookies } from '../auth-cookies.util';
-import { AuthService } from '../auth.service';
+import { setAuthCookies, TRUSTED_DEVICE_COOKIE_NAME } from '../auth-cookies.util';
+import { AuthService, RISK_TRUSTED_DEVICE_THRESHOLD } from '../auth.service';
 import { logger } from '../../logger';
 import { GitHubOAuthLoginProvider } from './github-oauth-login.provider';
 import { GoogleOAuthLoginProvider } from './google-oauth-login.provider';
@@ -123,6 +123,28 @@ export class OAuthController {
 
       const ipAddress = req.ip;
       const userAgent = userAgentOf(req);
+
+      // Tahap 2 Step 2 Sprint 2a (MFA Enforcement) - same isMfaEnabled/
+      // checkTrustedDevice/risk-gate sequence as AuthController.login's own
+      // password path (see that method's comment on why a valid cookie is
+      // still ignored under meaningful risk). OAuth login doesn't compute a
+      // risk score anywhere else today - it's computed here purely to feed
+      // this gate, same computeLoginRisk call password login already makes.
+      if (await this.authService.isMfaEnabled(user.id)) {
+        const risk = await this.authService.computeLoginRisk(user.email, ipAddress, userAgent);
+        const trusted =
+          risk.score < RISK_TRUSTED_DEVICE_THRESHOLD &&
+          (await this.authService.checkTrustedDevice(
+            user.id,
+            req.cookies?.[TRUSTED_DEVICE_COOKIE_NAME],
+          ));
+        if (!trusted) {
+          const mfaToken = this.authService.issueMfaChallengeToken(user.id);
+          res.redirect(`${webOrigin}/mfa-challenge?token=${encodeURIComponent(mfaToken)}`);
+          return;
+        }
+      }
+
       await this.authService.recordSecurityEvent({
         userId: user.id,
         email: user.email,

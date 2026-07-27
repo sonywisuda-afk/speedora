@@ -301,6 +301,8 @@ model User {
   oauthIdentities                 OAuthIdentity[]
   // Tahap 2 Step 2 Sprint 1 (MFA Foundation)
   mfaRecoveryCodes                MfaRecoveryCode[]
+  // Tahap 2 Step 2 Sprint 2a (MFA Enforcement)
+  trustedDevices                  TrustedDevice[]
 }
 
 model Video {
@@ -2353,6 +2355,35 @@ model MfaRecoveryCode {
   codeHash  String    @unique
   usedAt    DateTime?
   createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// Tahap 2 Step 2 Sprint 2a (MFA Enforcement) - "remember this device": a
+// long-lived, revocable grant to skip the MFA challenge on a specific
+// browser. Deliberately NOT a stateless JWT cookie - revocation (an
+// explicit requirement) needs a DB row that can be invalidated before its
+// natural expiry, same reasoning Session already established for the
+// refresh token instead of a long-lived stateless credential. tokenHash is
+// the same "hash at rest, raw value only in the cookie" convention as
+// Session.refreshTokenHash. lastUsedAt/browser/os/deviceName/ipAddress
+// mirror Session's own device-metadata fields exactly, captured once at
+// creation time via ua-parser-js (see AuthService.createTrustedDevice).
+model TrustedDevice {
+  id         String    @id @default(cuid())
+  userId     String
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+
+  deviceName String?
+  browser    String?
+  os         String?
+  ipAddress  String?
+
+  createdAt  DateTime  @default(now())
+  lastUsedAt DateTime  @default(now())
+  expiresAt  DateTime
+  revokedAt  DateTime?
 
   @@index([userId])
 }

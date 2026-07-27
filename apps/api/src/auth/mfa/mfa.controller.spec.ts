@@ -1,5 +1,5 @@
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import type { AuthService, SafeUser } from '../auth.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { MfaController } from './mfa.controller';
@@ -10,6 +10,13 @@ function fakeRequest(): Request {
     headers: { 'user-agent': 'Mozilla/5.0 (Test)' },
     ip: '127.0.0.1',
   } as unknown as Request;
+}
+
+function fakeResponse(): Response {
+  return {
+    cookie: jest.fn(),
+    clearCookie: jest.fn(),
+  } as unknown as Response;
 }
 
 const user: SafeUser = {
@@ -24,6 +31,7 @@ describe('MfaController', () => {
   let prisma: {
     user: { findUniqueOrThrow: jest.Mock; update: jest.Mock };
     mfaRecoveryCode: { count: jest.Mock; deleteMany: jest.Mock; createMany: jest.Mock };
+    trustedDevice: { updateMany: jest.Mock };
     $transaction: jest.Mock;
   };
   let mfaService: {
@@ -37,7 +45,14 @@ describe('MfaController', () => {
     hashRecoveryCode: jest.Mock;
     verifyMfaCodeOrRecoveryCode: jest.Mock;
   };
-  let authService: { recordSecurityEvent: jest.Mock };
+  let authService: {
+    recordSecurityEvent: jest.Mock;
+    verifyMfaChallengeToken: jest.Mock;
+    createSession: jest.Mock;
+    createTrustedDevice: jest.Mock;
+    listTrustedDevices: jest.Mock;
+    revokeTrustedDeviceById: jest.Mock;
+  };
 
   beforeEach(() => {
     prisma = {
@@ -47,6 +62,7 @@ describe('MfaController', () => {
         deleteMany: jest.fn(),
         createMany: jest.fn(),
       },
+      trustedDevice: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
       $transaction: jest.fn().mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma)),
     };
     mfaService = {
@@ -60,7 +76,21 @@ describe('MfaController', () => {
       hashRecoveryCode: jest.fn().mockImplementation((code: string) => `hash(${code})`),
       verifyMfaCodeOrRecoveryCode: jest.fn(),
     };
-    authService = { recordSecurityEvent: jest.fn().mockResolvedValue(undefined) };
+    authService = {
+      recordSecurityEvent: jest.fn().mockResolvedValue(undefined),
+      verifyMfaChallengeToken: jest.fn().mockReturnValue(user.id),
+      createSession: jest.fn().mockResolvedValue({
+        accessToken: 'access-tok',
+        refreshToken: 'refresh-tok',
+        refreshTokenExpiresAt: new Date(Date.now() + 60_000),
+      }),
+      createTrustedDevice: jest.fn().mockResolvedValue({
+        rawToken: 'raw-trusted-token',
+        expiresAt: new Date(Date.now() + 60_000),
+      }),
+      listTrustedDevices: jest.fn(),
+      revokeTrustedDeviceById: jest.fn().mockResolvedValue(undefined),
+    };
     controller = new MfaController(
       prisma as unknown as PrismaService,
       mfaService as unknown as MfaService,
@@ -191,6 +221,10 @@ describe('MfaController', () => {
       expect(prisma.mfaRecoveryCode.deleteMany).toHaveBeenCalledWith({
         where: { userId: user.id },
       });
+      expect(prisma.trustedDevice.updateMany).toHaveBeenCalledWith({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
       expect(authService.recordSecurityEvent).toHaveBeenCalledWith(
         expect.objectContaining({ userId: user.id, eventType: 'MFA_DISABLED' }),
       );
@@ -226,6 +260,111 @@ describe('MfaController', () => {
         expect.objectContaining({ userId: user.id, eventType: 'MFA_RECOVERY_CODES_REGENERATED' }),
       );
       expect(result).toEqual({ recoveryCodes: ['AAAA-1111', 'BBBB-2222'] });
+    });
+  });
+
+  describe('challenge', () => {
+    const mfaUser = {
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      emailVerified: user.emailVerified,
+      mfaSecret: 'encrypted-secret',
+    };
+
+    it('rejects an invalid mfaToken before ever loading the user', async () => {
+      authService.verifyMfaChallengeToken.mockImplementation(() => {
+        throw new UnauthorizedException('MFA challenge is invalid or has expired');
+      });
+
+      await expect(
+        controller.challenge({ mfaToken: 'bad', code: '123456' }, fakeRequest(), fakeResponse()),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
+    });
+
+    it('rejects an invalid code, logs LOGIN_FAILED, and never creates a session', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue(mfaUser);
+      mfaService.verifyMfaCodeOrRecoveryCode.mockResolvedValue(false);
+
+      await expect(
+        controller.challenge({ mfaToken: 'good', code: 'wrong' }, fakeRequest(), fakeResponse()),
+      ).rejects.toBeInstanceOf(UnauthorizedException);
+      expect(authService.recordSecurityEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'LOGIN_FAILED',
+          metadata: { reason: 'invalid_mfa_code' },
+        }),
+      );
+      expect(authService.createSession).not.toHaveBeenCalled();
+    });
+
+    it('creates a session, sets cookies, and logs LOGIN_SUCCESS on a valid code', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue(mfaUser);
+      mfaService.verifyMfaCodeOrRecoveryCode.mockResolvedValue(true);
+      const res = fakeResponse();
+
+      const result = await controller.challenge(
+        { mfaToken: 'good', code: '123456' },
+        fakeRequest(),
+        res,
+      );
+
+      expect(authService.recordSecurityEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ eventType: 'LOGIN_SUCCESS', metadata: { mfaVerified: true } }),
+      );
+      expect(authService.createSession).toHaveBeenCalled();
+      expect(res.cookie).toHaveBeenCalledWith('token', 'access-tok', expect.any(Object));
+      expect(authService.createTrustedDevice).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        emailVerified: user.emailVerified,
+      });
+    });
+
+    it('creates and sets a trusted-device cookie when rememberDevice is true', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue(mfaUser);
+      mfaService.verifyMfaCodeOrRecoveryCode.mockResolvedValue(true);
+      const res = fakeResponse();
+
+      await controller.challenge(
+        { mfaToken: 'good', code: '123456', rememberDevice: true },
+        fakeRequest(),
+        res,
+      );
+
+      expect(authService.createTrustedDevice).toHaveBeenCalledWith(
+        user.id,
+        'Mozilla/5.0 (Test)',
+        '127.0.0.1',
+      );
+      expect(res.cookie).toHaveBeenCalledWith(
+        'trusted_device',
+        'raw-trusted-token',
+        expect.any(Object),
+      );
+    });
+  });
+
+  describe('listTrustedDevices', () => {
+    it('returns the trusted-device list for the current user', async () => {
+      const devices = [{ id: 'device-1' }];
+      authService.listTrustedDevices.mockResolvedValue(devices);
+
+      const result = await controller.listTrustedDevices(user);
+
+      expect(authService.listTrustedDevices).toHaveBeenCalledWith(user.id);
+      expect(result).toEqual(devices);
+    });
+  });
+
+  describe('revokeTrustedDevice', () => {
+    it('revokes the given trusted device', async () => {
+      await controller.revokeTrustedDevice(user, 'device-2');
+
+      expect(authService.revokeTrustedDeviceById).toHaveBeenCalledWith(user.id, 'device-2');
     });
   });
 });

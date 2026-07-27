@@ -6,6 +6,7 @@ import {
   VideoStatus,
   type ProcessingOptions,
 } from '@speedora/shared';
+import { useRouter } from 'next/navigation';
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { Nav } from '@/components/Nav';
@@ -22,6 +23,7 @@ import {
   getVideo,
   importYoutubeVideo,
   login,
+  MfaRequiredError,
   register,
   RequiresCaptchaError,
   retryVideo,
@@ -36,6 +38,7 @@ const POLL_INTERVAL_MS = 2000;
 
 export default function UploadPage() {
   const { user, setUser, checkingAuth, logout } = useAuth();
+  const router = useRouter();
 
   const [authView, setAuthView] = useState<'login' | 'register' | 'forgot-password'>('login');
   const [email, setEmail] = useState('');
@@ -134,7 +137,13 @@ export default function UploadPage() {
       setPassword('');
       setRequiresCaptcha(false);
     } catch (err) {
-      if (err instanceof RequiresCaptchaError) {
+      if (err instanceof MfaRequiredError) {
+        // Tahap 2 Step 2 Sprint 2a (MFA Enforcement) - credentials were
+        // correct; the account just needs a second factor. One shared
+        // challenge page serves both this password-login path and the
+        // OAuth-callback redirect.
+        router.push(`/mfa-challenge?token=${encodeURIComponent(err.mfaToken)}`);
+      } else if (err instanceof RequiresCaptchaError) {
         // Not a credential error - the risk gate ran before checking the
         // password at all. Show the Turnstile widget instead of red error
         // text; handleCaptchaToken resubmits automatically once solved.
@@ -159,7 +168,9 @@ export default function UploadPage() {
       setPassword('');
       setRequiresCaptcha(false);
     } catch (err) {
-      if (err instanceof RequiresCaptchaError) {
+      if (err instanceof MfaRequiredError) {
+        router.push(`/mfa-challenge?token=${encodeURIComponent(err.mfaToken)}`);
+      } else if (err instanceof RequiresCaptchaError) {
         // The token itself was rejected server-side (rare) - stay in the
         // captcha-required state; TurnstileWidget's own error-callback
         // already shows a message inline.
