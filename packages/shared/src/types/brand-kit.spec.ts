@@ -1,4 +1,9 @@
-import { mergeBrandKitFields, type BrandKitFields } from './brand-kit';
+import {
+  mergeBrandKitFields,
+  templateToBrandKitFields,
+  type BrandKitFields,
+  type BrandKitTemplateFields,
+} from './brand-kit';
 
 const EMPTY: BrandKitFields = {
   brandLogoUrl: null,
@@ -104,5 +109,68 @@ describe('mergeBrandKitFields', () => {
 
     expect(merged.brandIntroUrl).toBe('intros/personal.png');
     expect(merged.brandIntroType).toBe('image');
+  });
+});
+
+// Pre-Processing Settings roadmap (Phase 3).
+describe('templateToBrandKitFields', () => {
+  it('maps every template field onto its brand-prefixed BrandKitFields counterpart', () => {
+    const template: BrandKitTemplateFields = {
+      logoUrl: 'logos/a.png',
+      primaryColor: '#111',
+      secondaryColor: '#222',
+      fontFamily: 'Montserrat',
+      watermarkUrl: 'watermarks/a.png',
+      watermarkOpacity: 0.5,
+      watermarkScale: 0.2,
+      watermarkMargin: 0.05,
+      watermarkPosition: 'TOP_LEFT',
+      introUrl: 'intros/a.mp4',
+      introType: 'video',
+      introImageDurationSeconds: null,
+      outroUrl: 'outros/a.png',
+      outroType: 'image',
+      outroImageDurationSeconds: 3,
+    };
+
+    expect(templateToBrandKitFields(template)).toEqual<BrandKitFields>({
+      brandLogoUrl: 'logos/a.png',
+      brandPrimaryColor: '#111',
+      brandSecondaryColor: '#222',
+      brandFontFamily: 'Montserrat',
+      brandWatermarkUrl: 'watermarks/a.png',
+      brandWatermarkOpacity: 0.5,
+      brandWatermarkScale: 0.2,
+      brandWatermarkMargin: 0.05,
+      brandWatermarkPosition: 'TOP_LEFT',
+      brandIntroUrl: 'intros/a.mp4',
+      brandIntroType: 'video',
+      brandIntroImageDurationSeconds: null,
+      brandOutroUrl: 'outros/a.png',
+      brandOutroType: 'image',
+      brandOutroImageDurationSeconds: 3,
+    });
+  });
+
+  it('passes an all-null template through as an all-null BrandKitFields', () => {
+    const empty: BrandKitTemplateFields = {
+      logoUrl: null,
+      primaryColor: null,
+      secondaryColor: null,
+      fontFamily: null,
+      watermarkUrl: null,
+      watermarkOpacity: null,
+      watermarkScale: null,
+      watermarkMargin: null,
+      watermarkPosition: null,
+      introUrl: null,
+      introType: null,
+      introImageDurationSeconds: null,
+      outroUrl: null,
+      outroType: null,
+      outroImageDurationSeconds: null,
+    };
+
+    expect(templateToBrandKitFields(empty)).toEqual(EMPTY);
   });
 });

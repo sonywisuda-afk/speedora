@@ -14,6 +14,16 @@ datasource db {
 enum VideoStatus {
   IMPORTING
   UPLOADED
+  // Quality Validation roadmap (Fase 0 design, Phase 1) - reached once
+  // probe-video.worker.ts's ffprobe pass succeeds (clean or with only
+  // Warning/Info-tier findings - an Error-tier finding goes to FAILED
+  // instead, same as every other pipeline stage's failure). The video sits
+  // here until the user submits Processing Settings (POST
+  // /videos/:id/start-processing), which is what actually enqueues
+  // TRANSCRIBE - the one deliberate break from this pipeline's otherwise-
+  // universal "self-chain to the next stage automatically" convention,
+  // since this is the one stage that must wait for a human decision.
+  PENDING_SETTINGS
   TRANSCRIBED
   CLIPS_DETECTED
   RENDERED
@@ -245,6 +255,8 @@ model User {
   brandKitTemplates        BrandKitTemplate[]
   // Natural Language AI Search roadmap (P4)
   aiSearchRequests         AiSearchRequest[]
+  // Pre-Processing Settings roadmap (Phase 0/1)
+  processingPresets        ProcessingPreset[]
 }
 
 model Video {
@@ -285,6 +297,32 @@ model Video {
   // S3/R2/MinIO bucket (see packages/storage's getBucketUsage(), which is
   // bucket-wide and not owner-scoped). Null for pre-existing rows.
   sourceSizeBytes       Int?
+  // Quality Validation roadmap (Fase 0 design, Phase 1) - written once by
+  // probe-video.worker.ts's ffprobe pass (a single `-show_streams
+  // -show_format -of json` call, not the 4 narrow single-field probes
+  // transcribe.worker.ts/render-clip.worker.ts already use for their own
+  // unrelated purposes - those stay untouched). All nullable and null for
+  // every pre-existing row (never backfilled) and for any row whose probe
+  // never completed (see VideosService.retry's own inferred branch for
+  // this). durationSeconds above is populated by this same pass for the
+  // first time - no prior code path ever wrote to it.
+  width                 Int?
+  height                Int?
+  fps                   Float?
+  videoCodec            String?
+  videoBitrate          Int?
+  audioCodec            String?
+  audioSampleRate       Int?
+  audioChannels         Int?
+  audioBitrate          Int?
+  // The structured { errors: [], warnings: [], info: [] } result of
+  // packages/video-validation's rule evaluation over the probed metadata
+  // above (Phase 2) - null until that phase lands, and for any video whose
+  // probe found no Error-tier issue but also never had rules evaluated
+  // against it (pre-Phase-2 rows). Kept even after the user proceeds past
+  // Processing Settings, so a future dashboard can show "processed despite
+  // warnings: low resolution, low bitrate" per the original design ask.
+  validationReport      Json?
   // Object storage key for a single extracted thumbnail frame
   // (thumbnails/<id>.webp - .jpg for rows extracted before Phase 2's WebP
   // switch, never backfilled, still served correctly since the API derives
@@ -375,6 +413,19 @@ model Video {
   // available PremiumCredit to have been consumed by this video first (see
   // premiumCredit below); GROQ needs no payment at all.
   transcriptionProvider TranscriptionProvider @default(GROQ)
+  // Pre-Processing Settings roadmap, Phase 0/1 - the resolved choices from
+  // the settings screen shown between file/URL selection and the actual
+  // upload/import call (see apps/web/components/processing-settings/), a
+  // plain snapshot written once at creation (same "chosen at upload time,
+  // never re-resolved" shape as transcriptionProvider above) rather than a
+  // live reference to a ProcessingPreset row - a preset is just a
+  // convenience bulk-setter into this JSON, same "copy-on-apply" relationship
+  // SubtitlePreset/BrandKitTemplate already have to the fields they set.
+  // Shape is @speedora/shared's ProcessingOptions. Null for every video
+  // created before this column existed - detect-clips.worker.ts/
+  // render-clip.worker.ts fall back to their own existing hardcoded
+  // defaults when absent, so this is purely additive.
+  processingOptions     Json?
   // Speaker Intelligence roadmap, Milestone A (Voice Activity Detection) -
   // the FIRST whole-video intelligence signal stored as its own JSON blob
   // on Video, rather than distributed onto per-TranscriptSegment columns
@@ -1507,6 +1558,28 @@ model SubtitlePreset {
   fontFamily           String?
   createdAt            DateTime     @default(now())
   updatedAt            DateTime     @updatedAt
+
+  @@index([userId])
+}
+
+// Pre-Processing Settings roadmap (Phase 0/1) - a named, user-saved snapshot
+// of a ProcessingOptions choice (@speedora/shared), same "copy-on-apply,
+// directly userId-owned, CRUD shape mirrors ProjectService" pattern as
+// SubtitlePreset just above. `config` is stored as one JSON blob rather than
+// a column per option (like Clip.scores) since ProcessingOptions is itself a
+// nested object, not a flat set of scalars - always read/written as a unit,
+// and a future option addition doesn't need its own migration. The 5
+// built-in presets (Ultra Fast/Balanced/Professional/Studio Quality/AI Auto)
+// are, same as BUILT_IN_SUBTITLE_PRESETS, a frontend-only constant
+// (@speedora/shared's BUILT_IN_PROCESSING_PRESETS) - never persisted here.
+model ProcessingPreset {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  config    Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
 }

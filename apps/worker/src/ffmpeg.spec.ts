@@ -492,6 +492,37 @@ describe('renderClip', () => {
     expect(args[formatFlagIndex + 2]).toBe('/tmp/output.mp4.tmp');
   });
 
+  // Pre-Processing Settings roadmap (Phase 0/1).
+  it('adds -preset/-crf only when a quality override is passed', async () => {
+    await renderClip({
+      inputPath: '/tmp/source.mp4',
+      startTime: 5,
+      endTime: 15,
+      subtitlesPath: null,
+      outputPath: '/tmp/output.mp4',
+      reframe: null,
+      quality: { preset: 'slow', crf: 18 },
+    });
+
+    const [, args] = execFileMock.mock.calls[0];
+    expect(args).toEqual(expect.arrayContaining(['-preset', 'slow', '-crf', '18']));
+  });
+
+  it('omits -preset/-crf entirely when quality is not passed (unchanged prior behavior)', async () => {
+    await renderClip({
+      inputPath: '/tmp/source.mp4',
+      startTime: 5,
+      endTime: 15,
+      subtitlesPath: null,
+      outputPath: '/tmp/output.mp4',
+      reframe: null,
+    });
+
+    const [, args] = execFileMock.mock.calls[0];
+    expect(args).not.toEqual(expect.arrayContaining(['-preset']));
+    expect(args).not.toEqual(expect.arrayContaining(['-crf']));
+  });
+
   it('atomically renames the .tmp output onto the real path only after ffmpeg succeeds', async () => {
     await renderClip({
       inputPath: '/tmp/source.mp4',

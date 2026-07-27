@@ -33,6 +33,7 @@ import type {
   ObjectSample,
   ObjectTrack,
   OcrTextTrack,
+  ProcessingOptions,
   SceneCutEvent,
   SceneFeatures,
   SpeakerConfidenceScore,
@@ -46,9 +47,11 @@ import type {
   TranscriptionProvider,
   TranscriptSegment,
   TranscriptWord,
+  ValidationReport,
   VoiceActivityFeatures,
   VoiceActivitySegment,
 } from '@speedora/shared';
+import { migrateProcessingOptions } from '@speedora/shared';
 
 // Prisma types a Json column as the opaque JsonValue union - this narrows it
 // back to the shape transcribe.worker.ts actually writes there. Used
@@ -202,6 +205,26 @@ export function toSharedThumbnailSelectionBreakdown(
 // Video.voiceActivitySegments/voiceActivityFeatures (Speaker Intelligence
 // roadmap, Milestone A) - the first Video-level (not Clip-level) pair of
 // these, see schema.prisma's own comment on why.
+// Pre-Processing Settings roadmap - reads through migrateProcessingOptions()
+// (not a bare cast) so a future version bump is handled in exactly one
+// place; same "un-narrowed Json field breaks declaration emit up the call
+// chain" reasoning as every other toShared* helper in this file for why
+// this exists at all.
+export function toSharedProcessingOptions(processingOptions: unknown): ProcessingOptions | null {
+  return processingOptions ? migrateProcessingOptions(processingOptions) : null;
+}
+
+// Quality Validation roadmap (Fase 0/Phase 2) - same "narrow the opaque
+// Prisma Json field explicitly, don't leave it in an inferred return type"
+// reasoning as toSharedProcessingOptions above (see docs/prisma.md's TS2742
+// pitfall). A bare cast (not a schema-validated parse) - same convention
+// toSharedVoiceActivitySegments/toSharedClipScores etc. already use for
+// every other Json column, since this DB row's shape is only ever written
+// by probe-video.worker.ts's own evaluateVideoQuality() call.
+export function toSharedValidationReport(validationReport: unknown): ValidationReport | null {
+  return (validationReport as ValidationReport | null) ?? null;
+}
+
 export function toSharedVoiceActivitySegments(
   voiceActivitySegments: unknown,
 ): VoiceActivitySegment[] | null {

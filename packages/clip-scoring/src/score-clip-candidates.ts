@@ -219,6 +219,15 @@ export async function scoreClipCandidates(
     return { candidates: [] };
   }
 
+  // Pre-Processing Settings roadmap (Phase 0/1) - see ClipScoringInput's own
+  // comment. Every existing caller that omits these keeps this module's
+  // exact prior behavior.
+  const maxCandidates = input.maxCandidates ?? MAX_CANDIDATES;
+  const minClipSeconds = input.minClipSeconds ?? MIN_CLIP_SECONDS;
+  const maxClipSeconds = input.maxClipSeconds ?? MAX_CLIP_SECONDS;
+  const minConfidence = input.minConfidence;
+  const preferredIntents = input.preferredIntents ?? [];
+
   const videoStart = Math.min(...segments.map((segment) => segment.start));
   const videoEnd = Math.max(...segments.map((segment) => segment.end));
   const span = videoEnd - videoStart;
@@ -231,7 +240,7 @@ export async function scoreClipCandidates(
   // while a normal-length video can't yield a too-short fragment. The prompt
   // is told this same adapted minimum so it isn't asked for a length the
   // source physically can't provide.
-  const effectiveMinSeconds = Math.min(MIN_CLIP_SECONDS, span);
+  const effectiveMinSeconds = Math.min(minClipSeconds, span);
   const promptMinSeconds = Math.max(1, Math.round(effectiveMinSeconds));
 
   const completion = await deps.openai.chat.completions.create({
@@ -249,8 +258,8 @@ export async function scoreClipCandidates(
           'its own to someone who has not seen the rest of the video. Do NOT return short ' +
           'fragments, a single sentence cut off mid-thought, or a moment truncated before its ' +
           'natural conclusion just to fit a shorter duration. Each clip must still be between ' +
-          `${promptMinSeconds} and ${MAX_CLIP_SECONDS} seconds long - if the best moment's ` +
-          `natural, complete arc would need more than ${MAX_CLIP_SECONDS} seconds, choose a ` +
+          `${promptMinSeconds} and ${maxClipSeconds} seconds long - if the best moment's ` +
+          `natural, complete arc would need more than ${maxClipSeconds} seconds, choose a ` +
           'different moment whose complete arc actually fits within that limit, rather than ' +
           'cutting off part of a longer one. Start at a natural opening and end at a natural ' +
           'conclusion. Score each clip 0-100 for how ' +
@@ -324,9 +333,35 @@ export async function scoreClipCandidates(
     }))
     .sort((a, b) => b.viralityScore - a.viralityScore);
 
-  const longEnough = inRange
-    .filter((candidate) => candidate.endTime - candidate.startTime >= effectiveMinSeconds)
-    .slice(0, MAX_CANDIDATES);
+  // Pre-Processing Settings roadmap (Phase 2) - a real pre-cap minimum, not
+  // applied here as a hard requirement: if it would leave zero survivors,
+  // the existing "fall back to a whole-video clip" logic below still kicks
+  // in (via longEnough.length === 0), same as a too-strict duration filter
+  // already does today.
+  const confidenceFiltered =
+    minConfidence === undefined
+      ? inRange
+      : inRange.filter((candidate) => candidate.viralityScore >= minConfidence);
+
+  const durationFiltered = confidenceFiltered.filter(
+    (candidate) => candidate.endTime - candidate.startTime >= effectiveMinSeconds,
+  );
+
+  // Pre-Processing Settings roadmap (Phase 2) - a stable "preferred intents
+  // first" reorder before the maxCandidates cap below, not a hard filter -
+  // Array.prototype.sort is stable (guaranteed since ES2019), so this only
+  // moves preferred-intent candidates ahead of non-preferred ones, never
+  // disturbing the existing viralityScore-desc order within either group.
+  const reordered =
+    preferredIntents.length === 0
+      ? durationFiltered
+      : [...durationFiltered].sort((a, b) => {
+          const aPreferred = preferredIntents.includes(a.intent) ? 1 : 0;
+          const bPreferred = preferredIntents.includes(b.intent) ? 1 : 0;
+          return bPreferred - aPreferred;
+        });
+
+  const longEnough = reordered.slice(0, maxCandidates);
 
   const finalCandidates: RawCandidate[] =
     longEnough.length > 0

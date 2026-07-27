@@ -341,6 +341,100 @@ export async function getVideoCodec(inputPath: string): Promise<string> {
   return stdout.trim();
 }
 
+export interface ProbedVideoMetadata {
+  durationSeconds: number;
+  hasVideoStream: boolean;
+  hasAudioStream: boolean;
+  width: number | null;
+  height: number | null;
+  fps: number | null;
+  videoCodec: string | null;
+  videoBitrate: number | null;
+  audioCodec: string | null;
+  audioSampleRate: number | null;
+  audioChannels: number | null;
+  audioBitrate: number | null;
+}
+
+// ffprobe's avg_frame_rate/r_frame_rate report as a "num/den" fraction
+// string (e.g. "30000/1001"), never a plain number - '0/0' (a stream with
+// no frame rate info at all) is a real ffprobe output, not malformed input,
+// so it's treated as "unknown" (null) rather than thrown.
+function parseFrameRate(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const [num, den] = value.split('/').map(Number);
+  if (!Number.isFinite(num) || !Number.isFinite(den) || den === 0) return null;
+  return num / den;
+}
+
+function toFiniteNumber(value: unknown): number | null {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+// Quality Validation roadmap (Fase 0 design, Phase 1) - one full probe
+// (`-show_streams -show_format`) instead of the four separate single-field
+// subprocess calls (getVideoDimensions/getMediaDurationSeconds/
+// getVideoCodec/hasAudioStream above) - those stay untouched (owned by
+// transcribe.worker.ts/render-clip.worker.ts for their own unrelated
+// purposes), this is probe-video.worker.ts's only ffprobe dependency.
+// Throws only when ffprobe itself fails to run or its output can't be
+// parsed as JSON at all (a genuinely corrupted/unreadable file) -
+// "parses fine but has no video/audio stream" is a normal, successful
+// result (hasVideoStream/hasAudioStream false), not an exception, since
+// that distinction is the validation engine's (Phase 2) call to make, not
+// this function's.
+export async function probeVideoMetadata(inputPath: string): Promise<ProbedVideoMetadata> {
+  const { stdout } = await execFileAsync(FFPROBE_PATH, [
+    '-v',
+    'error',
+    '-show_streams',
+    '-show_format',
+    '-of',
+    'json',
+    inputPath,
+  ]);
+
+  let parsed: { streams?: unknown[]; format?: Record<string, unknown> };
+  try {
+    parsed = JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(
+      `ffprobe returned unparseable output for ${inputPath}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+
+  const streams = Array.isArray(parsed.streams) ? parsed.streams.filter(isRecord) : [];
+  const videoStream = streams.find((stream) => stream.codec_type === 'video');
+  const audioStream = streams.find((stream) => stream.codec_type === 'audio');
+  const format = isRecord(parsed.format) ? parsed.format : {};
+
+  return {
+    durationSeconds: toFiniteNumber(format.duration) ?? Number.NaN,
+    hasVideoStream: videoStream !== undefined,
+    hasAudioStream: audioStream !== undefined,
+    width: videoStream ? toFiniteNumber(videoStream.width) : null,
+    height: videoStream ? toFiniteNumber(videoStream.height) : null,
+    fps: videoStream
+      ? parseFrameRate(videoStream.avg_frame_rate ?? videoStream.r_frame_rate)
+      : null,
+    videoCodec:
+      videoStream && typeof videoStream.codec_name === 'string' ? videoStream.codec_name : null,
+    videoBitrate: toFiniteNumber(videoStream?.bit_rate) ?? toFiniteNumber(format.bit_rate),
+    audioCodec:
+      audioStream && typeof audioStream.codec_name === 'string' ? audioStream.codec_name : null,
+    audioSampleRate: audioStream ? toFiniteNumber(audioStream.sample_rate) : null,
+    audioChannels: audioStream ? toFiniteNumber(audioStream.channels) : null,
+    audioBitrate: audioStream ? toFiniteNumber(audioStream.bit_rate) : null,
+  };
+}
+
 // Re-encodes any source into H.264/AAC mp4 - browser-universal, unlike the
 // AV1 that older YouTube imports were stored as (see youtube.ts, which now
 // prefers H.264 for new imports). Used by the reencode-existing-sources
@@ -467,9 +561,24 @@ export async function renderClip(options: {
   // watermark configured, or this clip opted out via Clip.watermarkEnabled -
   // see ClipsService.resolveWatermark).
   watermark?: WatermarkOverlay | null;
+  // Pre-Processing Settings roadmap (Phase 0/1) - null/omitted keeps this
+  // function's exact prior behavior (no explicit -preset/-crf, ffmpeg's own
+  // libx264 defaults) - every existing caller/test predating this option is
+  // unaffected. Set by render-clip.worker.ts from Video.processingOptions'
+  // exportQualityPreset.
+  quality?: { preset: string; crf: number } | null;
 }): Promise<void> {
-  const { inputPath, startTime, endTime, subtitlesPath, outputPath, reframe, broll, watermark } =
-    options;
+  const {
+    inputPath,
+    startTime,
+    endTime,
+    subtitlesPath,
+    outputPath,
+    reframe,
+    broll,
+    watermark,
+    quality,
+  } = options;
   const duration = endTime - startTime;
 
   // `-t` is deliberately NOT placed here as an input option (immediately
@@ -609,7 +718,18 @@ export async function renderClip(options: {
     args.push('-map', `[${currentLabel}]`, '-map', '0:a');
   }
 
-  args.push('-t', duration.toString(), '-c:v', 'libx264', '-c:a', 'aac', '-movflags', '+faststart');
+  const qualityArgs = quality ? ['-preset', quality.preset, '-crf', quality.crf.toString()] : [];
+  args.push(
+    '-t',
+    duration.toString(),
+    '-c:v',
+    'libx264',
+    ...qualityArgs,
+    '-c:a',
+    'aac',
+    '-movflags',
+    '+faststart',
+  );
 
   await execFfmpegAtomically(() => args, outputPath, RENDER_TIMEOUT_MS);
 }

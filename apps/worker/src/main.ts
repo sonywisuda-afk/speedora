@@ -38,15 +38,16 @@ async function main() {
     alertEngineQueue,
     detectClipsQueue,
     notificationDeliveryQueue,
+    probeVideoQueue,
     publishClipQueue,
     renderClipQueue,
     schedulePublishClipQueue,
     syncFollowerCountQueue,
     syncPublishStatsQueue,
     telegramChatDiscoveryQueue,
-    transcribeQueue,
   } = await import('./queues');
   const { createImportYoutubeWorker } = await import('./workers/import-youtube.worker');
+  const { createProbeVideoWorker } = await import('./workers/probe-video.worker');
   const { createTranscribeWorker } = await import('./workers/transcribe.worker');
   const { createDetectClipsWorker } = await import('./workers/detect-clips.worker');
   const { createRenderClipWorker } = await import('./workers/render-clip.worker');
@@ -91,6 +92,7 @@ async function main() {
 
   const workers = [
     createImportYoutubeWorker(),
+    createProbeVideoWorker(),
     createTranscribeWorker(),
     createDetectClipsWorker(),
     createRenderClipWorker(),
@@ -135,7 +137,7 @@ async function main() {
     try {
       await Promise.all(workers.map((worker) => worker.close()));
       await Promise.all([
-        transcribeQueue.close(),
+        probeVideoQueue.close(),
         detectClipsQueue.close(),
         renderClipQueue.close(),
         publishClipQueue.close(),

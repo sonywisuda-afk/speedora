@@ -256,4 +256,133 @@ describe('scoreClipCandidates', () => {
       expect(result.candidates[0].endTime).toBe(30.876);
     });
   });
+
+  // Pre-Processing Settings roadmap (Phase 0/1) - maxCandidates/minClipSeconds/
+  // maxClipSeconds overrides, threaded through from Video.processingOptions.
+  describe('processing-options overrides', () => {
+    it('caps at maxCandidates instead of the module default when provided', async () => {
+      const segments: ClipScoringSegment[] = [{ start: 0, end: 200, text: 'long video' }];
+      const openai = fakeOpenAI([
+        rawCandidate({ startTime: 0, endTime: 30, viralityScore: 90, hookText: 'a' }),
+        rawCandidate({ startTime: 30, endTime: 60, viralityScore: 80, hookText: 'b' }),
+        rawCandidate({ startTime: 60, endTime: 90, viralityScore: 70, hookText: 'c' }),
+        rawCandidate({ startTime: 90, endTime: 120, viralityScore: 60, hookText: 'd' }),
+        rawCandidate({ startTime: 120, endTime: 150, viralityScore: 50, hookText: 'e' }),
+      ]);
+
+      const result = await scoreClipCandidates({ segments, maxCandidates: 5 }, { openai });
+
+      expect(result.candidates).toHaveLength(5);
+    });
+
+    it('allows a shorter minClipSeconds than the module default', async () => {
+      const segments: ClipScoringSegment[] = [{ start: 0, end: 60, text: 'video' }];
+      const openai = fakeOpenAI([
+        // 8s - under the module's own 20s default, but above a 5s override.
+        rawCandidate({ startTime: 0, endTime: 8, viralityScore: 90, hookText: 'a' }),
+      ]);
+
+      const result = await scoreClipCandidates({ segments, minClipSeconds: 5 }, { openai });
+
+      expect(result.candidates).toHaveLength(1);
+      expect(result.candidates[0]).toMatchObject({ startTime: 0, endTime: 8 });
+    });
+
+    it('tells the model a shorter maxClipSeconds in the prompt when provided', async () => {
+      const segments: ClipScoringSegment[] = [{ start: 0, end: 60, text: 'video' }];
+      const openai = fakeOpenAI([
+        rawCandidate({ startTime: 0, endTime: 30, viralityScore: 90, hookText: 'a' }),
+      ]);
+
+      await scoreClipCandidates({ segments, maxClipSeconds: 45 }, { openai });
+
+      const call = (openai.chat.completions.create as jest.Mock).mock.calls[0][0];
+      const systemMessage = call.messages.find((m: { role: string }) => m.role === 'system');
+      expect(systemMessage.content).toContain('45 seconds long');
+    });
+
+    // Pre-Processing Settings roadmap (Phase 2).
+    it('filters out candidates below minConfidence before the length/cap filters', async () => {
+      const segments: ClipScoringSegment[] = [{ start: 0, end: 120, text: 'video' }];
+      const openai = fakeOpenAI([
+        rawCandidate({ startTime: 0, endTime: 30, viralityScore: 80, hookText: 'a' }),
+        rawCandidate({ startTime: 30, endTime: 60, viralityScore: 40, hookText: 'b' }),
+      ]);
+
+      const result = await scoreClipCandidates({ segments, minConfidence: 60 }, { openai });
+
+      expect(result.candidates).toHaveLength(1);
+      expect(result.candidates[0].viralityScore).toBe(80);
+    });
+
+    it('falls back to the whole-video clip rather than zero candidates when minConfidence excludes everything', async () => {
+      const segments: ClipScoringSegment[] = [{ start: 0, end: 60, text: 'video' }];
+      const openai = fakeOpenAI([
+        rawCandidate({ startTime: 0, endTime: 30, viralityScore: 20, hookText: 'a' }),
+      ]);
+
+      const result = await scoreClipCandidates({ segments, minConfidence: 90 }, { openai });
+
+      expect(result.candidates).toHaveLength(1);
+      expect(result.candidates[0]).toMatchObject({ startTime: 0, endTime: 60 });
+    });
+
+    it('reorders preferred-intent candidates ahead of others before the maxCandidates cap, without dropping non-preferred ones that still fit', async () => {
+      const segments: ClipScoringSegment[] = [{ start: 0, end: 120, text: 'video' }];
+      const openai = fakeOpenAI([
+        rawCandidate({
+          startTime: 0,
+          endTime: 30,
+          viralityScore: 90,
+          hookText: 'a',
+          intent: 'entertain',
+        }),
+        rawCandidate({
+          startTime: 30,
+          endTime: 60,
+          viralityScore: 50,
+          hookText: 'b',
+          intent: 'educate',
+        }),
+      ]);
+
+      const result = await scoreClipCandidates(
+        { segments, maxCandidates: 5, preferredIntents: ['educate'] },
+        { openai },
+      );
+
+      // Both fit under the cap (5) - preferredIntents reorders but doesn't drop.
+      expect(result.candidates).toHaveLength(2);
+      expect(result.candidates[0].hookText).toBe('b');
+      expect(result.candidates[1].hookText).toBe('a');
+    });
+
+    it('drops a lower-priority candidate over a preferred-intent one when the cap forces a choice', async () => {
+      const segments: ClipScoringSegment[] = [{ start: 0, end: 120, text: 'video' }];
+      const openai = fakeOpenAI([
+        rawCandidate({
+          startTime: 0,
+          endTime: 30,
+          viralityScore: 90,
+          hookText: 'high-score-other-intent',
+          intent: 'entertain',
+        }),
+        rawCandidate({
+          startTime: 30,
+          endTime: 60,
+          viralityScore: 40,
+          hookText: 'low-score-preferred-intent',
+          intent: 'educate',
+        }),
+      ]);
+
+      const result = await scoreClipCandidates(
+        { segments, maxCandidates: 1, preferredIntents: ['educate'] },
+        { openai },
+      );
+
+      expect(result.candidates).toHaveLength(1);
+      expect(result.candidates[0].hookText).toBe('low-score-preferred-intent');
+    });
+  });
 });

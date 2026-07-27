@@ -134,6 +134,60 @@ export interface BrandKitFields {
   brandOutroImageDurationSeconds: number | null;
 }
 
+// Pre-Processing Settings roadmap (Phase 3) - the flat set of raw fields a
+// BrandKitTemplate row carries (see packages/database's schema.prisma) -
+// same shape apps/api's BrandKitService.applyTemplate() already reads to
+// copy a template onto a live BrandKitFields row, duplicated here as an
+// explicit interface (not just an inline object type) so
+// templateToBrandKitFields() below has one real, reusable source of the
+// field-name mapping instead of two independently-hand-written copies.
+export interface BrandKitTemplateFields {
+  logoUrl: string | null;
+  primaryColor: string | null;
+  secondaryColor: string | null;
+  fontFamily: string | null;
+  watermarkUrl: string | null;
+  watermarkOpacity: number | null;
+  watermarkScale: number | null;
+  watermarkMargin: number | null;
+  watermarkPosition: string | null;
+  introUrl: string | null;
+  introType: string | null;
+  introImageDurationSeconds: number | null;
+  outroUrl: string | null;
+  outroType: string | null;
+  outroImageDurationSeconds: number | null;
+}
+
+// Pre-Processing Settings roadmap (Phase 3) - maps a BrandKitTemplate's own
+// field names onto BrandKitFields' `brand`-prefixed ones, the same mapping
+// BrandKitService.applyTemplate() already performs when copying a template
+// onto a live User/Workspace row. Used instead by
+// apps/worker/detect-clips.worker.ts to resolve a template's fields as the
+// EFFECTIVE Brand Kit for one video's clips without mutating anyone's live
+// Brand Kit as a side effect of processing that video - "apply" (the
+// existing endpoint) and "use for this video only" (this function) are
+// deliberately two different operations sharing one field mapping.
+export function templateToBrandKitFields(template: BrandKitTemplateFields): BrandKitFields {
+  return {
+    brandLogoUrl: template.logoUrl,
+    brandPrimaryColor: template.primaryColor,
+    brandSecondaryColor: template.secondaryColor,
+    brandFontFamily: template.fontFamily,
+    brandWatermarkUrl: template.watermarkUrl,
+    brandWatermarkOpacity: template.watermarkOpacity,
+    brandWatermarkScale: template.watermarkScale,
+    brandWatermarkMargin: template.watermarkMargin,
+    brandWatermarkPosition: template.watermarkPosition,
+    brandIntroUrl: template.introUrl,
+    brandIntroType: template.introType,
+    brandIntroImageDurationSeconds: template.introImageDurationSeconds,
+    brandOutroUrl: template.outroUrl,
+    brandOutroType: template.outroType,
+    brandOutroImageDurationSeconds: template.outroImageDurationSeconds,
+  };
+}
+
 // Workspace-level Brand Kit roadmap (P3g) - merges a video's workspace
 // Brand Kit fields over its owner's personal ones, per FIELD (not an
 // all-or-nothing "use workspace OR owner" switch): a team can set just a

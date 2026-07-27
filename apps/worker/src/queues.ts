@@ -14,12 +14,14 @@ const defaultJobOptions: DefaultJobOptions = {
   removeOnFail: { age: 30 * 24 * 60 * 60 },
 };
 
-// import-youtube.worker.ts self-chains into this on success, same pattern
-// as every other producer below - apps/api also enqueues directly into it
-// for a normal upload (VideosService.upload()/retry()), so this is apps/worker's
-// first time needing to be a *producer* for transcribe rather than just its
-// consumer (transcribe.worker.ts).
-export const transcribeQueue = new Queue(QueueName.TRANSCRIBE, {
+// Quality Validation roadmap (Fase 0 design, Phase 1) - apps/api enqueues
+// directly into this for a normal upload/import
+// (VideosService.upload()/importFromYoutube()/retry()), and
+// import-youtube.worker.ts self-chains into it on a successful download
+// (replacing what used to be a direct TRANSCRIBE self-chain - see
+// QueueName.PROBE_VIDEO's own comment for why TRANSCRIBE itself is no
+// longer self-chained into by anything in apps/worker).
+export const probeVideoQueue = new Queue(QueueName.PROBE_VIDEO, {
   connection: createRedisConnection(),
   defaultJobOptions,
 });
@@ -30,6 +32,18 @@ export const detectClipsQueue = new Queue(QueueName.DETECT_CLIPS, {
 });
 
 export const renderClipQueue = new Queue(QueueName.RENDER_CLIP, {
+  connection: createRedisConnection(),
+  defaultJobOptions,
+});
+
+// Pre-Processing Settings roadmap (Phase 3) - render-clip.worker.ts's own
+// automatic trigger for Publishing Expansion Phase 7B's existing platform
+// copy generator (previously apps/api's POST /clips/:id/platform-copy was
+// this queue's only producer - see GeneratePlatformCopyJobData's own
+// comment in packages/shared - this is the first time apps/worker needs to
+// be a producer for it too, same "first producer beyond the original one"
+// shape transcribeQueue's own comment describes).
+export const generatePlatformCopyQueue = new Queue(QueueName.GENERATE_PLATFORM_COPY, {
   connection: createRedisConnection(),
   defaultJobOptions,
 });

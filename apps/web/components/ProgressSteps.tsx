@@ -13,6 +13,11 @@ export const STEP_LABELS: Record<VideoStatus, string> = {
   // Transcribe/Auto-Clip/Render steps every video (imported or uploaded
   // directly) goes through identically once it has a real sourceUrl.
   [VideoStatus.IMPORTING]: 'Mengunduh dari YouTube...',
+  // Quality Validation roadmap (Fase 0 design, Phase 1) - same "pre-pipeline
+  // stage, not part of STEPS" treatment as IMPORTING above: reached once
+  // probe-video.worker.ts's ffprobe pass succeeds, left once the user
+  // submits Processing Settings (POST /videos/:id/start-processing).
+  [VideoStatus.PENDING_SETTINGS]: 'Menunggu Pengaturan Pemrosesan',
   [VideoStatus.UPLOADED]: 'Diupload',
   [VideoStatus.TRANSCRIBED]: 'Transkrip Selesai',
   [VideoStatus.CLIPS_DETECTED]: 'Klip Terdeteksi',
@@ -29,6 +34,11 @@ export function ProgressSteps({ status }: { status: VideoStatus }) {
   if (status === VideoStatus.IMPORTING) {
     return (
       <p className="text-sm font-medium text-signal-cyan">{STEP_LABELS[VideoStatus.IMPORTING]}</p>
+    );
+  }
+  if (status === VideoStatus.PENDING_SETTINGS) {
+    return (
+      <p className="text-sm font-medium text-info">{STEP_LABELS[VideoStatus.PENDING_SETTINGS]}</p>
     );
   }
 

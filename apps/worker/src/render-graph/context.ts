@@ -1,4 +1,4 @@
-import type { ClipScores, SpeakerTurn } from '@speedora/contracts';
+import type { ClipScores, SpeakerTurn, ThumbnailWeights } from '@speedora/contracts';
 import type { AudioActivityWindow } from '@speedora/facial-intelligence';
 import type { RenderClipJobData } from '@speedora/shared';
 
@@ -25,4 +25,22 @@ export interface RenderGraphContext {
   // aware thresholds are threaded through, not the full ReframeOptions shape (crop path, sendCmd
   // script path, etc. are rendering-only concerns with no graph node that needs them).
   reframe: { outputWidth: number; outputHeight: number };
+  // Pre-Processing Settings roadmap (Phase 2) - resolved once from
+  // Video.processingOptions.sceneAnalysis before the graph runs (see
+  // render-clip.worker.ts). Read by scene.ts's raw detector nodes to decide
+  // whether to do their real detection work at all - true (run it) for
+  // every field matches every pre-Phase-2 render exactly.
+  sceneAnalysis: {
+    detectSceneCuts: boolean;
+    detectMotionEnergy: boolean;
+    detectCameraMotion: boolean;
+  };
+  // Pre-Processing Settings roadmap (Phase 3) - resolved once from
+  // Video.processingOptions.thumbnail.preferredSignals before the graph
+  // runs (see render-clip.worker.ts). undefined (the common case) means
+  // thumbnailSelectionNode passes no override at all, so
+  // selectThumbnailTimestamp() falls back to its own DEFAULT_THUMBNAIL_WEIGHTS
+  // parameter default unchanged - identical behavior to every pre-Phase-3
+  // render.
+  thumbnailWeights?: ThumbnailWeights;
 }

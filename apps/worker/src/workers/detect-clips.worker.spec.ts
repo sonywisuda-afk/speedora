@@ -31,14 +31,17 @@ jest.mock('@speedora/clip-scoring', () => ({
 let clipIdCounter = 0;
 const clipCreateMock = jest.fn((args: { data: Record<string, unknown> }) => {
   clipIdCounter += 1;
-  // captionStyle/applyBrandKit both mirror real schema.prisma column
-  // defaults (not passed explicitly in the create data - see the worker's
-  // own comment) - synthesized here so the mock reflects what a real
-  // Prisma insert would actually return.
+  // captionStyle/applyBrandKit/watermarkEnabled/introEnabled/outroEnabled
+  // all mirror real schema.prisma column defaults (not passed explicitly in
+  // the create data - see the worker's own comment) - synthesized here so
+  // the mock reflects what a real Prisma insert would actually return.
   return Promise.resolve({
     id: `clip-${clipIdCounter}`,
     captionStyle: 'DEFAULT',
     applyBrandKit: true,
+    watermarkEnabled: true,
+    introEnabled: true,
+    outroEnabled: true,
     ...args.data,
   });
 });
@@ -48,6 +51,8 @@ const videoFindUniqueMock = jest.fn();
 const userFindUniqueOrThrowMock = jest.fn();
 // Workspace-level Brand Kit roadmap (P3g).
 const workspaceFindUniqueOrThrowMock = jest.fn();
+// Pre-Processing Settings roadmap (Phase 3).
+const brandKitTemplateFindUniqueMock = jest.fn();
 const videoStatusEventCreateMock = jest.fn().mockResolvedValue({});
 const notificationCreateMock = jest.fn();
 const notificationPreferenceFindUniqueMock = jest.fn();
@@ -69,6 +74,11 @@ jest.mock('../prisma', () => ({
     // resolveEffectiveBrandKit.
     workspace: {
       findUniqueOrThrow: (...args: unknown[]) => workspaceFindUniqueOrThrowMock(...args),
+    },
+    // Pre-Processing Settings roadmap (Phase 3) - resolveBrandKitFields()'s
+    // ownership-checked template lookup.
+    brandKitTemplate: {
+      findUnique: (...args: unknown[]) => brandKitTemplateFindUniqueMock(...args),
     },
     // Fase 3 (DB+JSON-contract roadmap) - updateVideoStatus() writes here
     // too, in the same $transaction as video.update().
@@ -173,6 +183,72 @@ describe('detect-clips worker (adapter)', () => {
     );
   });
 
+  // Pre-Processing Settings roadmap (Phase 0/1).
+  it('threads clipCount/min/maxClipDurationSeconds from Video.processingOptions into the scoring module', async () => {
+    scoreClipCandidatesMock.mockResolvedValue({ candidates: [] });
+    videoFindUniqueMock.mockResolvedValue({
+      status: VideoStatus.TRANSCRIBED,
+      processingOptions: {
+        version: 1,
+        clipGeneration: { clipCount: 5, minClipDurationSeconds: 15, maxClipDurationSeconds: 45 },
+      },
+    });
+    const segments: TranscriptSegment[] = [{ start: 0, end: 5, text: 'hi' }];
+
+    const processor = getProcessor();
+    await processor({ data: { videoId: 'video-1', segments } });
+
+    expect(scoreClipCandidatesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ maxCandidates: 5, minClipSeconds: 15, maxClipSeconds: 45 }),
+      { openai: {} },
+    );
+  });
+
+  it("maps clipCount: 'unlimited' to a high cap rather than an uncapped/NaN value", async () => {
+    scoreClipCandidatesMock.mockResolvedValue({ candidates: [] });
+    videoFindUniqueMock.mockResolvedValue({
+      status: VideoStatus.TRANSCRIBED,
+      processingOptions: { version: 1, clipGeneration: { clipCount: 'unlimited' } },
+    });
+    const segments: TranscriptSegment[] = [{ start: 0, end: 5, text: 'hi' }];
+
+    const processor = getProcessor();
+    await processor({ data: { videoId: 'video-1', segments } });
+
+    const call = scoreClipCandidatesMock.mock.calls[0][0] as { maxCandidates: number };
+    expect(Number.isFinite(call.maxCandidates)).toBe(true);
+    expect(call.maxCandidates).toBeGreaterThan(3);
+  });
+
+  it('applies processingOptions.subtitle as the new clip default instead of the schema default', async () => {
+    videoFindUniqueMock.mockResolvedValue({
+      status: VideoStatus.TRANSCRIBED,
+      processingOptions: {
+        version: 1,
+        subtitle: { captionStyle: 'KARAOKE', speakerColorCaptions: true, fontFamily: 'Poppins' },
+      },
+    });
+    scoreClipCandidatesMock.mockResolvedValue({
+      candidates: [
+        scoredCandidate({ startTime: 0, endTime: 30, viralityScore: 80, hookText: 'a' }),
+      ],
+    });
+    videoFindUniqueOrThrowMock.mockResolvedValue({ id: 'video-1', sourceUrl: 'videos/abc.mp4' });
+
+    const processor = getProcessor();
+    await processor({
+      data: { videoId: 'video-1', segments: [{ start: 0, end: 30, text: 'hi' }] },
+    });
+
+    expect(clipCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        captionStyle: 'KARAOKE',
+        speakerColorCaptions: true,
+        fontFamily: 'Poppins',
+      }),
+    });
+  });
+
   it('persists each candidate, marks the video CLIPS_DETECTED, and enqueues render-clip per candidate', async () => {
     const segments: TranscriptSegment[] = [{ start: 0, end: 60, text: 'main content' }];
     scoreClipCandidatesMock.mockResolvedValue({
@@ -260,6 +336,152 @@ describe('detect-clips worker (adapter)', () => {
     expect(renderClipQueueAdd).toHaveBeenCalledWith(
       QueueName.RENDER_CLIP,
       expect.objectContaining({ fontFamily: 'Oswald' }),
+    );
+  });
+
+  // Pre-Processing Settings roadmap (Phase 3).
+  it('sets applyBrandKit: false on every new clip when processingOptions opts the whole video out', async () => {
+    videoFindUniqueMock.mockResolvedValue({
+      status: VideoStatus.TRANSCRIBED,
+      processingOptions: { version: 1, brandKit: { applyBrandKit: false } },
+    });
+    scoreClipCandidatesMock.mockResolvedValue({
+      candidates: [
+        scoredCandidate({ startTime: 0, endTime: 30, viralityScore: 80, hookText: 'a' }),
+      ],
+    });
+    videoFindUniqueOrThrowMock.mockResolvedValue({ id: 'video-1', sourceUrl: 'videos/abc.mp4' });
+
+    const processor = getProcessor();
+    await processor({
+      data: { videoId: 'video-1', segments: [{ start: 0, end: 30, text: 'hi' }] },
+    });
+
+    expect(clipCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({ applyBrandKit: false }),
+    });
+  });
+
+  it('uses a chosen Brand Kit template (owned by the video) as the effective Brand Kit instead of the live one, without fetching workspace/owner', async () => {
+    videoFindUniqueMock.mockResolvedValue({
+      status: VideoStatus.TRANSCRIBED,
+      processingOptions: { version: 1, brandKit: { templateId: 'template-1' } },
+    });
+    scoreClipCandidatesMock.mockResolvedValue({
+      candidates: [
+        scoredCandidate({ startTime: 0, endTime: 30, viralityScore: 80, hookText: 'a' }),
+      ],
+    });
+    videoFindUniqueOrThrowMock.mockResolvedValue({
+      id: 'video-1',
+      sourceUrl: 'videos/abc.mp4',
+      ownerId: 'user-1',
+      workspaceId: 'workspace-1',
+    });
+    brandKitTemplateFindUniqueMock.mockResolvedValue({
+      id: 'template-1',
+      userId: 'user-1',
+      fontFamily: 'Montserrat',
+      watermarkUrl: 'watermarks/template-1.png',
+      watermarkOpacity: 0.5,
+      watermarkScale: 0.2,
+      watermarkMargin: 0.05,
+      watermarkPosition: 'TOP_LEFT',
+      introUrl: null,
+      introType: null,
+      introImageDurationSeconds: null,
+      outroUrl: null,
+      outroType: null,
+      outroImageDurationSeconds: null,
+    });
+
+    const processor = getProcessor();
+    await processor({
+      data: { videoId: 'video-1', segments: [{ start: 0, end: 30, text: 'hi' }] },
+    });
+
+    expect(brandKitTemplateFindUniqueMock).toHaveBeenCalledWith({ where: { id: 'template-1' } });
+    expect(workspaceFindUniqueOrThrowMock).not.toHaveBeenCalled();
+    expect(userFindUniqueOrThrowMock).not.toHaveBeenCalled();
+    expect(renderClipQueueAdd).toHaveBeenCalledWith(
+      QueueName.RENDER_CLIP,
+      expect.objectContaining({
+        fontFamily: 'Montserrat',
+        watermark: {
+          key: 'watermarks/template-1.png',
+          opacity: 0.5,
+          scale: 0.2,
+          margin: 0.05,
+          position: 'TOP_LEFT',
+        },
+      }),
+    );
+  });
+
+  it('falls back to the live Brand Kit (and logs a warning) when the chosen template no longer exists', async () => {
+    videoFindUniqueMock.mockResolvedValue({
+      status: VideoStatus.TRANSCRIBED,
+      processingOptions: { version: 1, brandKit: { templateId: 'deleted-template' } },
+    });
+    scoreClipCandidatesMock.mockResolvedValue({
+      candidates: [
+        scoredCandidate({ startTime: 0, endTime: 30, viralityScore: 80, hookText: 'a' }),
+      ],
+    });
+    videoFindUniqueOrThrowMock.mockResolvedValue({
+      id: 'video-1',
+      sourceUrl: 'videos/abc.mp4',
+      ownerId: 'user-1',
+      workspaceId: 'workspace-1',
+    });
+    brandKitTemplateFindUniqueMock.mockResolvedValue(null);
+    workspaceFindUniqueOrThrowMock.mockResolvedValue({ isPersonal: true });
+    userFindUniqueOrThrowMock.mockResolvedValue({ brandFontFamily: 'Roboto' });
+
+    const processor = getProcessor();
+    await processor({
+      data: { videoId: 'video-1', segments: [{ start: 0, end: 30, text: 'hi' }] },
+    });
+
+    expect(userFindUniqueOrThrowMock).toHaveBeenCalled();
+    expect(renderClipQueueAdd).toHaveBeenCalledWith(
+      QueueName.RENDER_CLIP,
+      expect.objectContaining({ fontFamily: 'Roboto' }),
+    );
+  });
+
+  it('falls back to the live Brand Kit when the chosen template belongs to a different user', async () => {
+    videoFindUniqueMock.mockResolvedValue({
+      status: VideoStatus.TRANSCRIBED,
+      processingOptions: { version: 1, brandKit: { templateId: 'someone-elses-template' } },
+    });
+    scoreClipCandidatesMock.mockResolvedValue({
+      candidates: [
+        scoredCandidate({ startTime: 0, endTime: 30, viralityScore: 80, hookText: 'a' }),
+      ],
+    });
+    videoFindUniqueOrThrowMock.mockResolvedValue({
+      id: 'video-1',
+      sourceUrl: 'videos/abc.mp4',
+      ownerId: 'user-1',
+      workspaceId: 'workspace-1',
+    });
+    brandKitTemplateFindUniqueMock.mockResolvedValue({
+      id: 'someone-elses-template',
+      userId: 'someone-else',
+      fontFamily: 'Montserrat',
+    });
+    workspaceFindUniqueOrThrowMock.mockResolvedValue({ isPersonal: true });
+    userFindUniqueOrThrowMock.mockResolvedValue({ brandFontFamily: 'Roboto' });
+
+    const processor = getProcessor();
+    await processor({
+      data: { videoId: 'video-1', segments: [{ start: 0, end: 30, text: 'hi' }] },
+    });
+
+    expect(renderClipQueueAdd).toHaveBeenCalledWith(
+      QueueName.RENDER_CLIP,
+      expect.objectContaining({ fontFamily: 'Roboto' }),
     );
   });
 

@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma, VideoStatus } from '@speedora/database';
-import { QueueName, TranscriptionProvider } from '@speedora/shared';
+import { CaptionStyle, QueueName, TranscriptionProvider } from '@speedora/shared';
 import type { Queue } from 'bullmq';
 import type { PaymentsService } from '../payments/payments.service';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -51,6 +51,7 @@ describe('VideosService', () => {
   let notificationPublisher: { publish: jest.Mock };
   let notificationDeliveryProducer: { enqueue: jest.Mock };
   let importYoutubeQueue: { add: jest.Mock };
+  let probeVideoQueue: { add: jest.Mock };
   let transcribeQueue: { add: jest.Mock };
   let detectClipsQueue: { add: jest.Mock };
   let renderClipQueue: { add: jest.Mock };
@@ -123,6 +124,7 @@ describe('VideosService', () => {
     notificationPublisher = { publish: jest.fn().mockResolvedValue(undefined) };
     notificationDeliveryProducer = { enqueue: jest.fn().mockResolvedValue(undefined) };
     importYoutubeQueue = { add: jest.fn() };
+    probeVideoQueue = { add: jest.fn() };
     transcribeQueue = { add: jest.fn() };
     detectClipsQueue = { add: jest.fn() };
     renderClipQueue = { add: jest.fn() };
@@ -135,6 +137,7 @@ describe('VideosService', () => {
       notificationPublisher as unknown as NotificationPublisherService,
       notificationDeliveryProducer as unknown as NotificationDeliveryProducer,
       importYoutubeQueue as unknown as Queue,
+      probeVideoQueue as unknown as Queue,
       transcribeQueue as unknown as Queue,
       detectClipsQueue as unknown as Queue,
       renderClipQueue as unknown as Queue,
@@ -143,7 +146,7 @@ describe('VideosService', () => {
   });
 
   describe('upload', () => {
-    it('saves the file to storage, creates the video row (GROQ), and enqueues transcribe', async () => {
+    it('saves the file to storage, creates the video row (GROQ), and enqueues probe-video', async () => {
       storage.saveVideo.mockResolvedValue({ sourceUrl: 'videos/abc.mp4' });
       const createdVideo = {
         id: 'video-1',
@@ -170,6 +173,7 @@ describe('VideosService', () => {
           transcriptionProvider: TranscriptionProvider.GROQ,
           title: 'my-video.mp4',
           sourceSizeBytes: 2,
+          processingOptions: Prisma.JsonNull,
         },
       });
       // Fase 3 (DB+JSON-contract roadmap) - the video's first status event,
@@ -207,10 +211,9 @@ describe('VideosService', () => {
       });
       expect(payments.getAvailability).not.toHaveBeenCalled();
       expect(payments.consumeCredit).not.toHaveBeenCalled();
-      expect(transcribeQueue.add).toHaveBeenCalledWith(QueueName.TRANSCRIBE, {
+      expect(probeVideoQueue.add).toHaveBeenCalledWith(QueueName.PROBE_VIDEO, {
         videoId: 'video-1',
         sourceUrl: 'videos/abc.mp4',
-        provider: TranscriptionProvider.GROQ,
       });
       expect(result).toEqual(createdVideo);
     });
@@ -226,10 +229,9 @@ describe('VideosService', () => {
       expect(payments.getAvailability).toHaveBeenCalledWith('user-1');
       expect(payments.consumeCredit).toHaveBeenCalledWith('user-1', 'video-1');
       expect(prisma.video.delete).not.toHaveBeenCalled();
-      expect(transcribeQueue.add).toHaveBeenCalledWith(QueueName.TRANSCRIBE, {
+      expect(probeVideoQueue.add).toHaveBeenCalledWith(QueueName.PROBE_VIDEO, {
         videoId: 'video-1',
         sourceUrl: 'videos/abc.mp4',
-        provider: TranscriptionProvider.OPENAI,
       });
       expect(result).toEqual(createdVideo);
     });
@@ -256,7 +258,52 @@ describe('VideosService', () => {
       );
       expect(prisma.video.delete).toHaveBeenCalledWith({ where: { id: 'video-1' } });
       expect(storage.deleteObjects).toHaveBeenCalledWith(['videos/abc.mp4']);
-      expect(transcribeQueue.add).not.toHaveBeenCalled();
+      expect(probeVideoQueue.add).not.toHaveBeenCalled();
+    });
+
+    // Pre-Processing Settings roadmap (Phase 0/1).
+    it('persists a submitted processingOptions snapshot onto the created video', async () => {
+      storage.saveVideo.mockResolvedValue({ sourceUrl: 'videos/abc.mp4' });
+      prisma.video.create.mockResolvedValue({ id: 'video-1', ownerId: 'user-1' });
+      const file = { buffer: Buffer.from('x'), mimetype: 'video/mp4' } as Express.Multer.File;
+      const processingOptions = {
+        version: 1 as const,
+        project: { name: 'My Project', tags: ['podcast'] },
+        clipGeneration: {
+          clipCount: 5 as const,
+          minClipDurationSeconds: 30,
+          maxClipDurationSeconds: 90,
+        },
+        subtitle: {
+          captionStyle: CaptionStyle.KARAOKE,
+          speakerColorCaptions: true,
+          fontFamily: null,
+        },
+        export: { qualityPreset: 'maximum_quality' as const },
+        sceneAnalysis: {
+          detectSceneCuts: true,
+          detectMotionEnergy: true,
+          detectCameraMotion: true,
+        },
+        highlightFocus: { intents: [], confidenceThreshold: null },
+        smartCrop: { zoomInFraction: null },
+        brandKit: { applyBrandKit: true, templateId: null },
+        seo: { autoGeneratePlatformCopy: false, platforms: [] },
+        publishing: { autoPublish: false, socialAccountIds: [], scheduledAt: null },
+        thumbnail: { preferredSignals: [] },
+      };
+
+      await service.upload(
+        'user-1',
+        file,
+        TranscriptionProvider.GROQ,
+        undefined,
+        processingOptions,
+      );
+
+      expect(prisma.video.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ processingOptions }) }),
+      );
     });
   });
 
@@ -285,6 +332,7 @@ describe('VideosService', () => {
           importSourceUrl: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
           status: VideoStatus.IMPORTING,
           transcriptionProvider: TranscriptionProvider.GROQ,
+          processingOptions: Prisma.JsonNull,
         },
       });
       expect(prisma.videoStatusEvent.create).toHaveBeenCalledWith({
@@ -373,6 +421,49 @@ describe('VideosService', () => {
       ).rejects.toThrow(BadRequestException);
       expect(prisma.video.delete).toHaveBeenCalledWith({ where: { id: 'video-1' } });
       expect(importYoutubeQueue.add).not.toHaveBeenCalled();
+    });
+
+    // Pre-Processing Settings roadmap (Phase 0/1).
+    it('persists a submitted processingOptions snapshot onto the created video', async () => {
+      prisma.video.create.mockResolvedValue({ id: 'video-1', ownerId: 'user-1' });
+      const processingOptions = {
+        version: 1 as const,
+        project: { name: null, tags: [] },
+        clipGeneration: {
+          clipCount: 'unlimited' as const,
+          minClipDurationSeconds: null,
+          maxClipDurationSeconds: null,
+        },
+        subtitle: {
+          captionStyle: CaptionStyle.DEFAULT,
+          speakerColorCaptions: false,
+          fontFamily: null,
+        },
+        export: { qualityPreset: 'small_size' as const },
+        sceneAnalysis: {
+          detectSceneCuts: true,
+          detectMotionEnergy: true,
+          detectCameraMotion: true,
+        },
+        highlightFocus: { intents: [], confidenceThreshold: null },
+        smartCrop: { zoomInFraction: null },
+        brandKit: { applyBrandKit: true, templateId: null },
+        seo: { autoGeneratePlatformCopy: false, platforms: [] },
+        publishing: { autoPublish: false, socialAccountIds: [], scheduledAt: null },
+        thumbnail: { preferredSignals: [] },
+      };
+
+      await service.importFromYoutube(
+        'user-1',
+        'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+        TranscriptionProvider.GROQ,
+        undefined,
+        processingOptions,
+      );
+
+      expect(prisma.video.create).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ processingOptions }) }),
+      );
     });
   });
 
@@ -1315,6 +1406,32 @@ describe('VideosService', () => {
       expect(transcribeQueue.add).not.toHaveBeenCalled();
     });
 
+    // Quality Validation roadmap (Fase 0 design, Phase 1).
+    it('re-enqueues probe-video when probing never completed (no duration/width persisted yet)', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        sourceUrl: 'videos/abc.mp4',
+        status: VideoStatus.FAILED,
+        durationSeconds: null,
+        width: null,
+        clips: [],
+        transcriptSegments: [],
+      });
+
+      await service.retry('video-1', 'user-1');
+
+      expect(prisma.video.update).toHaveBeenCalledWith({
+        where: { id: 'video-1' },
+        data: { status: VideoStatus.UPLOADED },
+      });
+      expect(probeVideoQueue.add).toHaveBeenCalledWith(QueueName.PROBE_VIDEO, {
+        videoId: 'video-1',
+        sourceUrl: 'videos/abc.mp4',
+      });
+      expect(transcribeQueue.add).not.toHaveBeenCalled();
+    });
+
     it('re-enqueues transcribe (forwarding the stored provider) when no transcript segments exist yet', async () => {
       prisma.video.findUnique.mockResolvedValue({
         id: 'video-1',
@@ -1322,6 +1439,11 @@ describe('VideosService', () => {
         sourceUrl: 'videos/abc.mp4',
         status: VideoStatus.FAILED,
         transcriptionProvider: TranscriptionProvider.GROQ,
+        // Quality Validation roadmap (Fase 0 design, Phase 1) - probing
+        // already succeeded (this video failed transcribe, not probe), so
+        // retry()'s new probe-never-completed branch must not fire here.
+        durationSeconds: 30,
+        width: 1920,
         clips: [],
         transcriptSegments: [],
       });
@@ -1348,6 +1470,8 @@ describe('VideosService', () => {
         ownerId: 'user-1',
         sourceUrl: 'videos/abc.mp4',
         status: VideoStatus.FAILED,
+        durationSeconds: 30,
+        width: 1920,
         clips: [],
         transcriptSegments: segments,
       });
@@ -1376,6 +1500,8 @@ describe('VideosService', () => {
         ownerId: 'user-1',
         sourceUrl: 'videos/abc.mp4',
         status: VideoStatus.FAILED,
+        durationSeconds: 30,
+        width: 1920,
         transcriptSegments: segments,
         clips: [
           {
@@ -1433,6 +1559,8 @@ describe('VideosService', () => {
         workspaceId: 'personal-ws-1',
         sourceUrl: 'videos/abc.mp4',
         status: VideoStatus.FAILED,
+        durationSeconds: 30,
+        width: 1920,
         transcriptSegments: segments,
         clips: [
           {
@@ -1467,6 +1595,8 @@ describe('VideosService', () => {
           workspaceId: 'team-ws-1',
           sourceUrl: 'videos/abc.mp4',
           status: VideoStatus.FAILED,
+          durationSeconds: 30,
+          width: 1920,
           transcriptSegments: [{ start: 0, end: 5, text: 'hi' }],
           clips: [
             {
@@ -1506,6 +1636,8 @@ describe('VideosService', () => {
           workspaceId: 'personal-ws-1',
           sourceUrl: 'videos/abc.mp4',
           status: VideoStatus.FAILED,
+          durationSeconds: 30,
+          width: 1920,
           transcriptSegments: [{ start: 0, end: 5, text: 'hi' }],
           clips: [
             {
@@ -1542,6 +1674,8 @@ describe('VideosService', () => {
         ownerId: 'user-1',
         sourceUrl: 'videos/abc.mp4',
         status: VideoStatus.FAILED,
+        durationSeconds: 30,
+        width: 1920,
         transcriptSegments: [{ start: 0, end: 5, text: 'hi' }],
         clips: [
           {
@@ -1563,6 +1697,118 @@ describe('VideosService', () => {
       expect(transcribeQueue.add).not.toHaveBeenCalled();
       expect(detectClipsQueue.add).not.toHaveBeenCalled();
       expect(renderClipQueue.add).not.toHaveBeenCalled();
+    });
+  });
+
+  // Quality Validation roadmap (Fase 0 design, Phase 1).
+  describe('startProcessing', () => {
+    const processingOptions = {
+      version: 1 as const,
+      project: { name: 'My Project', tags: ['podcast'] },
+      clipGeneration: {
+        clipCount: 5 as const,
+        minClipDurationSeconds: 30,
+        maxClipDurationSeconds: 90,
+      },
+      subtitle: {
+        captionStyle: CaptionStyle.KARAOKE,
+        speakerColorCaptions: true,
+        fontFamily: null,
+      },
+      export: { qualityPreset: 'maximum_quality' as const },
+      sceneAnalysis: { detectSceneCuts: true, detectMotionEnergy: true, detectCameraMotion: true },
+      highlightFocus: { intents: [], confidenceThreshold: null },
+      smartCrop: { zoomInFraction: null },
+      brandKit: { applyBrandKit: true, templateId: null },
+      seo: { autoGeneratePlatformCopy: false, platforms: [] },
+      publishing: { autoPublish: false, socialAccountIds: [], scheduledAt: null },
+      thumbnail: { preferredSignals: [] },
+    };
+
+    it('persists processingOptions, transitions PENDING_SETTINGS to UPLOADED, and enqueues transcribe', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        workspaceId: 'workspace-1',
+        sourceUrl: 'videos/abc.mp4',
+        status: VideoStatus.PENDING_SETTINGS,
+        transcriptionProvider: TranscriptionProvider.GROQ,
+        // findOne()'s mapVideoWithClips() (called at the end of
+        // startProcessing() to return the same DTO shape retry() does)
+        // needs a real array here.
+        clips: [],
+      });
+
+      await service.startProcessing('video-1', 'user-1', processingOptions);
+
+      expect(prisma.video.update).toHaveBeenCalledWith({
+        where: { id: 'video-1' },
+        data: { processingOptions, status: VideoStatus.UPLOADED },
+      });
+      expect(transcribeQueue.add).toHaveBeenCalledWith(QueueName.TRANSCRIBE, {
+        videoId: 'video-1',
+        sourceUrl: 'videos/abc.mp4',
+        provider: TranscriptionProvider.GROQ,
+      });
+    });
+
+    it('throws NotFoundException for a missing video', async () => {
+      prisma.video.findUnique.mockResolvedValue(null);
+
+      await expect(service.startProcessing('missing', 'user-1', processingOptions)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(transcribeQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException when the video is not PENDING_SETTINGS', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        workspaceId: 'workspace-1',
+        sourceUrl: 'videos/abc.mp4',
+        status: VideoStatus.UPLOADED,
+      });
+
+      await expect(service.startProcessing('video-1', 'user-1', processingOptions)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(transcribeQueue.add).not.toHaveBeenCalled();
+    });
+
+    // Phase 4 hardening audit (2026-07-26) - named explicitly by the user as
+    // its own invariant ("video FAILED tidak bisa diproses"), not just a
+    // side effect of the general !== PENDING_SETTINGS check above.
+    it('throws BadRequestException for a FAILED video (cannot be started, only retried)', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        workspaceId: 'workspace-1',
+        sourceUrl: 'videos/abc.mp4',
+        status: VideoStatus.FAILED,
+      });
+
+      await expect(service.startProcessing('video-1', 'user-1', processingOptions)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(transcribeQueue.add).not.toHaveBeenCalled();
+      expect(probeVideoQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the requester lacks EDITOR access', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        workspaceId: 'workspace-1',
+        sourceUrl: 'videos/abc.mp4',
+        status: VideoStatus.PENDING_SETTINGS,
+      });
+      workspaceAccess.assertMinRole.mockRejectedValue(new NotFoundException());
+
+      await expect(service.startProcessing('video-1', 'user-1', processingOptions)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(transcribeQueue.add).not.toHaveBeenCalled();
     });
   });
 
