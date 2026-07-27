@@ -36,6 +36,7 @@ describe('AuthService', () => {
       updateMany: jest.Mock;
     };
     securityEvent: { create: jest.Mock };
+    oAuthIdentity: { findUnique: jest.Mock; create: jest.Mock };
     $transaction: jest.Mock;
   };
   let jwtService: { sign: jest.Mock };
@@ -66,6 +67,7 @@ describe('AuthService', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       securityEvent: { create: jest.fn().mockResolvedValue({}) },
+      oAuthIdentity: { findUnique: jest.fn(), create: jest.fn() },
       $transaction: jest.fn().mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma)),
     };
     jwtService = { sign: jest.fn() };
@@ -127,6 +129,113 @@ describe('AuthService', () => {
     });
   });
 
+  describe('resolveOAuthLogin', () => {
+    it('returns the linked user when an OAuthIdentity already exists for this provider account', async () => {
+      prisma.oAuthIdentity.findUnique.mockResolvedValue({
+        id: 'identity-1',
+        user: {
+          id: 'user-1',
+          email: 'a@example.com',
+          role: 'CREATOR',
+          emailVerified: true,
+        },
+      });
+
+      const result = await service.resolveOAuthLogin('GOOGLE', 'google-sub-123', 'a@example.com');
+
+      expect(prisma.oAuthIdentity.findUnique).toHaveBeenCalledWith({
+        where: { provider_providerAccountId: { provider: 'GOOGLE', providerAccountId: 'google-sub-123' } },
+        include: { user: true },
+      });
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+      expect(result).toEqual({
+        id: 'user-1',
+        email: 'a@example.com',
+        role: 'CREATOR',
+        emailVerified: true,
+      });
+    });
+
+    it('auto-links to an existing password-based account by email and verifies it', async () => {
+      prisma.oAuthIdentity.findUnique.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'a@example.com',
+        role: 'CREATOR',
+        emailVerified: false,
+      });
+      prisma.user.update.mockResolvedValue({
+        id: 'user-1',
+        email: 'a@example.com',
+        role: 'CREATOR',
+        emailVerified: true,
+      });
+
+      const result = await service.resolveOAuthLogin('GOOGLE', 'google-sub-123', 'a@example.com');
+
+      expect(prisma.oAuthIdentity.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'user-1',
+          provider: 'GOOGLE',
+          providerAccountId: 'google-sub-123',
+          email: 'a@example.com',
+        },
+      });
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: { emailVerified: true },
+      });
+      expect(result.emailVerified).toBe(true);
+    });
+
+    it('does not re-update emailVerified when the existing account is already verified', async () => {
+      prisma.oAuthIdentity.findUnique.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'a@example.com',
+        role: 'CREATOR',
+        emailVerified: true,
+      });
+
+      await service.resolveOAuthLogin('GOOGLE', 'google-sub-123', 'a@example.com');
+
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('creates a brand-new User + personal Workspace + OAuthIdentity when neither exists', async () => {
+      prisma.oAuthIdentity.findUnique.mockResolvedValue(null);
+      prisma.user.findUnique.mockResolvedValue(null);
+      prisma.user.create.mockResolvedValue({
+        id: 'user-new',
+        email: 'new@example.com',
+        role: 'CREATOR',
+        emailVerified: true,
+      });
+      prisma.workspace.create.mockResolvedValue({ id: 'ws-1' });
+
+      const result = await service.resolveOAuthLogin('GITHUB', 'gh-456', 'new@example.com');
+
+      expect(prisma.user.create).toHaveBeenCalledWith({
+        data: { email: 'new@example.com', password: null, emailVerified: true },
+      });
+      expect(prisma.workspace.create).toHaveBeenCalledWith({
+        data: { name: 'Personal', isPersonal: true, ownerId: 'user-new' },
+      });
+      expect(prisma.workspaceMembership.create).toHaveBeenCalledWith({
+        data: { workspaceId: 'ws-1', userId: 'user-new', role: 'OWNER' },
+      });
+      expect(prisma.oAuthIdentity.create).toHaveBeenCalledWith({
+        data: { userId: 'user-new', provider: 'GITHUB', providerAccountId: 'gh-456', email: 'new@example.com' },
+      });
+      expect(result).toEqual({
+        id: 'user-new',
+        email: 'new@example.com',
+        role: 'CREATOR',
+        emailVerified: true,
+      });
+    });
+  });
+
   describe('validateUser', () => {
     it('returns the safe user when email and password match', async () => {
       prisma.user.findUnique.mockResolvedValue({
@@ -154,6 +263,21 @@ describe('AuthService', () => {
       await expect(service.validateUser('nope@example.com', 'plaintext')).rejects.toThrow(
         UnauthorizedException,
       );
+    });
+
+    it('throws UnauthorizedException (never bcrypt.compare) for an OAuth-only account with no password', async () => {
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'oauth-only@example.com',
+        password: null,
+        role: 'CREATOR',
+        emailVerified: true,
+      });
+
+      await expect(
+        service.validateUser('oauth-only@example.com', 'anything'),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(bcrypt.compare).not.toHaveBeenCalled();
     });
 
     it('throws UnauthorizedException when the password is wrong', async () => {
@@ -723,6 +847,20 @@ describe('AuthService', () => {
         where: { id: 'user-1' },
         data: { password: 'new-hashed-password' },
       });
+    });
+
+    it('throws UnauthorizedException (never bcrypt.compare) for an OAuth-only account with no password', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        id: 'user-1',
+        email: 'oauth-only@example.com',
+        password: null,
+      });
+
+      await expect(
+        service.changePassword('user-1', 'anything', 'newplaintext'),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(bcrypt.compare).not.toHaveBeenCalled();
+      expect(prisma.user.update).not.toHaveBeenCalled();
     });
 
     it('throws UnauthorizedException when the current password is wrong', async () => {

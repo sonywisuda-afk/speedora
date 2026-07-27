@@ -9,6 +9,11 @@ import { AuthService } from './auth.service';
 import { CAPTCHA_PROVIDER } from './captcha/captcha-provider.interface';
 import { TurnstileCaptchaProvider } from './captcha/turnstile-captcha.provider';
 import { LoginBackoffService } from './login-backoff.service';
+import { MfaController } from './mfa/mfa.controller';
+import { MfaService } from './mfa/mfa.service';
+import { GitHubOAuthLoginProvider } from './oauth/github-oauth-login.provider';
+import { GoogleOAuthLoginProvider } from './oauth/google-oauth-login.provider';
+import { OAuthController } from './oauth/oauth.controller';
 import { RedisThrottlerStorage } from './redis-throttler-storage.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
@@ -53,16 +58,23 @@ import { JwtStrategy } from './strategies/jwt.strategy';
       }),
     }),
   ],
-  controllers: [AuthController],
+  controllers: [AuthController, OAuthController, MfaController],
   providers: [
     AuthService,
     JwtStrategy,
     LoginBackoffService,
+    MfaService,
     // Authentication Foundation Sprint 4 - AuthService/AuthController inject
     // CaptchaProvider via this token, never TurnstileCaptchaProvider
     // directly - swapping providers later means changing only this one
     // binding, see captcha-provider.interface.ts's own comment.
     { provide: CAPTCHA_PROVIDER, useClass: TurnstileCaptchaProvider },
+    // Tahap 2 Step 1 (OAuth Login) - registered directly (no DI-token
+    // indirection like CaptchaProvider above) since Google and GitHub are
+    // simultaneously-active registry entries in OAuthController, not
+    // alternatives to swap between.
+    GoogleOAuthLoginProvider,
+    GitHubOAuthLoginProvider,
   ],
   exports: [AuthService],
 })

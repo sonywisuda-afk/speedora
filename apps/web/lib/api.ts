@@ -259,6 +259,61 @@ export async function changePassword(currentPassword: string, newPassword: strin
   await parseJsonOrThrow<{ success: boolean }>(res);
 }
 
+// Tahap 2 Step 2 Sprint 1 (MFA Foundation) - matches apps/api's
+// MfaController.status. enabledAt arrives as an ISO string or null, same
+// "leave timestamps as strings" convention as SessionDto above.
+export interface MfaStatusDto {
+  enabled: boolean;
+  enabledAt: string | null;
+  recoveryCodesRemaining: number;
+}
+
+export interface MfaEnrollmentDto {
+  secret: string;
+  qrCodeDataUrl: string;
+}
+
+export interface MfaRecoveryCodesDto {
+  recoveryCodes: string[];
+}
+
+export async function getMfaStatus(): Promise<MfaStatusDto> {
+  const res = await apiFetch('/auth/mfa/status');
+  return parseJsonOrThrow<MfaStatusDto>(res);
+}
+
+export async function enrollMfa(): Promise<MfaEnrollmentDto> {
+  const res = await apiFetch('/auth/mfa/enroll', { method: 'POST' });
+  return parseJsonOrThrow<MfaEnrollmentDto>(res);
+}
+
+export async function confirmMfaEnrollment(code: string): Promise<MfaRecoveryCodesDto> {
+  const res = await apiFetch('/auth/mfa/enroll/confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  return parseJsonOrThrow<MfaRecoveryCodesDto>(res);
+}
+
+export async function disableMfa(code: string): Promise<void> {
+  const res = await apiFetch('/auth/mfa/disable', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  await parseJsonOrThrow<{ success: boolean }>(res);
+}
+
+export async function regenerateRecoveryCodes(code: string): Promise<MfaRecoveryCodesDto> {
+  const res = await apiFetch('/auth/mfa/recovery-codes/regenerate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code }),
+  });
+  return parseJsonOrThrow<MfaRecoveryCodesDto>(res);
+}
+
 // Permanently deletes the logged-in user's account and everything it owns.
 // 204 No Content on success; the session cookie is cleared server-side.
 export async function deleteAccount(): Promise<void> {

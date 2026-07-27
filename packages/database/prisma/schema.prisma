@@ -140,8 +140,13 @@ enum PublishStatus {
 model User {
   id                             String    @id @default(cuid())
   email                          String    @unique
-  // bcrypt hash - never the plaintext password.
-  password                       String
+  // bcrypt hash - never the plaintext password. Nullable since Tahap 2
+  // (OAuth Login) - an account created via "Continue with Google/GitHub"
+  // may never set one; AuthService.validateUser()/changePassword() both
+  // null-check before comparing, same generic "Invalid email or password"
+  // failure as any other credential mismatch (never a distinct error that
+  // would confirm "this account has no password").
+  password                       String?
   // Milestone 5C-B - see UserRole above. Every normal signup gets CREATOR.
   role                           UserRole  @default(CREATOR)
   // Forgot-password (Fase 8) - SHA-256 hash of a random token, never the raw
@@ -165,6 +170,21 @@ model User {
   emailVerified                   Boolean   @default(false)
   emailVerificationTokenHash      String?   @unique
   emailVerificationTokenExpiresAt DateTime?
+  // Tahap 2 Step 2 Sprint 1 (MFA Foundation) - mfaEnabled stays false until
+  // the user has verified one real TOTP code from their authenticator app
+  // (MfaController's enroll -> confirm two-step), so a half-finished
+  // enrollment can never lock an account out. mfaSecret is AES-256-GCM
+  // ciphertext via @speedora/social's encryptToken/decryptToken
+  // (TOKEN_ENCRYPTION_KEY) - unlike every other token/secret in this schema
+  // it must be decryptable to check a future code against it, so it can't
+  // be a one-way hash like resetPasswordTokenHash/
+  // emailVerificationTokenHash above. Overwritten (not accumulated) by a
+  // fresh /enroll call - an abandoned/never-confirmed enrollment just gets
+  // silently replaced, no cleanup job needed. Both null again once MFA is
+  // disabled - see MfaController.disable.
+  mfaEnabled                      Boolean   @default(false)
+  mfaSecret                       String?
+  mfaEnabledAt                    DateTime?
   // Sprint 03d (Export Center roadmap) - Brand Report's minimal Brand Kit.
   // No new settings system - these live directly on User, same "smallest
   // viable" posture the roadmap called for. brandLogoUrl is a raw storage
@@ -277,6 +297,10 @@ model User {
   processingPresets               ProcessingPreset[]
   // Authentication Foundation Sprint 1 (Tahap 1 roadmap)
   sessions                        Session[]
+  // Tahap 2 Step 1 (OAuth Login)
+  oauthIdentities                 OAuthIdentity[]
+  // Tahap 2 Step 2 Sprint 1 (MFA Foundation)
+  mfaRecoveryCodes                MfaRecoveryCode[]
 }
 
 model Video {
@@ -2279,6 +2303,60 @@ model Session {
   @@index([userId])
 }
 
+// Tahap 2 Step 1 (OAuth Login) - deliberately NOT a reuse/extension of
+// SocialAccount (packages/social's OAuth for YouTube/TikTok/Instagram
+// PUBLISHING). SocialAccount requires an existing logged-in userId (you
+// connect a publishing account, you don't sign in with one), stores
+// encrypted long-lived access/refresh tokens for later API calls, and has
+// no email field at all. OAuthIdentity is the opposite: userId may not
+// exist yet when the flow starts (a brand-new signup), and no token is
+// ever stored - once identity is established at login time, the provider's
+// token is discarded; nothing calls back into Google/GitHub's API
+// afterward. email is display-only (captured once at link time, never
+// re-fetched, never used for lookups - providerAccountId is the real key)
+// so a future "linked accounts" UI can show which account is attached
+// without a live API call.
+enum OAuthProvider {
+  GOOGLE
+  GITHUB
+}
+
+model OAuthIdentity {
+  id                String        @id @default(cuid())
+  userId            String
+  user              User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider          OAuthProvider
+  providerAccountId String
+  email             String?
+  createdAt         DateTime      @default(now())
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+// Tahap 2 Step 2 Sprint 1 (MFA Foundation) - one row per one-time-use
+// recovery/backup code (the same mechanism - not two separate systems),
+// generated 10-at-a-time whenever MFA is enabled or recovery codes are
+// regenerated (MfaController). codeHash is a SHA-256 hex digest of the raw
+// code - same "hash at rest, raw value shown to the user exactly once"
+// convention as User.resetPasswordTokenHash/emailVerificationTokenHash and
+// Session.refreshTokenHash. usedAt is set the first (and only) time a code
+// is successfully consumed (MfaService.consumeRecoveryCode) - a used code
+// is never deleted, just marked, so "how many of your original codes are
+// left" (GET /auth/mfa/status) can be computed without losing history.
+// Regenerating or disabling MFA deletes every row for the user outright
+// (old codes must never remain valid once a new batch is issued).
+model MfaRecoveryCode {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  codeHash  String    @unique
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
 // Sprint 5C (Comments). Video-scoped (clipId optional - a comment can
 // anchor to a specific clip, or just the video as a whole), threaded via
 // a self-relation (parentId null = a root/top-level comment; only root
@@ -2546,6 +2624,10 @@ enum SecurityEventType {
   SESSION_REVOKED
   EMAIL_VERIFIED
   PASSWORD_RESET_COMPLETED
+  // Tahap 2 Step 2 Sprint 1 (MFA Foundation)
+  MFA_ENABLED
+  MFA_DISABLED
+  MFA_RECOVERY_CODES_REGENERATED
 }
 
 model SecurityEvent {

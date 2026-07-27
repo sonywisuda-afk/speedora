@@ -17,6 +17,7 @@ import {
 } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
+import { clearAuthCookies, REFRESH_COOKIE_NAME, setAuthCookies } from './auth-cookies.util';
 import {
   AuthService,
   RISK_CAPTCHA_THRESHOLD,
@@ -34,21 +35,6 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { LoginBackoffService } from './login-backoff.service';
-
-const ACCESS_COOKIE_NAME = 'token';
-// Kept in sync with the ACCESS_TOKEN_EXPIRES_IN default (15m, see
-// .env.example / auth.module.ts). The JWT's own expiry is what's actually
-// enforced; this just keeps the browser from holding onto an unusable
-// cookie long after that.
-const ACCESS_COOKIE_MAX_AGE_MS = 15 * 60 * 1000;
-
-// Authentication Foundation Sprint 1 - a second, narrower-scoped cookie for
-// the opaque refresh token. Path is scoped to /auth (not '/') so it's only
-// ever sent to the handful of routes that actually consume it
-// (refresh/logout/logout-all), shrinking its exposure versus a
-// site-wide cookie.
-const REFRESH_COOKIE_NAME = 'refresh_token';
-const REFRESH_COOKIE_PATH = '/auth';
 
 // Express types the User-Agent header as string | string[] | undefined (a
 // proxy could in principle send it twice) - createSession only cares about
@@ -74,7 +60,7 @@ export class AuthController {
   ) {
     const user = await this.authService.register(body.email, body.password);
     const tokens = await this.authService.createSession(user, userAgentOf(req), req.ip);
-    this.setAuthCookies(res, tokens);
+    setAuthCookies(res, tokens);
     // Best-effort - MailService itself never rethrows on a send failure, so
     // this can't turn a successful registration into a failed response.
     await this.authService.sendVerificationEmail(
@@ -155,7 +141,7 @@ export class AuthController {
     });
 
     const tokens = await this.authService.createSession(user, userAgent, ipAddress);
-    this.setAuthCookies(res, tokens);
+    setAuthCookies(res, tokens);
     return user;
   }
 
@@ -164,7 +150,7 @@ export class AuthController {
   async refresh(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const rawRefreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
     if (!rawRefreshToken) {
-      this.clearAuthCookies(res);
+      clearAuthCookies(res);
       throw new UnauthorizedException('No refresh token provided');
     }
 
@@ -180,11 +166,11 @@ export class AuthController {
         ipAddress: req.ip,
         userAgent: userAgentOf(req),
       });
-      this.clearAuthCookies(res);
+      clearAuthCookies(res);
       throw error;
     }
 
-    this.setAuthCookies(res, tokens);
+    setAuthCookies(res, tokens);
     return { success: true };
   }
 
@@ -200,7 +186,7 @@ export class AuthController {
       ipAddress: req.ip,
       userAgent: userAgentOf(req),
     });
-    this.clearAuthCookies(res);
+    clearAuthCookies(res);
     return { success: true };
   }
 
@@ -221,7 +207,7 @@ export class AuthController {
       userAgent: userAgentOf(req),
       metadata: { scope: 'all' },
     });
-    this.clearAuthCookies(res);
+    clearAuthCookies(res);
     return { success: true };
   }
 
@@ -286,7 +272,7 @@ export class AuthController {
   async deleteAccount(@CurrentUser() user: SafeUser, @Res({ passthrough: true }) res: Response) {
     await this.authService.deleteAccount(user.id);
     // The account is gone - drop the now-useless session cookies too.
-    this.clearAuthCookies(res);
+    clearAuthCookies(res);
   }
 
   @Post('forgot-password')
@@ -317,7 +303,7 @@ export class AuthController {
     });
     // Auto-login after a successful reset, same as register/login.
     const tokens = await this.authService.createSession(user, userAgentOf(req), req.ip);
-    this.setAuthCookies(res, tokens);
+    setAuthCookies(res, tokens);
     return user;
   }
 
@@ -352,27 +338,5 @@ export class AuthController {
   async changePassword(@Body() body: ChangePasswordDto, @CurrentUser() user: SafeUser) {
     await this.authService.changePassword(user.id, body.currentPassword, body.newPassword);
     return { success: true };
-  }
-
-  private setAuthCookies(res: Response, tokens: SessionTokens) {
-    res.cookie(ACCESS_COOKIE_NAME, tokens.accessToken, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: ACCESS_COOKIE_MAX_AGE_MS,
-      path: '/',
-    });
-    res.cookie(REFRESH_COOKIE_NAME, tokens.refreshToken, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
-      maxAge: Math.max(0, tokens.refreshTokenExpiresAt.getTime() - Date.now()),
-      path: REFRESH_COOKIE_PATH,
-    });
-  }
-
-  private clearAuthCookies(res: Response) {
-    res.clearCookie(ACCESS_COOKIE_NAME, { path: '/' });
-    res.clearCookie(REFRESH_COOKIE_NAME, { path: REFRESH_COOKIE_PATH });
   }
 }

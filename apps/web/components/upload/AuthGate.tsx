@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
+import { API_URL } from '@/lib/api';
 import { TurnstileWidget } from './TurnstileWidget';
 
 export function AuthGate({
@@ -99,6 +100,33 @@ export function AuthGate({
             {mode === 'login' ? 'Belum punya akun? Daftar' : 'Sudah punya akun? Masuk'}
           </button>
         </form>
+
+        {/* Tahap 2 Step 1 (OAuth Login) - plain <a> links, not buttons wired
+            to onClick/fetch: this needs a real top-level browser redirect to
+            Google/GitHub's own origin, which a fetch() can't do (same
+            reasoning as the social-connect flow's own OAuth links). Shown
+            for both login and register - OAuth resolves to whichever is
+            correct (sign in an existing identity, auto-link an existing
+            email, or create a new account) server-side. */}
+        <div className="mt-4 space-y-3">
+          <div className="flex items-center gap-3">
+            <div className="h-px flex-1 bg-border" />
+            <span className="font-body text-xs text-muted-foreground">atau</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+          <a
+            href={`${API_URL}/auth/oauth/google/start`}
+            className="flex w-full items-center justify-center rounded-md border border-border px-4 py-2 font-body text-sm text-foreground transition-colors hover:bg-accent"
+          >
+            Lanjutkan dengan Google
+          </a>
+          <a
+            href={`${API_URL}/auth/oauth/github/start`}
+            className="flex w-full items-center justify-center rounded-md border border-border px-4 py-2 font-body text-sm text-foreground transition-colors hover:bg-accent"
+          >
+            Lanjutkan dengan GitHub
+          </a>
+        </div>
       </CardContent>
     </Card>
   );

@@ -1,0 +1,143 @@
+import { Controller, Get, Param, Query, Req, Res } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
+import type { OAuthProvider } from '@speedora/database';
+import { OAuthNotConfiguredError } from '@speedora/social';
+import * as crypto from 'node:crypto';
+import type { Request, Response } from 'express';
+import { setAuthCookies } from '../auth-cookies.util';
+import { AuthService } from '../auth.service';
+import { logger } from '../../logger';
+import { GitHubOAuthLoginProvider } from './github-oauth-login.provider';
+import { GoogleOAuthLoginProvider } from './google-oauth-login.provider';
+import type { OAuthLoginAdapter } from './oauth-provider.interface';
+
+interface OAuthState {
+  // Deliberately no `sub` - unlike social.controller.ts's connect flow
+  // (where the user is already logged in and state carries WHO initiated
+  // it), login OAuth's state exists purely as an anti-CSRF nonce. Nobody's
+  // identity is known yet - establishing it is the whole point of the
+  // callback below.
+  nonce: string;
+}
+
+function parseProvider(param: string): OAuthProvider | undefined {
+  const upper = param.toUpperCase();
+  return upper === 'GOOGLE' || upper === 'GITHUB' ? (upper as OAuthProvider) : undefined;
+}
+
+// Express types the User-Agent header as string | string[] | undefined -
+// same helper as auth.controller.ts's userAgentOf, duplicated rather than
+// exported since it's a one-liner and importing across controllers for
+// this alone isn't worth the coupling.
+function userAgentOf(req: Request): string | undefined {
+  const value = req.headers['user-agent'];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+// Tahap 2 Step 1 (OAuth Login) - mirrors social.controller.ts's connect/
+// callback mechanics (sign state -> redirect to buildAuthorizeUrl; on
+// callback, verify state -> exchangeCode -> fetchProfile -> redirect) with
+// one structural difference: `start` is unauthenticated (no JwtAuthGuard -
+// signing in is the point) and state carries no user identity, only a nonce.
+@Controller('auth/oauth')
+export class OAuthController {
+  private readonly registry: Record<OAuthProvider, OAuthLoginAdapter>;
+
+  constructor(
+    private readonly authService: AuthService,
+    private readonly jwt: JwtService,
+    google: GoogleOAuthLoginProvider,
+    github: GitHubOAuthLoginProvider,
+  ) {
+    this.registry = { GOOGLE: google, GITHUB: github };
+  }
+
+  // Unknown :provider is a genuine client error (only ever reached via the
+  // app's own generated links) - a plain 404, same posture as social's
+  // connect route for an unknown platform.
+  @Get(':provider/start')
+  start(@Param('provider') providerParam: string, @Res() res: Response) {
+    const provider = parseProvider(providerParam);
+    if (!provider) {
+      res.status(404).send('Unknown provider');
+      return;
+    }
+
+    const state = this.jwt.sign({ nonce: crypto.randomUUID() } satisfies OAuthState, {
+      expiresIn: '10m',
+    });
+    try {
+      res.redirect(this.registry[provider].buildAuthorizeUrl(state));
+    } catch (error) {
+      if (error instanceof OAuthNotConfiguredError) {
+        res.status(503).send(error.message);
+        return;
+      }
+      throw error;
+    }
+  }
+
+  // Deliberately not behind any guard - this is a fresh top-level
+  // navigation from the provider's own origin, and by definition nobody is
+  // logged in yet (that's what this route establishes). Never throws - any
+  // failure redirects back to the login page with a ?error= reason, same as
+  // social's callback (a navigation the provider itself made, not one the
+  // app controls).
+  @Get(':provider/callback')
+  async callback(
+    @Param('provider') providerParam: string,
+    @Query('code') code: string | undefined,
+    @Query('state') state: string | undefined,
+    @Query('error') error: string | undefined,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    const webOrigin = process.env.WEB_ORIGIN ?? 'http://localhost:3000';
+    const provider = parseProvider(providerParam);
+
+    if (!provider) {
+      res.redirect(`${webOrigin}/upload?error=unknown_provider`);
+      return;
+    }
+    if (error || !code || !state) {
+      res.redirect(`${webOrigin}/upload?error=${encodeURIComponent(error ?? 'missing_code')}`);
+      return;
+    }
+
+    try {
+      this.jwt.verify<OAuthState>(state);
+    } catch {
+      res.redirect(`${webOrigin}/upload?error=invalid_state`);
+      return;
+    }
+
+    const adapter = this.registry[provider];
+    try {
+      const tokens = await adapter.exchangeCode(code);
+      const profile = await adapter.fetchProfile(tokens);
+      const user = await this.authService.resolveOAuthLogin(
+        provider,
+        profile.providerAccountId,
+        profile.email,
+      );
+
+      const ipAddress = req.ip;
+      const userAgent = userAgentOf(req);
+      await this.authService.recordSecurityEvent({
+        userId: user.id,
+        email: user.email,
+        eventType: 'LOGIN_SUCCESS',
+        ipAddress,
+        userAgent,
+        metadata: { provider },
+      });
+
+      const sessionTokens = await this.authService.createSession(user, userAgent, ipAddress);
+      setAuthCookies(res, sessionTokens);
+      res.redirect(`${webOrigin}/upload`);
+    } catch (err) {
+      logger.error(`${provider} OAuth login callback failed`, {}, err);
+      res.redirect(`${webOrigin}/upload?error=oauth_failed`);
+    }
+  }
+}

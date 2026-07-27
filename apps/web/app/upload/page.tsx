@@ -47,6 +47,23 @@ export default function UploadPage() {
   // relevant for authView 'login' - register never risk-gates.
   const [requiresCaptcha, setRequiresCaptcha] = useState(false);
 
+  // Tahap 2 Step 1 (OAuth Login) - the OAuth callback (apps/api's
+  // OAuthController) is a server-side redirect, not a fetch() this page
+  // can await - a failure surfaces as ?error=<reason> on the redirect back
+  // here instead. Read once on mount (same window.location.search-reading
+  // convention as reset-password's readToken()), then stripped from the URL
+  // so a page refresh doesn't re-show a stale error.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const error = params.get('error');
+    if (error) {
+      setAuthError(`Gagal masuk dengan OAuth: ${error}`);
+      window.history.replaceState(null, '', '/upload');
+    }
+    // Mount-only, matches useAuth's own mount-only effect reasoning.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotSubmitting, setForgotSubmitting] = useState(false);
   const [forgotMessage, setForgotMessage] = useState<string | null>(null);

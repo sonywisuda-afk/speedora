@@ -8,6 +8,7 @@ import {
 import { JwtService } from '@nestjs/jwt';
 import {
   recordSecurityEvent,
+  type OAuthProvider,
   type Prisma,
   type SecurityEventType,
   type UserRole,
@@ -158,9 +159,83 @@ export class AuthService {
     return { id: user.id, email: user.email, role: user.role, emailVerified: user.emailVerified };
   }
 
+  // Tahap 2 Step 1 (OAuth Login) - called by OAuthController's callback
+  // route once a provider profile has been fetched. Three branches, in
+  // order:
+  //  1. An OAuthIdentity already links this exact provider account to a
+  //     User - the common "returning OAuth user" case.
+  //  2. No identity yet, but a User already exists with this email (a
+  //     password-based account, or a different provider linked earlier) -
+  //     auto-link, per the user's own confirmed decision (both Google and
+  //     GitHub only report emails they've verified themselves, so this
+  //     isn't a spoofing risk). Also flips emailVerified true if it wasn't
+  //     already - the provider already vouches for the email, so Speedora's
+  //     own verification flow is redundant for this account from here on.
+  //  3. Neither - brand-new signup. Mirrors register()'s own "User +
+  //     personal Workspace + OWNER WorkspaceMembership in one transaction"
+  //     invariant (Sprint 5A), plus the OAuthIdentity row in the same
+  //     transaction so a partial-signup row can never exist. password is
+  //     null (never set) and emailVerified starts true - there is nothing
+  //     to verify, the provider already did.
+  async resolveOAuthLogin(
+    provider: OAuthProvider,
+    providerAccountId: string,
+    email: string,
+  ): Promise<SafeUser> {
+    const existingIdentity = await this.prisma.oAuthIdentity.findUnique({
+      where: { provider_providerAccountId: { provider, providerAccountId } },
+      include: { user: true },
+    });
+    if (existingIdentity) {
+      const { user } = existingIdentity;
+      return { id: user.id, email: user.email, role: user.role, emailVerified: user.emailVerified };
+    }
+
+    const existingUser = await this.prisma.user.findUnique({ where: { email } });
+    if (existingUser) {
+      await this.prisma.oAuthIdentity.create({
+        data: { userId: existingUser.id, provider, providerAccountId, email },
+      });
+      const user = existingUser.emailVerified
+        ? existingUser
+        : await this.prisma.user.update({
+            where: { id: existingUser.id },
+            data: { emailVerified: true },
+          });
+      return { id: user.id, email: user.email, role: user.role, emailVerified: user.emailVerified };
+    }
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: { email, password: null, emailVerified: true },
+      });
+      const workspace = await tx.workspace.create({
+        data: { name: 'Personal', isPersonal: true, ownerId: user.id },
+      });
+      await tx.workspaceMembership.create({
+        data: { workspaceId: workspace.id, userId: user.id, role: 'OWNER' },
+      });
+      await tx.oAuthIdentity.create({
+        data: { userId: user.id, provider, providerAccountId, email },
+      });
+      return user;
+    });
+
+    return {
+      id: created.id,
+      email: created.email,
+      role: created.role,
+      emailVerified: created.emailVerified,
+    };
+  }
+
   async validateUser(email: string, password: string): Promise<SafeUser> {
     const user = await this.prisma.user.findUnique({ where: { email } });
-    if (!user) {
+    // Tahap 2 (OAuth Login) - an OAuth-only account (password: null) has
+    // nothing to compare against. Same generic message as a wrong password -
+    // never confirms "this account exists but has no password," same
+    // "don't leak account shape" posture as requestPasswordReset above.
+    if (!user || !user.password) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
@@ -465,6 +540,15 @@ export class AuthService {
     newPassword: string,
   ): Promise<void> {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
+
+    // Tahap 2 (OAuth Login) - an OAuth-only account has no current password
+    // to verify against. Same message as a wrong password - this endpoint
+    // requires auth already (JwtAuthGuard), so there's no account-existence
+    // leak concern here the way there is on validateUser/requestPasswordReset,
+    // but the shape of the failure should still look identical either way.
+    if (!user.password) {
+      throw new UnauthorizedException('Current password is incorrect');
+    }
 
     const passwordMatches = await bcrypt.compare(currentPassword, user.password);
     if (!passwordMatches) {
