@@ -33,13 +33,16 @@ import {
 import { CAPTCHA_PROVIDER, type CaptchaProvider } from './captcha/captcha-provider.interface';
 import { CurrentSessionId } from './decorators/current-session-id.decorator';
 import { CurrentUser } from './decorators/current-user.decorator';
+import { RequireRecentMfa } from './decorators/require-recent-mfa.decorator';
 import { ChangePasswordDto } from './dto/change-password.dto';
+import { ElevateDto } from './dto/elevate.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { VerifyEmailDto } from './dto/verify-email.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { RecentMfaGuard } from './guards/recent-mfa.guard';
 import { LoginBackoffService } from './login-backoff.service';
 
 // Express types the User-Agent header as string | string[] | undefined (a
@@ -294,11 +297,35 @@ export class AuthController {
 
   @Delete('me')
   @HttpCode(204)
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RecentMfaGuard)
+  @RequireRecentMfa()
   async deleteAccount(@CurrentUser() user: SafeUser, @Res({ passthrough: true }) res: Response) {
     await this.authService.deleteAccount(user.id);
     // The account is gone - drop the now-useless session cookies too.
     clearAuthCookies(res);
+  }
+
+  // Tahap 2 Step 2 Sprint 2b (Session Elevation) - re-proves the caller's
+  // identity for the CURRENT session (a TOTP/recovery code if MFA is
+  // enabled, the current password otherwise - see
+  // AuthService.verifyElevationCredential), then marks that session
+  // elevated for ELEVATION_WINDOW_MS. Same ThrottlerGuard as /auth/login -
+  // still a credential-guessing surface even though the caller is already
+  // authenticated.
+  @Post('elevate')
+  @HttpCode(200)
+  @UseGuards(JwtAuthGuard, ThrottlerGuard)
+  async elevate(
+    @Body() body: ElevateDto,
+    @CurrentUser() user: SafeUser,
+    @CurrentSessionId() sessionId: string,
+  ) {
+    const verified = await this.authService.verifyElevationCredential(user.id, body);
+    if (!verified) {
+      throw new UnauthorizedException('Invalid verification code or password');
+    }
+    const elevatedUntil = await this.authService.elevateSession(sessionId);
+    return { success: true, elevatedUntil };
   }
 
   @Post('forgot-password')
@@ -360,9 +387,10 @@ export class AuthController {
 
   @Post('change-password')
   @HttpCode(200)
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RecentMfaGuard)
+  @RequireRecentMfa()
   async changePassword(@Body() body: ChangePasswordDto, @CurrentUser() user: SafeUser) {
-    await this.authService.changePassword(user.id, body.currentPassword, body.newPassword);
+    await this.authService.changePassword(user.id, body.newPassword);
     return { success: true };
   }
 }

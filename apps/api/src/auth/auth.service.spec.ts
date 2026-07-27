@@ -12,6 +12,7 @@ import type { PrismaService } from '../prisma/prisma.service';
 import type { StorageService } from '../storage/storage.service';
 import { AuthService } from './auth.service';
 import type { LoginBackoffService } from './login-backoff.service';
+import type { MfaService } from './mfa/mfa.service';
 
 jest.mock('bcrypt');
 
@@ -50,6 +51,7 @@ describe('AuthService', () => {
   let mailService: { sendPasswordResetEmail: jest.Mock; sendVerificationEmail: jest.Mock };
   let storage: { deleteObjects: jest.Mock };
   let loginBackoff: { getFailureCount: jest.Mock };
+  let mfaService: { verifyMfaCodeOrRecoveryCode: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -88,12 +90,14 @@ describe('AuthService', () => {
     mailService = { sendPasswordResetEmail: jest.fn(), sendVerificationEmail: jest.fn() };
     storage = { deleteObjects: jest.fn().mockResolvedValue(undefined) };
     loginBackoff = { getFailureCount: jest.fn().mockResolvedValue(0) };
+    mfaService = { verifyMfaCodeOrRecoveryCode: jest.fn() };
     service = new AuthService(
       prisma as unknown as PrismaService,
       jwtService as unknown as JwtService,
       mailService as unknown as MailService,
       storage as unknown as StorageService,
       loginBackoff as unknown as LoginBackoffService,
+      mfaService as unknown as MfaService,
     );
     jest.clearAllMocks();
   });
@@ -850,50 +854,93 @@ describe('AuthService', () => {
   });
 
   describe('changePassword', () => {
-    it('updates the password when the current password is correct', async () => {
-      prisma.user.findUniqueOrThrow.mockResolvedValue({
-        id: 'user-1',
-        email: 'a@example.com',
-        password: 'hashed-password',
-      });
-      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+    it('hashes and updates the password unconditionally - the route already gated this via RecentMfaGuard', async () => {
       (bcrypt.hash as jest.Mock).mockResolvedValue('new-hashed-password');
 
-      await service.changePassword('user-1', 'currentplaintext', 'newplaintext');
+      await service.changePassword('user-1', 'newplaintext');
 
-      expect(bcrypt.compare).toHaveBeenCalledWith('currentplaintext', 'hashed-password');
+      expect(bcrypt.hash).toHaveBeenCalledWith('newplaintext', 10);
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: 'user-1' },
         data: { password: 'new-hashed-password' },
       });
     });
+  });
 
-    it('throws UnauthorizedException (never bcrypt.compare) for an OAuth-only account with no password', async () => {
+  describe('verifyElevationCredential', () => {
+    it('verifies a code via MfaService when MFA is enabled', async () => {
       prisma.user.findUniqueOrThrow.mockResolvedValue({
         id: 'user-1',
-        email: 'oauth-only@example.com',
+        mfaEnabled: true,
+        mfaSecret: 'encrypted-secret',
+        password: 'hashed-password',
+      });
+      mfaService.verifyMfaCodeOrRecoveryCode.mockResolvedValue(true);
+
+      const result = await service.verifyElevationCredential('user-1', { code: '123456' });
+
+      expect(mfaService.verifyMfaCodeOrRecoveryCode).toHaveBeenCalledWith(
+        'user-1',
+        'encrypted-secret',
+        '123456',
+      );
+      expect(result).toBe(true);
+    });
+
+    it('returns false when MFA is enabled but no code was given', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        id: 'user-1',
+        mfaEnabled: true,
+        mfaSecret: 'encrypted-secret',
+        password: 'hashed-password',
+      });
+
+      const result = await service.verifyElevationCredential('user-1', {});
+
+      expect(result).toBe(false);
+      expect(mfaService.verifyMfaCodeOrRecoveryCode).not.toHaveBeenCalled();
+    });
+
+    it('verifies the current password via bcrypt when MFA is not enabled', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        id: 'user-1',
+        mfaEnabled: false,
+        mfaSecret: null,
+        password: 'hashed-password',
+      });
+      (bcrypt.compare as jest.Mock).mockResolvedValue(true);
+
+      const result = await service.verifyElevationCredential('user-1', { password: 'plaintext' });
+
+      expect(bcrypt.compare).toHaveBeenCalledWith('plaintext', 'hashed-password');
+      expect(result).toBe(true);
+    });
+
+    it('returns false for an OAuth-only account with MFA disabled (no password, no code to check)', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        id: 'user-1',
+        mfaEnabled: false,
+        mfaSecret: null,
         password: null,
       });
 
-      await expect(service.changePassword('user-1', 'anything', 'newplaintext')).rejects.toThrow(
-        UnauthorizedException,
-      );
+      const result = await service.verifyElevationCredential('user-1', { password: 'anything' });
+
+      expect(result).toBe(false);
       expect(bcrypt.compare).not.toHaveBeenCalled();
-      expect(prisma.user.update).not.toHaveBeenCalled();
     });
+  });
 
-    it('throws UnauthorizedException when the current password is wrong', async () => {
-      prisma.user.findUniqueOrThrow.mockResolvedValue({
-        id: 'user-1',
-        email: 'a@example.com',
-        password: 'hashed-password',
+  describe('elevateSession', () => {
+    it('sets Session.elevatedAt and returns the computed expiry', async () => {
+      const result = await service.elevateSession('session-1');
+
+      expect(prisma.session.update).toHaveBeenCalledWith({
+        where: { id: 'session-1' },
+        data: { elevatedAt: expect.any(Date) },
       });
-      (bcrypt.compare as jest.Mock).mockResolvedValue(false);
-
-      await expect(
-        service.changePassword('user-1', 'wrongplaintext', 'newplaintext'),
-      ).rejects.toThrow(UnauthorizedException);
-      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(result).toBeInstanceOf(Date);
+      expect(result.getTime()).toBeGreaterThan(Date.now());
     });
   });
 

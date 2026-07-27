@@ -17,6 +17,7 @@ describe('JwtStrategy', () => {
       id: 'session-1',
       revokedAt: null,
       expiresAt: new Date(Date.now() + 60_000),
+      elevatedAt: null,
       user: { id: 'user-1', email: 'a@example.com', role: 'CREATOR', emailVerified: true },
     });
 
@@ -36,7 +37,27 @@ describe('JwtStrategy', () => {
       role: 'CREATOR',
       emailVerified: true,
       sessionId: 'session-1',
+      elevatedAt: null,
     });
+  });
+
+  it('passes through the session elevatedAt when recently elevated', async () => {
+    const elevatedAt = new Date();
+    prisma.session.findUnique.mockResolvedValue({
+      id: 'session-1',
+      revokedAt: null,
+      expiresAt: new Date(Date.now() + 60_000),
+      elevatedAt,
+      user: { id: 'user-1', email: 'a@example.com', role: 'CREATOR', emailVerified: true },
+    });
+
+    const result = await strategy.validate({
+      sub: 'user-1',
+      email: 'a@example.com',
+      sid: 'session-1',
+    });
+
+    expect(result.elevatedAt).toBe(elevatedAt);
   });
 
   it('throws UnauthorizedException when the payload has no session id', async () => {

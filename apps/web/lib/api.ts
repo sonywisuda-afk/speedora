@@ -126,6 +126,21 @@ export type ClipDto = Clip;
 export type VideoDto = Video;
 export type VideoWithClipsDto = VideoWithClips;
 
+// Tahap 2 Step 2 Sprint 2b (Session Elevation) - thrown whenever ANY
+// endpoint responds 403 { elevationRequired: true } (disable MFA,
+// regenerate recovery codes, change password, delete account - see
+// RecentMfaGuard on the backend). Checked generically in parseJsonOrThrow
+// below rather than per call site, since the frontend behavior is
+// identical regardless of which of the four endpoints triggered it: catch
+// it, prompt for a fresh code/password via elevateSession, then retry the
+// original action.
+export class ElevationRequiredError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ElevationRequiredError';
+  }
+}
+
 // Exported (not just used internally) so lib/api.server.ts's cookie-
 // forwarding server fetch can reuse the same response-parsing/error-message
 // convention as every browser call below, instead of a second copy.
@@ -134,6 +149,11 @@ export async function parseJsonOrThrow<T>(res: Response): Promise<T> {
   if (!res.ok) {
     const message =
       body && typeof body === 'object' && 'message' in body ? body.message : res.statusText;
+    if (body && typeof body === 'object' && body.elevationRequired === true) {
+      throw new ElevationRequiredError(
+        typeof message === 'string' ? message : 'Recent verification required',
+      );
+    }
     throw new Error(typeof message === 'string' ? message : 'Request failed');
   }
   return body as T;
@@ -309,13 +329,32 @@ export async function logoutOthers(): Promise<{ success: boolean }> {
   return parseJsonOrThrow<{ success: boolean }>(res);
 }
 
-export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+// Tahap 2 Step 2 Sprint 2b (Session Elevation) - currentPassword dropped;
+// this route is now gated by RecentMfaGuard server-side (see
+// ElevationRequiredError above).
+export async function changePassword(newPassword: string): Promise<void> {
   const res = await apiFetch('/auth/change-password', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ currentPassword, newPassword }),
+    body: JSON.stringify({ newPassword }),
   });
   await parseJsonOrThrow<{ success: boolean }>(res);
+}
+
+export interface ElevateResultDto {
+  success: boolean;
+  elevatedUntil: string;
+}
+
+export async function elevateSession(
+  credential: { code: string } | { password: string },
+): Promise<ElevateResultDto> {
+  const res = await apiFetch('/auth/elevate', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(credential),
+  });
+  return parseJsonOrThrow<ElevateResultDto>(res);
 }
 
 // Tahap 2 Step 2 Sprint 1 (MFA Foundation) - matches apps/api's
@@ -355,21 +394,15 @@ export async function confirmMfaEnrollment(code: string): Promise<MfaRecoveryCod
   return parseJsonOrThrow<MfaRecoveryCodesDto>(res);
 }
 
-export async function disableMfa(code: string): Promise<void> {
-  const res = await apiFetch('/auth/mfa/disable', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code }),
-  });
+// Tahap 2 Step 2 Sprint 2b (Session Elevation) - no longer takes a code of
+// its own; gated by RecentMfaGuard server-side.
+export async function disableMfa(): Promise<void> {
+  const res = await apiFetch('/auth/mfa/disable', { method: 'POST' });
   await parseJsonOrThrow<{ success: boolean }>(res);
 }
 
-export async function regenerateRecoveryCodes(code: string): Promise<MfaRecoveryCodesDto> {
-  const res = await apiFetch('/auth/mfa/recovery-codes/regenerate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ code }),
-  });
+export async function regenerateRecoveryCodes(): Promise<MfaRecoveryCodesDto> {
+  const res = await apiFetch('/auth/mfa/recovery-codes/regenerate', { method: 'POST' });
   return parseJsonOrThrow<MfaRecoveryCodesDto>(res);
 }
 
@@ -381,6 +414,11 @@ export async function deleteAccount(): Promise<void> {
     const body = await res.json().catch(() => null);
     const message =
       body && typeof body === 'object' && 'message' in body ? body.message : res.statusText;
+    if (body && typeof body === 'object' && body.elevationRequired === true) {
+      throw new ElevationRequiredError(
+        typeof message === 'string' ? message : 'Recent verification required',
+      );
+    }
     throw new Error(typeof message === 'string' ? message : 'Gagal menghapus akun');
   }
 }

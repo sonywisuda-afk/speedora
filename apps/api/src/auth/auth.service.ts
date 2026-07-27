@@ -17,6 +17,7 @@ import * as bcrypt from 'bcrypt';
 import * as crypto from 'node:crypto';
 import { UAParser } from 'ua-parser-js';
 import { LoginBackoffService } from './login-backoff.service';
+import { MfaService } from './mfa/mfa.service';
 import { MailService } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
@@ -64,6 +65,15 @@ const DEFAULT_TRUSTED_DEVICE_EXPIRES_IN_MS = 60 * 24 * 60 * 60 * 1000;
 const MFA_CHALLENGE_TOKEN_TTL = '10m';
 const MFA_CHALLENGE_TOKEN_PURPOSE = 'mfa_challenge';
 
+// Tahap 2 Step 2 Sprint 2b (Session Elevation) - how long a POST
+// /auth/elevate re-verification stays valid for RecentMfaGuard-protected
+// routes (disable MFA, regenerate recovery codes, change password, delete
+// account) before the caller must re-elevate. Long enough to complete a
+// short multi-step flow (e.g. review recovery codes, then delete the
+// account) without re-entering a credential on every click; short enough
+// that a session left open on a shared machine isn't permanently elevated.
+export const ELEVATION_WINDOW_MS = 15 * 60 * 1000;
+
 export interface SafeUser {
   id: string;
   email: string;
@@ -82,8 +92,15 @@ export interface SafeUser {
 // which touched 17 unrelated files). AuthenticatedUser is assignable
 // wherever SafeUser is expected, so every existing @CurrentUser() consumer
 // needs zero changes.
+// Tahap 2 Step 2 Sprint 2b (Session Elevation) - elevatedAt is the CURRENT
+// session's own Session.elevatedAt, populated by JwtStrategy from the same
+// row it already fetches every request (no extra query). RecentMfaGuard
+// reads it directly off request.user - same "widen AuthenticatedUser, never
+// SafeUser itself" discipline sessionId already established in Sprint 3, so
+// no existing @CurrentUser() consumer needs to change.
 export interface AuthenticatedUser extends SafeUser {
   sessionId: string;
+  elevatedAt: Date | null;
 }
 
 // Authentication Foundation Sprint 3 (Session Dashboard) - what GET
@@ -159,6 +176,7 @@ export class AuthService {
     private readonly mailService: MailService,
     private readonly storage: StorageService,
     private readonly loginBackoff: LoginBackoffService,
+    private readonly mfaService: MfaService,
   ) {}
 
   async register(email: string, password: string): Promise<SafeUser> {
@@ -565,29 +583,46 @@ export class AuthService {
     await this.sendVerificationEmail(userId, webOrigin);
   }
 
-  async changePassword(
+  // Tahap 2 Step 2 Sprint 2b (Session Elevation) - no longer takes/checks a
+  // currentPassword: the route this backs is now gated by RecentMfaGuard
+  // (POST /auth/elevate already re-proved identity - a code or the current
+  // password, whichever applies to the account), so re-checking a password
+  // here would be redundant. userId is only ever reached via an
+  // already-authenticated, already-elevated request.
+  async changePassword(userId: string, newPassword: string): Promise<void> {
+    const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    await this.prisma.user.update({ where: { id: userId }, data: { password: passwordHash } });
+  }
+
+  // Tahap 2 Step 2 Sprint 2b (Session Elevation) - verifies whichever
+  // elevation credential applies to this account: a TOTP/recovery code if
+  // MFA is enabled, the current password otherwise. Returns false (never
+  // throws) on any mismatch, including the edge case of an OAuth-only
+  // account with MFA disabled (no password AND no MFA secret to check
+  // against - there is currently no elevation credential for that
+  // combination; see AuthService's own module-level design notes).
+  async verifyElevationCredential(
     userId: string,
-    currentPassword: string,
-    newPassword: string,
-  ): Promise<void> {
+    body: { code?: string; password?: string },
+  ): Promise<boolean> {
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
 
-    // Tahap 2 (OAuth Login) - an OAuth-only account has no current password
-    // to verify against. Same message as a wrong password - this endpoint
-    // requires auth already (JwtAuthGuard), so there's no account-existence
-    // leak concern here the way there is on validateUser/requestPasswordReset,
-    // but the shape of the failure should still look identical either way.
-    if (!user.password) {
-      throw new UnauthorizedException('Current password is incorrect');
+    if (user.mfaEnabled) {
+      if (!user.mfaSecret || !body.code) return false;
+      return this.mfaService.verifyMfaCodeOrRecoveryCode(userId, user.mfaSecret, body.code);
     }
 
-    const passwordMatches = await bcrypt.compare(currentPassword, user.password);
-    if (!passwordMatches) {
-      throw new UnauthorizedException('Current password is incorrect');
-    }
+    if (!user.password || !body.password) return false;
+    return bcrypt.compare(body.password, user.password);
+  }
 
-    const passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
-    await this.prisma.user.update({ where: { id: user.id }, data: { password: passwordHash } });
+  // Marks the CURRENT session (not a new one) as recently re-verified.
+  // Returns the computed expiry so the controller can hand it back to the
+  // client (e.g. "verified until HH:MM") without a second read.
+  async elevateSession(sessionId: string): Promise<Date> {
+    const elevatedAt = new Date();
+    await this.prisma.session.update({ where: { id: sessionId }, data: { elevatedAt } });
+    return new Date(elevatedAt.getTime() + ELEVATION_WINDOW_MS);
   }
 
   // Authentication Foundation Sprint 4 (Attack Protection) - each signal is

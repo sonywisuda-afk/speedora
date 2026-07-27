@@ -2301,6 +2301,15 @@ model Session {
   // at read time (expiresAt < now() with revokedAt still null), not
   // swept/persisted.
   revokedReason    String?
+  // Tahap 2 Step 2 Sprint 2b (Session Elevation) - set by POST /auth/elevate
+  // once the caller re-proves their identity (a TOTP/recovery code if MFA
+  // is enabled, their current password otherwise). RecentMfaGuard reads
+  // this via AuthenticatedUser.elevatedAt (JwtStrategy already fetches this
+  // row every request, so no extra query is needed) and treats it as
+  // expired once now() - elevatedAt exceeds the elevation window - computed
+  // at read time, never swept/persisted as a separate state, same
+  // "expiry computed at read time" convention expiresAt above already uses.
+  elevatedAt       DateTime?
 
   @@index([userId])
 }

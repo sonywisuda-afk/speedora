@@ -55,6 +55,10 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       role: session.user.role,
       emailVerified: session.user.emailVerified,
       sessionId: session.id,
+      // Tahap 2 Step 2 Sprint 2b (Session Elevation) - the row is already in
+      // hand, so RecentMfaGuard can read this straight off request.user
+      // with no extra query.
+      elevatedAt: session.elevatedAt,
     };
   }
 }

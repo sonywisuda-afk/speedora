@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
+import { ElevationDialog } from '../../components/ElevationDialog';
 import { Nav } from '../../components/Nav';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
@@ -14,6 +15,8 @@ import {
   confirmMfaEnrollment,
   deleteAccount,
   disableMfa,
+  ElevationRequiredError,
+  elevateSession,
   enrollMfa,
   getMfaStatus,
   listSessions,
@@ -37,11 +40,48 @@ export default function AccountsPage() {
   const { user, setUser, checkingAuth, logout } = useAuth();
   const router = useRouter();
 
-  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [changingPassword, setChangingPassword] = useState(false);
   const [changePasswordMessage, setChangePasswordMessage] = useState<string | null>(null);
   const [changePasswordError, setChangePasswordError] = useState<string | null>(null);
+
+  // Tahap 2 Step 2 Sprint 2b (Session Elevation) - elevationAction holds the
+  // retried closure while the dialog is open (null = closed). One shared
+  // dialog serves every RecentMfaGuard-protected action below (disable MFA,
+  // regenerate recovery codes, change password, delete account) - see
+  // runWithElevation.
+  const [elevationAction, setElevationAction] = useState<(() => Promise<void>) | null>(null);
+  const [elevationSubmitting, setElevationSubmitting] = useState(false);
+  const [elevationError, setElevationError] = useState<string | null>(null);
+
+  async function runWithElevation(action: () => Promise<void>) {
+    try {
+      await action();
+    } catch (err) {
+      if (err instanceof ElevationRequiredError) {
+        setElevationAction(() => action);
+        setElevationError(null);
+        return;
+      }
+      throw err;
+    }
+  }
+
+  async function handleElevationSubmit(credential: { code: string } | { password: string }) {
+    if (!elevationAction) return;
+    setElevationSubmitting(true);
+    setElevationError(null);
+    try {
+      await elevateSession(credential);
+      const action = elevationAction;
+      setElevationAction(null);
+      await action();
+    } catch (err) {
+      setElevationError(err instanceof Error ? err.message : 'Verifikasi gagal.');
+    } finally {
+      setElevationSubmitting(false);
+    }
+  }
 
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deletingAccount, setDeletingAccount] = useState(false);
@@ -71,14 +111,10 @@ export default function AccountsPage() {
   const [confirmingMfa, setConfirmingMfa] = useState(false);
   const [confirmError, setConfirmError] = useState<string | null>(null);
   const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
-  const [showDisableForm, setShowDisableForm] = useState(false);
-  const [disableCode, setDisableCode] = useState('');
   const [disablingMfa, setDisablingMfa] = useState(false);
-  const [disableError, setDisableError] = useState<string | null>(null);
-  const [showRegenerateForm, setShowRegenerateForm] = useState(false);
-  const [regenerateCode, setRegenerateCode] = useState('');
+  const [disableActionError, setDisableActionError] = useState<string | null>(null);
   const [regeneratingCodes, setRegeneratingCodes] = useState(false);
-  const [regenerateError, setRegenerateError] = useState<string | null>(null);
+  const [regenerateActionError, setRegenerateActionError] = useState<string | null>(null);
 
   // Tahap 2 Step 2 Sprint 2a (MFA Enforcement) - a trusted device is a
   // different concept from an active Session (a persistent MFA-skip grant
@@ -172,34 +208,38 @@ export default function AccountsPage() {
     }
   }
 
-  async function handleDisableMfa(e: FormEvent) {
-    e.preventDefault();
-    setDisableError(null);
+  // Tahap 2 Step 2 Sprint 2b (Session Elevation) - no longer collects a code
+  // of its own; runWithElevation opens the shared ElevationDialog on the
+  // server's elevationRequired response and retries this same closure once
+  // elevated.
+  async function handleDisableMfa() {
+    setDisableActionError(null);
     setDisablingMfa(true);
     try {
-      await disableMfa(disableCode);
-      setShowDisableForm(false);
-      setDisableCode('');
-      await fetchMfaStatus();
+      await runWithElevation(async () => {
+        await disableMfa();
+        await fetchMfaStatus();
+      });
     } catch (err) {
-      setDisableError(err instanceof Error ? err.message : 'Kode verifikasi tidak valid.');
+      setDisableActionError(err instanceof Error ? err.message : 'Gagal menonaktifkan 2FA.');
     } finally {
       setDisablingMfa(false);
     }
   }
 
-  async function handleRegenerateRecoveryCodes(e: FormEvent) {
-    e.preventDefault();
-    setRegenerateError(null);
+  async function handleRegenerateRecoveryCodes() {
+    setRegenerateActionError(null);
     setRegeneratingCodes(true);
     try {
-      const result = await regenerateRecoveryCodes(regenerateCode);
-      setRecoveryCodes(result.recoveryCodes);
-      setShowRegenerateForm(false);
-      setRegenerateCode('');
-      await fetchMfaStatus();
+      await runWithElevation(async () => {
+        const result = await regenerateRecoveryCodes();
+        setRecoveryCodes(result.recoveryCodes);
+        await fetchMfaStatus();
+      });
     } catch (err) {
-      setRegenerateError(err instanceof Error ? err.message : 'Kode verifikasi tidak valid.');
+      setRegenerateActionError(
+        err instanceof Error ? err.message : 'Gagal membuat ulang kode pemulihan.',
+      );
     } finally {
       setRegeneratingCodes(false);
     }
@@ -238,13 +278,16 @@ export default function AccountsPage() {
     setDeleteAccountError(null);
     setDeletingAccount(true);
     try {
-      await deleteAccount();
-      // Session is already cleared server-side; drop the client user and
-      // send them back to the entry page.
-      setUser(null);
-      router.push('/upload');
+      await runWithElevation(async () => {
+        await deleteAccount();
+        // Session is already cleared server-side; drop the client user and
+        // send them back to the entry page.
+        setUser(null);
+        router.push('/upload');
+      });
     } catch (err) {
       setDeleteAccountError(err instanceof Error ? err.message : 'Gagal menghapus akun');
+    } finally {
       setDeletingAccount(false);
     }
   }
@@ -255,10 +298,11 @@ export default function AccountsPage() {
     setChangePasswordMessage(null);
     setChangingPassword(true);
     try {
-      await changePassword(currentPassword, newPassword);
-      setChangePasswordMessage('Kata sandi berhasil diganti.');
-      setCurrentPassword('');
-      setNewPassword('');
+      await runWithElevation(async () => {
+        await changePassword(newPassword);
+        setChangePasswordMessage('Kata sandi berhasil diganti.');
+        setNewPassword('');
+      });
     } catch (err) {
       setChangePasswordError(err instanceof Error ? err.message : 'Terjadi kesalahan. Coba lagi.');
     } finally {
@@ -291,16 +335,6 @@ export default function AccountsPage() {
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleChangePassword} className="space-y-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="current-password">Kata Sandi Saat Ini</Label>
-                    <PasswordInput
-                      id="current-password"
-                      required
-                      value={currentPassword}
-                      onChange={(e) => setCurrentPassword(e.target.value)}
-                    />
-                  </div>
-
                   <div className="space-y-2">
                     <Label htmlFor="new-password">Kata Sandi Baru</Label>
                     <PasswordInput
@@ -416,67 +450,32 @@ export default function AccountsPage() {
                       {mfaStatus.recoveryCodesRemaining} kode pemulihan tersisa.
                     </p>
 
+                    {regenerateActionError && (
+                      <p className="text-sm text-destructive">{regenerateActionError}</p>
+                    )}
+                    {disableActionError && (
+                      <p className="text-sm text-destructive">{disableActionError}</p>
+                    )}
                     <div className="flex flex-wrap gap-2">
                       <Button
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => setShowRegenerateForm((v) => !v)}
+                        disabled={regeneratingCodes}
+                        onClick={handleRegenerateRecoveryCodes}
                       >
-                        Buat Ulang Kode Pemulihan
+                        {regeneratingCodes ? 'Memproses...' : 'Buat Ulang Kode Pemulihan'}
                       </Button>
                       <Button
                         type="button"
-                        variant="outline"
+                        variant="destructive"
                         size="sm"
-                        onClick={() => setShowDisableForm((v) => !v)}
+                        disabled={disablingMfa}
+                        onClick={handleDisableMfa}
                       >
-                        Nonaktifkan
+                        {disablingMfa ? 'Memproses...' : 'Nonaktifkan'}
                       </Button>
                     </div>
-
-                    {showRegenerateForm && (
-                      <form onSubmit={handleRegenerateRecoveryCodes} className="space-y-2">
-                        <Label htmlFor="mfa-regenerate-code">
-                          Masukkan kode 2FA atau kode pemulihan untuk konfirmasi
-                        </Label>
-                        <Input
-                          id="mfa-regenerate-code"
-                          required
-                          value={regenerateCode}
-                          onChange={(e) => setRegenerateCode(e.target.value)}
-                        />
-                        {regenerateError && (
-                          <p className="text-sm text-destructive">{regenerateError}</p>
-                        )}
-                        <Button type="submit" size="sm" disabled={regeneratingCodes}>
-                          {regeneratingCodes ? 'Memproses...' : 'Konfirmasi'}
-                        </Button>
-                      </form>
-                    )}
-
-                    {showDisableForm && (
-                      <form onSubmit={handleDisableMfa} className="space-y-2">
-                        <Label htmlFor="mfa-disable-code">
-                          Masukkan kode 2FA atau kode pemulihan untuk menonaktifkan
-                        </Label>
-                        <Input
-                          id="mfa-disable-code"
-                          required
-                          value={disableCode}
-                          onChange={(e) => setDisableCode(e.target.value)}
-                        />
-                        {disableError && <p className="text-sm text-destructive">{disableError}</p>}
-                        <Button
-                          type="submit"
-                          variant="destructive"
-                          size="sm"
-                          disabled={disablingMfa}
-                        >
-                          {disablingMfa ? 'Memproses...' : 'Nonaktifkan 2FA'}
-                        </Button>
-                      </form>
-                    )}
                   </div>
                 ) : (
                   <div className="space-y-3">
@@ -640,6 +639,18 @@ export default function AccountsPage() {
                 </Button>
               </CardContent>
             </Card>
+
+            <ElevationDialog
+              open={elevationAction !== null}
+              mfaEnabled={mfaStatus?.enabled ?? false}
+              submitting={elevationSubmitting}
+              error={elevationError}
+              onSubmit={handleElevationSubmit}
+              onCancel={() => {
+                setElevationAction(null);
+                setElevationError(null);
+              }}
+            />
           </>
         )}
       </div>

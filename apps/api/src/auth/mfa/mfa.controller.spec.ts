@@ -184,25 +184,16 @@ describe('MfaController', () => {
   });
 
   describe('disable', () => {
+    // Tahap 2 Step 2 Sprint 2b (Session Elevation) - disable no longer
+    // verifies a code of its own; RecentMfaGuard (exercised via the real
+    // HTTP pipeline, not by calling the controller method directly) already
+    // proved recent identity via POST /auth/elevate.
     it('rejects when MFA is not currently enabled', async () => {
       prisma.user.findUniqueOrThrow.mockResolvedValue({ mfaEnabled: false, mfaSecret: null });
 
-      await expect(
-        controller.disable(user, fakeRequest(), { code: '123456' }),
-      ).rejects.toBeInstanceOf(BadRequestException);
-    });
-
-    it('rejects an invalid code and leaves MFA enabled', async () => {
-      prisma.user.findUniqueOrThrow.mockResolvedValue({
-        mfaEnabled: true,
-        mfaSecret: 'encrypted-secret',
-      });
-      mfaService.verifyMfaCodeOrRecoveryCode.mockResolvedValue(false);
-
-      await expect(
-        controller.disable(user, fakeRequest(), { code: 'wrong' }),
-      ).rejects.toBeInstanceOf(UnauthorizedException);
-      expect(prisma.user.update).not.toHaveBeenCalled();
+      await expect(controller.disable(user, fakeRequest())).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
     });
 
     it('disables MFA, clears the secret/recovery codes, and records a security event on success', async () => {
@@ -210,9 +201,8 @@ describe('MfaController', () => {
         mfaEnabled: true,
         mfaSecret: 'encrypted-secret',
       });
-      mfaService.verifyMfaCodeOrRecoveryCode.mockResolvedValue(true);
 
-      const result = await controller.disable(user, fakeRequest(), { code: '123456' });
+      const result = await controller.disable(user, fakeRequest());
 
       expect(prisma.user.update).toHaveBeenCalledWith({
         where: { id: user.id },
@@ -236,9 +226,9 @@ describe('MfaController', () => {
     it('rejects when MFA is not currently enabled', async () => {
       prisma.user.findUniqueOrThrow.mockResolvedValue({ mfaEnabled: false, mfaSecret: null });
 
-      await expect(
-        controller.regenerateRecoveryCodes(user, fakeRequest(), { code: '123456' }),
-      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(controller.regenerateRecoveryCodes(user, fakeRequest())).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
     });
 
     it('replaces recovery codes and records a security event on success', async () => {
@@ -246,11 +236,8 @@ describe('MfaController', () => {
         mfaEnabled: true,
         mfaSecret: 'encrypted-secret',
       });
-      mfaService.verifyMfaCodeOrRecoveryCode.mockResolvedValue(true);
 
-      const result = await controller.regenerateRecoveryCodes(user, fakeRequest(), {
-        code: '123456',
-      });
+      const result = await controller.regenerateRecoveryCodes(user, fakeRequest());
 
       expect(prisma.mfaRecoveryCode.deleteMany).toHaveBeenCalledWith({
         where: { userId: user.id },

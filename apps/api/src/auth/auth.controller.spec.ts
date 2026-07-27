@@ -52,6 +52,8 @@ describe('AuthController', () => {
     isMfaEnabled: jest.Mock;
     checkTrustedDevice: jest.Mock;
     issueMfaChallengeToken: jest.Mock;
+    verifyElevationCredential: jest.Mock;
+    elevateSession: jest.Mock;
   };
   let loginBackoff: {
     checkAllowed: jest.Mock;
@@ -83,6 +85,8 @@ describe('AuthController', () => {
       isMfaEnabled: jest.fn().mockResolvedValue(false),
       checkTrustedDevice: jest.fn().mockResolvedValue(false),
       issueMfaChallengeToken: jest.fn().mockReturnValue('mfa-challenge-token'),
+      verifyElevationCredential: jest.fn().mockResolvedValue(true),
+      elevateSession: jest.fn().mockResolvedValue(new Date(Date.now() + 15 * 60 * 1000)),
     };
     loginBackoff = {
       checkAllowed: jest.fn().mockResolvedValue({ allowed: true, retryAfterMs: 0 }),
@@ -562,17 +566,42 @@ describe('AuthController', () => {
         emailVerified: false,
       };
 
-      const result = await controller.changePassword(
-        { currentPassword: 'currentplaintext', newPassword: 'newplaintext' },
-        user,
-      );
+      const result = await controller.changePassword({ newPassword: 'newplaintext' }, user);
 
-      expect(authService.changePassword).toHaveBeenCalledWith(
-        'user-1',
-        'currentplaintext',
-        'newplaintext',
-      );
+      expect(authService.changePassword).toHaveBeenCalledWith('user-1', 'newplaintext');
       expect(result).toEqual({ success: true });
+    });
+  });
+
+  describe('elevate', () => {
+    const user = {
+      id: 'user-1',
+      email: 'a@example.com',
+      role: 'CREATOR' as const,
+      emailVerified: true,
+    };
+
+    it('verifies the credential, elevates the session, and returns the expiry', async () => {
+      authService.verifyElevationCredential.mockResolvedValue(true);
+      const elevatedUntil = new Date(Date.now() + 15 * 60 * 1000);
+      authService.elevateSession.mockResolvedValue(elevatedUntil);
+
+      const result = await controller.elevate({ code: '123456' }, user, 'session-1');
+
+      expect(authService.verifyElevationCredential).toHaveBeenCalledWith('user-1', {
+        code: '123456',
+      });
+      expect(authService.elevateSession).toHaveBeenCalledWith('session-1');
+      expect(result).toEqual({ success: true, elevatedUntil });
+    });
+
+    it('rejects an invalid credential without elevating the session', async () => {
+      authService.verifyElevationCredential.mockResolvedValue(false);
+
+      await expect(controller.elevate({ code: 'wrong' }, user, 'session-1')).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(authService.elevateSession).not.toHaveBeenCalled();
     });
   });
 });

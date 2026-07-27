@@ -17,7 +17,9 @@ import type { Request, Response } from 'express';
 import { setAuthCookies, setTrustedDeviceCookie } from '../auth-cookies.util';
 import { AuthService, type SafeUser } from '../auth.service';
 import { CurrentUser } from '../decorators/current-user.decorator';
+import { RequireRecentMfa } from '../decorators/require-recent-mfa.decorator';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
+import { RecentMfaGuard } from '../guards/recent-mfa.guard';
 import { PrismaService } from '../../prisma/prisma.service';
 import { MfaChallengeDto } from './dto/mfa-challenge.dto';
 import { MfaCodeDto } from './dto/mfa-code.dto';
@@ -128,25 +130,21 @@ export class MfaController {
     return { recoveryCodes };
   }
 
+  // Tahap 2 Step 2 Sprint 2b (Session Elevation) - no longer takes/checks a
+  // code of its own: RecentMfaGuard already proved recent identity via
+  // POST /auth/elevate (a code or the current password, whichever applies
+  // to the account).
   @Post('disable')
   @HttpCode(200)
-  @UseGuards(JwtAuthGuard)
-  async disable(@CurrentUser() user: SafeUser, @Req() req: Request, @Body() body: MfaCodeDto) {
+  @UseGuards(JwtAuthGuard, RecentMfaGuard)
+  @RequireRecentMfa()
+  async disable(@CurrentUser() user: SafeUser, @Req() req: Request) {
     const record = await this.prisma.user.findUniqueOrThrow({
       where: { id: user.id },
       select: { mfaEnabled: true, mfaSecret: true },
     });
     if (!record.mfaEnabled || !record.mfaSecret) {
       throw new BadRequestException('MFA is not enabled');
-    }
-
-    const verified = await this.mfaService.verifyMfaCodeOrRecoveryCode(
-      user.id,
-      record.mfaSecret,
-      body.code,
-    );
-    if (!verified) {
-      throw new UnauthorizedException('Invalid verification code');
     }
 
     await this.prisma.$transaction(async (tx) => {
@@ -176,29 +174,19 @@ export class MfaController {
     return { success: true };
   }
 
+  // Tahap 2 Step 2 Sprint 2b (Session Elevation) - same "no code of its own,
+  // RecentMfaGuard already proved it" posture as disable above.
   @Post('recovery-codes/regenerate')
   @HttpCode(200)
-  @UseGuards(JwtAuthGuard)
-  async regenerateRecoveryCodes(
-    @CurrentUser() user: SafeUser,
-    @Req() req: Request,
-    @Body() body: MfaCodeDto,
-  ) {
+  @UseGuards(JwtAuthGuard, RecentMfaGuard)
+  @RequireRecentMfa()
+  async regenerateRecoveryCodes(@CurrentUser() user: SafeUser, @Req() req: Request) {
     const record = await this.prisma.user.findUniqueOrThrow({
       where: { id: user.id },
       select: { mfaEnabled: true, mfaSecret: true },
     });
     if (!record.mfaEnabled || !record.mfaSecret) {
       throw new BadRequestException('MFA is not enabled');
-    }
-
-    const verified = await this.mfaService.verifyMfaCodeOrRecoveryCode(
-      user.id,
-      record.mfaSecret,
-      body.code,
-    );
-    if (!verified) {
-      throw new UnauthorizedException('Invalid verification code');
     }
 
     const recoveryCodes = this.mfaService.generateRecoveryCodes();
