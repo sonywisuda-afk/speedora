@@ -48,7 +48,7 @@ export function UploadProgress({
   const displayedProgress = useSmoothedProgress(progress);
 
   return (
-    <div className="rounded-lg border border-border bg-slate-panel p-6">
+    <div className="rounded-lg border border-border bg-muted p-6">
       <div className="flex items-center justify-between font-mono text-xs text-muted-foreground">
         <span className="truncate">{file.name}</span>
         <span className="shrink-0 pl-3">{formatSize(file.size)}</span>

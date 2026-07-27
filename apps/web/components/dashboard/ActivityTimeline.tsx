@@ -36,7 +36,7 @@ const ActivityRow = memo(function ActivityRow({ event }: { event: ActivityEventD
   const Icon = ICONS[event.type];
   return (
     <div className="flex items-center gap-3 p-3">
-      <Icon className="h-4 w-4 shrink-0 text-chrome" aria-hidden="true" />
+      <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       <p className="flex-1 font-body text-sm text-foreground">{describe(event)}</p>
       <span className="shrink-0 font-mono text-xs text-muted-foreground">
         {formatRelativeTime(event.createdAt)}

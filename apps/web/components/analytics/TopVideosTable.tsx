@@ -58,7 +58,7 @@ export function TopVideosTable({ videos }: TopVideosTableProps) {
                 <button
                   type="button"
                   onClick={() => toggleSort(column.key)}
-                  className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground hover:text-signal-cyan"
+                  className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground hover:text-primary"
                 >
                   {column.label}
                   {sortKey === column.key ? (sortDirection === 'desc' ? ' ↓' : ' ↑') : ''}
@@ -78,12 +78,12 @@ export function TopVideosTable({ videos }: TopVideosTableProps) {
             <tr key={video.videoId} className="border-b border-border/50">
               <td className="max-w-[16rem] truncate p-2 text-foreground">{video.videoLabel}</td>
               <td className="p-2 text-right font-mono text-foreground">{video.clipCount}</td>
-              <td className="p-2 text-right font-mono text-signal-cyan">
+              <td className="p-2 text-right font-mono text-primary">
                 {video.averageEngagementScore !== null
                   ? video.averageEngagementScore.toFixed(2)
                   : '—'}
               </td>
-              <td className="p-2 text-right font-mono text-signal-cyan">
+              <td className="p-2 text-right font-mono text-ai">
                 {video.averageHighlightScore !== null
                   ? Math.round(video.averageHighlightScore)
                   : '—'}

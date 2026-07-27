@@ -4,65 +4,143 @@
 
 /*
  * Design tokens (HSL triplets, no hsl() wrapper — shadcn/tailwind convention
- * so utilities like bg-primary/50 can apply opacity).  Source-of-truth hex:
- *   Bay Black    #0B0E14  -> 220 29% 6%
- *   Slate Panel  #151922  -> 222 24% 11%
- *   Chrome       #A8B0BE  -> 218 14% 70%
- *   Signal Pink  #FF3B7F  -> 339 100% 62%
- *   Signal Cyan  #22E6D6  -> 175 80% 52%
- *   Paper White  #EDEFF2  -> 216 16% 94%
- * Single dark theme by design (no light-mode toggle) — inverted sections
- * apply bg-paper-white/text-bay-black directly rather than switching themes.
+ * so utilities like bg-primary/50 can apply opacity). Replaces the earlier
+ * single-dark-theme Bay Black/Signal Pink system with a light-first,
+ * blue-primary SaaS palette (Linear/Stripe/Notion AI direction) that
+ * supports both themes via next-themes' `.dark` class strategy.
+ *
+ * Foreground pairing rule (WCAG AA, verified against both white and
+ * slate-900 text at each color's DEFAULT lightness): primary and ai use
+ * white text (5.17:1 / 5.70:1); secondary, success, warning, error/
+ * destructive, and info use slate-900 text (4.74:1-8.31:1) because their
+ * DEFAULT lightness is too high for white text to clear 4.5:1.
+ *
+ * Source-of-truth hex, light mode:
+ *   Primary          #2563EB   Primary Hover   #1D4ED8   Primary Active #1E40AF
+ *   Primary Light    #DBEAFE   Primary Surface #EFF6FF
+ *   Secondary        #06B6D4   Secondary Hover #0891B2   Secondary Surface #ECFEFF
+ *   Success          #22C55E   Success Surface #DCFCE7
+ *   Warning          #F59E0B   Warning Surface  #FEF3C7
+ *   Error            #EF4444   Error Surface    #FEE2E2
+ *   Info             #3B82F6   Info Surface     #DBEAFE
+ *   AI Accent        #7C3AED   AI Surface       #F3E8FF
+ *   Background #F8FAFC  Surface #FFFFFF  Surface2 #F1F5F9  Border #E2E8F0
+ * Dark mode backgrounds: Background #0F172A  Surface #111827  Card #1E293B
+ * Border #334155 — all neutral values are Tailwind's built-in `slate` scale.
  */
 :root {
-  --background: 220 29% 6%; /* Bay Black */
-  --foreground: 216 16% 94%; /* Paper White */
+  --background: 210 40% 98%; /* slate-50 */
+  --foreground: 222 47% 11%; /* slate-900 */
 
-  --card: 222 24% 11%; /* Slate Panel */
-  --card-foreground: 216 16% 94%; /* Paper White */
+  --card: 0 0% 100%; /* white */
+  --card-foreground: 222 47% 11%;
 
-  --popover: 222 24% 11%; /* Slate Panel */
-  --popover-foreground: 216 16% 94%; /* Paper White */
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
 
-  --primary: 339 100% 62%; /* Signal Pink */
-  --primary-foreground: 216 16% 94%; /* Paper White */
+  --primary: 221 83% 53%; /* #2563EB */
+  --primary-hover: 224 76% 48%; /* #1D4ED8 */
+  --primary-active: 226 71% 40%; /* #1E40AF */
+  --primary-light: 214 95% 93%; /* #DBEAFE */
+  --primary-surface: 214 100% 97%; /* #EFF6FF */
+  --primary-foreground: 0 0% 100%;
 
-  --secondary: 175 80% 52%; /* Signal Cyan */
-  --secondary-foreground: 220 29% 6%; /* Bay Black */
+  --secondary: 189 94% 43%; /* #06B6D4 */
+  --secondary-hover: 192 91% 36%; /* #0891B2 */
+  --secondary-surface: 183 100% 96%; /* #ECFEFF */
+  --secondary-foreground: 222 47% 11%;
 
-  --muted: 222 24% 11%; /* Slate Panel */
-  --muted-foreground: 218 14% 70%; /* Chrome */
-
-  --accent: 222 24% 16%; /* Slate Panel, lifted a step for hover states */
-  --accent-foreground: 216 16% 94%; /* Paper White */
-
-  /* Not one of the 6 named tokens — form/destructive states need a red the
-     brief doesn't specify. Flagging for confirmation; easy to swap later
-     since every component reads --destructive, not a hardcoded hex. */
-  --destructive: 355 85% 62%;
-  --destructive-foreground: 216 16% 94%;
-
-  /* Quality Validation roadmap - Warning/Info-tier status colors for
-     QualityValidation.tsx's check rows and ProgressSteps' PENDING_SETTINGS
-     state. Not one of the 6 named tokens either; kept minimal here (this
-     branch has no theme switching) rather than pulling in a full palette. */
-  --success: 142 71% 45%;
-  --success-surface: 141 84% 93%;
+  --success: 142 71% 45%; /* #22C55E */
+  --success-surface: 141 84% 93%; /* #DCFCE7 */
   --success-foreground: 222 47% 11%;
-  --warning: 38 92% 50%;
-  --warning-surface: 48 96% 89%;
+
+  --warning: 38 92% 50%; /* #F59E0B */
+  --warning-surface: 48 96% 89%; /* #FEF3C7 */
   --warning-foreground: 222 47% 11%;
-  --info: 217 91% 60%;
-  --info-surface: 214 95% 93%;
+
+  --info: 217 91% 60%; /* #3B82F6 */
+  --info-surface: 214 95% 93%; /* #DBEAFE */
   --info-foreground: 222 47% 11%;
 
-  /* Hairline border/input tone — also not one of the 6 tokens, tuned as a
-     step above Slate Panel so 1px borders read against card surfaces. */
-  --border: 222 18% 20%;
-  --input: 222 18% 20%;
-  --ring: 339 100% 62%; /* Signal Pink focus ring */
+  /* "AI Generated" / AI-feature accent — used sparingly (AI Insights, Clip
+     Suggestion, Subtitle) so it stays a distinct signal, not a competing
+     primary. */
+  --ai-accent: 262 83% 58%; /* #7C3AED */
+  --ai-accent-surface: 269 100% 95%; /* #F3E8FF */
+  --ai-accent-foreground: 0 0% 100%;
 
-  --radius: 0.25rem; /* precision-instrument feel, not shadcn's default soft 0.5rem */
+  --destructive: 0 84% 60%; /* #EF4444 */
+  --destructive-surface: 0 93% 94%; /* #FEE2E2 */
+  --destructive-foreground: 222 47% 11%;
+
+  --muted: 210 40% 96%; /* slate-100 */
+  --muted-foreground: 215 16% 47%; /* slate-500 */
+
+  --accent: 214 100% 97%; /* primary-surface, used for hover/selected rows */
+  --accent-foreground: 221 83% 53%;
+
+  --border: 214 32% 91%; /* slate-200 */
+  --input: 214 32% 91%;
+  --ring: 221 83% 53%; /* primary, 2px focus ring */
+
+  --radius: 0.75rem; /* 12px */
+}
+
+.dark {
+  --background: 222 47% 11%; /* #0F172A */
+  --foreground: 210 40% 98%; /* slate-50 */
+
+  --card: 217 33% 17%; /* #1E293B */
+  --card-foreground: 210 40% 98%;
+
+  --popover: 221 39% 11%; /* #111827 */
+  --popover-foreground: 210 40% 98%;
+
+  /* Brand hues stay constant across themes (Vercel/Linear convention) —
+     only neutrals and tinted surfaces invert. */
+  --primary: 221 83% 53%;
+  --primary-hover: 217 91% 60%; /* lighten on dark instead of darkening */
+  --primary-active: 224 76% 48%;
+  --primary-light: 221 60% 22%;
+  --primary-surface: 221 45% 16%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 189 94% 43%;
+  --secondary-hover: 186 91% 55%;
+  --secondary-surface: 189 40% 16%;
+  --secondary-foreground: 222 47% 11%;
+
+  --success: 142 65% 50%;
+  --success-surface: 142 30% 16%;
+  --success-foreground: 222 47% 11%;
+
+  --warning: 38 92% 55%;
+  --warning-surface: 38 40% 16%;
+  --warning-foreground: 222 47% 11%;
+
+  --info: 217 91% 65%;
+  --info-surface: 217 40% 18%;
+  --info-foreground: 222 47% 11%;
+
+  --ai-accent: 262 83% 65%;
+  --ai-accent-surface: 262 35% 20%;
+  --ai-accent-foreground: 0 0% 100%;
+
+  --destructive: 0 84% 65%;
+  --destructive-surface: 0 40% 18%;
+  --destructive-foreground: 222 47% 11%;
+
+  --muted: 217 33% 17%; /* #1E293B */
+  --muted-foreground: 215 20% 65%; /* slate-400 */
+
+  --accent: 217 33% 17%;
+  --accent-foreground: 210 40% 98%;
+
+  --border: 215 25% 27%; /* #334155 */
+  --input: 215 25% 27%;
+  --ring: 217 91% 65%;
+
+  --radius: 0.75rem;
 }
 
 body {
@@ -74,18 +152,19 @@ body {
 @layer base {
   /* Universal pressed-state feedback: EVERY interactive control (styled
      Button, raw <button>, and <a> rendered via Button asChild) visibly
-     reacts to a click - a quick shrink + brightness pop - so a press never
-     feels like it went nowhere, even for controls whose result takes a
-     server round-trip. Kept in base layer so per-component utilities can
-     still override it. */
+     reacts to a click - a quick shrink so a press never feels like it went
+     nowhere, even for controls whose result takes a server round-trip.
+     Kept in base layer so per-component utilities can still override it. */
   button:not(:disabled):active,
   [role='button']:not([aria-disabled='true']):active,
   a:active {
-    transform: scale(0.96);
-    filter: brightness(1.35);
-    transition:
-      transform 80ms ease-out,
-      filter 80ms ease-out;
+    transform: scale(0.97);
+    transition: transform 80ms ease-out;
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
   }
 }
 

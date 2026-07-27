@@ -50,7 +50,7 @@ export function FeatureCompletenessTable({ rows }: FeatureCompletenessTableProps
               <td
                 className={cn(
                   'p-2 text-right font-mono text-xs',
-                  row.missingRatePct > 80 ? 'text-rose-400' : 'text-muted-foreground',
+                  row.missingRatePct > 80 ? 'text-destructive' : 'text-muted-foreground',
                 )}
               >
                 {row.missingRatePct}%

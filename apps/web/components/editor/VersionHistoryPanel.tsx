@@ -81,7 +81,7 @@ export function VersionHistoryPanel() {
           {versions.map((version) => (
             <div
               key={version.id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-slate-panel p-2 font-body text-sm"
+              className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border bg-muted p-2 font-body text-sm"
             >
               <div className="flex items-center gap-2">
                 <span className="font-medium text-foreground">v{version.versionNumber}</span>
@@ -96,7 +96,7 @@ export function VersionHistoryPanel() {
                 {version.downloadUrl && (
                   <a
                     href={clipVersionDownloadUrl(version.downloadUrl)}
-                    className="text-xs text-signal-cyan underline"
+                    className="text-xs text-primary underline"
                   >
                     Unduh
                   </a>
@@ -122,7 +122,7 @@ export function VersionHistoryPanel() {
       )}
 
       {compareVersion && (
-        <div className="mt-3 grid grid-cols-1 gap-3 rounded-md border border-border bg-slate-panel p-3 sm:grid-cols-2">
+        <div className="mt-3 grid grid-cols-1 gap-3 rounded-md border border-border bg-muted p-3 sm:grid-cols-2">
           <div>
             <p className="font-mono text-xs uppercase tracking-wide text-muted-foreground">
               v{compareVersion.versionNumber} (lama)
@@ -145,7 +145,7 @@ export function VersionHistoryPanel() {
             </dl>
           </div>
           <div>
-            <p className="font-mono text-xs uppercase tracking-wide text-signal-cyan">Saat Ini</p>
+            <p className="font-mono text-xs uppercase tracking-wide text-primary">Saat Ini</p>
             <dl className="mt-2 space-y-1 font-body text-xs text-muted-foreground">
               <div>
                 Trim: {formatTimestamp(currentClip.startTime)}–

@@ -67,7 +67,7 @@ export function WorkspaceSwitcher() {
         <select
           value={activeWorkspaceId ?? ''}
           onChange={(e) => setActiveWorkspaceId(e.target.value)}
-          className="h-8 rounded-md border border-input bg-slate-panel px-2 font-body text-xs text-foreground"
+          className="h-8 rounded-md border border-input bg-background px-2 font-body text-xs text-foreground"
         >
           {workspaces.map((w) => (
             <option key={w.id} value={w.id}>

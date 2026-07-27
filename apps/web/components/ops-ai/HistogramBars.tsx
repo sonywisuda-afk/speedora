@@ -19,13 +19,13 @@ export function HistogramBars({ bars }: HistogramBarsProps) {
           <span className="w-16 shrink-0 font-mono text-[10px] text-muted-foreground">
             {bucket.bucket}
           </span>
-          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-panel">
+          <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
             <div
-              className="h-full rounded-full bg-signal-cyan"
+              className="h-full rounded-full bg-ai"
               style={{ width: `${toBarPercent(bucket.count, max)}%` }}
             />
           </div>
-          <span className="w-6 shrink-0 text-right font-mono text-[10px] text-signal-cyan">
+          <span className="w-6 shrink-0 text-right font-mono text-[10px] text-ai">
             {bucket.count}
           </span>
         </div>

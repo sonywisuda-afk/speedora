@@ -63,7 +63,7 @@ export function DriftTable({ insufficientData, entries }: DriftTableProps) {
             <td
               className={cn(
                 'p-2 text-right font-mono text-xs',
-                row.drifted ? 'text-rose-400' : 'text-emerald-400',
+                row.drifted ? 'text-destructive' : 'text-success',
               )}
             >
               {row.drifted ? 'Ya' : 'Tidak'}

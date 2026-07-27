@@ -56,7 +56,7 @@ export default function ResetPasswordPage() {
         <CardContent>
           {done ? (
             <div className="space-y-4">
-              <p className="font-body text-sm text-signal-cyan">
+              <p className="font-body text-sm text-success">
                 Kata sandi berhasil diganti. Kamu sudah masuk.
               </p>
               <Button asChild className="w-full">

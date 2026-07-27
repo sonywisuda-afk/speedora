@@ -43,15 +43,34 @@ should be built from these pieces instead of importing Recharts directly.
 
 ## Color
 
-- Single-series charts default to this app's established primary-metric
-  color (signal-cyan, `#22E6D6`) — don't pass a color unless you have a
-  reason to.
-- Multi-series charts must set `color` explicitly per series. Neither chart
-  wrapper auto-cycles hues — this app only has 2 named brand colors
-  (signal-cyan, signal-pink) today, not a validated categorical palette. If
-  a chart genuinely needs 3+ distinct series colors, that's a real need for
-  a fixed, colorblind-safe categorical order — run it through the dataviz
-  skill's `validate_palette.js` before picking hues, don't guess.
+- Single-series charts default to this app's primary-metric color
+  (`hsl(var(--primary))`, the system's blue) — don't pass a color unless you
+  have a reason to. It resolves automatically in both light and dark mode,
+  same as the grid/axis/tooltip colors below.
+- Multi-series charts must set `color` explicitly per series, in this fixed
+  order (validated via the dataviz skill's `validate_palette.js` against
+  both this app's light surface and its dark card surface `#1E293B` — ALL
+  CHECKS PASS in both modes, CVD separation and contrast both clear their
+  floors with the existing tooltip/legend as the required secondary
+  encoding):
+
+  | # | Light mode | Dark mode | Semantic token |
+  |---|---|---|---|
+  | 1 | `#2563EB` | `#2563EB` | primary |
+  | 2 | `#F59E0B` | `#D97706` | warning |
+  | 3 | `#7C3AED` | `#7C3AED` | ai |
+  | 4 | `#22C55E` | `#059669` | success |
+  | 5 | `#EF4444` | `#EF4444` | destructive |
+  | 6 | `#06B6D4` | `#0891B2` | secondary |
+
+  Dark-mode values differ from the semantic token defaults for warning/
+  success/secondary — the OKLCH lightness band a chart mark needs against a
+  dark surface (0.48-0.67) is stricter than what those tokens' own
+  text-contrast pairing needed, so the light-mode 500-shade reads as too
+  light on a dark chart surface; use the darker (600-shade-equivalent) hex
+  above for chart marks specifically, not the `--warning`/`--success`/
+  `--secondary` CSS vars. Re-run the validator before extending past 6
+  series or changing any of these values.
 
 ## Tooltip
 

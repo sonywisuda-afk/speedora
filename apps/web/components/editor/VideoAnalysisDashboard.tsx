@@ -105,7 +105,7 @@ export function VideoAnalysisDashboard() {
             <p className="font-mono text-[10px] uppercase tracking-wide text-muted-foreground">
               Heatmap Klip di Sepanjang Video
             </p>
-            <div className="relative mt-2 h-8 w-full overflow-hidden rounded-sm bg-slate-panel">
+            <div className="relative mt-2 h-8 w-full overflow-hidden rounded-sm bg-muted">
               {clips.map((clip) => {
                 const left = (clip.startTime / duration) * 100;
                 const width = ((clip.endTime - clip.startTime) / duration) * 100;
@@ -122,7 +122,10 @@ export function VideoAnalysisDashboard() {
                     style={{
                       left: `${left}%`,
                       width: `${Math.max(width, 0.5)}%`,
-                      backgroundColor: `rgba(255, 59, 127, ${intensity})`,
+                      // Deliberately primary blue, not the ai-accent purple ExplainabilityTimeline
+                      // uses for highlightScore - this is viralityScore, and docs/frontend.md
+                      // calls out that the two heatmaps must stay visually distinguishable.
+                      backgroundColor: `rgba(37, 99, 235, ${intensity})`,
                     }}
                     title={`Skor ${Math.round(clip.viralityScore)}${clip.hookText ? ` — ${clip.hookText}` : ''}`}
                     aria-label={`Pilih klip dengan skor ${Math.round(clip.viralityScore)}`}
@@ -148,9 +151,9 @@ export function VideoAnalysisDashboard() {
                   key={clip.id}
                   type="button"
                   onClick={() => selectClip(clip.id)}
-                  className="flex w-full items-center gap-3 rounded-md border border-border bg-slate-panel p-2 text-left transition-colors hover:border-signal-pink/50"
+                  className="flex w-full items-center gap-3 rounded-md border border-border bg-muted p-2 text-left transition-colors hover:border-primary/50"
                 >
-                  <span className="w-6 shrink-0 font-display text-lg text-chrome">
+                  <span className="w-6 shrink-0 font-display text-lg text-muted-foreground">
                     #{index + 1}
                   </span>
                   <ScoreGauge score={clip.viralityScore} size={36} />
@@ -161,7 +164,7 @@ export function VideoAnalysisDashboard() {
                     <p className="font-mono text-xs text-muted-foreground">
                       {formatDuration(clipDuration)}
                       {isOptimalDuration ? (
-                        <span className="ml-2 text-signal-cyan">Durasi optimal</span>
+                        <span className="ml-2 text-success">Durasi optimal</span>
                       ) : null}
                     </p>
                   </div>
@@ -182,13 +185,13 @@ export function VideoAnalysisDashboard() {
                   <span className="w-32 shrink-0 font-mono text-[10px] text-muted-foreground">
                     {SCORE_LABELS[key]}
                   </span>
-                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-panel">
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                     <div
-                      className="h-full rounded-full bg-signal-cyan"
+                      className="h-full rounded-full bg-primary"
                       style={{ width: `${avgScores[key]}%` }}
                     />
                   </div>
-                  <span className="w-8 shrink-0 text-right font-mono text-[10px] text-signal-cyan">
+                  <span className="w-8 shrink-0 text-right font-mono text-[10px] text-primary">
                     {Math.round(avgScores[key])}
                   </span>
                 </div>

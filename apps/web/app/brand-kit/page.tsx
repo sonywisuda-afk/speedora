@@ -443,7 +443,7 @@ export default function BrandKitPage() {
                         src={brandKitLogoUrl(workspaceParam)}
                         crossOrigin="use-credentials"
                         alt="Logo brand"
-                        className="h-20 w-20 rounded-md border border-border bg-slate-panel object-contain"
+                        className="h-20 w-20 rounded-md border border-border bg-muted object-contain"
                       />
                     ) : (
                       <div className="flex h-20 w-20 items-center justify-center rounded-md border border-dashed border-border font-mono text-[10px] text-muted-foreground">
@@ -522,7 +522,7 @@ export default function BrandKitPage() {
                   <select
                     value={font}
                     onChange={(e) => setFontFamily(e.target.value)}
-                    className="h-9 rounded-md border border-input bg-slate-panel px-3 font-body text-sm text-foreground"
+                    className="h-9 rounded-md border border-input bg-background px-3 font-body text-sm text-foreground"
                   >
                     <option value="">Default (Inter)</option>
                     {FONT_FAMILIES.map((name) => (
@@ -546,7 +546,7 @@ export default function BrandKitPage() {
                         src={brandKitWatermarkUrl(workspaceParam)}
                         crossOrigin="use-credentials"
                         alt="Watermark brand"
-                        className="h-20 w-20 rounded-md border border-border bg-slate-panel object-contain"
+                        className="h-20 w-20 rounded-md border border-border bg-muted object-contain"
                       />
                     ) : (
                       <div className="flex h-20 w-20 items-center justify-center rounded-md border border-dashed border-border font-mono text-[10px] text-muted-foreground">
@@ -586,7 +586,7 @@ export default function BrandKitPage() {
                       <select
                         value={position}
                         onChange={(e) => setWatermarkPosition(e.target.value as WatermarkPosition)}
-                        className="h-9 rounded-md border border-input bg-slate-panel px-3 font-body text-sm text-foreground"
+                        className="h-9 rounded-md border border-input bg-background px-3 font-body text-sm text-foreground"
                       >
                         {WATERMARK_POSITIONS.map((pos) => (
                           <option key={pos} value={pos}>
@@ -653,14 +653,14 @@ export default function BrandKitPage() {
                           src={brandKitIntroUrl(workspaceParam)}
                           crossOrigin="use-credentials"
                           muted
-                          className="h-20 w-20 rounded-md border border-border bg-slate-panel object-contain"
+                          className="h-20 w-20 rounded-md border border-border bg-muted object-contain"
                         />
                       ) : (
                         <img
                           src={brandKitIntroUrl(workspaceParam)}
                           crossOrigin="use-credentials"
                           alt="Intro brand"
-                          className="h-20 w-20 rounded-md border border-border bg-slate-panel object-contain"
+                          className="h-20 w-20 rounded-md border border-border bg-muted object-contain"
                         />
                       )
                     ) : (
@@ -729,14 +729,14 @@ export default function BrandKitPage() {
                           src={brandKitOutroUrl(workspaceParam)}
                           crossOrigin="use-credentials"
                           muted
-                          className="h-20 w-20 rounded-md border border-border bg-slate-panel object-contain"
+                          className="h-20 w-20 rounded-md border border-border bg-muted object-contain"
                         />
                       ) : (
                         <img
                           src={brandKitOutroUrl(workspaceParam)}
                           crossOrigin="use-credentials"
                           alt="Outro brand"
-                          className="h-20 w-20 rounded-md border border-border bg-slate-panel object-contain"
+                          className="h-20 w-20 rounded-md border border-border bg-muted object-contain"
                         />
                       )
                     ) : (
@@ -810,7 +810,7 @@ export default function BrandKitPage() {
                       {presetsData.presets.map((preset) => (
                         <li
                           key={preset.id}
-                          className="flex items-center justify-between gap-3 rounded-md border border-border bg-slate-panel px-3 py-2"
+                          className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted px-3 py-2"
                         >
                           <div className="min-w-0">
                             <p className="truncate font-body text-sm text-foreground">
@@ -876,7 +876,7 @@ export default function BrandKitPage() {
                       {templatesData.templates.map((template) => (
                         <li
                           key={template.id}
-                          className="flex items-center justify-between gap-3 rounded-md border border-border bg-slate-panel px-3 py-2"
+                          className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted px-3 py-2"
                         >
                           <div className="min-w-0">
                             <p className="truncate font-body text-sm text-foreground">

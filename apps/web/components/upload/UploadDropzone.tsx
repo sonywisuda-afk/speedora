@@ -87,8 +87,8 @@ export function UploadDropzone({
       className={cn(
         'flex min-h-80 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed px-6 py-12 text-center transition-colors',
         isDragOver
-          ? 'border-signal-pink bg-signal-pink/5'
-          : 'border-border bg-slate-panel hover:border-chrome/40',
+          ? 'border-primary bg-primary/5'
+          : 'border-border bg-muted hover:border-muted-foreground/40',
       )}
     >
       <input
@@ -101,7 +101,7 @@ export function UploadDropzone({
         onChange={(e) => handleFiles(e.target.files)}
       />
       <UploadCloud
-        className={cn('h-10 w-10', isDragOver ? 'text-signal-pink' : 'text-chrome')}
+        className={cn('h-10 w-10', isDragOver ? 'text-primary' : 'text-muted-foreground')}
         aria-hidden="true"
       />
       <p className="mt-4 font-display text-xl uppercase tracking-wide text-foreground">

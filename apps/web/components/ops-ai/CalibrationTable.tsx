@@ -54,9 +54,7 @@ export function CalibrationTable({
               <td className="p-2 text-right font-mono text-xs text-muted-foreground">
                 {row.currentWeight}
               </td>
-              <td className="p-2 text-right font-mono text-xs text-signal-pink">
-                {row.suggestedWeight}
-              </td>
+              <td className="p-2 text-right font-mono text-xs text-ai">{row.suggestedWeight}</td>
             </tr>
           ))}
         </tbody>

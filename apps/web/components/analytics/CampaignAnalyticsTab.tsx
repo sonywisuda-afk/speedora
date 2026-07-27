@@ -67,7 +67,7 @@ export function CampaignAnalyticsTab({ campaignId, workspaceId }: CampaignAnalyt
         ) : justCreated ? (
           <p className="font-body text-sm text-muted-foreground">
             Tracking link dibuat:{' '}
-            <span className="font-mono text-xs text-signal-cyan">{justCreated.redirectUrl}</span>
+            <span className="font-mono text-xs text-info">{justCreated.redirectUrl}</span>
           </p>
         ) : (
           <TrackedLinkCreator
@@ -120,7 +120,7 @@ export function CampaignAnalyticsTab({ campaignId, workspaceId }: CampaignAnalyt
                     <td className="p-2 text-right font-mono text-foreground">{row.publishCount}</td>
                     <td className="p-2 text-right font-mono text-foreground">{row.totalViews}</td>
                     <td className="p-2 text-right font-mono text-foreground">{row.totalLikes}</td>
-                    <td className="p-2 text-right font-mono text-signal-cyan">
+                    <td className="p-2 text-right font-mono text-primary">
                       {formatEngagementScore(row.averageEngagementScore)}
                     </td>
                   </tr>

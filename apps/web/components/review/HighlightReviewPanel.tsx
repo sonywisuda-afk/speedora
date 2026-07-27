@@ -31,7 +31,7 @@ export function HighlightReviewPanel({ videoId, clips }: { videoId: string; clip
       {ranked.map((clip) => (
         <div
           key={clip.id}
-          className="flex items-center gap-3 rounded-md border border-border bg-slate-panel p-3"
+          className="flex items-center gap-3 rounded-md border border-border bg-muted p-3"
         >
           <button onClick={() => setPlayhead(clip.startTime)} className="shrink-0">
             <ScoreGauge score={clip.highlightScore ?? clip.viralityScore} size={32} />
@@ -48,7 +48,7 @@ export function HighlightReviewPanel({ videoId, clips }: { videoId: string; clip
           </div>
           <Link
             href={`/videos/${videoId}/explainability?clip=${clip.id}`}
-            className="shrink-0 font-body text-xs text-signal-cyan underline"
+            className="shrink-0 font-body text-xs text-primary underline"
           >
             Detail
           </Link>

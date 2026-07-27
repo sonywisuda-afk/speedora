@@ -25,7 +25,7 @@ export function PlatformFitHint({ clipId }: { clipId: string }) {
   return (
     <div className="mt-1">
       <p className="font-mono text-xs text-muted-foreground">
-        Best fit: <span className="text-signal-cyan">{platformLabel(top.platform)}</span>
+        Best fit: <span className="text-primary">{platformLabel(top.platform)}</span>
         {time && ` · ${time}`}{' '}
         <button
           type="button"
@@ -36,7 +36,7 @@ export function PlatformFitHint({ clipId }: { clipId: string }) {
         </button>
       </p>
       {expanded && (
-        <div className="mt-2 rounded-md border border-border bg-slate-panel/60 p-2">
+        <div className="mt-2 rounded-md border border-border bg-muted/60 p-2">
           <PlatformFitPanel clipId={clipId} />
         </div>
       )}

@@ -22,7 +22,7 @@ export function ReadinessPanel({
       <div className="flex items-center gap-2">
         <Badge
           variant={ready ? 'default' : 'outline'}
-          className={ready ? 'bg-emerald-500/20 text-emerald-400' : ''}
+          className={ready ? 'bg-success/20 text-success' : ''}
         >
           {ready ? 'Ready' : 'Not Ready'}
         </Badge>

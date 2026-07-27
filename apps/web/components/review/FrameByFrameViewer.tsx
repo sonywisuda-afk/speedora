@@ -45,7 +45,7 @@ export function FrameByFrameViewer({ videoId }: { videoId: string }) {
 
   return (
     <div>
-      <div className="relative w-full overflow-hidden bg-bay-black" style={{ aspectRatio: '16/9' }}>
+      <div className="relative w-full overflow-hidden bg-slate-950" style={{ aspectRatio: '16/9' }}>
         <video
           ref={videoRef}
           src={videoSourceUrl(videoId)}
@@ -58,13 +58,13 @@ export function FrameByFrameViewer({ videoId }: { videoId: string }) {
       <div className="mt-2 flex items-center justify-center gap-2">
         <button
           onClick={() => step(-30)}
-          className="rounded-md border border-border px-2 py-1 font-mono text-xs text-muted-foreground hover:bg-slate-panel"
+          className="rounded-md border border-border px-2 py-1 font-mono text-xs text-muted-foreground hover:bg-accent"
         >
           -1s
         </button>
         <button
           onClick={() => step(-1)}
-          className="rounded-md border border-border px-2 py-1 font-mono text-xs text-muted-foreground hover:bg-slate-panel"
+          className="rounded-md border border-border px-2 py-1 font-mono text-xs text-muted-foreground hover:bg-accent"
         >
           -1 frame
         </button>
@@ -73,13 +73,13 @@ export function FrameByFrameViewer({ videoId }: { videoId: string }) {
         </span>
         <button
           onClick={() => step(1)}
-          className="rounded-md border border-border px-2 py-1 font-mono text-xs text-muted-foreground hover:bg-slate-panel"
+          className="rounded-md border border-border px-2 py-1 font-mono text-xs text-muted-foreground hover:bg-accent"
         >
           +1 frame
         </button>
         <button
           onClick={() => step(30)}
-          className="rounded-md border border-border px-2 py-1 font-mono text-xs text-muted-foreground hover:bg-slate-panel"
+          className="rounded-md border border-border px-2 py-1 font-mono text-xs text-muted-foreground hover:bg-accent"
         >
           +1s
         </button>

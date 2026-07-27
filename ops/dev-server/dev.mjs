@@ -22,8 +22,15 @@ import {
   stopEntry,
   findOtherOrchestrators,
 } from './lib/lifecycle.mjs';
-import { writeEntry } from './lib/pidstore.mjs';
-import { killTree, killSingle, isAlive, portInUse, findPidsOnPort } from './lib/proc.mjs';
+import { writeEntry, removeEntry } from './lib/pidstore.mjs';
+import {
+  killTree,
+  killSingle,
+  isAlive,
+  verifyProcessAlive,
+  portInUse,
+  findPidsOnPort,
+} from './lib/proc.mjs';
 import {
   isDockerAvailable,
   composeStatus,
@@ -44,7 +51,7 @@ const RESTART_WINDOW_MS = 60_000;
 const COOLDOWN_MS = 300_000;
 
 let shuttingDown = false;
-const active = new Map(); // shortName -> { pid, child|null, service }
+const active = new Map(); // shortName -> { pid, child|null, service, verifyFragment }
 
 async function preflightDocker() {
   if (!isDockerAvailable()) {
@@ -99,14 +106,36 @@ function spawnService(service) {
   return child;
 }
 
+function commandFragmentFor(service) {
+  return `--filter ${service.name}`;
+}
+
 function recordEntry(service, pid) {
   writeEntry(service.shortName, {
     pid,
     port: service.port,
     role: service.group,
-    commandFragment: `--filter ${service.name}`,
+    commandFragment: commandFragmentFor(service),
     startedAt: new Date().toISOString(),
   });
+}
+
+/**
+ * Re-verifies a tracked `active` entry is still the same live process, using
+ * whatever command-line signature was captured for it at settle time (see
+ * `verifyFragment` on the values stored into `active`). Deliberately NOT a
+ * fixed `--filter <name>` fragment for every entry: a sweep-adopted "root"
+ * candidate can legitimately be a bare `tsc --watch` grandchild whose own
+ * command line never contains `--filter` (pnpm re-shells through an
+ * intermediate cmd.exe that loses it - see lifecycle.mjs's groupSweepMatches
+ * doc comment) even though it's a perfectly healthy instance of the service.
+ * Using the exact line captured for THIS candidate, whatever shape it is,
+ * avoids false-failing that case while still catching real PID reuse
+ * (an unrelated process's command line won't contain the old one) and dead/
+ * zombie PIDs (verifyProcessAlive rejects both).
+ */
+function verifyEntry(entry) {
+  return verifyProcessAlive(entry.pid, entry.verifyFragment);
 }
 
 function restartTracker() {
@@ -135,7 +164,12 @@ function attachSupervision(service) {
 
   const launch = () => {
     const child = spawnService(service);
-    active.set(service.shortName, { pid: child.pid, child, service });
+    active.set(service.shortName, {
+      pid: child.pid,
+      child,
+      service,
+      verifyFragment: commandFragmentFor(service),
+    });
     recordEntry(service, child.pid);
 
     child.on('exit', (code, signal) => {
@@ -168,21 +202,47 @@ async function settleService(service, sweepByPackage) {
 
   if (state.status === 'tracked' && !FORCE_RESTART) {
     log.ok(`${service.shortName}: already running (pid ${state.entry.pid}) - reusing`);
-    active.set(service.shortName, { pid: state.entry.pid, child: null, service });
+    active.set(service.shortName, {
+      pid: state.entry.pid,
+      child: null,
+      service,
+      verifyFragment: state.entry.commandFragment,
+    });
     return;
   }
 
   if (state.status === 'adoptable' && !FORCE_RESTART) {
-    const pid = state.roots[0].pid;
-    log.ok(`${service.shortName}: found an existing untracked instance (pid ${pid}) - adopting it`);
-    recordEntry(service, pid);
-    active.set(service.shortName, { pid, child: null, service });
-    return;
+    const root = state.roots[0];
+    if (verifyProcessAlive(root.pid, root.command)) {
+      log.ok(
+        `${service.shortName}: found an existing untracked instance (pid ${root.pid}) - adopting it`,
+      );
+      recordEntry(service, root.pid);
+      active.set(service.shortName, {
+        pid: root.pid,
+        child: null,
+        service,
+        verifyFragment: root.command,
+      });
+      return;
+    }
+    log.warn(
+      `${service.shortName}: candidate pid ${root.pid} failed verification (dead, zombie, or PID reused since ` +
+        'the sweep) - spawning a fresh instance instead',
+    );
+    // Deliberately no `return` here: falls through to the kill+spawn path
+    // below, which already treats `state.roots` (this same dead pid) as
+    // something to clean up before spawning fresh.
   }
 
   const rootsToKill = state.status === 'tracked' ? [{ pid: state.entry.pid }] : (state.roots ?? []);
   if (rootsToKill.length > 0) {
-    const reason = state.status === 'duplicate' ? 'stale duplicate(s)' : 'restart requested';
+    const reason =
+      state.status === 'duplicate'
+        ? 'stale duplicate(s)'
+        : state.status === 'adoptable'
+          ? 'failed verification'
+          : 'restart requested';
     log.warn(
       `${service.shortName}: stopping ${rootsToKill.length} existing process(es) (${reason})`,
     );
@@ -205,13 +265,23 @@ async function settleService(service, sweepByPackage) {
     }
   }
 
+  spawnAndTrack(service);
+}
+
+/** Spawns `service` fresh and records it in both `active` and the pidstore. */
+function spawnAndTrack(service) {
   if (SUPERVISE) {
     attachSupervision(service);
     return;
   }
 
   const child = spawnService(service);
-  active.set(service.shortName, { pid: child.pid, child, service });
+  active.set(service.shortName, {
+    pid: child.pid,
+    child,
+    service,
+    verifyFragment: commandFragmentFor(service),
+  });
   recordEntry(service, child.pid);
   child.on('exit', (code, signal) => {
     if (!shuttingDown) log.warn(`${service.shortName} exited (code=${code} signal=${signal})`);
@@ -295,21 +365,72 @@ async function main() {
     (r.ok ? log.ok : log.error)(`${r.name}: ${r.ok ? 'ready' : 'did not become ready within 45s'}`);
   }
 
+  await verifyAndRespawnDeadServices(services);
+
   log.ok(`${active.size}/${services.length} services running. Press Ctrl+C to stop everything.`);
   installShutdownHandlers();
 
   // Keep the event loop alive even if every service was reused/adopted
   // (i.e. nothing we spawned ourselves is holding stdio open), and
   // periodically notice if something we're tracking died outside our
-  // control.
+  // control. Uses the same PID+cmdline identity check as adoption, not a
+  // bare isAlive() - otherwise a recycled PID now belonging to an unrelated
+  // process would be misreported as "still running".
   setInterval(() => {
     for (const [name, entry] of active) {
-      if (!isAlive(entry.pid)) {
+      if (!verifyEntry(entry)) {
         log.warn(`${name} (pid ${entry.pid}) is no longer running`);
         active.delete(name);
       }
     }
   }, 10_000);
+}
+
+/**
+ * A second-pass liveness+identity re-check of every settled service,
+ * immediately before the startup summary is printed - and an immediate
+ * respawn of anything that fails it, so the summary reflects reality rather
+ * than a stale snapshot.
+ *
+ * This exists because a real run showed ~20 sweep-adopted services logged
+ * as "adopting it" and counted in "N/N services running", only to be
+ * reported dead by the very next 10s health tick: the sweep's process
+ * snapshot can catch a candidate mid-teardown, where isAlive() briefly
+ * still returns true before the OS finishes reclaiming the PID. A short
+ * settle delay plus a real re-verification (PID alive AND live command line
+ * still matches, not just "something responded to signal 0") catches that
+ * before it's ever reported as a success.
+ */
+async function verifyAndRespawnDeadServices(services) {
+  // Let anything mid-teardown at settle time actually finish dying before
+  // re-checking - re-verifying immediately would just race the same
+  // condition that caused the false "adopted" read in the first place.
+  await new Promise((r) => setTimeout(r, 2000));
+
+  const dead = [...active.entries()].filter(([, entry]) => !verifyEntry(entry));
+  if (dead.length === 0) return;
+
+  const servicesByShortName = new Map(services.map((s) => [s.shortName, s]));
+  for (const [name, entry] of dead) {
+    log.warn(
+      `${name}: pid ${entry.pid} did not survive verification (dead/zombie/PID reused) - respawning`,
+    );
+    active.delete(name);
+    removeEntry(name);
+    spawnAndTrack(servicesByShortName.get(name));
+  }
+
+  const respawnedHttp = dead
+    .map(([name]) => servicesByShortName.get(name))
+    .filter((s) => s.kind === 'http');
+  const readiness = await Promise.all(
+    respawnedHttp.map(async (s) => ({ name: s.shortName, ok: await waitReady(s) })),
+  );
+  for (const r of readiness) {
+    (r.ok ? log.ok : log.error)(
+      `${r.name}: ${r.ok ? 'ready (respawned)' : 'did not become ready after respawn'}`,
+    );
+  }
 }
 
 main().catch((err) => {

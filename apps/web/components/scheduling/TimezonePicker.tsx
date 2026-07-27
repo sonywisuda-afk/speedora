@@ -18,7 +18,7 @@ export function TimezonePicker({ value, onChange }: TimezonePickerProps) {
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="h-9 w-full rounded-md border border-input bg-slate-panel px-2 font-body text-sm text-foreground"
+      className="h-9 w-full rounded-md border border-input bg-background px-2 font-body text-sm text-foreground"
     >
       {zones.map((zone) => (
         <option key={zone} value={zone}>

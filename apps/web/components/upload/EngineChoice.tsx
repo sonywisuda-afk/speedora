@@ -92,7 +92,7 @@ export function EngineChoice({ onReady }: { onReady: (provider: TranscriptionPro
 
   if (stage === 'checking-out' || stage === 'awaiting-confirmation') {
     return (
-      <div className="flex min-h-80 flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-slate-panel px-6 py-12 text-center">
+      <div className="flex min-h-80 flex-col items-center justify-center rounded-lg border-2 border-dashed border-border bg-muted px-6 py-12 text-center">
         <Loader2 className="h-8 w-8 animate-spin text-chrome" aria-hidden="true" />
         <p className="mt-4 font-body text-sm text-muted-foreground">
           {stage === 'checking-out'

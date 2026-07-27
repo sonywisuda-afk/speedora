@@ -59,13 +59,13 @@ export function PlatformFitPanel({ clipId }: { clipId: string }) {
               <span className="w-20 shrink-0 font-body text-xs text-foreground">
                 {platformLabel(entry.platform)}
               </span>
-              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-panel">
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-muted">
                 <div
-                  className="h-full rounded-full bg-signal-cyan"
+                  className="h-full rounded-full bg-primary"
                   style={{ width: `${Math.max(0, Math.min(100, (entry.score / max) * 100))}%` }}
                 />
               </div>
-              <span className="w-8 shrink-0 text-right font-mono text-[10px] text-signal-cyan">
+              <span className="w-8 shrink-0 text-right font-mono text-[10px] text-primary">
                 {Math.round(entry.score)}
               </span>
             </div>

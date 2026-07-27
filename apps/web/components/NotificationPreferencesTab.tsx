@@ -45,7 +45,7 @@ function Switch({
       onClick={() => onChange(!checked)}
       className={cn(
         'relative h-5 w-9 shrink-0 rounded-full border border-border transition-colors',
-        checked ? 'bg-signal-pink' : 'bg-slate-panel',
+        checked ? 'bg-primary' : 'bg-muted',
         disabled && 'opacity-40',
       )}
     >
@@ -114,7 +114,7 @@ function DestinationRow({
       <span
         className={cn(
           'shrink-0 font-mono text-[10px] uppercase tracking-wide',
-          configured ? 'text-emerald-400' : 'text-muted-foreground',
+          configured ? 'text-success' : 'text-muted-foreground',
         )}
       >
         {configured ? 'Terhubung' : 'Belum diatur'}
@@ -193,7 +193,7 @@ function TelegramDestinationRow({
       <span
         className={cn(
           'shrink-0 font-mono text-[10px] uppercase tracking-wide',
-          configured ? 'text-emerald-400' : pending ? 'text-signal-pink' : 'text-muted-foreground',
+          configured ? 'text-success' : pending ? 'text-warning' : 'text-muted-foreground',
         )}
       >
         {configured ? 'Terhubung' : pending ? 'Menunggu konfirmasi...' : 'Belum diatur'}
@@ -212,7 +212,7 @@ function TelegramDestinationRow({
           href={`https://t.me/${webhook.telegramBotUsername}`}
           target="_blank"
           rel="noreferrer"
-          className="flex-1 font-body text-sm text-signal-pink underline"
+          className="flex-1 font-body text-sm text-warning underline"
         >
           Buka t.me/{webhook.telegramBotUsername} dan kirim /start
         </a>

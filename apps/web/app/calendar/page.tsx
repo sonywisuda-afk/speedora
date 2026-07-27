@@ -22,10 +22,10 @@ const DAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 // neutral since none of them is actionably different from a calendar
 // glance.
 const STATUS_TONE: Partial<Record<PublishStatus, string>> = {
-  [PublishStatus.PUBLISHED]: 'bg-emerald-500',
-  [PublishStatus.FAILED]: 'bg-rose-500',
+  [PublishStatus.PUBLISHED]: 'bg-success',
+  [PublishStatus.FAILED]: 'bg-destructive',
 };
-const DEFAULT_TONE = 'bg-slate-400';
+const DEFAULT_TONE = 'bg-muted-foreground';
 
 // Publishing Expansion Phase 6D (Calendar view) - a read-only rollup of the
 // workspace's PublishRecords (GET /workspaces/:id/calendar). No
@@ -160,7 +160,7 @@ export default function CalendarPage() {
                     {DAY_HEADERS.map((label) => (
                       <div
                         key={label}
-                        className="bg-slate-panel px-2 py-1.5 text-center font-mono text-[10px] uppercase tracking-wide text-muted-foreground"
+                        className="bg-muted px-2 py-1.5 text-center font-mono text-[10px] uppercase tracking-wide text-muted-foreground"
                       >
                         {label}
                       </div>
@@ -180,15 +180,15 @@ export default function CalendarPage() {
                           className={cn(
                             'flex min-h-20 flex-col items-start gap-1 bg-background p-1.5 text-left transition-colors disabled:cursor-default',
                             !inMonth && 'opacity-40',
-                            entries.length > 0 && 'hover:bg-slate-panel/60',
-                            isSelected && 'ring-2 ring-inset ring-signal-pink',
-                            isToday && 'bg-slate-panel',
+                            entries.length > 0 && 'hover:bg-accent',
+                            isSelected && 'ring-2 ring-inset ring-primary',
+                            isToday && 'bg-muted',
                           )}
                         >
                           <span
                             className={cn(
                               'font-mono text-xs',
-                              isToday ? 'font-bold text-signal-cyan' : 'text-muted-foreground',
+                              isToday ? 'font-bold text-info' : 'text-muted-foreground',
                             )}
                           >
                             {day.getDate()}
@@ -205,10 +205,7 @@ export default function CalendarPage() {
                                       STATUS_TONE[entry.status] ?? DEFAULT_TONE,
                                     )}
                                   >
-                                    <Icon
-                                      className="h-2.5 w-2.5 text-bay-black"
-                                      aria-hidden="true"
-                                    />
+                                    <Icon className="h-2.5 w-2.5 text-white" aria-hidden="true" />
                                   </span>
                                 );
                               })}
@@ -239,7 +236,7 @@ export default function CalendarPage() {
                       return (
                         <div
                           key={entry.id}
-                          className="flex items-center justify-between gap-3 rounded-md border border-border bg-slate-panel p-3"
+                          className="flex items-center justify-between gap-3 rounded-md border border-border bg-muted p-3"
                         >
                           <div className="flex min-w-0 items-center gap-2">
                             <Icon

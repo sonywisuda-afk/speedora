@@ -110,7 +110,7 @@ export default function AccountsPage() {
                   </div>
 
                   {changePasswordMessage && (
-                    <p className="text-sm text-signal-cyan">{changePasswordMessage}</p>
+                    <p className="text-sm text-success">{changePasswordMessage}</p>
                   )}
                   {changePasswordError && (
                     <p className="text-sm text-destructive">{changePasswordError}</p>

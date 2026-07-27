@@ -8,10 +8,10 @@ import { Button } from '@/components/ui/button';
 import { formatRelativeTime } from '@/lib/dashboard';
 
 const STATUS_STYLE: Record<ApprovalDto['status'], string> = {
-  PENDING: 'bg-amber-500/10 text-amber-400',
-  APPROVED: 'bg-emerald-500/10 text-emerald-400',
+  PENDING: 'bg-warning/10 text-warning',
+  APPROVED: 'bg-success/10 text-success',
   REJECTED: 'bg-destructive/10 text-destructive',
-  NEEDS_REVISION: 'bg-signal-cyan/10 text-signal-cyan',
+  NEEDS_REVISION: 'bg-info/10 text-info',
 };
 
 const STATUS_LABEL: Record<ApprovalDto['status'], string> = {
@@ -82,7 +82,7 @@ export function ApprovalPanel({ videoId }: { videoId: string }) {
             value={note}
             onChange={(e) => setNote(e.target.value)}
             placeholder="Catatan untuk reviewer (opsional)"
-            className="h-9 flex-1 rounded-md border border-input bg-slate-panel px-2 font-body text-sm text-foreground"
+            className="h-9 flex-1 rounded-md border border-input bg-background px-2 font-body text-sm text-foreground"
           />
           <Button size="sm" disabled={requesting} onClick={handleRequest}>
             {requesting ? 'Mengirim...' : 'Request Review'}
@@ -96,7 +96,7 @@ export function ApprovalPanel({ videoId }: { videoId: string }) {
           <p className="font-body text-sm text-muted-foreground">Belum ada permintaan review.</p>
         ) : (
           approvals.map((approval) => (
-            <div key={approval.id} className="rounded-md border border-border bg-slate-panel p-3">
+            <div key={approval.id} className="rounded-md border border-border bg-muted p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2 font-body text-xs text-muted-foreground">
                   <span className={`rounded px-1.5 py-0.5 ${STATUS_STYLE[approval.status]}`}>

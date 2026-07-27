@@ -6,6 +6,7 @@ import type { UserDto } from '../lib/api';
 import { cn } from '../lib/utils';
 import { NotificationBell } from './NotificationBell';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
+import { ThemeToggle } from './ui/theme-toggle';
 
 const LINKS = [
   { href: '/upload', label: 'Upload' },
@@ -46,8 +47,8 @@ export function Nav({ user, onLogout }: { user: UserDto; onLogout: () => void })
               className={cn(
                 'rounded-md px-3 py-1.5 transition-colors',
                 active
-                  ? 'bg-slate-panel font-medium text-signal-pink'
-                  : 'text-muted-foreground hover:bg-slate-panel/60 hover:text-foreground',
+                  ? 'bg-primary-surface font-medium text-primary'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground',
               )}
             >
               {link.label}
@@ -58,6 +59,7 @@ export function Nav({ user, onLogout }: { user: UserDto; onLogout: () => void })
       <div className="flex items-center gap-3 font-body text-sm">
         <WorkspaceSwitcher />
         <NotificationBell />
+        <ThemeToggle />
         <span className="text-muted-foreground">
           <span className="hidden sm:inline">Signed in as </span>
           {/* Truncate so a long email can't blow out the row on narrow

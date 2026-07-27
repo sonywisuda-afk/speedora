@@ -8,9 +8,9 @@ import { cn } from '@/lib/utils';
 // to {children}. Styled consistent with Badge's tone tokens
 // (good/neutral/bad), same convention ExportTypeRow/ActivityTimeline use.
 const TONE_CLASSES: Record<'good' | 'neutral' | 'bad', string> = {
-  good: 'border-emerald-500/40',
+  good: 'border-success/40',
   neutral: 'border-border',
-  bad: 'border-rose-500/40',
+  bad: 'border-destructive/40',
 };
 
 export function Toaster() {

@@ -125,7 +125,7 @@ export function NotificationBell() {
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <button
-          className="relative rounded-md p-1.5 text-muted-foreground hover:bg-slate-panel/60 hover:text-foreground"
+          className="relative rounded-md p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground"
           aria-label="Notifikasi"
         >
           <Bell className="h-4 w-4" aria-hidden="true" />
@@ -168,7 +168,7 @@ export function NotificationBell() {
                     <button
                       key={notification.id}
                       onClick={() => handleMarkRead(notification)}
-                      className={`flex w-full items-start gap-3 p-3 text-left transition-colors hover:bg-slate-panel/60 ${
+                      className={`flex w-full items-start gap-3 p-3 text-left transition-colors hover:bg-accent ${
                         notification.readAt ? 'opacity-60' : ''
                       }`}
                     >

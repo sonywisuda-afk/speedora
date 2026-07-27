@@ -106,7 +106,7 @@ export function WorkspaceMembersDialog() {
         {isAdmin && activeWorkspaceId && (
           <Link
             href={`/workspaces/${activeWorkspaceId}/audit-log`}
-            className="font-body text-xs text-signal-cyan underline underline-offset-2"
+            className="font-body text-xs text-primary underline underline-offset-2"
           >
             Lihat Audit Log
           </Link>
@@ -127,7 +127,7 @@ export function WorkspaceMembersDialog() {
                       onChange={(e) =>
                         handleRoleChange(member.userId, e.target.value as WorkspaceRole)
                       }
-                      className="h-8 rounded-md border border-input bg-slate-panel px-1.5 font-body text-xs text-foreground"
+                      className="h-8 rounded-md border border-input bg-background px-1.5 font-body text-xs text-foreground"
                     >
                       {Object.values(WorkspaceRole)
                         .filter((r) => r !== WorkspaceRole.OWNER)
@@ -155,7 +155,7 @@ export function WorkspaceMembersDialog() {
         )}
 
         {sent ? (
-          <p className="font-body text-sm text-emerald-400">Invitation sent!</p>
+          <p className="font-body text-sm text-success">Invitation sent!</p>
         ) : (
           <>
             <div className="space-y-3">
@@ -177,7 +177,7 @@ export function WorkspaceMembersDialog() {
                 <select
                   value={role}
                   onChange={(e) => setRole(e.target.value as WorkspaceRole)}
-                  className="h-10 w-full rounded-md border border-input bg-slate-panel px-3 font-body text-sm text-foreground"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 font-body text-sm text-foreground"
                 >
                   {Object.values(WorkspaceRole)
                     .filter((r) => r !== WorkspaceRole.OWNER)

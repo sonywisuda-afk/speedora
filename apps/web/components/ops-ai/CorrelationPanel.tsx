@@ -45,7 +45,7 @@ export function CorrelationPanel({
           {correlations.map((row) => (
             <tr key={row.feature} className="border-b border-border/50">
               <td className="p-2 font-mono text-xs text-foreground">{row.feature}</td>
-              <td className="p-2 text-right font-mono text-xs text-signal-cyan">
+              <td className="p-2 text-right font-mono text-xs text-ai">
                 {row.correlation.toFixed(3)}
               </td>
             </tr>

@@ -7,9 +7,9 @@ export interface ProcessingStatusBreakdownProps {
 }
 
 const TONE_CLASSES: Record<'good' | 'neutral' | 'bad', string> = {
-  good: 'border-emerald-500/40 text-emerald-400',
+  good: 'border-success/40 text-success',
   neutral: 'border-border text-muted-foreground',
-  bad: 'border-rose-500/40 text-rose-400',
+  bad: 'border-destructive/40 text-destructive',
 };
 
 // Badge row, not a bar chart - 6 categories at typically low counts read

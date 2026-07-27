@@ -10,9 +10,9 @@ import { exportJobStatusBadge, exportTypeLabel, isExportJobInFlight } from '@/li
 import type { ExportJobDto, ExportType } from '@speedora/shared';
 
 const TONE_CLASSES: Record<'good' | 'neutral' | 'bad', string> = {
-  good: 'border-emerald-500/40 text-emerald-400',
+  good: 'border-success/40 text-success',
   neutral: 'border-border text-muted-foreground',
-  bad: 'border-rose-500/40 text-rose-400',
+  bad: 'border-destructive/40 text-destructive',
 };
 
 // Sprint 03e - one async ExportJob's whole lifecycle for one ExportType,

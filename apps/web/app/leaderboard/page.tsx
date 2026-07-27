@@ -51,8 +51,8 @@ function ToggleGroup<T extends string | number>({
           className={cn(
             'rounded-md px-3 py-1.5 font-mono text-xs transition-colors',
             value === option.value
-              ? 'bg-slate-panel font-medium text-signal-pink'
-              : 'text-muted-foreground hover:bg-slate-panel/60 hover:text-foreground',
+              ? 'bg-primary-surface font-medium text-primary'
+              : 'text-muted-foreground hover:bg-accent hover:text-foreground',
           )}
         >
           {option.label}
@@ -169,7 +169,7 @@ export default function LeaderboardPage() {
                       {predictionModel.hasEnoughSamples ? (
                         <p className="font-body text-sm text-foreground">
                           Prediksi performa per-klip aktif untuk workspace ini - korelasi{' '}
-                          <span className="text-signal-cyan">
+                          <span className="text-ai">
                             {predictionModel.correlation !== null
                               ? predictionModel.correlation.toFixed(2)
                               : '—'}

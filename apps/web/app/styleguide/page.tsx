@@ -12,35 +12,47 @@ import { LiveReel, type LiveReelThumbnail } from '@/components/signature/LiveRee
 
 const COLOR_TOKENS = [
   {
-    name: 'Bay Black',
-    hex: '#0B0E14',
-    className: 'bg-bay-black',
-    textClassName: 'text-paper-white',
+    name: 'Primary',
+    hex: '#2563EB',
+    className: 'bg-primary',
+    textClassName: 'text-primary-foreground',
   },
   {
-    name: 'Slate Panel',
-    hex: '#151922',
-    className: 'bg-slate-panel',
-    textClassName: 'text-paper-white',
-  },
-  { name: 'Chrome', hex: '#A8B0BE', className: 'bg-chrome', textClassName: 'text-bay-black' },
-  {
-    name: 'Signal Pink',
-    hex: '#FF3B7F',
-    className: 'bg-signal-pink',
-    textClassName: 'text-paper-white',
+    name: 'Secondary',
+    hex: '#06B6D4',
+    className: 'bg-secondary',
+    textClassName: 'text-secondary-foreground',
   },
   {
-    name: 'Signal Cyan',
-    hex: '#22E6D6',
-    className: 'bg-signal-cyan',
-    textClassName: 'text-bay-black',
+    name: 'Success',
+    hex: '#22C55E',
+    className: 'bg-success',
+    textClassName: 'text-success-foreground',
   },
   {
-    name: 'Paper White',
-    hex: '#EDEFF2',
-    className: 'bg-paper-white',
-    textClassName: 'text-bay-black',
+    name: 'Warning',
+    hex: '#F59E0B',
+    className: 'bg-warning',
+    textClassName: 'text-warning-foreground',
+  },
+  {
+    name: 'Destructive',
+    hex: '#EF4444',
+    className: 'bg-destructive',
+    textClassName: 'text-destructive-foreground',
+  },
+  { name: 'Info', hex: '#3B82F6', className: 'bg-info', textClassName: 'text-info-foreground' },
+  {
+    name: 'AI Accent',
+    hex: '#7C3AED',
+    className: 'bg-ai',
+    textClassName: 'text-ai-foreground',
+  },
+  {
+    name: 'Muted',
+    hex: 'slate-100/900',
+    className: 'bg-muted',
+    textClassName: 'text-muted-foreground',
   },
 ];
 
@@ -98,7 +110,7 @@ export default function StyleguidePage() {
 
       <Section
         title="Color Tokens"
-        description="Named Tailwind colors — bay-black, slate-panel, chrome, signal-pink, signal-cyan, paper-white."
+        description="Semantic tokens — primary, secondary, success, warning, destructive, info, ai accent, muted. Light-first, real dark mode via next-themes (toggle in the nav)."
       >
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-6">
           {COLOR_TOKENS.map((token) => (
@@ -139,7 +151,7 @@ export default function StyleguidePage() {
               — ready to publish to YouTube Shorts, TikTok, and Instagram Reels.
             </p>
             <p className="mt-2 max-w-2xl font-body text-sm text-muted-foreground">
-              Secondary body copy uses Chrome for reduced emphasis.
+              Secondary body copy uses muted-foreground for reduced emphasis.
             </p>
           </div>
           <div>
@@ -147,10 +159,10 @@ export default function StyleguidePage() {
               Mono / Utility — IBM Plex Mono
             </Badge>
             <div className="flex flex-wrap items-baseline gap-6">
-              <span className="font-mono text-3xl text-signal-cyan">00:03:41</span>
-              <span className="font-mono text-3xl text-signal-pink">92</span>
-              <span className="font-mono text-sm text-chrome">virality score</span>
-              <span className="font-mono text-sm text-chrome">#growth #hooks #reel</span>
+              <span className="font-mono text-3xl text-primary">00:03:41</span>
+              <span className="font-mono text-3xl text-ai">92</span>
+              <span className="font-mono text-sm text-muted-foreground">virality score</span>
+              <span className="font-mono text-sm text-muted-foreground">#growth #hooks #reel</span>
             </div>
           </div>
         </div>
@@ -205,7 +217,7 @@ export default function StyleguidePage() {
         title="Live Reel — idle"
         description="Hero background texture. Decorative filmstrip + waveform drift, paused under prefers-reduced-motion."
       >
-        <div className="rounded-lg border border-border bg-slate-panel p-6">
+        <div className="rounded-lg border border-border bg-muted p-6">
           <LiveReel variant="idle" />
         </div>
       </Section>

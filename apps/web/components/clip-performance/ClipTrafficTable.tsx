@@ -85,9 +85,7 @@ export function ClipTrafficTable({ traffic, workspaceId }: ClipTrafficTableProps
                       {entry.conversionCount.toLocaleString()} klik
                     </span>
                   ) : created ? (
-                    <span className="font-mono text-xs text-signal-cyan">
-                      {created.redirectUrl}
-                    </span>
+                    <span className="font-mono text-xs text-info">{created.redirectUrl}</span>
                   ) : (
                     <TrackedLinkCreator
                       workspaceId={workspaceId}

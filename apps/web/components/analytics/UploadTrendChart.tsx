@@ -27,7 +27,7 @@ export function UploadTrendChart({ uploadTrend }: UploadTrendChartProps) {
       {uploadTrend.map((day) => (
         <div
           key={day.date}
-          className="min-w-[2px] flex-1 rounded-t-sm bg-signal-cyan transition-opacity hover:opacity-80"
+          className="min-w-[2px] flex-1 rounded-t-sm bg-primary transition-opacity hover:opacity-80"
           style={{ height: `${Math.max(toBarPercent(day.count, max), day.count > 0 ? 4 : 0)}%` }}
           title={`${formatShortDate(day.date)}: ${day.count} upload`}
         />

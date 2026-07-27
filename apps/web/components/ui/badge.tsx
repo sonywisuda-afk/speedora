@@ -12,6 +12,15 @@ const badgeVariants = cva(
         secondary: 'border-transparent bg-secondary text-secondary-foreground',
         outline: 'border-border text-foreground',
         muted: 'border-transparent bg-muted text-muted-foreground',
+        // Status system: success/warning/error/info map to their semantic
+        // surface tint (pastel bg + matching text), not the solid DEFAULT,
+        // so multiple status badges can sit together without competing for
+        // attention the way solid-fill badges would.
+        success: 'border-transparent bg-success-surface text-success',
+        warning: 'border-transparent bg-warning-surface text-warning',
+        error: 'border-transparent bg-destructive-surface text-destructive',
+        info: 'border-transparent bg-info-surface text-info',
+        ai: 'border-transparent bg-ai-surface text-ai',
       },
     },
     defaultVariants: {

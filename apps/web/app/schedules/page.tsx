@@ -108,7 +108,7 @@ export default function SchedulesPage() {
                     return (
                       <li
                         key={schedule.id}
-                        className="flex items-center justify-between gap-4 rounded-lg border border-border bg-slate-panel p-4"
+                        className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted p-4"
                       >
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">

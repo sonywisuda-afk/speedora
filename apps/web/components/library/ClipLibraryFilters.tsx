@@ -78,8 +78,8 @@ export function ClipLibraryFilters({ value, onChange, topicOptions }: ClipLibrar
             className={cn(
               'rounded-md px-3 py-1.5 font-mono text-xs transition-colors',
               value.durationBucket === undefined
-                ? 'bg-slate-panel font-medium text-signal-pink'
-                : 'text-muted-foreground hover:bg-slate-panel/60 hover:text-foreground',
+                ? 'bg-primary-surface font-medium text-primary'
+                : 'text-muted-foreground hover:bg-accent hover:text-foreground',
             )}
           >
             Semua
@@ -93,8 +93,8 @@ export function ClipLibraryFilters({ value, onChange, topicOptions }: ClipLibrar
               className={cn(
                 'rounded-md px-3 py-1.5 font-mono text-xs transition-colors',
                 value.durationBucket?.label === bucket.label
-                  ? 'bg-slate-panel font-medium text-signal-pink'
-                  : 'text-muted-foreground hover:bg-slate-panel/60 hover:text-foreground',
+                  ? 'bg-primary-surface font-medium text-primary'
+                  : 'text-muted-foreground hover:bg-accent hover:text-foreground',
               )}
             >
               {bucket.label}
@@ -119,7 +119,7 @@ export function ClipLibraryFilters({ value, onChange, topicOptions }: ClipLibrar
               platform: (e.target.value || undefined) as SocialPlatform | undefined,
             })
           }
-          className="h-9 rounded-md border border-input bg-slate-panel px-2 font-body text-sm text-foreground"
+          className="h-9 rounded-md border border-input bg-background px-2 font-body text-sm text-foreground"
         >
           <option value="">Semua platform</option>
           {Object.entries(PLATFORM_LABELS).map(([platform, label]) => (
@@ -141,7 +141,7 @@ export function ClipLibraryFilters({ value, onChange, topicOptions }: ClipLibrar
           id="clip-library-emotion"
           value={value.emotion ?? ''}
           onChange={(e) => onChange({ ...value, emotion: e.target.value || undefined })}
-          className="h-9 rounded-md border border-input bg-slate-panel px-2 font-body text-sm text-foreground"
+          className="h-9 rounded-md border border-input bg-background px-2 font-body text-sm text-foreground"
         >
           <option value="">Semua emosi</option>
           {Object.entries(EMOTION_LABELS).map(([emotion, label]) => (
@@ -163,7 +163,7 @@ export function ClipLibraryFilters({ value, onChange, topicOptions }: ClipLibrar
           id="clip-library-topic"
           value={value.topic ?? ''}
           onChange={(e) => onChange({ ...value, topic: e.target.value || undefined })}
-          className="h-9 rounded-md border border-input bg-slate-panel px-2 font-body text-sm text-foreground"
+          className="h-9 rounded-md border border-input bg-background px-2 font-body text-sm text-foreground"
           disabled={topicOptions.length === 0}
         >
           <option value="">Semua topik</option>

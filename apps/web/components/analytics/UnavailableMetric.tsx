@@ -44,7 +44,7 @@ export function UnavailableMetric({
         <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
         <span>{reason}</span>
         {action ? (
-          <a href={action.href} className="text-signal-cyan underline underline-offset-2">
+          <a href={action.href} className="text-primary underline underline-offset-2">
             {action.label}
           </a>
         ) : null}

@@ -10,9 +10,9 @@ import { Button } from '@/components/ui/button';
 import { exportJobStatusBadge, isExportJobInFlight } from '@/lib/export';
 
 const TONE_CLASSES: Record<'good' | 'neutral' | 'bad', string> = {
-  good: 'border-emerald-500/40 text-emerald-400',
+  good: 'border-success/40 text-success',
   neutral: 'border-border text-muted-foreground',
-  bad: 'border-rose-500/40 text-rose-400',
+  bad: 'border-destructive/40 text-destructive',
 };
 
 // Account-wide Analytics Report export - same SWR-poll-until-READY/FAILED +

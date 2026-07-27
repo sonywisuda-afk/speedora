@@ -9,24 +9,27 @@ export function StagePanel({ label, state }: { label: string; state: StageState 
     <div
       className={cn(
         'rounded-md border px-4 py-3 text-center transition-colors duration-500',
-        state === 'complete' && 'border-signal-cyan/40 bg-signal-cyan/5',
-        state === 'active' && 'border-signal-pink bg-signal-pink/5',
+        state === 'complete' && 'border-success/40 bg-success/5',
+        state === 'active' && 'border-info bg-info/5',
         state === 'failed' && 'border-destructive bg-destructive/10',
         state === 'pending' && 'border-border',
       )}
     >
       <div className="flex items-center justify-center gap-2">
         {state === 'complete' ? (
-          <Check className="h-4 w-4 shrink-0 text-signal-cyan" aria-hidden="true" />
+          <Check className="h-4 w-4 shrink-0 text-success" aria-hidden="true" />
         ) : state === 'active' ? (
           <span
-            className="h-2 w-2 shrink-0 rounded-full bg-signal-pink motion-safe:animate-pulse-slow"
+            className="h-2 w-2 shrink-0 rounded-full bg-info motion-safe:animate-pulse-slow"
             aria-hidden="true"
           />
         ) : state === 'failed' ? (
           <X className="h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
         ) : (
-          <span className="h-2 w-2 shrink-0 rounded-full bg-chrome/30" aria-hidden="true" />
+          <span
+            className="h-2 w-2 shrink-0 rounded-full bg-muted-foreground/30"
+            aria-hidden="true"
+          />
         )}
         <span
           className={cn(

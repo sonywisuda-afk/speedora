@@ -48,12 +48,12 @@ function ClipCard({ clip, index }: { clip: DemoClip; index: number }) {
         className="flex aspect-[9/16] flex-col justify-between p-2"
         style={{ backgroundColor: clip.tone }}
       >
-        <span className="self-start rounded-sm bg-bay-black/70 px-1.5 py-0.5 font-mono text-[10px] text-paper-white">
+        <span className="self-start rounded-sm bg-slate-950/70 px-1.5 py-0.5 font-mono text-[10px] text-slate-50">
           {clip.duration}
         </span>
-        <p className="font-body text-[11px] leading-tight text-paper-white/90">{clip.hook}</p>
+        <p className="font-body text-[11px] leading-tight text-slate-50/90">{clip.hook}</p>
       </div>
-      <div className="flex items-center justify-center bg-slate-panel py-2">
+      <div className="flex items-center justify-center bg-muted py-2">
         <ScoreGauge score={clip.score} size={40} />
       </div>
     </motion.div>
@@ -86,7 +86,7 @@ function HeroDemo() {
   }, [prefersReducedMotion]);
 
   return (
-    <div className="rounded-lg border border-border bg-slate-panel p-6">
+    <div className="rounded-lg border border-border bg-muted p-6">
       <div className="flex items-center justify-between font-mono text-xs text-muted-foreground">
         <span>source_recording.mp4</span>
         <span>48:12</span>
@@ -106,7 +106,7 @@ function HeroDemo() {
           : DEMO_CLIPS.map((clip) => (
               <div
                 key={clip.id}
-                className="aspect-[9/16] animate-pulse-slow rounded-md border border-border bg-bay-black"
+                className="aspect-[9/16] animate-pulse-slow rounded-md border border-border bg-slate-950"
               />
             ))}
       </div>

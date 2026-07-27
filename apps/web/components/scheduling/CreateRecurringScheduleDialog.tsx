@@ -119,7 +119,7 @@ export function CreateRecurringScheduleDialog({
                   setPlatform(e.target.value as SocialPlatform);
                   setSocialAccountId('');
                 }}
-                className="h-9 w-full rounded-md border border-input bg-slate-panel px-2 font-body text-sm text-foreground"
+                className="h-9 w-full rounded-md border border-input bg-background px-2 font-body text-sm text-foreground"
               >
                 <option value="">Select platform</option>
                 {Object.values(SocialPlatform).map((p) => (
@@ -137,7 +137,7 @@ export function CreateRecurringScheduleDialog({
                 value={socialAccountId}
                 onChange={(e) => setSocialAccountId(e.target.value)}
                 disabled={!platform || accountsForPlatform.length === 0}
-                className="h-9 w-full rounded-md border border-input bg-slate-panel px-2 font-body text-sm text-foreground disabled:opacity-50"
+                className="h-9 w-full rounded-md border border-input bg-background px-2 font-body text-sm text-foreground disabled:opacity-50"
               >
                 <option value="">
                   {platform && accountsForPlatform.length === 0

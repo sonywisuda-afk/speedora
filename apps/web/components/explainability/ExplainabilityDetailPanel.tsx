@@ -13,9 +13,9 @@ const ENGINE_LABELS: Record<string, string> = {
 };
 
 const TONE_CLASSES: Record<'good' | 'neutral' | 'bad', string> = {
-  good: 'border-emerald-500/40 text-emerald-400',
+  good: 'border-success/40 text-success',
   neutral: 'border-border text-muted-foreground',
-  bad: 'border-rose-500/40 text-rose-400',
+  bad: 'border-destructive/40 text-destructive',
 };
 
 export interface ExplainabilityDetailPanelProps {
@@ -103,8 +103,8 @@ export function ExplainabilityDetailPanel({
               ) : null}
 
               {result.highlightRecommendation ? (
-                <div className="rounded-md border border-signal-cyan/30 bg-slate-panel p-3">
-                  <p className="font-mono text-[10px] uppercase tracking-wide text-signal-cyan">
+                <div className="rounded-md border border-ai/30 bg-muted p-3">
+                  <p className="font-mono text-[10px] uppercase tracking-wide text-ai">
                     Rekomendasi
                   </p>
                   <p className="mt-1 font-body text-sm text-foreground">

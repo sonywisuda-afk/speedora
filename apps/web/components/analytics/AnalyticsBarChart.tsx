@@ -26,7 +26,7 @@ export interface AnalyticsBarChartProps<T> {
   isEmpty: boolean;
 }
 
-const DEFAULT_BAR_COLOR = '#22E6D6'; // signal-cyan
+const DEFAULT_BAR_COLOR = 'hsl(var(--primary))';
 
 // Sprint 6C.5 (Analytics UI Foundation) - a thin Recharts BarChart wrapper,
 // sibling to AnalyticsLineChart. Single-hue by design (magnitude, not
