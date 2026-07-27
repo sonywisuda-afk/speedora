@@ -61,6 +61,7 @@ describe('PaymentsService', () => {
         id: 'user-1',
         email: 'a@b.com',
         role: 'CREATOR',
+        emailVerified: true,
       });
 
       expect(prisma.premiumCredit.create).toHaveBeenCalledWith({
@@ -87,7 +88,12 @@ describe('PaymentsService', () => {
       delete process.env.MIDTRANS_SERVER_KEY;
 
       await expect(
-        service.createPremiumCheckout({ id: 'user-1', email: 'a@b.com', role: 'CREATOR' }),
+        service.createPremiumCheckout({
+          id: 'user-1',
+          email: 'a@b.com',
+          role: 'CREATOR',
+          emailVerified: true,
+        }),
       ).rejects.toThrow(MidtransNotConfiguredError);
       expect(prisma.premiumCredit.create).not.toHaveBeenCalled();
       expect(mockCreateTransaction).not.toHaveBeenCalled();

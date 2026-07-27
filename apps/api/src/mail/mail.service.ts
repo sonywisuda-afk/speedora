@@ -63,6 +63,33 @@ export class MailService {
     }
   }
 
+  // Authentication Foundation Sprint 2 (Account Trust) - same SMTP-optional
+  // posture as sendPasswordResetEmail: a missing SMTP_HOST logs the link
+  // instead of failing the request (so registration keeps working in local
+  // dev without real SMTP), and a real send failure is logged, not
+  // rethrown - AuthController.register()'s response is never blocked on
+  // this email actually landing.
+  async sendVerificationEmail(to: string, verifyUrl: string): Promise<void> {
+    if (!process.env.SMTP_HOST) {
+      this.logger.warn(
+        `SMTP_HOST is not configured - verification email not sent. Verify link for ${to}: ${verifyUrl}`,
+      );
+      return;
+    }
+
+    try {
+      await getTransporter().sendMail({
+        from: process.env.SMTP_FROM ?? 'no-reply@speedora.local',
+        to,
+        subject: 'Verify your email',
+        text: `Click the link below to verify your email. This link expires in 24 hours.\n\n${verifyUrl}\n\nIf you didn't create an account, you can ignore this email.`,
+        html: `<p>Click the link below to verify your email. This link expires in 24 hours.</p><p><a href="${verifyUrl}">${verifyUrl}</a></p><p>If you didn't create an account, you can ignore this email.</p>`,
+      });
+    } catch (error) {
+      this.logger.error(`Failed to send verification email to ${to}: ${error}`);
+    }
+  }
+
   // Sprint 5A (Collaboration Foundation) - replaces sendTeamInviteEmail
   // (Sprint 1-2's one-way "log it" stub). Same SMTP-optional posture as
   // sendPasswordResetEmail: a missing SMTP_HOST logs the invite (including

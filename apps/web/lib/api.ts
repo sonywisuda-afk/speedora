@@ -99,6 +99,23 @@ export interface UserDto {
   id: string;
   email: string;
   role: UserRole;
+  emailVerified: boolean;
+}
+
+// Authentication Foundation Sprint 3 (Session Dashboard) - matches
+// apps/api's SessionSummary. Dates arrive as ISO strings over JSON (never
+// re-parsed into Date objects here - every consumer just needs to display
+// them, same as how other DTOs in this file leave timestamps as strings).
+export interface SessionDto {
+  id: string;
+  browser: string | null;
+  os: string | null;
+  deviceName: string | null;
+  ipAddress: string | null;
+  createdAt: string;
+  lastSeenAt: string;
+  expiresAt: string;
+  current: boolean;
 }
 
 // Aliased, not redefined - these are the API/UI-facing DTOs contract-shared
@@ -137,12 +154,43 @@ export async function register(email: string, password: string): Promise<UserDto
   return parseJsonOrThrow<UserDto>(res);
 }
 
-export async function login(email: string, password: string): Promise<UserDto> {
+// Authentication Foundation Sprint 4 (Attack Protection) - thrown instead of
+// a generic Error when POST /auth/login responds with requiresCaptcha:true,
+// so the caller (upload/page.tsx's handleAuthSubmit) can distinguish "wrong
+// password" from "solve a Turnstile challenge and retry" rather than just
+// showing both as the same red error text.
+export class RequiresCaptchaError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RequiresCaptchaError';
+  }
+}
+
+export async function login(
+  email: string,
+  password: string,
+  captchaToken?: string,
+): Promise<UserDto> {
   const res = await apiFetch('/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ email, password, captchaToken }),
   });
+
+  if (!res.ok) {
+    // Cloned so a non-captcha error falls through to parseJsonOrThrow below
+    // and can still read the original response body itself.
+    const body = await res
+      .clone()
+      .json()
+      .catch(() => null);
+    if (body && typeof body === 'object' && body.requiresCaptcha === true) {
+      throw new RequiresCaptchaError(
+        typeof body.message === 'string' ? body.message : 'CAPTCHA verification required',
+      );
+    }
+  }
+
   return parseJsonOrThrow<UserDto>(res);
 }
 
@@ -166,6 +214,40 @@ export async function resetPassword(token: string, newPassword: string): Promise
     body: JSON.stringify({ token, newPassword }),
   });
   return parseJsonOrThrow<UserDto>(res);
+}
+
+export async function verifyEmail(token: string): Promise<UserDto> {
+  const res = await apiFetch('/auth/verify-email', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ token }),
+  });
+  return parseJsonOrThrow<UserDto>(res);
+}
+
+export async function resendVerification(): Promise<{ message: string }> {
+  const res = await apiFetch('/auth/resend-verification', { method: 'POST' });
+  return parseJsonOrThrow<{ message: string }>(res);
+}
+
+export async function listSessions(): Promise<SessionDto[]> {
+  const res = await apiFetch('/auth/sessions');
+  return parseJsonOrThrow<SessionDto[]>(res);
+}
+
+export async function revokeSession(id: string): Promise<void> {
+  const res = await apiFetch(`/auth/sessions/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message =
+      body && typeof body === 'object' && 'message' in body ? body.message : res.statusText;
+    throw new Error(typeof message === 'string' ? message : 'Gagal keluar dari perangkat');
+  }
+}
+
+export async function logoutOthers(): Promise<{ success: boolean }> {
+  const res = await apiFetch('/auth/logout-others', { method: 'POST' });
+  return parseJsonOrThrow<{ success: boolean }>(res);
 }
 
 export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {

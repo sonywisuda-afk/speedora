@@ -2,14 +2,21 @@
 
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Nav } from '../../components/Nav';
 import { Button } from '../../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../../components/ui/card';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { PasswordInput } from '../../components/ui/password-input';
-import { changePassword, deleteAccount } from '../../lib/api';
+import {
+  changePassword,
+  deleteAccount,
+  listSessions,
+  logoutOthers,
+  revokeSession,
+  type SessionDto,
+} from '../../lib/api';
 import { useAuth } from '../../lib/useAuth';
 
 // Typed into the danger-zone field to unlock account deletion - a guard
@@ -29,6 +36,60 @@ export default function AccountsPage() {
   const [deleteConfirmText, setDeleteConfirmText] = useState('');
   const [deletingAccount, setDeletingAccount] = useState(false);
   const [deleteAccountError, setDeleteAccountError] = useState<string | null>(null);
+
+  // Authentication Foundation Sprint 3 (Session Dashboard) - null while
+  // loading, same "null means not fetched yet" convention as elsewhere in
+  // this app.
+  const [sessions, setSessions] = useState<SessionDto[] | null>(null);
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  const [revokingId, setRevokingId] = useState<string | null>(null);
+  const [loggingOutOthers, setLoggingOutOthers] = useState(false);
+
+  async function fetchSessions() {
+    try {
+      setSessions(await listSessions());
+      setSessionsError(null);
+    } catch (err) {
+      setSessionsError(err instanceof Error ? err.message : 'Gagal memuat daftar perangkat.');
+    }
+  }
+
+  useEffect(() => {
+    if (!user) return;
+    fetchSessions();
+    // Only ever meant to run once the user is known, same reasoning as
+    // useAuth's own mount-only effect.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  async function handleSignOutSession(session: SessionDto) {
+    if (session.current) {
+      await logout();
+      router.push('/upload');
+      return;
+    }
+    setRevokingId(session.id);
+    try {
+      await revokeSession(session.id);
+      await fetchSessions();
+    } catch (err) {
+      setSessionsError(err instanceof Error ? err.message : 'Gagal keluar dari perangkat.');
+    } finally {
+      setRevokingId(null);
+    }
+  }
+
+  async function handleLogoutOthers() {
+    setLoggingOutOthers(true);
+    try {
+      await logoutOthers();
+      await fetchSessions();
+    } catch (err) {
+      setSessionsError(err instanceof Error ? err.message : 'Gagal keluar dari perangkat lain.');
+    } finally {
+      setLoggingOutOthers(false);
+    }
+  }
 
   async function handleDeleteAccount() {
     setDeleteAccountError(null);
@@ -120,6 +181,67 @@ export default function AccountsPage() {
                     {changingPassword ? 'Menyimpan...' : 'Simpan Kata Sandi Baru'}
                   </Button>
                 </form>
+              </CardContent>
+            </Card>
+
+            <Card className="mt-10">
+              <CardHeader className="flex-row items-center justify-between space-y-0">
+                <CardTitle>Perangkat Aktif</CardTitle>
+                {sessions && sessions.length > 1 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={loggingOutOthers}
+                    onClick={handleLogoutOthers}
+                  >
+                    {loggingOutOthers ? 'Memproses...' : 'Keluar dari Perangkat Lain'}
+                  </Button>
+                )}
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {sessionsError && <p className="text-sm text-destructive">{sessionsError}</p>}
+                {sessions === null ? (
+                  <p className="font-body text-sm text-muted-foreground">Memuat...</p>
+                ) : (
+                  sessions.map((session) => (
+                    <div
+                      key={session.id}
+                      className="flex items-center justify-between gap-4 rounded-md border border-border p-3"
+                    >
+                      <div className="min-w-0 font-body text-sm">
+                        <p className="flex items-center gap-2 font-medium text-foreground">
+                          {session.deviceName ?? 'Perangkat tidak dikenal'}
+                          {session.current && (
+                            <span className="rounded-full bg-primary-surface px-2 py-0.5 text-xs font-medium text-primary">
+                              Perangkat ini
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-muted-foreground">
+                          {[session.browser, session.os].filter(Boolean).join(' · ') ||
+                            'Browser tidak dikenal'}
+                          {session.ipAddress ? ` · ${session.ipAddress}` : ''}
+                        </p>
+                        <p className="text-muted-foreground">
+                          Aktif terakhir: {new Date(session.lastSeenAt).toLocaleString()}
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={revokingId === session.id}
+                        onClick={() => handleSignOutSession(session)}
+                      >
+                        {revokingId === session.id ? 'Memproses...' : 'Keluar'}
+                      </Button>
+                    </div>
+                  ))
+                )}
+                {sessions && sessions.length === 0 && (
+                  <p className="font-body text-sm text-muted-foreground">
+                    Tidak ada perangkat aktif.
+                  </p>
+                )}
               </CardContent>
             </Card>
 

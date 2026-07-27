@@ -23,6 +23,7 @@ import {
   importYoutubeVideo,
   login,
   register,
+  RequiresCaptchaError,
   retryVideo,
   startProcessing,
   uploadVideo,
@@ -41,6 +42,10 @@ export default function UploadPage() {
   const [password, setPassword] = useState('');
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  // Authentication Foundation Sprint 4 (Attack Protection) - set when
+  // POST /auth/login responds with requiresCaptcha:true. Only ever
+  // relevant for authView 'login' - register never risk-gates.
+  const [requiresCaptcha, setRequiresCaptcha] = useState(false);
 
   const [forgotEmail, setForgotEmail] = useState('');
   const [forgotSubmitting, setForgotSubmitting] = useState(false);
@@ -110,8 +115,42 @@ export default function UploadPage() {
         authView === 'login' ? await login(email, password) : await register(email, password);
       setUser(authedUser);
       setPassword('');
+      setRequiresCaptcha(false);
     } catch (err) {
-      setAuthError(err instanceof Error ? err.message : 'Terjadi kesalahan. Coba lagi.');
+      if (err instanceof RequiresCaptchaError) {
+        // Not a credential error - the risk gate ran before checking the
+        // password at all. Show the Turnstile widget instead of red error
+        // text; handleCaptchaToken resubmits automatically once solved.
+        setRequiresCaptcha(true);
+      } else {
+        setAuthError(err instanceof Error ? err.message : 'Terjadi kesalahan. Coba lagi.');
+      }
+    } finally {
+      setAuthSubmitting(false);
+    }
+  }
+
+  // Authentication Foundation Sprint 4 (Attack Protection) - fires once the
+  // user solves the Turnstile widget rendered by AuthGate; auto-resubmits
+  // login with the token rather than requiring a second manual click.
+  async function handleCaptchaToken(token: string) {
+    setAuthError(null);
+    setAuthSubmitting(true);
+    try {
+      const authedUser = await login(email, password, token);
+      setUser(authedUser);
+      setPassword('');
+      setRequiresCaptcha(false);
+    } catch (err) {
+      if (err instanceof RequiresCaptchaError) {
+        // The token itself was rejected server-side (rare) - stay in the
+        // captcha-required state; TurnstileWidget's own error-callback
+        // already shows a message inline.
+        setAuthError(err.message);
+      } else {
+        setAuthError(err instanceof Error ? err.message : 'Terjadi kesalahan. Coba lagi.');
+        setRequiresCaptcha(false);
+      }
     } finally {
       setAuthSubmitting(false);
     }
@@ -301,11 +340,14 @@ export default function UploadPage() {
                   onToggleMode={() => {
                     setAuthView(authView === 'login' ? 'register' : 'login');
                     setAuthError(null);
+                    setRequiresCaptcha(false);
                   }}
                   onForgotPassword={() => {
                     setForgotEmail(email);
                     setAuthView('forgot-password');
                   }}
+                  requiresCaptcha={requiresCaptcha}
+                  onCaptchaToken={handleCaptchaToken}
                 />
               )}
             </div>

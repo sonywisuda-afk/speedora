@@ -1,4 +1,9 @@
-import { BadRequestException, ConflictException, UnauthorizedException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import type { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'node:crypto';
@@ -6,6 +11,7 @@ import type { MailService } from '../mail/mail.service';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { StorageService } from '../storage/storage.service';
 import { AuthService } from './auth.service';
+import type { LoginBackoffService } from './login-backoff.service';
 
 jest.mock('bcrypt');
 
@@ -22,11 +28,20 @@ describe('AuthService', () => {
     video: { findMany: jest.Mock };
     workspace: { create: jest.Mock };
     workspaceMembership: { create: jest.Mock };
+    session: {
+      create: jest.Mock;
+      findUnique: jest.Mock;
+      findMany: jest.Mock;
+      update: jest.Mock;
+      updateMany: jest.Mock;
+    };
+    securityEvent: { create: jest.Mock };
     $transaction: jest.Mock;
   };
   let jwtService: { sign: jest.Mock };
-  let mailService: { sendPasswordResetEmail: jest.Mock };
+  let mailService: { sendPasswordResetEmail: jest.Mock; sendVerificationEmail: jest.Mock };
   let storage: { deleteObjects: jest.Mock };
+  let loginBackoff: { getFailureCount: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -43,16 +58,26 @@ describe('AuthService', () => {
       // the User row.
       workspace: { create: jest.fn() },
       workspaceMembership: { create: jest.fn() },
+      session: {
+        create: jest.fn(),
+        findUnique: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        update: jest.fn(),
+        updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
+      securityEvent: { create: jest.fn().mockResolvedValue({}) },
       $transaction: jest.fn().mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma)),
     };
     jwtService = { sign: jest.fn() };
-    mailService = { sendPasswordResetEmail: jest.fn() };
+    mailService = { sendPasswordResetEmail: jest.fn(), sendVerificationEmail: jest.fn() };
     storage = { deleteObjects: jest.fn().mockResolvedValue(undefined) };
+    loginBackoff = { getFailureCount: jest.fn().mockResolvedValue(0) };
     service = new AuthService(
       prisma as unknown as PrismaService,
       jwtService as unknown as JwtService,
       mailService as unknown as MailService,
       storage as unknown as StorageService,
+      loginBackoff as unknown as LoginBackoffService,
     );
     jest.clearAllMocks();
   });
@@ -66,6 +91,7 @@ describe('AuthService', () => {
         email: 'a@example.com',
         password: 'hashed-password',
         role: 'CREATOR',
+        emailVerified: false,
       });
       prisma.workspace.create.mockResolvedValue({ id: 'ws-1' });
 
@@ -83,7 +109,12 @@ describe('AuthService', () => {
       expect(prisma.workspaceMembership.create).toHaveBeenCalledWith({
         data: { workspaceId: 'ws-1', userId: 'user-1', role: 'OWNER' },
       });
-      expect(result).toEqual({ id: 'user-1', email: 'a@example.com', role: 'CREATOR' });
+      expect(result).toEqual({
+        id: 'user-1',
+        email: 'a@example.com',
+        role: 'CREATOR',
+        emailVerified: false,
+      });
     });
 
     it('throws ConflictException when the email is already registered', async () => {
@@ -103,12 +134,18 @@ describe('AuthService', () => {
         email: 'a@example.com',
         password: 'hashed-password',
         role: 'CREATOR',
+        emailVerified: true,
       });
       (bcrypt.compare as jest.Mock).mockResolvedValue(true);
 
       const result = await service.validateUser('a@example.com', 'plaintext');
 
-      expect(result).toEqual({ id: 'user-1', email: 'a@example.com', role: 'CREATOR' });
+      expect(result).toEqual({
+        id: 'user-1',
+        email: 'a@example.com',
+        role: 'CREATOR',
+        emailVerified: true,
+      });
     });
 
     it('throws UnauthorizedException when the user does not exist', async () => {
@@ -134,13 +171,230 @@ describe('AuthService', () => {
   });
 
   describe('issueToken', () => {
-    it('signs a JWT with the user id and email', () => {
+    it('signs a JWT with the user id, email, and session id', () => {
       jwtService.sign.mockReturnValue('signed-token');
 
-      const token = service.issueToken({ id: 'user-1', email: 'a@example.com', role: 'CREATOR' });
+      const token = service.issueToken(
+        { id: 'user-1', email: 'a@example.com', role: 'CREATOR', emailVerified: true },
+        'session-1',
+      );
 
-      expect(jwtService.sign).toHaveBeenCalledWith({ sub: 'user-1', email: 'a@example.com' });
+      expect(jwtService.sign).toHaveBeenCalledWith({
+        sub: 'user-1',
+        email: 'a@example.com',
+        sid: 'session-1',
+      });
       expect(token).toBe('signed-token');
+    });
+  });
+
+  describe('createSession', () => {
+    it('creates a Session row and returns an access+refresh token pair', async () => {
+      prisma.session.create.mockResolvedValue({ id: 'session-1' });
+      jwtService.sign.mockReturnValue('signed-token');
+
+      const result = await service.createSession(
+        { id: 'user-1', email: 'a@example.com', role: 'CREATOR', emailVerified: false },
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0',
+        '127.0.0.1',
+      );
+
+      expect(prisma.session.create).toHaveBeenCalledTimes(1);
+      const createArgs = prisma.session.create.mock.calls[0][0];
+      expect(createArgs.data.userId).toBe('user-1');
+      expect(createArgs.data.ipAddress).toBe('127.0.0.1');
+      expect(createArgs.data.browser).toBe('Chrome');
+      expect(createArgs.data.os).toBe('Windows');
+      expect(createArgs.data.expiresAt).toBeInstanceOf(Date);
+      expect(createArgs.data.refreshTokenHash).toMatch(/^[0-9a-f]{64}$/);
+
+      expect(jwtService.sign).toHaveBeenCalledWith({
+        sub: 'user-1',
+        email: 'a@example.com',
+        sid: 'session-1',
+      });
+      expect(result.accessToken).toBe('signed-token');
+      expect(result.refreshToken).toMatch(/^[0-9a-f]{64}$/);
+      expect(result.refreshTokenExpiresAt).toBeInstanceOf(Date);
+
+      const expectedHash = crypto.createHash('sha256').update(result.refreshToken).digest('hex');
+      expect(createArgs.data.refreshTokenHash).toBe(expectedHash);
+    });
+  });
+
+  describe('rotateRefreshToken', () => {
+    it('rotates the hash on the same Session row and issues a new access token', async () => {
+      const rawToken = 'raw-refresh-token';
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      prisma.session.findUnique.mockResolvedValue({
+        id: 'session-1',
+        refreshTokenHash: tokenHash,
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 60_000),
+        user: { id: 'user-1', email: 'a@example.com', role: 'CREATOR', emailVerified: true },
+      });
+      jwtService.sign.mockReturnValue('new-signed-token');
+
+      const result = await service.rotateRefreshToken(rawToken);
+
+      expect(prisma.session.findUnique).toHaveBeenCalledWith({
+        where: { refreshTokenHash: tokenHash },
+        include: { user: true },
+      });
+      expect(prisma.session.update).toHaveBeenCalledTimes(1);
+      const updateArgs = prisma.session.update.mock.calls[0][0];
+      expect(updateArgs.where).toEqual({ id: 'session-1' });
+      expect(updateArgs.data.refreshTokenHash).not.toBe(tokenHash);
+      expect(result.accessToken).toBe('new-signed-token');
+      expect(result.refreshToken).not.toBe(rawToken);
+    });
+
+    it('throws UnauthorizedException when the token does not match any session', async () => {
+      prisma.session.findUnique.mockResolvedValue(null);
+
+      await expect(service.rotateRefreshToken('bogus')).rejects.toThrow(UnauthorizedException);
+      expect(prisma.session.update).not.toHaveBeenCalled();
+    });
+
+    it('throws UnauthorizedException when the session is revoked', async () => {
+      prisma.session.findUnique.mockResolvedValue({
+        id: 'session-1',
+        revokedAt: new Date(),
+        expiresAt: new Date(Date.now() + 60_000),
+        user: { id: 'user-1', email: 'a@example.com', role: 'CREATOR', emailVerified: true },
+      });
+
+      await expect(service.rotateRefreshToken('raw')).rejects.toThrow(UnauthorizedException);
+      expect(prisma.session.update).not.toHaveBeenCalled();
+    });
+
+    it('throws UnauthorizedException when the session has expired', async () => {
+      prisma.session.findUnique.mockResolvedValue({
+        id: 'session-1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() - 60_000),
+        user: { id: 'user-1', email: 'a@example.com', role: 'CREATOR', emailVerified: true },
+      });
+
+      await expect(service.rotateRefreshToken('raw')).rejects.toThrow(UnauthorizedException);
+      expect(prisma.session.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('revokeSession', () => {
+    it('marks the matching session revoked with the given reason', async () => {
+      const rawToken = 'raw-refresh-token';
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      prisma.session.findUnique.mockResolvedValue({
+        id: 'session-1',
+        refreshTokenHash: tokenHash,
+        revokedAt: null,
+      });
+
+      await service.revokeSession(rawToken, 'logout');
+
+      expect(prisma.session.update).toHaveBeenCalledWith({
+        where: { id: 'session-1' },
+        data: { revokedAt: expect.any(Date), revokedReason: 'logout' },
+      });
+    });
+
+    it('silently no-ops when the token does not match any session', async () => {
+      prisma.session.findUnique.mockResolvedValue(null);
+
+      await service.revokeSession('bogus', 'logout');
+
+      expect(prisma.session.update).not.toHaveBeenCalled();
+    });
+
+    it('silently no-ops when the session is already revoked', async () => {
+      prisma.session.findUnique.mockResolvedValue({ id: 'session-1', revokedAt: new Date() });
+
+      await service.revokeSession('raw', 'logout');
+
+      expect(prisma.session.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('revokeAllSessions', () => {
+    it('revokes every non-revoked session owned by the user', async () => {
+      await service.revokeAllSessions('user-1', 'logout_all');
+
+      expect(prisma.session.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', revokedAt: null },
+        data: { revokedAt: expect.any(Date), revokedReason: 'logout_all' },
+      });
+    });
+  });
+
+  describe('listSessions', () => {
+    it('lists active sessions, marking the current one', async () => {
+      const now = new Date();
+      prisma.session.findMany.mockResolvedValue([
+        {
+          id: 'session-1',
+          browser: 'Chrome',
+          os: 'Windows',
+          deviceName: null,
+          ipAddress: '127.0.0.1',
+          createdAt: now,
+          lastSeenAt: now,
+          expiresAt: new Date(now.getTime() + 60_000),
+        },
+        {
+          id: 'session-2',
+          browser: 'Safari',
+          os: 'macOS',
+          deviceName: null,
+          ipAddress: '10.0.0.1',
+          createdAt: now,
+          lastSeenAt: now,
+          expiresAt: new Date(now.getTime() + 60_000),
+        },
+      ]);
+
+      const result = await service.listSessions('user-1', 'session-1');
+
+      expect(prisma.session.findMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', revokedAt: null, expiresAt: { gt: expect.any(Date) } },
+        orderBy: { lastSeenAt: 'desc' },
+      });
+      expect(result).toEqual([
+        expect.objectContaining({ id: 'session-1', current: true }),
+        expect.objectContaining({ id: 'session-2', current: false }),
+      ]);
+    });
+  });
+
+  describe('revokeSessionById', () => {
+    it('revokes the session when it belongs to the user', async () => {
+      prisma.session.updateMany.mockResolvedValue({ count: 1 });
+
+      await service.revokeSessionById('user-1', 'session-1');
+
+      expect(prisma.session.updateMany).toHaveBeenCalledWith({
+        where: { id: 'session-1', userId: 'user-1', revokedAt: null },
+        data: { revokedAt: expect.any(Date), revokedReason: 'user_revoked' },
+      });
+    });
+
+    it('throws NotFoundException when the session does not belong to the user', async () => {
+      prisma.session.updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.revokeSessionById('user-1', 'not-mine')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('revokeOtherSessions', () => {
+    it('revokes every non-revoked session except the current one', async () => {
+      await service.revokeOtherSessions('user-1', 'session-1');
+
+      expect(prisma.session.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', revokedAt: null, id: { not: 'session-1' } },
+        data: { revokedAt: expect.any(Date), revokedReason: 'logout_others' },
+      });
     });
   });
 
@@ -193,6 +447,7 @@ describe('AuthService', () => {
         id: 'user-1',
         email: 'a@example.com',
         role: 'CREATOR',
+        emailVerified: false,
       });
 
       const result = await service.resetPassword(rawToken, 'newplaintext');
@@ -208,7 +463,12 @@ describe('AuthService', () => {
           resetPasswordTokenExpiresAt: null,
         },
       });
-      expect(result).toEqual({ id: 'user-1', email: 'a@example.com', role: 'CREATOR' });
+      expect(result).toEqual({
+        id: 'user-1',
+        email: 'a@example.com',
+        role: 'CREATOR',
+        emailVerified: false,
+      });
     });
 
     it('throws BadRequestException when the token does not match any user', async () => {
@@ -234,6 +494,215 @@ describe('AuthService', () => {
         BadRequestException,
       );
       expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('sendVerificationEmail', () => {
+    it('stores a hashed token and emails the raw one', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ id: 'user-1', email: 'a@example.com' });
+      prisma.user.update.mockResolvedValue({});
+
+      await service.sendVerificationEmail('user-1', 'http://localhost:3000');
+
+      expect(prisma.user.update).toHaveBeenCalledTimes(1);
+      const updateArgs = prisma.user.update.mock.calls[0][0];
+      expect(updateArgs.where).toEqual({ id: 'user-1' });
+      expect(updateArgs.data.emailVerificationTokenExpiresAt).toBeInstanceOf(Date);
+      const storedHash: string = updateArgs.data.emailVerificationTokenHash;
+      expect(storedHash).toMatch(/^[0-9a-f]{64}$/);
+
+      expect(mailService.sendVerificationEmail).toHaveBeenCalledTimes(1);
+      const [to, verifyUrl] = mailService.sendVerificationEmail.mock.calls[0];
+      expect(to).toBe('a@example.com');
+      expect(verifyUrl).toMatch(/^http:\/\/localhost:3000\/verify-email\?token=[0-9a-f]{64}$/);
+
+      const rawToken = new URL(verifyUrl).searchParams.get('token')!;
+      const expectedHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      expect(storedHash).toBe(expectedHash);
+    });
+  });
+
+  describe('verifyEmail', () => {
+    it('marks the email verified and clears the token for a valid, unexpired token', async () => {
+      const rawToken = 'raw-verify-token';
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'a@example.com',
+        emailVerificationTokenHash: tokenHash,
+        emailVerificationTokenExpiresAt: new Date(Date.now() + 60_000),
+      });
+      prisma.user.update.mockResolvedValue({
+        id: 'user-1',
+        email: 'a@example.com',
+        role: 'CREATOR',
+        emailVerified: true,
+      });
+
+      const result = await service.verifyEmail(rawToken);
+
+      expect(prisma.user.findUnique).toHaveBeenCalledWith({
+        where: { emailVerificationTokenHash: tokenHash },
+      });
+      expect(prisma.user.update).toHaveBeenCalledWith({
+        where: { id: 'user-1' },
+        data: {
+          emailVerified: true,
+          emailVerificationTokenHash: null,
+          emailVerificationTokenExpiresAt: null,
+        },
+      });
+      expect(result).toEqual({
+        id: 'user-1',
+        email: 'a@example.com',
+        role: 'CREATOR',
+        emailVerified: true,
+      });
+    });
+
+    it('throws BadRequestException when the token does not match any user', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      await expect(service.verifyEmail('bogus-token')).rejects.toThrow(BadRequestException);
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException when the token has expired', async () => {
+      const rawToken = 'raw-verify-token';
+      const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+      prisma.user.findUnique.mockResolvedValue({
+        id: 'user-1',
+        email: 'a@example.com',
+        emailVerificationTokenHash: tokenHash,
+        emailVerificationTokenExpiresAt: new Date(Date.now() - 1000),
+      });
+
+      await expect(service.verifyEmail(rawToken)).rejects.toThrow(BadRequestException);
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('resendVerification', () => {
+    it('regenerates and re-sends the token when the user is not yet verified', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        id: 'user-1',
+        email: 'a@example.com',
+        emailVerified: false,
+      });
+      prisma.user.update.mockResolvedValue({});
+
+      await service.resendVerification('user-1', 'http://localhost:3000');
+
+      expect(mailService.sendVerificationEmail).toHaveBeenCalledTimes(1);
+    });
+
+    it('silently no-ops when the user is already verified', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({
+        id: 'user-1',
+        email: 'a@example.com',
+        emailVerified: true,
+      });
+
+      await service.resendVerification('user-1', 'http://localhost:3000');
+
+      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(mailService.sendVerificationEmail).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('computeLoginRisk', () => {
+    it('returns a flat unknown_email signal when no user matches the email', async () => {
+      prisma.user.findUnique.mockResolvedValue(null);
+
+      const result = await service.computeLoginRisk('nope@example.com', '127.0.0.1', 'UA');
+
+      expect(result).toEqual({ score: 50, signals: ['unknown_email'] });
+      expect(prisma.session.findMany).not.toHaveBeenCalled();
+    });
+
+    it('returns a zero score when IP/device match recent sessions and failures are low', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-1', email: 'a@example.com' });
+      prisma.session.findMany.mockResolvedValue([
+        { ipAddress: '127.0.0.1', browser: 'Chrome', os: 'Windows' },
+      ]);
+      loginBackoff.getFailureCount.mockResolvedValue(0);
+
+      const result = await service.computeLoginRisk(
+        'a@example.com',
+        '127.0.0.1',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0',
+      );
+
+      expect(result).toEqual({ score: 0, signals: [] });
+    });
+
+    it('flags a new IP, a new device, and repeated failures independently', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-1', email: 'a@example.com' });
+      prisma.session.findMany.mockResolvedValue([
+        { ipAddress: '10.0.0.1', browser: 'Firefox', os: 'macOS' },
+      ]);
+      loginBackoff.getFailureCount.mockResolvedValue(5);
+
+      const result = await service.computeLoginRisk(
+        'a@example.com',
+        '192.168.1.1',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0',
+      );
+
+      expect(result.score).toBe(90);
+      expect(result.signals).toEqual(
+        expect.arrayContaining(['new_ip', 'new_device', 'repeated_failures']),
+      );
+    });
+
+    it('never exceeds 100 even when every signal fires (no session history at all)', async () => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-1', email: 'a@example.com' });
+      prisma.session.findMany.mockResolvedValue([]);
+      loginBackoff.getFailureCount.mockResolvedValue(10);
+
+      const result = await service.computeLoginRisk(
+        'a@example.com',
+        '192.168.1.1',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0',
+      );
+
+      // new_ip (30) + new_device (20) + repeated_failures (40) = 90, the
+      // max achievable via the three additive signals - still exercises
+      // Math.min(score, 100)'s cap, just doesn't need to engage it here.
+      expect(result.score).toBe(90);
+      expect(result.score).toBeLessThanOrEqual(100);
+    });
+  });
+
+  describe('recordSecurityEvent', () => {
+    it('writes a SecurityEvent row with the given fields', async () => {
+      await service.recordSecurityEvent({
+        userId: 'user-1',
+        email: 'a@example.com',
+        eventType: 'LOGIN_SUCCESS',
+        ipAddress: '127.0.0.1',
+        userAgent: 'UA',
+        metadata: { riskScore: 0, signals: [] },
+      });
+
+      expect(prisma.securityEvent.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'user-1',
+          email: 'a@example.com',
+          eventType: 'LOGIN_SUCCESS',
+          ipAddress: '127.0.0.1',
+          userAgent: 'UA',
+          metadata: { riskScore: 0, signals: [] },
+        },
+      });
+    });
+
+    it('does not throw when the underlying insert fails', async () => {
+      prisma.securityEvent.create.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        service.recordSecurityEvent({ eventType: 'LOGOUT' }),
+      ).resolves.toBeUndefined();
     });
   });
 

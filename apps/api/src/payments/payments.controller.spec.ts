@@ -10,7 +10,7 @@ describe('PaymentsController', () => {
     getAvailability: jest.Mock;
     handleWebhook: jest.Mock;
   };
-  const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
+  const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const, emailVerified: true };
 
   beforeEach(() => {
     payments = {

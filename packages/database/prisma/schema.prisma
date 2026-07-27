@@ -152,6 +152,19 @@ model User {
   // any earlier unused request - only the most recent one is ever honored.
   resetPasswordTokenHash         String?   @unique
   resetPasswordTokenExpiresAt    DateTime?
+  // Authentication Foundation Sprint 2 (Account Trust) - defaults false for
+  // every new registration; pre-existing rows also become false post-
+  // migration (no way to know if an existing account's email was ever
+  // confirmed - a one-way door, not backfilled as verified). Token fields
+  // are the identical hash-at-rest convention as resetPasswordTokenHash
+  // above (SHA-256 hex digest, raw token only ever in the emailed link) -
+  // same pattern, applied a second time, with a longer TTL (24h vs 1h) since
+  // a signup confirmation email is expected to sit unread longer than a live
+  // password reset request. A new verify/resend request overwrites both
+  // fields, same "only the most recent one is ever honored" behavior.
+  emailVerified                   Boolean   @default(false)
+  emailVerificationTokenHash      String?   @unique
+  emailVerificationTokenExpiresAt DateTime?
   // Sprint 03d (Export Center roadmap) - Brand Report's minimal Brand Kit.
   // No new settings system - these live directly on User, same "smallest
   // viable" posture the roadmap called for. brandLogoUrl is a raw storage
@@ -262,6 +275,8 @@ model User {
   aiSearchRequests                AiSearchRequest[]
   // Pre-Processing Settings roadmap (Phase 0/1)
   processingPresets               ProcessingPreset[]
+  // Authentication Foundation Sprint 1 (Tahap 1 roadmap)
+  sessions                        Session[]
 }
 
 model Video {
@@ -2220,6 +2235,50 @@ model ShareLink {
   @@index([createdById, createdAt])
 }
 
+// Authentication Foundation Sprint 1 (Tahap 1 roadmap) - one row per logged-in
+// device/browser, backing a refresh-token-rotation scheme. Replaces the old
+// single long-lived JWT cookie: the access token (short-lived JWT, carries
+// this row's id as its `sid` claim) is now paired with a refresh token whose
+// only usable form server-side is this row's refreshTokenHash - same "hash
+// at rest, raw token only ever handed to the client once" convention as
+// ShareLink.tokenHash/User.resetPasswordTokenHash above. expiresAt (passive,
+// time-based) and revokedAt (explicit action) are deliberately separate
+// fields, same distinction ShareLink draws between its own two fields.
+// browser/os/deviceName are derived from userAgent via ua-parser-js once, at
+// creation/rotation time, rather than re-parsed on every future read - all
+// three plus ipAddress were added in Sprint 1 ahead of Sprint 3's session
+// dashboard having any UI/consumer yet, specifically so Sprint 3 (now
+// shipped - GET/DELETE /auth/sessions, POST /auth/logout-others) only
+// needed to add endpoints/UI, not another migration.
+model Session {
+  id               String    @id @default(cuid())
+  userId           String
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String    @unique
+
+  userAgent        String?
+  browser          String?
+  os               String?
+  deviceName       String?
+  ipAddress        String?
+
+  createdAt        DateTime  @default(now())
+  lastSeenAt       DateTime  @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  // 'logout' | 'logout_all' | 'user_revoked' | 'logout_others' - app-level
+  // enum, not a Postgres one, same posture CaptionStyle/brandFontFamily
+  // already use elsewhere in this schema. 'user_revoked' (Sprint 3 - a
+  // single targeted DELETE /auth/sessions/:id from the dashboard) and
+  // 'logout_others' (Sprint 3 - POST /auth/logout-others) added alongside
+  // Sprint 1's original two. Never written as 'expired' - that's inferred
+  // at read time (expiresAt < now() with revokedAt still null), not
+  // swept/persisted.
+  revokedReason    String?
+
+  @@index([userId])
+}
+
 // Sprint 5C (Comments). Video-scoped (clipId optional - a comment can
 // anchor to a specific clip, or just the video as a whole), threaded via
 // a self-relation (parentId null = a root/top-level comment; only root
@@ -2464,6 +2523,48 @@ model AuditLogEntry {
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, action])
+}
+
+// Authentication Foundation Sprint 4 (Attack Protection) - a FOURTH,
+// separate event-stream model, same "distinct model when semantics genuinely
+// differ" reasoning as AuditLogEntry's own comment above. AuditLogEntry
+// can't hold these: workspaceId/actorId are both required there, but a
+// failed login attempt against an unknown email has neither a User nor any
+// workspace context. userId/email are both deliberately soft references (no
+// @relation/FK, same "targetId may since have been deleted" reasoning as
+// AuditLogEntry.targetId) - security history must survive account deletion,
+// and deleteAccount()'s cascade must never wipe it. email is kept alongside
+// userId (not instead of it) because it's the one identifier present on
+// every row, including LOGIN_FAILED attempts against emails that don't
+// match any account at all.
+enum SecurityEventType {
+  LOGIN_SUCCESS
+  LOGIN_FAILED
+  REFRESH_REJECTED
+  LOGOUT
+  LOGOUT_ALL
+  SESSION_REVOKED
+  EMAIL_VERIFIED
+  PASSWORD_RESET_COMPLETED
+}
+
+model SecurityEvent {
+  id        String            @id @default(cuid())
+  userId    String?
+  email     String?
+  eventType SecurityEventType
+  ipAddress String?
+  userAgent String?
+  // e.g. { riskScore, signals: [...] } on LOGIN_SUCCESS/LOGIN_FAILED,
+  // { scope: 'all' | 'others' } on LOGOUT_ALL (POST /auth/logout-others
+  // reuses LOGOUT_ALL rather than adding a distinct enum value for what is,
+  // semantically, the same action with a narrower scope).
+  metadata  Json?
+  createdAt DateTime          @default(now())
+
+  @@index([userId, createdAt])
+  @@index([email, createdAt])
+  @@index([eventType, createdAt])
 }
 
 // Sprint 6K (Conversion - first-party click-tracking). A Speedora-owned

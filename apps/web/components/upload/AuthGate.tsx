@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { PasswordInput } from '@/components/ui/password-input';
+import { TurnstileWidget } from './TurnstileWidget';
 
 export function AuthGate({
   mode,
@@ -19,6 +20,8 @@ export function AuthGate({
   onSubmit,
   onToggleMode,
   onForgotPassword,
+  requiresCaptcha,
+  onCaptchaToken,
 }: {
   mode: 'login' | 'register';
   email: string;
@@ -30,6 +33,11 @@ export function AuthGate({
   onSubmit: (e: FormEvent) => void;
   onToggleMode: () => void;
   onForgotPassword: () => void;
+  // Authentication Foundation Sprint 4 (Attack Protection) - only ever true
+  // for mode:'login' (register never risk-gates). Rendered by
+  // upload/page.tsx's handleAuthSubmit catching a RequiresCaptchaError.
+  requiresCaptcha?: boolean;
+  onCaptchaToken?: (token: string) => void;
 }) {
   return (
     <Card className="mx-auto max-w-sm">
@@ -74,6 +82,10 @@ export function AuthGate({
           </div>
 
           {error ? <p className="text-sm text-destructive">{error}</p> : null}
+
+          {mode === 'login' && requiresCaptcha && onCaptchaToken ? (
+            <TurnstileWidget onToken={onCaptchaToken} />
+          ) : null}
 
           <Button type="submit" disabled={submitting} className="w-full">
             {submitting ? 'Memproses...' : mode === 'login' ? 'Masuk' : 'Daftar'}

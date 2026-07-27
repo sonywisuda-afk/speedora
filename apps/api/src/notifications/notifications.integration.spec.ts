@@ -13,7 +13,7 @@ import { NotificationsService } from './notifications.service';
 // together through actual NestJS DI, only mocking Prisma at the injection
 // boundary. Same shape as export.integration.spec.ts.
 describe('Notifications module integration (Controller + Service via real DI)', () => {
-  const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
+  const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const, emailVerified: true };
 
   let controller: NotificationsController;
   let prisma: {

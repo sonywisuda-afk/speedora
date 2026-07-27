@@ -4,7 +4,7 @@ import { SearchController } from './search.controller';
 describe('SearchController', () => {
   let controller: SearchController;
   let searchService: { search: jest.Mock };
-  const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const };
+  const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const, emailVerified: true };
 
   beforeEach(() => {
     searchService = { search: jest.fn() };
