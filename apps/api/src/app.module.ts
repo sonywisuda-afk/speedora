@@ -19,6 +19,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { OpsAiModule } from './ops-ai/ops-ai.module';
 import { PaymentsModule } from './payments/payments.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { ProcessingPresetsModule } from './processing-presets/processing-presets.module';
 import { RecurringSchedulesModule } from './recurring-schedules/recurring-schedules.module';
 import { RedisPubSubModule } from './redis-pubsub/redis-pubsub.module';
 import { SearchModule } from './search/search.module';
@@ -66,6 +67,7 @@ import { WorkspaceAnalyticsModule } from './workspace-analytics/workspace-analyt
     WorkspaceAnalyticsModule,
     TrackedLinksModule,
     SubtitlePresetsModule,
+    ProcessingPresetsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

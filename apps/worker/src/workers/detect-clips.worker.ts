@@ -6,12 +6,16 @@ import { suggestEmojis } from '@speedora/emoji-suggester';
 import {
   filterSegmentsForClip,
   mergeBrandKitFields,
+  migrateProcessingOptions,
   QueueName,
+  templateToBrandKitFields,
+  type BrandKitFields,
   type ClipCandidate,
   type ClipScores,
   type DetectClipsJobData,
   type DetectClipsJobResult,
   type IntroType,
+  type ProcessingOptions,
   type RenderClipJobData,
   type TranscriptSegment,
   type WatermarkPosition,
@@ -76,7 +80,23 @@ const logger = forStage('detect-clips');
 // labels the scoring module never reads) down to the module's own, smaller
 // input contract - the module should never need to know a TranscriptSegment
 // row exists.
-function toScoringInput(segments: TranscriptSegment[]): ClipScoringInput {
+// Pre-Processing Settings roadmap (Phase 0/1) - translates the settings
+// screen's clipCount/min/maxClipDurationSeconds (Video.processingOptions)
+// into @speedora/clip-scoring's own maxCandidates/minClipSeconds/
+// maxClipSeconds override fields. 'unlimited' maps to a very high cap
+// rather than literally uncapped - the module always needs a real number to
+// .slice() against, and the LLM itself is already asked for "1-3" clips in
+// its system prompt regardless, so this just removes this adapter's own
+// additional ceiling. Every field left null/absent (including a video with
+// no processingOptions at all - the common case for anything created before
+// this roadmap) resolves to the module's own untouched defaults.
+const UNLIMITED_CLIP_COUNT_CAP = 50;
+
+function toScoringInput(
+  segments: TranscriptSegment[],
+  processingOptions: ProcessingOptions | null,
+): ClipScoringInput {
+  const clipCount = processingOptions?.clipGeneration.clipCount;
   return {
     segments: segments.map((segment) => ({
       start: segment.start,
@@ -84,6 +104,16 @@ function toScoringInput(segments: TranscriptSegment[]): ClipScoringInput {
       text: segment.text,
       words: segment.words,
     })),
+    maxCandidates: clipCount === 'unlimited' ? UNLIMITED_CLIP_COUNT_CAP : (clipCount ?? undefined),
+    minClipSeconds: processingOptions?.clipGeneration.minClipDurationSeconds ?? undefined,
+    maxClipSeconds: processingOptions?.clipGeneration.maxClipDurationSeconds ?? undefined,
+    // Pre-Processing Settings roadmap (Phase 2) - Section 7 (Highlight
+    // Detection): a real pre-cap minimum and a real preferred-intents
+    // reorder, both applied inside @speedora/clip-scoring itself (see that
+    // module's own comment on why intent reweighting has to happen before
+    // its own maxCandidates cap to have any real effect).
+    minConfidence: processingOptions?.highlightFocus.confidenceThreshold ?? undefined,
+    preferredIntents: processingOptions?.highlightFocus.intents,
   };
 }
 
@@ -102,6 +132,51 @@ function emojiSuggestionsFor(
   return suggestEmojis({ text }).emojis;
 }
 
+// Pre-Processing Settings roadmap (Phase 3) - resolves this video's
+// EFFECTIVE Brand Kit: a chosen BrandKitTemplate (Section 17) when
+// processingOptions names one and it's actually owned by this video's
+// owner, otherwise the existing live User/Workspace merge (Workspace-level
+// Brand Kit roadmap P3g, unchanged). Choosing a template here never
+// mutates anyone's live Brand Kit - it only affects this video's own
+// clips, deliberately different from BrandKitService.applyTemplate()'s
+// existing copy-onto-live-row endpoint. A stale/deleted/not-owned
+// templateId falls back rather than failing the job - same "optional
+// signal, never fail the render" posture watermark/intro/outro downloads
+// already have.
+async function resolveBrandKitFields(
+  video: { id: string; ownerId: string; workspaceId: string },
+  processingOptions: ProcessingOptions | null,
+): Promise<BrandKitFields> {
+  const templateId = processingOptions?.brandKit.templateId;
+  if (templateId) {
+    const template = await prisma.brandKitTemplate.findUnique({ where: { id: templateId } });
+    if (template && template.userId === video.ownerId) {
+      return templateToBrandKitFields(template);
+    }
+    logger.warn(
+      'processingOptions named a Brand Kit template that no longer exists or is not owned ' +
+        'by this video - falling back to the live Brand Kit',
+      { videoId: video.id, templateId },
+    );
+  }
+
+  // Workspace-level Brand Kit roadmap (P3g) - merges the video's workspace
+  // Brand Kit over the owner's personal one, same "resolve once, skip the
+  // Workspace fetch when it's the owner's personal workspace" shape as
+  // ClipsService.resolveEffectiveBrandKit.
+  const [workspace, owner] = await Promise.all([
+    prisma.workspace.findUniqueOrThrow({
+      where: { id: video.workspaceId },
+      select: { isPersonal: true, ...BRAND_KIT_SELECT },
+    }),
+    prisma.user.findUniqueOrThrow({
+      where: { id: video.ownerId },
+      select: BRAND_KIT_SELECT,
+    }),
+  ]);
+  return mergeBrandKitFields(workspace.isPersonal ? null : workspace, owner);
+}
+
 export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClipsJobResult> {
   return new Worker<DetectClipsJobData, DetectClipsJobResult>(
     QueueName.DETECT_CLIPS,
@@ -115,7 +190,7 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
           // API call before failing on the final prisma write.
           const existingVideo = await prisma.video.findUnique({
             where: { id: videoId },
-            select: { status: true },
+            select: { status: true, processingOptions: true },
           });
           if (!existingVideo) {
             logger.info('video was deleted - skipping orphaned job', { videoId });
@@ -138,8 +213,11 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
           logger.info('analyzing transcript segments', { videoId, segmentCount: segments.length });
 
           try {
+            const processingOptions = existingVideo.processingOptions
+              ? migrateProcessingOptions(existingVideo.processingOptions)
+              : null;
             const { candidates: rawCandidates } = await scoreClipCandidates(
-              toScoringInput(segments),
+              toScoringInput(segments, processingOptions),
               {
                 openai,
               },
@@ -156,6 +234,24 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
                     viralityScore: candidate.viralityScore,
                     hookText: candidate.hookText,
                     hashtags: candidate.hashtags,
+                    // Pre-Processing Settings roadmap (Phase 0/1) - same 3
+                    // fields a SubtitlePreset bulk-sets, applied as this
+                    // video's default rather than left at the schema's own
+                    // DEFAULT/false/null. Omitted entirely (schema defaults
+                    // apply) when processingOptions is null - the common
+                    // case for anything created before this roadmap.
+                    ...(processingOptions
+                      ? {
+                          captionStyle: processingOptions.subtitle.captionStyle,
+                          speakerColorCaptions: processingOptions.subtitle.speakerColorCaptions,
+                          fontFamily: processingOptions.subtitle.fontFamily,
+                          // Pre-Processing Settings roadmap (Phase 3) - the
+                          // first way to opt a whole video's clips out of
+                          // Brand Kit up front, rather than a manual
+                          // per-clip PATCH after the fact.
+                          applyBrandKit: processingOptions.brandKit.applyBrandKit,
+                        }
+                      : {}),
                     // ClipScores is a closed interface (no index signature), which
                     // Prisma's Json input type requires - same reasoning as
                     // clip.scores's read-side cast to ClipScores below.
@@ -208,23 +304,7 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
               // captionStyle's own comment below), so this is effectively
               // unconditional here - still gated on clips[index].applyBrandKit
               // for consistency with ClipsService.render()/VideosService.retry.
-              //
-              // Workspace-level Brand Kit roadmap (P3g) - merges the video's
-              // workspace Brand Kit over the owner's personal one, same
-              // "resolve once, skip the Workspace fetch when it's the
-              // owner's personal workspace" shape as
-              // ClipsService.resolveEffectiveBrandKit.
-              const [workspace, owner] = await Promise.all([
-                prisma.workspace.findUniqueOrThrow({
-                  where: { id: video.workspaceId },
-                  select: { isPersonal: true, ...BRAND_KIT_SELECT },
-                }),
-                prisma.user.findUniqueOrThrow({
-                  where: { id: video.ownerId },
-                  select: BRAND_KIT_SELECT,
-                }),
-              ]);
-              const brandKit = mergeBrandKitFields(workspace.isPersonal ? null : workspace, owner);
+              const brandKit = await resolveBrandKitFields(video, processingOptions);
               const ownerWatermark: RenderClipJobData['watermark'] = brandKit.brandWatermarkUrl
                 ? {
                     key: brandKit.brandWatermarkUrl,

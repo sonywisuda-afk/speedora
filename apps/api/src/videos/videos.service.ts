@@ -22,6 +22,8 @@ import {
   type DetectClipsJobData,
   type ImportYoutubeJobData,
   type IntroType,
+  type ProbeVideoJobData,
+  type ProcessingOptions,
   type RenderClipJobData,
   type ThumbnailFallbackLevel,
   type TranscribeJobData,
@@ -58,6 +60,8 @@ import {
   toSharedLlmFeatures,
   toSharedOcrFeatures,
   toSharedOcrText,
+  toSharedProcessingOptions,
+  toSharedValidationReport,
   toSharedCameraMotion,
   toSharedCameraMotionFeatures,
   toSharedCompositionFeatures,
@@ -153,6 +157,8 @@ export class VideosService {
     private readonly notificationDeliveryProducer: NotificationDeliveryProducer,
     @InjectQueue(QueueName.IMPORT_YOUTUBE)
     private readonly importYoutubeQueue: Queue<ImportYoutubeJobData>,
+    @InjectQueue(QueueName.PROBE_VIDEO)
+    private readonly probeVideoQueue: Queue<ProbeVideoJobData>,
     @InjectQueue(QueueName.TRANSCRIBE) private readonly transcribeQueue: Queue<TranscribeJobData>,
     @InjectQueue(QueueName.DETECT_CLIPS)
     private readonly detectClipsQueue: Queue<DetectClipsJobData>,
@@ -175,6 +181,7 @@ export class VideosService {
     file: Express.Multer.File,
     provider: TranscriptionProvider,
     workspaceId?: string,
+    processingOptions?: ProcessingOptions,
   ): Promise<Video> {
     // Cheap check before ever touching storage - fails fast rather than
     // wasting a (potentially large) upload on a request that's going to be
@@ -213,6 +220,13 @@ export class VideosService {
           // storage.service.ts's own read of file.originalname).
           title: file.originalname,
           sourceSizeBytes: file.buffer.length,
+          // Pre-Processing Settings roadmap (Phase 0/1) - a plain snapshot,
+          // same "chosen at upload time, never re-resolved" shape as
+          // transcriptionProvider above. Prisma.JsonNull (not a bare null -
+          // see docs/prisma.md) when the caller skipped the settings screen
+          // entirely (an older client, or a test).
+          processingOptions:
+            (processingOptions as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
         },
       });
       // First entry in this video's status history - see
@@ -229,10 +243,13 @@ export class VideosService {
       });
     }
 
-    await this.transcribeQueue.add(QueueName.TRANSCRIBE, {
+    // Quality Validation roadmap (Fase 0 design, Phase 1) - PROBE_VIDEO,
+    // not TRANSCRIBE directly (see QueueName.PROBE_VIDEO's own comment).
+    // TRANSCRIBE is now only ever enqueued by startProcessing() below, once
+    // probing succeeds and the user has submitted Processing Settings.
+    await this.probeVideoQueue.add(QueueName.PROBE_VIDEO, {
       videoId: video.id,
       sourceUrl: video.sourceUrl,
-      provider,
     });
 
     // Sprint 1-2 (Dashboard Redesign) - Dashboard's Activity Timeline. Fire
@@ -278,6 +295,7 @@ export class VideosService {
     url: string,
     provider: TranscriptionProvider,
     workspaceId?: string,
+    processingOptions?: ProcessingOptions,
   ): Promise<Video> {
     if (provider === TranscriptionProvider.OPENAI) {
       const { available } = await this.payments.getAvailability(ownerId);
@@ -305,6 +323,10 @@ export class VideosService {
           importSourceUrl: url,
           status: VideoStatus.IMPORTING,
           transcriptionProvider: provider,
+          // Pre-Processing Settings roadmap (Phase 0/1) - see upload()'s
+          // own comment on this same field.
+          processingOptions:
+            (processingOptions as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
         },
       });
       await recordVideoStatusEvent(tx, created.id, created.status);
@@ -442,6 +464,46 @@ export class VideosService {
     };
   }
 
+  // Quality Validation roadmap (Fase 0 design, Phase 1) - POST
+  // /videos/:id/start-processing. The only place TRANSCRIBE is enqueued
+  // from now (upload()/importFromYoutube() enqueue PROBE_VIDEO instead -
+  // see their own comments) - Processing Settings only renders once
+  // probing reaches PENDING_SETTINGS, so this is the first point in the new
+  // flow processingOptions is actually known. A video not currently
+  // PENDING_SETTINGS (still probing, already started, never uploaded)
+  // can't be started - there's nothing here to infer/resume, unlike
+  // retry() below.
+  // Return type deliberately matches retry() below (the fully-mapped
+  // findOne() DTO shape - clips, derived thumbnail endpoint paths, etc.),
+  // not upload()/importFromYoutube()'s bare Promise<Video> - the frontend
+  // treats this response exactly like retry()'s (setVideo(updated) feeding
+  // straight into ProcessingStatus/its clips-driven progress math).
+  async startProcessing(id: string, requesterId: string, processingOptions: ProcessingOptions) {
+    const video = await this.prisma.video.findUnique({ where: { id } });
+    if (!video) {
+      throw new NotFoundException(`Video ${id} not found`);
+    }
+    await this.workspaceAccess.assertMinRole(requesterId, video.workspaceId, WorkspaceRole.EDITOR);
+    if (video.status !== VideoStatus.PENDING_SETTINGS) {
+      throw new BadRequestException(
+        'Video is not waiting for Processing Settings (probing not finished, or processing already started)',
+      );
+    }
+
+    await updateVideoStatus(this.prisma, id, VideoStatus.UPLOADED, {
+      data: {
+        processingOptions: processingOptions as unknown as Prisma.InputJsonValue,
+      },
+    });
+    await this.transcribeQueue.add(QueueName.TRANSCRIBE, {
+      videoId: id,
+      sourceUrl: video.sourceUrl,
+      provider: toSharedTranscriptionProvider(video.transcriptionProvider),
+    });
+
+    return this.findOne(id, requesterId);
+  }
+
   // Re-enqueues whichever stage actually failed, inferred from what data
   // already exists rather than a stored "failed at" marker: no transcript
   // segments means transcribe never finished, segments-but-no-clips means
@@ -483,6 +545,20 @@ export class VideosService {
         videoId: id,
         url: video.importSourceUrl,
         provider: toSharedTranscriptionProvider(video.transcriptionProvider),
+      });
+    } else if (video.durationSeconds == null && video.width == null) {
+      // Quality Validation roadmap (Fase 0 design, Phase 1) - probing never
+      // completed (or failed an Error-tier check - see
+      // probe-video.worker.ts). A video that ever reached TRANSCRIBE always
+      // has these populated first (see startProcessing()'s own precondition
+      // and updateVideoStatus's call site in probe-video.worker.ts), so
+      // their absence here - after the import-in-progress branch above has
+      // already been ruled out, meaning sourceUrl is real - means this
+      // video never got past PROBE_VIDEO.
+      await updateVideoStatus(this.prisma, id, VideoStatus.UPLOADED);
+      await this.probeVideoQueue.add(QueueName.PROBE_VIDEO, {
+        videoId: id,
+        sourceUrl: video.sourceUrl,
       });
     } else if (video.transcriptSegments.length === 0) {
       // transcribeProgress reset immediately (not left to wait for the job
@@ -1128,6 +1204,8 @@ export class VideosService {
   private mapVideoWithClips(video: VideoWithClips) {
     const {
       clips,
+      processingOptions,
+      validationReport,
       voiceActivitySegments,
       voiceActivityFeatures,
       diarizationFeatures,
@@ -1169,6 +1247,8 @@ export class VideosService {
       // declaration emit up the call chain" reasoning as every clip.*
       // field below (Speaker Intelligence roadmap, Milestone A/B - these
       // are the Video-level, not Clip-level, signals).
+      processingOptions: toSharedProcessingOptions(processingOptions),
+      validationReport: toSharedValidationReport(validationReport),
       voiceActivitySegments: toSharedVoiceActivitySegments(voiceActivitySegments),
       voiceActivityFeatures: toSharedVoiceActivityFeatures(voiceActivityFeatures),
       diarizationFeatures: toSharedDiarizationFeatures(diarizationFeatures),

@@ -172,6 +172,45 @@ describe('buildCropPath', () => {
       expect(after.width).toBe(crop.width);
     });
 
+    // Pre-Processing Settings roadmap (Phase 2).
+    it('applies a custom maxZoomInFraction override instead of the 0.3 default', () => {
+      const samples: FaceSample[] = [{ t: 0, box: null }];
+      const emphasisWords = [word('NEVER', 1, 1.3)];
+
+      const defaultPath = buildCropPath(
+        samples,
+        emphasisWords,
+        crop,
+        sourceWidth,
+        sourceHeight,
+        2,
+      )!;
+      const strongerPath = buildCropPath(
+        samples,
+        emphasisWords,
+        crop,
+        sourceWidth,
+        sourceHeight,
+        2,
+        0.6,
+      )!;
+
+      const defaultPeak = defaultPath.find((p) => Math.abs(p.t - 1) < 1e-6)!;
+      const strongerPeak = strongerPath.find((p) => Math.abs(p.t - 1) < 1e-6)!;
+      expect(strongerPeak.width).toBeLessThan(defaultPeak.width);
+    });
+
+    it('a maxZoomInFraction of 0 disables the punch-in entirely', () => {
+      const samples: FaceSample[] = [{ t: 0, box: null }];
+      const emphasisWords = [word('NEVER', 1, 1.3)];
+
+      const path = buildCropPath(samples, emphasisWords, crop, sourceWidth, sourceHeight, 2, 0)!;
+
+      const atPeak = path.find((p) => Math.abs(p.t - 1) < 1e-6)!;
+      expect(atPeak.width).toBe(crop.width);
+      expect(atPeak.height).toBe(crop.height);
+    });
+
     it('re-centers the zoomed crop on the same point the pan would have used', () => {
       const samples: FaceSample[] = [
         { t: 0, box: { xCenter: 0.5, yCenter: 0.5, width: 0.1, height: 0.1 } },

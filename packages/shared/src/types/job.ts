@@ -11,6 +11,16 @@ export enum QueueName {
   // Only enqueued by apps/api's POST /videos/import-youtube - self-chains
   // into TRANSCRIBE on success, same as every other stage in this pipeline.
   IMPORT_YOUTUBE = 'import-youtube',
+  // Quality Validation roadmap (Fase 0 design, Phase 1) - enqueued by
+  // apps/api's upload()/importFromYoutube() (replacing what used to be a
+  // direct TRANSCRIBE enqueue) and self-chained into by IMPORT_YOUTUBE on
+  // success, same producers TRANSCRIBE itself used to have. Does NOT
+  // self-chain into TRANSCRIBE on success - the one deliberate break from
+  // this enum's otherwise-universal "self-chain to the next stage
+  // automatically" convention, since this is the one stage that must stop
+  // and wait for a human decision (Processing Settings' POST
+  // /videos/:id/start-processing enqueues TRANSCRIBE instead).
+  PROBE_VIDEO = 'probe-video',
   TRANSCRIBE = 'transcribe',
   DETECT_CLIPS = 'detect-clips',
   RENDER_CLIP = 'render-clip',
@@ -71,16 +81,34 @@ export enum QueueName {
 export interface ImportYoutubeJobData {
   videoId: string;
   url: string;
-  // Set once at video creation (see Video.transcriptionProvider) and
-  // forwarded to the transcribe job this one self-chains into on success -
-  // this job never calls Whisper itself, but it's the thing that must carry
-  // the choice across the handoff.
+  // Set once at video creation (see Video.transcriptionProvider) - kept on
+  // this job's data for symmetry with every other job in this pipeline,
+  // even though import-youtube.worker.ts no longer forwards it anywhere:
+  // since the Quality Validation roadmap (Fase 0, Phase 1), this job
+  // self-chains into PROBE_VIDEO (which doesn't call Whisper) instead of
+  // TRANSCRIBE directly. Whichever job eventually enqueues TRANSCRIBE
+  // (apps/api's start-processing endpoint) re-reads Video.transcriptionProvider
+  // fresh rather than threading it through this payload.
   provider: TranscriptionProvider;
 }
 
 export interface ImportYoutubeJobResult {
   videoId: string;
   sourceUrl: string;
+}
+
+// Quality Validation roadmap (Fase 0 design, Phase 1) - videoId is created
+// (status UPLOADED, sourceUrl already a real object-storage key) by
+// VideosService.upload()/importFromYoutube() before this is enqueued, same
+// "job re-fetches/updates the row rather than carrying a snapshot"
+// convention as ImportYoutubeJobData above.
+export interface ProbeVideoJobData {
+  videoId: string;
+  sourceUrl: string;
+}
+
+export interface ProbeVideoJobResult {
+  videoId: string;
 }
 
 export interface TranscribeJobData {
@@ -243,6 +271,14 @@ export const NOTIFICATION_DELIVERY_RETRY_OPTIONS = {
 // PublishClipJobData. No retry options - a failed generation just marks the
 // row FAILED; the user re-triggers via a new POST, same as
 // ExportGenerateJobData's own "no automatic retry" convention.
+//
+// Pre-Processing Settings roadmap (Phase 3) - no longer apps/api's sole
+// producer: render-clip.worker.ts also enqueues this (via its own
+// generatePlatformCopyQueue) when Video.processingOptions.seo
+// .autoGeneratePlatformCopy is set, creating the ClipPlatformCopy row
+// itself the same way ClipsService.generatePlatformCopy() does - the "DB
+// row is truth" contract above is what makes a second producer safe, since
+// this job data shape never had to change to support it.
 export interface GeneratePlatformCopyJobData {
   clipPlatformCopyId: string;
 }

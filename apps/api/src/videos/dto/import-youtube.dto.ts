@@ -1,11 +1,14 @@
 import { isYoutubeUrl, TranscriptionProvider } from '@speedora/shared';
+import { Type } from 'class-transformer';
 import {
   IsEnum,
   IsOptional,
   IsString,
+  ValidateNested,
   registerDecorator,
   type ValidationOptions,
 } from 'class-validator';
+import { ProcessingOptionsDto } from '../../processing-presets/dto/processing-options.dto';
 
 // Custom rather than @IsUrl() - this needs to reject any non-YouTube URL
 // (Vimeo, a direct .mp4 link, etc.), not just validate general URL shape.
@@ -46,4 +49,12 @@ export class ImportYoutubeDto {
   @IsOptional()
   @IsString()
   workspaceId?: string;
+
+  // Pre-Processing Settings roadmap (Phase 0/1) - a plain nested object here
+  // (unlike UploadVideoDto's own field, this request body is already JSON,
+  // not multipart form fields).
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => ProcessingOptionsDto)
+  processingOptions?: ProcessingOptionsDto;
 }

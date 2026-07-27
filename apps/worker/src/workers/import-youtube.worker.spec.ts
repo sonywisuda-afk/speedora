@@ -10,9 +10,9 @@ jest.mock('@sentry/node', () => ({
   captureException: (...args: unknown[]) => captureExceptionMock(...args),
 }));
 
-const transcribeQueueAdd = jest.fn();
+const probeVideoQueueAdd = jest.fn();
 jest.mock('../queues', () => ({
-  transcribeQueue: { add: (...args: unknown[]) => transcribeQueueAdd(...args) },
+  probeVideoQueue: { add: (...args: unknown[]) => probeVideoQueueAdd(...args) },
 }));
 
 const uploadObjectMock = jest.fn();
@@ -125,12 +125,12 @@ describe('import-youtube worker', () => {
     // already-past-IMPORTING skip paths.
     videoFindUniqueMock.mockResolvedValue({ status: VideoStatus.IMPORTING });
     videoStatusEventCreateMock.mockResolvedValue({});
-    transcribeQueueAdd.mockResolvedValue(undefined);
+    probeVideoQueueAdd.mockResolvedValue(undefined);
     cleanupTempFileMock.mockResolvedValue(undefined);
     recordVideoImportOutcomeMock.mockResolvedValue(undefined);
   });
 
-  it('resolves an engine for the url, downloads, uploads to storage, marks UPLOADED, and enqueues transcribe (forwarding provider) on success', async () => {
+  it('resolves an engine for the url, downloads, uploads to storage, marks UPLOADED, and enqueues probe-video on success', async () => {
     const processor = getProcessor();
     const result = await processor({
       data: {
@@ -173,10 +173,9 @@ describe('import-youtube worker', () => {
         status: VideoStatus.UPLOADED,
       },
     });
-    expect(transcribeQueueAdd).toHaveBeenCalledWith(QueueName.TRANSCRIBE, {
+    expect(probeVideoQueueAdd).toHaveBeenCalledWith(QueueName.PROBE_VIDEO, {
       videoId: 'video-1',
       sourceUrl: 'videos/video-1.mp4',
-      provider: TranscriptionProvider.OPENAI,
     });
     expect(cleanupTempFileMock).toHaveBeenCalledWith('/tmp/youtube-import-abc.mp4');
     expect(recordVideoImportOutcomeMock).toHaveBeenCalledWith(
@@ -237,7 +236,7 @@ describe('import-youtube worker', () => {
     expect(resolveEngineMock).not.toHaveBeenCalled();
     expect(uploadObjectMock).not.toHaveBeenCalled();
     expect(videoUpdateMock).not.toHaveBeenCalled();
-    expect(transcribeQueueAdd).not.toHaveBeenCalled();
+    expect(probeVideoQueueAdd).not.toHaveBeenCalled();
   });
 
   it('skips a job for a video already past IMPORTING, to avoid a duplicate download', async () => {
@@ -256,7 +255,7 @@ describe('import-youtube worker', () => {
     expect(resolveEngineMock).not.toHaveBeenCalled();
     expect(uploadObjectMock).not.toHaveBeenCalled();
     expect(videoUpdateMock).not.toHaveBeenCalled();
-    expect(transcribeQueueAdd).not.toHaveBeenCalled();
+    expect(probeVideoQueueAdd).not.toHaveBeenCalled();
   });
 
   it('marks the video FAILED, reports to Sentry, records failure metrics, and still cleans up the scratch file when the download fails', async () => {
@@ -287,7 +286,7 @@ describe('import-youtube worker', () => {
       where: { id: 'video-1' },
       data: { status: VideoStatus.FAILED },
     });
-    expect(transcribeQueueAdd).not.toHaveBeenCalled();
+    expect(probeVideoQueueAdd).not.toHaveBeenCalled();
     // download() never resolved, so there is no outputPath to clean up -
     // the engine itself already cleaned up its own per-attempt scratch file.
     expect(cleanupTempFileMock).not.toHaveBeenCalled();

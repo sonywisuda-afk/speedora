@@ -17,6 +17,27 @@ export const clipScoringSegmentSchema = z.object({
 
 export const clipScoringInputSchema = z.object({
   segments: z.array(clipScoringSegmentSchema),
+  // Pre-Processing Settings roadmap (Phase 0/1) - overrides for the
+  // module's own MAX_CANDIDATES/MIN_CLIP_SECONDS/MAX_CLIP_SECONDS constants,
+  // threaded through from Video.processingOptions by the caller (apps/worker's
+  // detect-clips adapter). Optional/omitted means "use the module's own
+  // default" - every existing caller/fixture that predates this field keeps
+  // its exact current behavior.
+  maxCandidates: z.number().int().positive().optional(),
+  minClipSeconds: z.number().positive().optional(),
+  maxClipSeconds: z.number().positive().optional(),
+  // Pre-Processing Settings roadmap (Phase 2) - a real pre-cap minimum on
+  // the LLM's own viralityScore (0-100), not a fabricated new confidence
+  // signal. Optional/omitted means "no minimum" - every existing
+  // caller/fixture keeps its exact current behavior.
+  minConfidence: z.number().min(0).max(100).optional(),
+  // Pre-Processing Settings roadmap (Phase 2) - a subset of CLIP_INTENTS
+  // (below) the caller wants prioritized when there are more in-range,
+  // long-enough candidates than maxCandidates allows. A stable re-ordering
+  // before the cap, not a hard filter - a candidate whose intent isn't
+  // listed can still survive if there's room. Optional/omitted (or empty)
+  // means "no preference," same current behavior.
+  preferredIntents: z.array(z.string()).optional(),
 });
 
 // Mirrors packages/shared's ClipScores shape (Fase 8 - Content

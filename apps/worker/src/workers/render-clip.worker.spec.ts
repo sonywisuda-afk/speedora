@@ -5,6 +5,24 @@ import { Worker } from 'bullmq';
 jest.mock('bullmq', () => ({ Worker: jest.fn() }));
 jest.mock('../redis', () => ({ createRedisConnection: jest.fn() }));
 
+// Pre-Processing Settings roadmap (Phase 3) - render-clip.worker.ts is now
+// also a producer for generate-platform-copy (see queues.ts's own comment);
+// mocked directly (not via bullmq's real Queue) same shape as
+// detect-clips.worker.spec.ts's own '../queues' mock, so this file never
+// has to also fake out every OTHER queue ../queues constructs at module
+// load time.
+const generatePlatformCopyQueueAddMock = jest.fn();
+// Pre-Processing Settings roadmap (Phase 3) - same shape, for
+// triggerAutoPublish()'s own producer role on the existing PUBLISH_CLIP
+// queue.
+const publishClipQueueAddMock = jest.fn();
+jest.mock('../queues', () => ({
+  generatePlatformCopyQueue: {
+    add: (...args: unknown[]) => generatePlatformCopyQueueAddMock(...args),
+  },
+  publishClipQueue: { add: (...args: unknown[]) => publishClipQueueAddMock(...args) },
+}));
+
 const captureExceptionMock = jest.fn();
 jest.mock('@sentry/node', () => ({
   captureException: (...args: unknown[]) => captureExceptionMock(...args),
@@ -167,6 +185,12 @@ const videoStatusEventCreateMock = jest.fn();
 const activityEventCreateMock = jest.fn();
 const notificationCreateMock = jest.fn();
 const notificationPreferenceFindUniqueMock = jest.fn();
+const clipPlatformCopyCountMock = jest.fn();
+const clipPlatformCopyCreateMock = jest.fn();
+// Pre-Processing Settings roadmap (Phase 3) - triggerAutoPublish()'s own
+// ownership lookup + PublishRecord creation.
+const socialAccountFindUniqueMock = jest.fn();
+const publishRecordCreateMock = jest.fn();
 // Milestone 04c - the real recordNotification()/updateVideoStatus() from
 // @speedora/database (not mocked) call deps.publish internally; mocking
 // only this worker-local adapter lets these tests assert the call sites
@@ -224,6 +248,20 @@ jest.mock('../prisma', () => ({
     // write above.
     notificationPreference: {
       findUnique: (...args: unknown[]) => notificationPreferenceFindUniqueMock(...args),
+    },
+    // Pre-Processing Settings roadmap (Phase 3) - triggerAutoPlatformCopy()'s
+    // own rate-limit check + row creation.
+    clipPlatformCopy: {
+      count: (...args: unknown[]) => clipPlatformCopyCountMock(...args),
+      create: (...args: unknown[]) => clipPlatformCopyCreateMock(...args),
+    },
+    // Pre-Processing Settings roadmap (Phase 3) - triggerAutoPublish()'s own
+    // ownership lookup + PublishRecord creation.
+    socialAccount: {
+      findUnique: (...args: unknown[]) => socialAccountFindUniqueMock(...args),
+    },
+    publishRecord: {
+      create: (...args: unknown[]) => publishRecordCreateMock(...args),
     },
     $transaction: (...args: [Promise<unknown>[] | ((tx: unknown) => Promise<unknown>)]) =>
       transactionMock(...args),
@@ -522,6 +560,12 @@ describe('render-clip worker', () => {
     notificationCreateMock.mockResolvedValue({ id: 'notif-1' });
     notificationPreferenceFindUniqueMock.mockResolvedValue(null);
     publishNotificationMock.mockResolvedValue(undefined);
+    clipPlatformCopyCountMock.mockResolvedValue(0);
+    clipPlatformCopyCreateMock.mockResolvedValue({ id: 'platform-copy-1' });
+    generatePlatformCopyQueueAddMock.mockResolvedValue(undefined);
+    socialAccountFindUniqueMock.mockResolvedValue(null);
+    publishRecordCreateMock.mockResolvedValue({ id: 'publish-record-1' });
+    publishClipQueueAddMock.mockResolvedValue(undefined);
     // Sprint 1-2 (Dashboard Redesign) - Clip.outputSizeBytes.
     statMock.mockResolvedValue({ size: 654321 });
     cleanupTempFileMock.mockResolvedValue(undefined);
@@ -548,6 +592,487 @@ describe('render-clip worker', () => {
     downloadStockAssetMock.mockResolvedValue(undefined);
     trimAndFadeInBRollMock.mockResolvedValue(undefined);
     fadeOutBRollMock.mockResolvedValue(undefined);
+  });
+
+  // Pre-Processing Settings roadmap (Phase 0/1).
+  it('resolves exportQualityPreset from Video.processingOptions into real -preset/-crf values', async () => {
+    clipFindUniqueMock.mockResolvedValue({
+      outputUrl: null,
+      video: {
+        ownerId: 'user-1',
+        title: 'My Video',
+        processingOptions: { version: 1, export: { qualityPreset: 'maximum_quality' } },
+      },
+    });
+    clipFindManyMock.mockResolvedValue([
+      { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+    ]);
+
+    const processor = getProcessor();
+    await processor({ data: baseJobData });
+
+    expect(renderClipMock).toHaveBeenCalledWith(
+      expect.objectContaining({ quality: { preset: 'slow', crf: 18 } }),
+    );
+  });
+
+  it('passes quality: null through when the video has no processingOptions (existing behavior unchanged)', async () => {
+    clipFindManyMock.mockResolvedValue([
+      { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+    ]);
+
+    const processor = getProcessor();
+    await processor({ data: baseJobData });
+
+    expect(renderClipMock).toHaveBeenCalledWith(expect.objectContaining({ quality: null }));
+  });
+
+  it('skips the real scene-cut/motion-energy/camera-motion detection calls entirely when disabled via processingOptions.sceneAnalysis', async () => {
+    clipFindUniqueMock.mockResolvedValue({
+      outputUrl: null,
+      video: {
+        ownerId: 'user-1',
+        title: 'My Video',
+        processingOptions: {
+          version: 1,
+          sceneAnalysis: {
+            detectSceneCuts: false,
+            detectMotionEnergy: false,
+            detectCameraMotion: false,
+          },
+        },
+      },
+    });
+    clipFindManyMock.mockResolvedValue([
+      { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+    ]);
+
+    const processor = getProcessor();
+    await processor({ data: baseJobData });
+
+    expect(detectSceneCutsMock).not.toHaveBeenCalled();
+    expect(analyzeMotionEnergyMock).not.toHaveBeenCalled();
+    expect(detectCameraMotionMock).not.toHaveBeenCalled();
+  });
+
+  it('still runs the real scene-analysis detectors when the video has no processingOptions (existing behavior unchanged)', async () => {
+    clipFindManyMock.mockResolvedValue([
+      { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+    ]);
+
+    const processor = getProcessor();
+    await processor({ data: baseJobData });
+
+    expect(detectSceneCutsMock).toHaveBeenCalled();
+    expect(analyzeMotionEnergyMock).toHaveBeenCalled();
+    expect(detectCameraMotionMock).toHaveBeenCalled();
+  });
+
+  // Pre-Processing Settings roadmap (Phase 3).
+  describe('SEO - automatic platform copy generation', () => {
+    it('creates a ClipPlatformCopy row and enqueues generation for each selected platform when enabled and the clip has a hook', async () => {
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        hookText: 'this is the hook',
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: {
+            version: 1,
+            seo: { autoGeneratePlatformCopy: true, platforms: ['TIKTOK', 'YOUTUBE'] },
+          },
+        },
+      });
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(clipPlatformCopyCreateMock).toHaveBeenCalledWith({
+        data: { clipId: 'clip-1', platform: 'TIKTOK' },
+      });
+      expect(clipPlatformCopyCreateMock).toHaveBeenCalledWith({
+        data: { clipId: 'clip-1', platform: 'YOUTUBE' },
+      });
+      expect(generatePlatformCopyQueueAddMock).toHaveBeenCalledTimes(2);
+      expect(generatePlatformCopyQueueAddMock).toHaveBeenCalledWith('generate-platform-copy', {
+        clipPlatformCopyId: 'platform-copy-1',
+      });
+    });
+
+    it('does nothing when autoGeneratePlatformCopy is off (the default)', async () => {
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        hookText: 'this is the hook',
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, seo: { platforms: ['TIKTOK'] } },
+        },
+      });
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(clipPlatformCopyCreateMock).not.toHaveBeenCalled();
+      expect(generatePlatformCopyQueueAddMock).not.toHaveBeenCalled();
+    });
+
+    it('skips generation (never fails the render) when the clip has no AI-generated hook yet', async () => {
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        hookText: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: {
+            version: 1,
+            seo: { autoGeneratePlatformCopy: true, platforms: ['TIKTOK'] },
+          },
+        },
+      });
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+
+      const processor = getProcessor();
+      const result = (await processor({ data: baseJobData })) as { clipId: string };
+
+      expect(clipPlatformCopyCreateMock).not.toHaveBeenCalled();
+      expect(result.clipId).toBe('clip-1');
+    });
+
+    it('skips a platform (without failing the render) once the 24h rate cap is already reached', async () => {
+      clipPlatformCopyCountMock.mockResolvedValue(5);
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        hookText: 'this is the hook',
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: {
+            version: 1,
+            seo: { autoGeneratePlatformCopy: true, platforms: ['TIKTOK'] },
+          },
+        },
+      });
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+
+      const processor = getProcessor();
+      const result = (await processor({ data: baseJobData })) as { clipId: string };
+
+      expect(clipPlatformCopyCreateMock).not.toHaveBeenCalled();
+      expect(generatePlatformCopyQueueAddMock).not.toHaveBeenCalled();
+      expect(result.clipId).toBe('clip-1');
+    });
+
+    it('never fails the render when creating the ClipPlatformCopy row throws', async () => {
+      clipPlatformCopyCreateMock.mockRejectedValue(new Error('db exploded'));
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        hookText: 'this is the hook',
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: {
+            version: 1,
+            seo: { autoGeneratePlatformCopy: true, platforms: ['TIKTOK'] },
+          },
+        },
+      });
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+
+      const processor = getProcessor();
+      const result = (await processor({ data: baseJobData })) as { clipId: string };
+
+      expect(result.clipId).toBe('clip-1');
+    });
+  });
+
+  // Pre-Processing Settings roadmap (Phase 3).
+  describe('Publishing - automatic post-render publish', () => {
+    it('creates a QUEUED PublishRecord and enqueues it (immediate) for each owned account when scheduledAt is not set', async () => {
+      socialAccountFindUniqueMock.mockResolvedValue({ id: 'account-1', userId: 'user-1' });
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        hookText: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: {
+            version: 1,
+            publishing: { autoPublish: true, socialAccountIds: ['account-1'] },
+          },
+        },
+      });
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(publishRecordCreateMock).toHaveBeenCalledWith({
+        data: {
+          clipId: 'clip-1',
+          socialAccountId: 'account-1',
+          status: 'QUEUED',
+          scheduledAt: null,
+        },
+      });
+      expect(publishClipQueueAddMock).toHaveBeenCalledWith(
+        'publish-clip',
+        { publishRecordId: 'publish-record-1' },
+        expect.any(Object),
+      );
+    });
+
+    it('creates a SCHEDULED PublishRecord and does NOT enqueue it when scheduledAt is a future time', async () => {
+      const future = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+      socialAccountFindUniqueMock.mockResolvedValue({ id: 'account-1', userId: 'user-1' });
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        hookText: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: {
+            version: 1,
+            publishing: { autoPublish: true, socialAccountIds: ['account-1'], scheduledAt: future },
+          },
+        },
+      });
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(publishRecordCreateMock).toHaveBeenCalledWith({
+        data: {
+          clipId: 'clip-1',
+          socialAccountId: 'account-1',
+          status: 'SCHEDULED',
+          scheduledAt: new Date(future),
+        },
+      });
+      expect(publishClipQueueAddMock).not.toHaveBeenCalled();
+    });
+
+    it('publishes immediately (does not schedule) when scheduledAt has already passed by the time the clip renders', async () => {
+      const past = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+      socialAccountFindUniqueMock.mockResolvedValue({ id: 'account-1', userId: 'user-1' });
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        hookText: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: {
+            version: 1,
+            publishing: { autoPublish: true, socialAccountIds: ['account-1'], scheduledAt: past },
+          },
+        },
+      });
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(publishRecordCreateMock).toHaveBeenCalledWith({
+        data: {
+          clipId: 'clip-1',
+          socialAccountId: 'account-1',
+          status: 'QUEUED',
+          scheduledAt: null,
+        },
+      });
+      expect(publishClipQueueAddMock).toHaveBeenCalled();
+    });
+
+    it('does nothing when autoPublish is off (the default)', async () => {
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        hookText: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, publishing: { socialAccountIds: ['account-1'] } },
+        },
+      });
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(publishRecordCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('skips an account (without failing the render) when it no longer exists or belongs to a different owner', async () => {
+      socialAccountFindUniqueMock.mockResolvedValue({ id: 'account-1', userId: 'someone-else' });
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        hookText: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: {
+            version: 1,
+            publishing: { autoPublish: true, socialAccountIds: ['account-1'] },
+          },
+        },
+      });
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+
+      const processor = getProcessor();
+      const result = (await processor({ data: baseJobData })) as { clipId: string };
+
+      expect(publishRecordCreateMock).not.toHaveBeenCalled();
+      expect(result.clipId).toBe('clip-1');
+    });
+
+    it('never fails the render when creating the PublishRecord throws', async () => {
+      socialAccountFindUniqueMock.mockResolvedValue({ id: 'account-1', userId: 'user-1' });
+      publishRecordCreateMock.mockRejectedValue(new Error('db exploded'));
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        hookText: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: {
+            version: 1,
+            publishing: { autoPublish: true, socialAccountIds: ['account-1'] },
+          },
+        },
+      });
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+
+      const processor = getProcessor();
+      const result = (await processor({ data: baseJobData })) as { clipId: string };
+
+      expect(result.clipId).toBe('clip-1');
+    });
+  });
+
+  // Pre-Processing Settings roadmap (Phase 3).
+  describe('Thumbnail - preferred-signal weight boost', () => {
+    // Enough for scoreFaceClarity to produce a real (non-empty) reading -
+    // boundingBox present plus one scoreable component (sharpness).
+    const faceLandmarkSample = {
+      t: 0,
+      boundingBox: { xCenter: 0.5, yCenter: 0.5, width: 0.2, height: 0.2 },
+      sharpness: 400,
+      rotation: null,
+      blendshapes: null,
+      brightness: null,
+      mouthContrastRatio: null,
+      faceDescriptor: null,
+      trackId: null,
+      leftIris: null,
+      rightIris: null,
+      leftEyeInnerCorner: null,
+      leftEyeOuterCorner: null,
+      rightEyeInnerCorner: null,
+      rightEyeOuterCorner: null,
+      mouthWidth: null,
+    };
+
+    it('passes no weights override through to selectThumbnailTimestamp when no preference is set (unchanged default behavior)', async () => {
+      detectFaceLandmarksMock.mockResolvedValue([faceLandmarkSample]);
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            thumbnailSelectionBreakdown: expect.arrayContaining([
+              expect.objectContaining({ signal: 'faceClarity', weight: 0.35 }),
+            ]),
+          }),
+        }),
+      );
+    });
+
+    it('boosts a preferred signal above its DEFAULT_THUMBNAIL_WEIGHTS entry, without a parallel selection path', async () => {
+      detectFaceLandmarksMock.mockResolvedValue([faceLandmarkSample]);
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        hookText: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, thumbnail: { preferredSignals: ['faceClarity'] } },
+        },
+      });
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            thumbnailSelectionBreakdown: expect.arrayContaining([
+              expect.objectContaining({ signal: 'faceClarity', weight: 0.7 }),
+            ]),
+          }),
+        }),
+      );
+    });
+
+    it('falls back to unweighted default behavior when preferredSignals is empty', async () => {
+      detectFaceLandmarksMock.mockResolvedValue([faceLandmarkSample]);
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        hookText: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, thumbnail: { preferredSignals: [] } },
+        },
+      });
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            thumbnailSelectionBreakdown: expect.arrayContaining([
+              expect.objectContaining({ signal: 'faceClarity', weight: 0.35 }),
+            ]),
+          }),
+        }),
+      );
+    });
   });
 
   it('downloads the source, renders with captions, uploads the result, and marks the video RENDERED once all clips are done', async () => {

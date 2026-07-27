@@ -31,6 +31,7 @@ export * from './types/prediction';
 export * from './types/tracked-link';
 export * from './types/clip-library';
 export * from './types/subtitle-preset';
+export * from './types/processing-options';
 export * from './utils/alert-conditions';
 export * from './utils/duration';
 export * from './utils/export-format';

@@ -41,7 +41,14 @@ export function formatRelativeTime(iso: string, now: number = Date.now()): strin
 }
 
 export interface ProcessingStage {
-  id: 'importing' | 'transcribing' | 'detecting' | 'rendering' | 'completed' | 'failed';
+  id:
+    | 'importing'
+    | 'pending-settings'
+    | 'transcribing'
+    | 'detecting'
+    | 'rendering'
+    | 'completed'
+    | 'failed';
   label: string;
   // 0-100. A stage with no real incremental progress signal (detect-clips)
   // reports a real 0, not a fabricated in-between number - same "never
@@ -70,6 +77,11 @@ export function videoProcessingStage(video: {
         label: 'Mengunduh dari YouTube',
         percent: video.importProgress ?? 0,
       };
+    // Quality Validation roadmap (Fase 0 design, Phase 1) - reached once
+    // probe-video.worker.ts's ffprobe pass succeeds, left once the user
+    // submits Processing Settings (POST /videos/:id/start-processing).
+    case VideoStatus.PENDING_SETTINGS:
+      return { id: 'pending-settings', label: 'Menunggu Pengaturan Pemrosesan', percent: 0 };
     case VideoStatus.UPLOADED:
       return {
         id: 'transcribing',

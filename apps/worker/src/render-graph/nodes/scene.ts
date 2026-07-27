@@ -32,7 +32,14 @@ export const sceneCutsNode: GraphNode<RenderGraphContext, number[]> = {
   fallback: [],
   label: 'scene cut detection',
   dataLabel: 'scene data',
+  // Pre-Processing Settings roadmap (Phase 2) - a real opt-out, not a
+  // decorative one: the ffmpeg scene-detection pass is skipped entirely
+  // (never invoked) rather than run and its output discarded. Same fallback
+  // value ([]) a genuine detection failure already produces, so every
+  // downstream node (sceneFeaturesNode etc.) behaves exactly as it does
+  // today for a video with zero detected cuts.
   run: async (_get, ctx) => {
+    if (!ctx.sceneAnalysis.detectSceneCuts) return [];
     const result = await detectSceneCuts(
       { videoPath: ctx.sourcePath, startTime: ctx.startTime, endTime: ctx.endTime },
       sceneIntelligenceDeps,
@@ -75,7 +82,10 @@ export const motionEnergyNode: GraphNode<RenderGraphContext, MotionEnergySample[
   fallback: [],
   label: 'motion energy analysis',
   dataLabel: 'motion data',
+  // Pre-Processing Settings roadmap (Phase 2) - same real-skip reasoning as
+  // sceneCutsNode above.
   run: async (_get, ctx) => {
+    if (!ctx.sceneAnalysis.detectMotionEnergy) return [];
     const result = await analyzeMotionEnergy(
       { videoPath: ctx.sourcePath, startTime: ctx.startTime, endTime: ctx.endTime },
       sceneIntelligenceDeps,
@@ -94,11 +104,17 @@ export const cameraMotionNode: GraphNode<RenderGraphContext, CameraMotionSample[
   fallback: null,
   label: 'camera motion detection',
   dataLabel: 'camera motion data',
-  run: (_get, ctx) =>
-    detectCameraMotion(
+  // Pre-Processing Settings roadmap (Phase 2) - same real-skip reasoning as
+  // sceneCutsNode above. fallback (null) is exactly what a genuine
+  // detection failure already produces, not a new "disabled" state
+  // downstream nodes have to learn about.
+  run: (_get, ctx) => {
+    if (!ctx.sceneAnalysis.detectCameraMotion) return null;
+    return detectCameraMotion(
       { sourcePath: ctx.sourcePath, startTime: ctx.startTime, endTime: ctx.endTime },
       cameraMotionDeps,
-    ),
+    );
+  },
 };
 
 // Mini Fusion Engine v1/v2 prep - always computed (sceneCuts/sceneCutEvents are always arrays by
