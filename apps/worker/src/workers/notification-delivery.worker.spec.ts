@@ -95,7 +95,7 @@ describe('notification-delivery worker', () => {
     await processor({ data: { notificationId: 'notif-1' } });
 
     expect(notificationWebhookFindManyMock).toHaveBeenCalledWith({
-      where: { userId: 'user-1', channel: { in: ['SLACK'] } },
+      where: { userId: 'user-1', channel: { in: ['SLACK'] }, enabled: true },
     });
     expect(fetchMock).not.toHaveBeenCalled();
   });

@@ -107,21 +107,27 @@ export function createProbeVideoWorker(): Worker<ProbeVideoJobData, ProbeVideoJo
               durationSeconds: metadata.durationSeconds,
             });
 
-            await updateVideoStatus(prisma, videoId, VideoStatus.PENDING_SETTINGS, {
-              data: {
-                durationSeconds: metadata.durationSeconds,
-                width: metadata.width,
-                height: metadata.height,
-                fps: metadata.fps,
-                videoCodec: metadata.videoCodec,
-                videoBitrate: metadata.videoBitrate,
-                audioCodec: metadata.audioCodec,
-                audioSampleRate: metadata.audioSampleRate,
-                audioChannels: metadata.audioChannels,
-                audioBitrate: metadata.audioBitrate,
-                validationReport,
+            await updateVideoStatus(
+              prisma,
+              videoId,
+              VideoStatus.PENDING_SETTINGS,
+              {
+                data: {
+                  durationSeconds: metadata.durationSeconds,
+                  width: metadata.width,
+                  height: metadata.height,
+                  fps: metadata.fps,
+                  videoCodec: metadata.videoCodec,
+                  videoBitrate: metadata.videoBitrate,
+                  audioCodec: metadata.audioCodec,
+                  audioSampleRate: metadata.audioSampleRate,
+                  audioChannels: metadata.audioChannels,
+                  audioBitrate: metadata.audioBitrate,
+                  validationReport,
+                },
               },
-            });
+              { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
+            );
 
             logger.info('video probed', {
               videoId,

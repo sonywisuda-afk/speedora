@@ -271,7 +271,13 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
               ),
             );
 
-            await updateVideoStatus(prisma, videoId, VideoStatus.CLIPS_DETECTED);
+            await updateVideoStatus(
+              prisma,
+              videoId,
+              VideoStatus.CLIPS_DETECTED,
+              {},
+              { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
+            );
 
             const candidates: ClipCandidate[] = clips.map((clip) => ({
               id: clip.id,

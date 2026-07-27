@@ -34,9 +34,17 @@ const WEBHOOK_CHANNELS = [
 export class NotificationsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  // Notification Center v2 Phase 2 - threadId: null, groupId: null is a
+  // compatibility guard, not new Notification Center functionality (that's
+  // Phase 3/API Layer). Without it, the new Smart Timeline pipeline-thread
+  // rows Phase 2 now writes (recordThreadNotification()) would leak into
+  // this still-untouched, already-shipped list/badge - every pre-Phase-2 row
+  // already has both columns null, so this is a no-op against existing data
+  // and only excludes the new thread-linked rows until Phase 3 deliberately
+  // exposes them.
   async list(userId: string, limit: number): Promise<NotificationListDto> {
     const notifications = await this.prisma.notification.findMany({
-      where: { userId },
+      where: { userId, threadId: null, groupId: null },
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
@@ -44,7 +52,9 @@ export class NotificationsService {
   }
 
   async unreadCount(userId: string): Promise<NotificationUnreadCountDto> {
-    const count = await this.prisma.notification.count({ where: { userId, readAt: null } });
+    const count = await this.prisma.notification.count({
+      where: { userId, readAt: null, threadId: null, groupId: null },
+    });
     return { count };
   }
 

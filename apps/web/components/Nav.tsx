@@ -11,6 +11,7 @@ import { ThemeToggle } from './ui/theme-toggle';
 const LINKS = [
   { href: '/upload', label: 'Upload' },
   { href: '/dashboard', label: 'Dashboard' },
+  { href: '/notifications', label: 'Notifications' },
   { href: '/library', label: 'Clip Library' },
   { href: '/analytics', label: 'Analytics' },
   { href: '/social', label: 'Social Media' },

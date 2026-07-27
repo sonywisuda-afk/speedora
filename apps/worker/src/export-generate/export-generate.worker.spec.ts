@@ -197,6 +197,8 @@ describe('export-generate worker', () => {
       data: {
         userId: 'user-1',
         type: 'EXPORT_READY',
+        category: 'RENDERING',
+        priority: 'SUCCESS',
         title: 'Export siap diunduh',
         body: 'Laporan export untuk video "My video" sudah siap diunduh.',
         videoId: 'video-1',

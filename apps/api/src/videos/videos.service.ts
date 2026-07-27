@@ -1,10 +1,12 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
+  derivePipelineThreadPresentation,
   Prisma,
   recordActivityEvent,
   recordAuditLog,
   recordNotification,
+  recordThreadNotification,
   recordVideoStatusEvent,
   updateVideoStatus,
   VideoStatus,
@@ -280,6 +282,43 @@ export class VideosService {
       },
     ).catch((error) => this.logger.warn(`failed to record UPLOAD_COMPLETE notification: ${error}`));
 
+    // Notification Center v2 Phase 2 - Smart Timeline thread creation. This
+    // is the first update for this video's thread (video.status is UPLOADED,
+    // the schema default for a direct upload - see recordVideoStatusEvent's
+    // own comment above for why creation doesn't go through
+    // updateVideoStatus()). Every later stage transition updates this SAME
+    // thread (threadKey PIPELINE:<videoId>) via updateVideoStatus()'s own
+    // hook - see derivePipelineThreadPresentation(). Wrapped in try/catch
+    // (not just recordThreadNotification's own .catch()) since
+    // derivePipelineThreadPresentation() runs synchronously BEFORE that
+    // call - a secondary write's failure must never break the primary
+    // upload action, same discipline as every other best-effort side effect
+    // in this method.
+    try {
+      const uploadPresentation = derivePipelineThreadPresentation(video.status, {
+        title: video.title,
+      });
+      await recordThreadNotification(
+        this.prisma,
+        {
+          userId: ownerId,
+          type: uploadPresentation.type,
+          title: uploadPresentation.title,
+          body: uploadPresentation.body,
+          category: uploadPresentation.category,
+          threadKey: `PIPELINE:${video.id}`,
+          status: uploadPresentation.threadStatus,
+          videoId: video.id,
+        },
+        {
+          publish: (event) => this.notificationPublisher.publish(event),
+          enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
+        },
+      );
+    } catch (error) {
+      this.logger.warn(`failed to record pipeline thread notification: ${error}`);
+    }
+
     return video;
   }
 
@@ -370,6 +409,35 @@ export class VideosService {
         enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
       },
     ).catch((error) => this.logger.warn(`failed to record UPLOAD_COMPLETE notification: ${error}`));
+
+    // Notification Center v2 Phase 2 - Smart Timeline thread creation, same
+    // reasoning (and try/catch, not just .catch()) as upload()'s own call
+    // above. video.status is IMPORTING here (explicit at creation for the
+    // YouTube-import path).
+    try {
+      const importPresentation = derivePipelineThreadPresentation(video.status, {
+        title: video.title,
+      });
+      await recordThreadNotification(
+        this.prisma,
+        {
+          userId: ownerId,
+          type: importPresentation.type,
+          title: importPresentation.title,
+          body: importPresentation.body,
+          category: importPresentation.category,
+          threadKey: `PIPELINE:${video.id}`,
+          status: importPresentation.threadStatus,
+          videoId: video.id,
+        },
+        {
+          publish: (event) => this.notificationPublisher.publish(event),
+          enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
+        },
+      );
+    } catch (error) {
+      this.logger.warn(`failed to record pipeline thread notification: ${error}`);
+    }
 
     return video;
   }
@@ -490,11 +558,20 @@ export class VideosService {
       );
     }
 
-    await updateVideoStatus(this.prisma, id, VideoStatus.UPLOADED, {
-      data: {
-        processingOptions: processingOptions as unknown as Prisma.InputJsonValue,
+    await updateVideoStatus(
+      this.prisma,
+      id,
+      VideoStatus.UPLOADED,
+      {
+        data: {
+          processingOptions: processingOptions as unknown as Prisma.InputJsonValue,
+        },
       },
-    });
+      {
+        publish: (event) => this.notificationPublisher.publish(event),
+        enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
+      },
+    );
     await this.transcribeQueue.add(QueueName.TRANSCRIBE, {
       videoId: id,
       sourceUrl: video.sourceUrl,
@@ -538,9 +615,16 @@ export class VideosService {
       // transcribeProgress below - a retry click shouldn't briefly show a
       // stale value from the failed attempt before the worker picks the job
       // back up.
-      await updateVideoStatus(this.prisma, id, VideoStatus.IMPORTING, {
-        data: { importProgress: 0 },
-      });
+      await updateVideoStatus(
+        this.prisma,
+        id,
+        VideoStatus.IMPORTING,
+        { data: { importProgress: 0 } },
+        {
+          publish: (event) => this.notificationPublisher.publish(event),
+          enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
+        },
+      );
       await this.importYoutubeQueue.add(QueueName.IMPORT_YOUTUBE, {
         videoId: id,
         url: video.importSourceUrl,
@@ -555,7 +639,16 @@ export class VideosService {
       // their absence here - after the import-in-progress branch above has
       // already been ruled out, meaning sourceUrl is real - means this
       // video never got past PROBE_VIDEO.
-      await updateVideoStatus(this.prisma, id, VideoStatus.UPLOADED);
+      await updateVideoStatus(
+        this.prisma,
+        id,
+        VideoStatus.UPLOADED,
+        {},
+        {
+          publish: (event) => this.notificationPublisher.publish(event),
+          enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
+        },
+      );
       await this.probeVideoQueue.add(QueueName.PROBE_VIDEO, {
         videoId: id,
         sourceUrl: video.sourceUrl,
@@ -565,16 +658,32 @@ export class VideosService {
       // itself to reset it) so a retry click doesn't briefly show a stale
       // progress value from the failed attempt before the worker picks the
       // job up.
-      await updateVideoStatus(this.prisma, id, VideoStatus.UPLOADED, {
-        data: { transcribeProgress: 0 },
-      });
+      await updateVideoStatus(
+        this.prisma,
+        id,
+        VideoStatus.UPLOADED,
+        { data: { transcribeProgress: 0 } },
+        {
+          publish: (event) => this.notificationPublisher.publish(event),
+          enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
+        },
+      );
       await this.transcribeQueue.add(QueueName.TRANSCRIBE, {
         videoId: id,
         sourceUrl: video.sourceUrl,
         provider: toSharedTranscriptionProvider(video.transcriptionProvider),
       });
     } else if (video.clips.length === 0) {
-      await updateVideoStatus(this.prisma, id, VideoStatus.TRANSCRIBED);
+      await updateVideoStatus(
+        this.prisma,
+        id,
+        VideoStatus.TRANSCRIBED,
+        {},
+        {
+          publish: (event) => this.notificationPublisher.publish(event),
+          enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
+        },
+      );
       await this.detectClipsQueue.add(QueueName.DETECT_CLIPS, {
         videoId: id,
         segments: video.transcriptSegments.map(toSharedTranscriptSegment),
@@ -586,11 +695,29 @@ export class VideosService {
         // Nothing left to redo - every clip already has output. Shouldn't
         // normally happen (status only becomes FAILED from an active job's
         // catch block), but self-heal rather than error if it does.
-        await updateVideoStatus(this.prisma, id, VideoStatus.RENDERED);
+        await updateVideoStatus(
+          this.prisma,
+          id,
+          VideoStatus.RENDERED,
+          {},
+          {
+            publish: (event) => this.notificationPublisher.publish(event),
+            enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
+          },
+        );
         return this.findOne(id, requesterId);
       }
 
-      await updateVideoStatus(this.prisma, id, VideoStatus.CLIPS_DETECTED);
+      await updateVideoStatus(
+        this.prisma,
+        id,
+        VideoStatus.CLIPS_DETECTED,
+        {},
+        {
+          publish: (event) => this.notificationPublisher.publish(event),
+          enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
+        },
+      );
       // Workspace-level Brand Kit roadmap (P3g) - one merged-kit lookup
       // shared by every clip in this video (all belong to the same
       // owner/workspace), same "resolve once at enqueue time" shape as

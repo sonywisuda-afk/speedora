@@ -9,7 +9,13 @@ import {
   deriveVoiceActivityFeatures,
   detectVoiceActivity,
 } from '@speedora/audio-intelligence';
-import { Prisma, updateVideoStatus, VideoStatus } from '@speedora/database';
+import {
+  derivePipelineThreadPresentation,
+  Prisma,
+  recordThreadNotification,
+  updateVideoStatus,
+  VideoStatus,
+} from '@speedora/database';
 import { deriveDiarizationFeatures } from '@speedora/speaker-diarization';
 import {
   QueueName,
@@ -615,7 +621,7 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
             // updateVideoStatus()) so it joins the SAME $transaction as the
             // segment insert and progress reset, instead of being a separate,
             // merely-adjacent transaction - see ARCHITECTURE.md's Fase 3 section.
-            await prisma.$transaction([
+            const [, updatedVideo] = await prisma.$transaction([
               prisma.transcriptSegment.createMany({
                 data: segments.map((segment) => ({ videoId, ...segment })),
               }),
@@ -635,6 +641,41 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
             ]);
 
             logger.info('video transcribed', { videoId, segmentCount: segments.length });
+
+            // Notification Center v2 Phase 2 - this TRANSCRIBED transition is
+            // inlined above (not updateVideoStatus()) so it joins the segment-
+            // insert transaction, which means it bypasses updateVideoStatus()'s
+            // own Smart Timeline hook. Calls the exact same presentation table
+            // directly so the thread still gets updated - see
+            // derivePipelineThreadPresentation()'s own comment. try/catch (not
+            // just recordThreadNotification's own .catch()) since
+            // derivePipelineThreadPresentation() runs synchronously first - a
+            // secondary write's failure must never break the primary job.
+            try {
+              const presentation = derivePipelineThreadPresentation(VideoStatus.TRANSCRIBED, {
+                title: updatedVideo.title,
+              });
+              await recordThreadNotification(
+                prisma,
+                {
+                  userId: updatedVideo.ownerId,
+                  type: presentation.type,
+                  title: presentation.title,
+                  body: presentation.body,
+                  category: presentation.category,
+                  threadKey: `PIPELINE:${videoId}`,
+                  status: presentation.threadStatus,
+                  videoId,
+                },
+                { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
+              );
+            } catch (error) {
+              logger.warn(
+                'failed to record pipeline thread notification (TRANSCRIBED)',
+                { videoId },
+                error,
+              );
+            }
 
             await detectClipsQueue.add(QueueName.DETECT_CLIPS, { videoId, segments });
 

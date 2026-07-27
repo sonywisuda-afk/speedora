@@ -170,3 +170,301 @@ export interface UpsertNotificationWebhookDto {
 export interface UpsertTelegramWebhookDto {
   botToken: string;
 }
+
+// ============================================================================
+// Notification Center v2 Phase 3 (API Layer) - everything below is a NEW,
+// ADDITIVE contract for GET/PATCH/DELETE /notifications/v2/*. Nothing above
+// this line is touched - NotificationType/NotificationChannel/NOTIFICATION_
+// SEVERITY/NotificationDto/NotificationListDto/etc. keep meaning exactly what
+// they meant before, and V1's /notifications/* routes keep returning exactly
+// what they always have. A V2-only type (e.g. PIPELINE_PROGRESS) is
+// deliberately NOT added to the NotificationType enum above - that enum's
+// NOTIFICATION_SEVERITY Record is exhaustiveness-checked and consumed by
+// apps/web's V1 icon/label/tone registries, which must never be forced to
+// handle a type V1 can never actually return (see
+// NotificationsService.list()'s threadId: null, groupId: null guard - a
+// PIPELINE_PROGRESS row can never reach a V1 endpoint). Notification*V2Dto
+// below widens `type` with a plain union instead.
+// ============================================================================
+
+// Mirrors NotificationCategory in packages/database's Prisma schema (same
+// nominally-distinct-shared-runtime-values convention as NotificationType
+// above) - a coarse "which product area" bucket, orthogonal to `type`. Net
+// new to this shared package - V1's NotificationDto never exposed category.
+export enum NotificationCategoryV2 {
+  UPLOAD = 'UPLOAD',
+  AI_PROCESSING = 'AI_PROCESSING',
+  CLIP_GENERATION = 'CLIP_GENERATION',
+  RENDERING = 'RENDERING',
+  PUBLISHING = 'PUBLISHING',
+  ANALYTICS = 'ANALYTICS',
+  BILLING = 'BILLING',
+  WORKSPACE = 'WORKSPACE',
+  SYSTEM = 'SYSTEM',
+  ERRORS = 'ERRORS',
+}
+
+// Mirrors NotificationPriority in packages/database's Prisma schema - a real
+// 5-level severity (INFO/SUCCESS/WARNING/ERROR/CRITICAL), superseding the
+// narrower 3-value NotificationSeverity above for V2 consumers only. Net new
+// to this shared package.
+export enum NotificationPriorityV2 {
+  INFO = 'INFO',
+  SUCCESS = 'SUCCESS',
+  WARNING = 'WARNING',
+  ERROR = 'ERROR',
+  CRITICAL = 'CRITICAL',
+}
+
+// Mirrors NotificationThreadStatus in packages/database's Prisma schema -
+// the Smart Timeline thread's own coarse aggregate state.
+export enum NotificationThreadStatusV2 {
+  IN_PROGRESS = 'IN_PROGRESS',
+  COMPLETED = 'COMPLETED',
+  FAILED = 'FAILED',
+}
+
+// Every real NotificationType value PLUS the one V2-only, non-terminal
+// pipeline-progress type (see this block's own header comment for why
+// PIPELINE_PROGRESS is never added to the V1 NotificationType enum itself).
+export type NotificationTypeV2 = NotificationType | 'PIPELINE_PROGRESS';
+
+// Every real NotificationChannel value PLUS the 3 schema-only (Phase 1),
+// no-delivery-implementation-yet channels (EMAIL/PUSH/DESKTOP) - same
+// widen-with-a-union pattern as NotificationTypeV2 above, for the same
+// reason: the V1 NotificationChannel enum is exhaustiveness-checked by
+// V1-only code paths that must never be forced to handle a channel that
+// can't actually reach them. Used only by Phase 5's preferences DTOs below.
+export type NotificationChannelV2 = NotificationChannel | 'EMAIL' | 'PUSH' | 'DESKTOP';
+
+// The concrete set of actions a client can render as a button for a given
+// V2 notification - server-derived (NotificationsService.deriveActions()),
+// never guessed client-side, so adding a new action later never needs a
+// frontend release ahead of the backend that can actually satisfy it. Every
+// value here corresponds to a route/capability that genuinely exists today
+// (Retry -> POST /videos/:id/retry, Publish -> POST /clips/:id/publish,
+// etc.) - nothing speculative.
+export enum NotificationActionType {
+  RETRY = 'RETRY',
+  OPEN_VIDEO = 'OPEN_VIDEO',
+  OPEN_CLIP = 'OPEN_CLIP',
+  PUBLISH = 'PUBLISH',
+  VIEW_ANALYTICS = 'VIEW_ANALYTICS',
+  VIEW_LOGS = 'VIEW_LOGS',
+  DISMISS = 'DISMISS',
+}
+
+// The thread/group sub-object embedded in a V2 notification when this row is
+// the representative row of a Smart Timeline thread or a dedup group - at
+// most one of `thread`/`group` is ever non-null (see Notification.threadId/
+// groupId's own schema comment). Deliberately a NARROW projection (not the
+// full thread/group row) - just enough for the list view to render a
+// stage-progress affordance or an "x N" badge without a second request.
+export interface NotificationThreadSummaryDto {
+  id: string;
+  status: NotificationThreadStatusV2;
+  lastActivityAt: string;
+}
+
+export interface NotificationGroupSummaryDto {
+  id: string;
+  occurrenceCount: number;
+  lastOccurredAt: string;
+}
+
+export interface NotificationV2Dto {
+  id: string;
+  type: NotificationTypeV2;
+  category: NotificationCategoryV2;
+  priority: NotificationPriorityV2;
+  title: string;
+  body: string;
+  videoId: string | null;
+  clipId: string | null;
+  metadata: Record<string, unknown> | null;
+  readAt: string | null;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  thread: NotificationThreadSummaryDto | null;
+  group: NotificationGroupSummaryDto | null;
+  // Server-computed navigation target (e.g. "/videos/abc123/edit") - null
+  // when this notification has no real destination (no videoId/clipId to
+  // navigate to). Lets the client navigate directly on click without first
+  // fetching the video/clip to figure out where it lives.
+  deepLink: string | null;
+  actions: NotificationActionType[];
+}
+
+export interface NotificationV2ListDto {
+  notifications: NotificationV2Dto[];
+  // Cursor pagination, same convention as VideosService.findAll/
+  // GET /videos - a previously-returned notification id, or null when this
+  // is the last page. Never offset-based (see that endpoint's own comment
+  // on why: skips/duplicates rows as new ones land ahead of an in-progress
+  // page walk - equally true here since notifications arrive continuously).
+  nextCursor: string | null;
+}
+
+// Coarse list-view state filter - a UI-facing shorthand over
+// readAt/archivedAt, not a new persisted column. 'all' still excludes
+// archived (an archived notification is opt-in visible only via
+// state: 'archived') - same "archived is its own explicit view, not mixed
+// into the default list" posture V1 never needed since it had no archive
+// state at all.
+export type NotificationV2StateFilter = 'all' | 'unread' | 'archived';
+
+export interface NotificationV2ListQuery {
+  cursor?: string;
+  limit?: number;
+  state?: NotificationV2StateFilter;
+  category?: NotificationCategoryV2;
+  priority?: NotificationPriorityV2;
+  // Free-text search over title/body (ILIKE, same convention as
+  // SearchService) - covers "resource/video name" search too in practice,
+  // since every real notification's title/body already embeds the video's
+  // title as generated text (e.g. `Video "My Video" ...`), not a separate
+  // joined field.
+  q?: string;
+}
+
+// The Smart Timeline's per-stage detail, derived at READ TIME from
+// VideoStatusEvent (never stored) - mirrors PipelineTimelineDto/
+// TimelineStageDto in packages/database's notification-timeline.ts (that
+// package is apps/api/apps/worker-only; this is the client-facing mirror of
+// its exact shape, same nominally-distinct-shared-shape convention as every
+// other Prisma-adjacent type in this file).
+export type TimelineStageStatus = 'done' | 'active' | 'pending' | 'failed';
+
+export interface TimelineStageDto {
+  stage: string;
+  label: string;
+  status: TimelineStageStatus;
+  startedAt: string | null;
+  completedAt: string | null;
+  progressPercent: number | null;
+  detail: string | null;
+}
+
+export interface PipelineFailureHistoryEntryDto {
+  stage: string;
+  reason: string | null;
+  occurredAt: string;
+}
+
+export interface PipelineTimelineDto {
+  videoId: string;
+  overallStatus: 'in_progress' | 'completed' | 'failed';
+  failureReason: string | null;
+  failureHistory: PipelineFailureHistoryEntryDto[];
+  stages: TimelineStageDto[];
+}
+
+export interface NotificationThreadDetailDto {
+  thread: {
+    id: string;
+    videoId: string | null;
+    title: string;
+    status: NotificationThreadStatusV2;
+    lastActivityAt: string;
+    archivedAt: string | null;
+    createdAt: string;
+  };
+  // The thread's own representative Notification row (readAt/archivedAt/
+  // actions/deepLink etc.) - null only in the never-really-reachable case
+  // where the thread exists but its representative row was hard-deleted out
+  // from under it (defensive, not an expected state).
+  notification: NotificationV2Dto | null;
+  // Only present when thread.videoId is set (true for every real thread
+  // today - see NotificationThread's own schema comment) - the live,
+  // never-fabricated per-stage breakdown.
+  timeline: PipelineTimelineDto | null;
+}
+
+// Every bulk action below takes a plain id list and is idempotent - re-
+// submitting the same ids (including ones already read/archived/deleted, or
+// ids that were never this user's to begin with) never errors, same
+// "absence/already-there is a fine, ordinary end state" posture V1's
+// markRead/markAllRead already use. `count` is how many rows this call
+// actually changed - 0 is a normal, successful result, not a partial
+// failure.
+export interface NotificationV2BulkActionRequest {
+  ids: string[];
+}
+
+export interface NotificationV2BulkActionResult {
+  count: number;
+}
+
+// ============================================================================
+// Notification Center v2 Phase 5 (Preferences & Delivery) - a SEPARATE,
+// deliberately coarser vocabulary from the real NotificationCategoryV2 enum
+// above, and a separate contract from V1's own granular per-type
+// NotificationPreferenceDto/GET/PATCH /notifications/preferences (untouched
+// by this phase). Backs GET/PATCH /notifications/v2/preferences/*.
+// ============================================================================
+
+// "Rendering" merges the real RENDERING + CLIP_GENERATION categories into
+// one user-facing toggle - product decision, not a technical limitation:
+// today these two stages read as a single step to a user ("your clip is
+// being made"), and splitting them would just be more UI for no real
+// control benefit. The underlying event data keeps recording the real,
+// separate categories for logic/analytics - only this preferences UI's
+// grouping is coarser. Revisit only if the pipeline grows enough genuinely
+// separate user-facing stages (e.g. distinct AI Enhancement/Auto Subtitle/
+// Multi-format Render steps) to make finer control worth the extra UI.
+//
+// WORKSPACE (comments/mentions/review & approval requests) and ERRORS
+// (RENDER_FAILED and any other failure) are deliberately NOT members of
+// this enum - they're "essential" notifications by product decision (a
+// missed approval request or a silently-swallowed failure is worse than
+// one unwanted toggle) and are never exposed as a toggle at all, in either
+// direction - the frontend should show a short explanatory note instead
+// (see NotificationPreferencesV2Dto's own comment).
+export enum PreferenceCategoryGroupV2 {
+  UPLOAD = 'UPLOAD',
+  PROCESSING = 'PROCESSING',
+  RENDERING = 'RENDERING',
+  PUBLISHING = 'PUBLISHING',
+  ANALYTICS = 'ANALYTICS',
+  BILLING = 'BILLING',
+  SYSTEM = 'SYSTEM',
+}
+
+export interface NotificationInAppPreferenceV2Dto {
+  group: PreferenceCategoryGroupV2;
+  enabled: boolean;
+}
+
+// One row per NotificationChannel. SLACK/DISCORD/TELEGRAM/WEBHOOK are real
+// and toggleable (`enabled` reflects/controls NotificationWebhook.enabled,
+// `configured` whether a destination is saved at all - see that model's own
+// schema comment for why the two are separate). EMAIL/PUSH/DESKTOP exist in
+// the NotificationChannel enum (schema-only since Phase 1) but have no
+// delivery implementation - `comingSoon: true`, `enabled`/`configured`
+// always false, never accepted by PATCH .../preferences/channel/:channel.
+export interface NotificationChannelPreferenceV2Dto {
+  channel: NotificationChannelV2;
+  enabled: boolean;
+  configured: boolean;
+  comingSoon: boolean;
+}
+
+// `essentialNote` is server-supplied display copy (not hardcoded twice in
+// frontend + backend) explaining why WORKSPACE/ERRORS never appear in
+// `inApp` - always the same string today, still returned from the API
+// rather than a frontend constant so the wording only ever needs to change
+// in one place.
+export interface NotificationPreferencesV2Dto {
+  inApp: NotificationInAppPreferenceV2Dto[];
+  channels: NotificationChannelPreferenceV2Dto[];
+  essentialNote: string;
+}
+
+export interface UpdateNotificationInAppPreferenceV2Dto {
+  enabled: boolean;
+}
+
+export interface UpdateNotificationChannelPreferenceV2Dto {
+  enabled: boolean;
+}

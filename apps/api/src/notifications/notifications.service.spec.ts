@@ -66,7 +66,7 @@ describe('NotificationsService', () => {
       const result = await service.list('user-1', 20);
 
       expect(prisma.notification.findMany).toHaveBeenCalledWith({
-        where: { userId: 'user-1' },
+        where: { userId: 'user-1', threadId: null, groupId: null },
         orderBy: { createdAt: 'desc' },
         take: 20,
       });
@@ -89,7 +89,7 @@ describe('NotificationsService', () => {
       const result = await service.unreadCount('user-1');
 
       expect(prisma.notification.count).toHaveBeenCalledWith({
-        where: { userId: 'user-1', readAt: null },
+        where: { userId: 'user-1', readAt: null, threadId: null, groupId: null },
       });
       expect(result).toEqual({ count: 3 });
     });

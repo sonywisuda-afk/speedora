@@ -210,9 +210,13 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
             const { size: sourceSizeBytes } = await stat(downloadPath);
             await uploadObject(sourceUrl, createReadStream(downloadPath), 'video/mp4');
 
-            await updateVideoStatus(prisma, videoId, VideoStatus.UPLOADED, {
-              data: { sourceUrl, importProgress: null, title: metadata.title, sourceSizeBytes },
-            });
+            await updateVideoStatus(
+              prisma,
+              videoId,
+              VideoStatus.UPLOADED,
+              { data: { sourceUrl, importProgress: null, title: metadata.title, sourceSizeBytes } },
+              { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
+            );
 
             logger.info('video imported', {
               videoId,

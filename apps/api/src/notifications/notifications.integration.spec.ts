@@ -81,7 +81,7 @@ describe('Notifications module integration (Controller + Service via real DI)', 
     const result = await controller.list(user, undefined);
 
     expect(prisma.notification.findMany).toHaveBeenCalledWith({
-      where: { userId: 'user-1' },
+      where: { userId: 'user-1', threadId: null, groupId: null },
       orderBy: { createdAt: 'desc' },
       take: 20,
     });

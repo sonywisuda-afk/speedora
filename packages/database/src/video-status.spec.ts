@@ -1,4 +1,29 @@
-import { recordVideoStatusEvent, updateVideoStatus } from './video-status';
+import { Prisma } from './generated/prisma/client';
+import {
+  derivePipelineThreadPresentation,
+  recordVideoStatusEvent,
+  updateVideoStatus,
+} from './video-status';
+
+function p2002() {
+  return new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+    code: 'P2002',
+    clientVersion: '5.0.0',
+  });
+}
+
+function makeThreadPrisma() {
+  return {
+    video: { update: jest.fn().mockReturnValue('video-update-promise') },
+    videoStatusEvent: { create: jest.fn().mockReturnValue('event-create-promise') },
+    notification: { create: jest.fn(), update: jest.fn() },
+    notificationPreference: { findUnique: jest.fn().mockResolvedValue(null) },
+    notificationThread: { create: jest.fn(), update: jest.fn() },
+    $transaction: jest
+      .fn()
+      .mockResolvedValue([{ id: 'video-1', ownerId: 'user-1', title: 'My Video' }, {}]),
+  };
+}
 
 describe('recordVideoStatusEvent', () => {
   it('creates one VideoStatusEvent row with the given status and no error message', async () => {
@@ -103,6 +128,8 @@ describe('updateVideoStatus', () => {
       data: {
         userId: 'user-1',
         type: 'RENDER_FAILED',
+        category: 'ERRORS',
+        priority: 'ERROR',
         title: 'Proses video gagal',
         body: 'Video "My Video" gagal diproses. Silakan coba lagi.',
         videoId: 'video-1',
@@ -226,5 +253,147 @@ describe('updateVideoStatus', () => {
     await expect(
       updateVideoStatus(prisma as never, 'video-1', 'FAILED' as never),
     ).resolves.toBeUndefined();
+  });
+
+  describe('Notification Center v2 Phase 2 - Smart Timeline thread wiring', () => {
+    it('creates/updates the SAME per-video thread (PIPELINE:<videoId>) on every transition, including non-FAILED ones', async () => {
+      const prisma = makeThreadPrisma();
+      prisma.notificationThread.create.mockResolvedValue({ id: 'thread-1' });
+      prisma.notification.create.mockResolvedValue({ id: 'notif-1' });
+
+      await updateVideoStatus(prisma as never, 'video-1', 'CLIPS_DETECTED' as never);
+
+      expect(prisma.notificationThread.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'user-1',
+          key: 'PIPELINE:video-1',
+          videoId: 'video-1',
+          status: 'IN_PROGRESS',
+        }),
+      });
+      expect(prisma.notification.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          type: 'PIPELINE_PROGRESS',
+          category: 'CLIP_GENERATION',
+          threadId: 'thread-1',
+        }),
+      });
+    });
+
+    it('updates the existing thread (never a new one) on a second transition for the same video', async () => {
+      const prisma = makeThreadPrisma();
+      prisma.notificationThread.create.mockRejectedValue(p2002());
+      prisma.notificationThread.update.mockResolvedValue({ id: 'thread-1' });
+      prisma.notification.create.mockRejectedValue(p2002());
+      prisma.notification.update.mockResolvedValue({ id: 'notif-1' });
+
+      await updateVideoStatus(prisma as never, 'video-1', 'TRANSCRIBED' as never);
+
+      expect(prisma.notificationThread.update).toHaveBeenCalledWith({
+        where: { userId_key: { userId: 'user-1', key: 'PIPELINE:video-1' } },
+        data: expect.objectContaining({ status: 'IN_PROGRESS' }),
+      });
+      expect(prisma.notification.update).toHaveBeenCalledWith({
+        where: { threadId: 'thread-1' },
+        data: expect.objectContaining({ title: expect.any(String) }),
+      });
+    });
+
+    it('marks the thread FAILED (in addition to the existing flat RENDER_FAILED notification) on a FAILED transition', async () => {
+      const prisma = makeThreadPrisma();
+      prisma.notificationThread.create.mockResolvedValue({ id: 'thread-1' });
+      prisma.notification.create.mockResolvedValue({ id: 'notif-1' });
+
+      await updateVideoStatus(prisma as never, 'video-1', 'FAILED' as never, {
+        errorMessage: 'boom',
+      });
+
+      expect(prisma.notificationThread.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ status: 'FAILED' }),
+      });
+      // The flat RENDER_FAILED notification (existing, pre-Phase-2 behavior)
+      // and the thread's own representative row are TWO separate
+      // notification.create calls - both must still happen.
+      expect(prisma.notification.create).toHaveBeenCalledTimes(2);
+      expect(prisma.notification.create).toHaveBeenNthCalledWith(1, {
+        data: expect.objectContaining({ type: 'RENDER_FAILED', videoId: 'video-1' }),
+      });
+      expect(prisma.notification.create).toHaveBeenNthCalledWith(2, {
+        data: expect.objectContaining({ type: 'RENDER_FAILED', threadId: 'thread-1' }),
+      });
+    });
+
+    it('never throws (never breaks the primary status update) when the thread write itself fails', async () => {
+      const prisma = makeThreadPrisma();
+      prisma.notificationThread.create.mockRejectedValue(new Error('db down'));
+
+      await expect(
+        updateVideoStatus(prisma as never, 'video-1', 'UPLOADED' as never),
+      ).resolves.toBeUndefined();
+    });
+  });
+});
+
+describe('derivePipelineThreadPresentation', () => {
+  const statuses = [
+    'IMPORTING',
+    'UPLOADED',
+    'PENDING_SETTINGS',
+    'TRANSCRIBED',
+    'CLIPS_DETECTED',
+    'RENDERED',
+    'FAILED',
+  ] as const;
+
+  it('returns a real, non-empty title/body for every known VideoStatus (no fabricated AI sub-stages)', () => {
+    for (const status of statuses) {
+      const result = derivePipelineThreadPresentation(status as never, { title: 'My Video' });
+      expect(result.title.length).toBeGreaterThan(0);
+      expect(result.body.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('reuses CLIP_READY/SUCCESS/COMPLETED for the terminal success outcome', () => {
+    const result = derivePipelineThreadPresentation('RENDERED' as never, { title: 'My Video' });
+    expect(result).toMatchObject({
+      type: 'CLIP_READY',
+      category: 'CLIP_GENERATION',
+      threadStatus: 'COMPLETED',
+    });
+  });
+
+  it('reuses RENDER_FAILED/ERROR/FAILED for the terminal failure outcome', () => {
+    const result = derivePipelineThreadPresentation('FAILED' as never, { title: 'My Video' });
+    expect(result).toMatchObject({
+      type: 'RENDER_FAILED',
+      category: 'ERRORS',
+      threadStatus: 'FAILED',
+    });
+  });
+
+  it('every non-terminal status uses PIPELINE_PROGRESS/IN_PROGRESS', () => {
+    for (const status of [
+      'IMPORTING',
+      'UPLOADED',
+      'PENDING_SETTINGS',
+      'TRANSCRIBED',
+      'CLIPS_DETECTED',
+    ]) {
+      const result = derivePipelineThreadPresentation(status as never, { title: 'My Video' });
+      expect(result.type).toBe('PIPELINE_PROGRESS');
+      expect(result.threadStatus).toBe('IN_PROGRESS');
+    }
+  });
+
+  it('falls back to a generic "video Anda" label when the title is not known yet', () => {
+    const result = derivePipelineThreadPresentation('IMPORTING' as never, { title: null });
+    expect(result.title).not.toContain('null');
+    expect(result.title.length).toBeGreaterThan(0);
+  });
+
+  it('throws a clear error (never returns undefined) for an unrecognized status', () => {
+    expect(() =>
+      derivePipelineThreadPresentation('NOT_A_REAL_STATUS' as never, { title: 'My Video' }),
+    ).toThrow(/unrecognized VideoStatus/);
   });
 });

@@ -57,8 +57,14 @@ export function createNotificationDeliveryWorker(): Worker<NotificationDeliveryJ
       if (enabledPreferences.length === 0) return;
 
       const enabledChannels = enabledPreferences.map((p) => p.channel);
+      // Notification Center v2 Phase 5 - `enabled: true` is the simplified
+      // preferences UI's per-channel "Enabled" checkbox (NotificationWebhook
+      // itself, not a second table) - a configured-but-disabled destination
+      // is filtered out right here, same "the worker resolves enabled +
+      // configured itself" posture this function's own header comment
+      // already documents for the NotificationPreference intersection.
       const webhooks = await prisma.notificationWebhook.findMany({
-        where: { userId: notification.userId, channel: { in: enabledChannels } },
+        where: { userId: notification.userId, channel: { in: enabledChannels }, enabled: true },
       });
       if (webhooks.length === 0) return;
 

@@ -34,11 +34,19 @@ import type {
   FollowersDto,
   LeaderboardMetric,
   NotificationChannel,
+  NotificationCategoryV2,
+  NotificationChannelV2,
   NotificationListDto,
   NotificationPreferenceDto,
   NotificationPreferenceListDto,
+  NotificationPreferencesV2Dto,
+  NotificationPriorityV2,
+  NotificationThreadDetailDto,
   NotificationType,
   NotificationUnreadCountDto,
+  NotificationV2BulkActionResult,
+  NotificationV2ListDto,
+  NotificationV2StateFilter,
   NotificationWebhookDto,
   NotificationWebhookListDto,
   OpsAiCalibrationDto,
@@ -1219,6 +1227,109 @@ export async function markNotificationRead(id: string): Promise<void> {
 export async function markAllNotificationsRead(): Promise<{ count: number }> {
   const res = await apiFetch('/notifications/read-all', { method: 'PATCH' });
   return parseJsonOrThrow<{ count: number }>(res);
+}
+
+// ============================================================================
+// Notification Center v2 Phase 4 (Realtime & Frontend Integration) - every
+// function below hits /notifications/v2/* (Phase 3's additive API), never
+// /notifications/* (V1, above) - the two never share a call site.
+// ============================================================================
+
+export interface NotificationV2ListParams {
+  cursor?: string;
+  limit?: number;
+  state?: NotificationV2StateFilter;
+  category?: NotificationCategoryV2;
+  priority?: NotificationPriorityV2;
+  q?: string;
+}
+
+export async function listNotificationsV2(
+  params: NotificationV2ListParams = {},
+): Promise<NotificationV2ListDto> {
+  const res = await apiFetch(
+    `/notifications/v2${toQueryString(params as Record<string, string | number | undefined>)}`,
+  );
+  return parseJsonOrThrow<NotificationV2ListDto>(res);
+}
+
+export async function getUnreadNotificationCountV2(): Promise<NotificationUnreadCountDto> {
+  const res = await apiFetch('/notifications/v2/unread-count');
+  return parseJsonOrThrow<NotificationUnreadCountDto>(res);
+}
+
+export async function getNotificationThreadDetail(
+  threadId: string,
+): Promise<NotificationThreadDetailDto> {
+  const res = await apiFetch(`/notifications/v2/threads/${threadId}`);
+  return parseJsonOrThrow<NotificationThreadDetailDto>(res);
+}
+
+export async function markNotificationsReadV2(
+  ids: string[],
+): Promise<NotificationV2BulkActionResult> {
+  const res = await apiFetch('/notifications/v2/read', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  return parseJsonOrThrow<NotificationV2BulkActionResult>(res);
+}
+
+export async function markAllNotificationsReadV2(): Promise<NotificationV2BulkActionResult> {
+  const res = await apiFetch('/notifications/v2/read-all', { method: 'PATCH' });
+  return parseJsonOrThrow<NotificationV2BulkActionResult>(res);
+}
+
+export async function archiveNotificationsV2(
+  ids: string[],
+): Promise<NotificationV2BulkActionResult> {
+  const res = await apiFetch('/notifications/v2/archive', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  return parseJsonOrThrow<NotificationV2BulkActionResult>(res);
+}
+
+export async function deleteNotificationsV2(
+  ids: string[],
+): Promise<NotificationV2BulkActionResult> {
+  const res = await apiFetch('/notifications/v2', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  return parseJsonOrThrow<NotificationV2BulkActionResult>(res);
+}
+
+// Notification Center v2 Phase 5 (Preferences & Delivery) - the simplified
+// preferences UI's own 3 endpoints. Never touches /notifications/preferences
+// (V1, above) - a separate, coarser contract.
+export async function getNotificationPreferencesV2(): Promise<NotificationPreferencesV2Dto> {
+  const res = await apiFetch('/notifications/v2/preferences');
+  return parseJsonOrThrow<NotificationPreferencesV2Dto>(res);
+}
+
+export async function updateInAppPreferenceV2(group: string, enabled: boolean): Promise<void> {
+  const res = await apiFetch(`/notifications/v2/preferences/in-app/${group}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  await parseJsonOrThrow<void>(res);
+}
+
+export async function updateChannelPreferenceV2(
+  channel: NotificationChannelV2,
+  enabled: boolean,
+): Promise<void> {
+  const res = await apiFetch(`/notifications/v2/preferences/channel/${channel}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  });
+  await parseJsonOrThrow<void>(res);
 }
 
 // Sprint 4B (Notification Preferences). Milestone 04d - optional channel,

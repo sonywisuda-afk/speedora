@@ -187,6 +187,11 @@ const notificationCreateMock = jest.fn();
 const notificationPreferenceFindUniqueMock = jest.fn();
 const clipPlatformCopyCountMock = jest.fn();
 const clipPlatformCopyCreateMock = jest.fn();
+// Notification Center v2 Phase 2 - recordThreadNotification()'s writes for
+// the Smart Timeline thread (both the rendering-progress bump and the
+// terminal RENDERED update), same shape as notificationCreateMock above.
+const notificationThreadCreateMock = jest.fn();
+const notificationThreadUpdateMock = jest.fn();
 // Pre-Processing Settings roadmap (Phase 3) - triggerAutoPublish()'s own
 // ownership lookup + PublishRecord creation.
 const socialAccountFindUniqueMock = jest.fn();
@@ -248,6 +253,10 @@ jest.mock('../prisma', () => ({
     // write above.
     notificationPreference: {
       findUnique: (...args: unknown[]) => notificationPreferenceFindUniqueMock(...args),
+    },
+    notificationThread: {
+      create: (...args: unknown[]) => notificationThreadCreateMock(...args),
+      update: (...args: unknown[]) => notificationThreadUpdateMock(...args),
     },
     // Pre-Processing Settings roadmap (Phase 3) - triggerAutoPlatformCopy()'s
     // own rate-limit check + row creation.
@@ -559,6 +568,8 @@ describe('render-clip worker', () => {
     activityEventCreateMock.mockResolvedValue({});
     notificationCreateMock.mockResolvedValue({ id: 'notif-1' });
     notificationPreferenceFindUniqueMock.mockResolvedValue(null);
+    notificationThreadCreateMock.mockResolvedValue({ id: 'thread-1' });
+    notificationThreadUpdateMock.mockResolvedValue({ id: 'thread-1' });
     publishNotificationMock.mockResolvedValue(undefined);
     clipPlatformCopyCountMock.mockResolvedValue(0);
     clipPlatformCopyCreateMock.mockResolvedValue({ id: 'platform-copy-1' });
@@ -1186,6 +1197,8 @@ describe('render-clip worker', () => {
       data: {
         userId: 'user-1',
         type: 'CLIP_READY',
+        category: 'CLIP_GENERATION',
+        priority: 'SUCCESS',
         title: 'Klip siap!',
         body: 'Klip dari video "My Video" sudah siap ditonton.',
         videoId: 'video-1',
@@ -3220,6 +3233,65 @@ describe('render-clip worker', () => {
         data: { status: VideoStatus.RENDERED },
       });
       expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+    });
+  });
+
+  describe('Notification Center v2 Phase 2 - Smart Timeline thread updates', () => {
+    it('updates the SAME pipeline thread with real render progress when not every clip is done yet', async () => {
+      // 1 of 2 sibling clips rendered - allRendered is false, so this must
+      // take the progress branch, never the terminal RENDERED one.
+      clipFindManyMock.mockResolvedValueOnce([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+        { id: 'clip-2', outputUrl: null, highlightScore: null },
+      ]);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(notificationThreadCreateMock).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'user-1',
+          key: 'PIPELINE:video-1',
+          videoId: 'video-1',
+          status: 'IN_PROGRESS',
+        }),
+      });
+      expect(notificationCreateMock).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          type: 'PIPELINE_PROGRESS',
+          category: 'RENDERING',
+          body: 'Rendering: 1 dari 2 klip selesai.',
+          threadId: 'thread-1',
+        }),
+      });
+      // Never the terminal RENDERED transition while a sibling is still
+      // unrendered.
+      expect(videoUpdateMock).not.toHaveBeenCalledWith({
+        where: { id: 'video-1' },
+        data: { status: VideoStatus.RENDERED },
+      });
+    });
+
+    it('updates the SAME thread to its terminal COMPLETED state once every clip is done', async () => {
+      clipFindManyMock
+        .mockResolvedValueOnce([
+          { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+        ])
+        .mockResolvedValueOnce([{ id: 'clip-1', highlightScore: 50 }]);
+
+      const processor = getProcessor();
+      await processor({ data: baseJobData });
+
+      expect(notificationThreadCreateMock).toHaveBeenCalledWith({
+        data: expect.objectContaining({ key: 'PIPELINE:video-1', status: 'COMPLETED' }),
+      });
+      expect(notificationCreateMock).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          type: 'CLIP_READY',
+          category: 'CLIP_GENERATION',
+          threadId: 'thread-1',
+        }),
+      });
     });
   });
 

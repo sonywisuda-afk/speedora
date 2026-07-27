@@ -138,20 +138,20 @@ enum PublishStatus {
 }
 
 model User {
-  id                          String    @id @default(cuid())
-  email                       String    @unique
+  id                             String    @id @default(cuid())
+  email                          String    @unique
   // bcrypt hash - never the plaintext password.
-  password                    String
+  password                       String
   // Milestone 5C-B - see UserRole above. Every normal signup gets CREATOR.
-  role                        UserRole  @default(CREATOR)
+  role                           UserRole  @default(CREATOR)
   // Forgot-password (Fase 8) - SHA-256 hash of a random token, never the raw
   // token itself (that only ever exists in the emailed reset link) - a DB
   // leak alone shouldn't be enough to reset anyone's password, same
   // reasoning as bcrypt-hashing the login password above. A new
   // forgot-password request overwrites both fields, implicitly invalidating
   // any earlier unused request - only the most recent one is ever honored.
-  resetPasswordTokenHash      String?   @unique
-  resetPasswordTokenExpiresAt DateTime?
+  resetPasswordTokenHash         String?   @unique
+  resetPasswordTokenExpiresAt    DateTime?
   // Sprint 03d (Export Center roadmap) - Brand Report's minimal Brand Kit.
   // No new settings system - these live directly on User, same "smallest
   // viable" posture the roadmap called for. brandLogoUrl is a raw storage
@@ -161,9 +161,9 @@ model User {
   // styling when unset rather than blocking creation - same graceful-
   // degradation posture as a missing SMTP_HOST just logging a warning
   // elsewhere in this codebase.
-  brandLogoUrl                String?
-  brandPrimaryColor           String?
-  brandSecondaryColor         String?
+  brandLogoUrl                   String?
+  brandPrimaryColor              String?
+  brandSecondaryColor            String?
   // Brand Kit roadmap (P3a) - one of packages/contracts's curated
   // FONT_FAMILIES keys (e.g. "Inter", "Open Sans"), not an arbitrary string -
   // enforced by BrandKitService/UpdateBrandKitDto, not a DB-level enum (same
@@ -172,7 +172,7 @@ model User {
   // until set; render-enqueue time falls back to build-ass.ts's own default
   // ('Inter') when null, same as an unset Clip.captionLanguage falling back
   // to the original (untranslated) transcript text.
-  brandFontFamily              String?
+  brandFontFamily                String?
   // Watermark roadmap (P3c) - brandWatermarkUrl is a raw storage key
   // (watermarks/<uuid>.png, same convention as brandLogoUrl - SVG uploads
   // are rasterized to PNG at upload time since ffmpeg can't decode SVG
@@ -184,11 +184,11 @@ model User {
   // defaults (opacity 0.8, scale 0.15, margin 0.03, position BOTTOM_RIGHT)
   // - same "null means use the sensible default" posture brandFontFamily
   // above already uses.
-  brandWatermarkUrl           String?
-  brandWatermarkOpacity       Float?
-  brandWatermarkScale         Float?
-  brandWatermarkMargin        Float?
-  brandWatermarkPosition      String?
+  brandWatermarkUrl              String?
+  brandWatermarkOpacity          Float?
+  brandWatermarkScale            Float?
+  brandWatermarkMargin           Float?
+  brandWatermarkPosition         String?
   // Intro roadmap (P3d) - brandIntroUrl is a raw storage key
   // (intros/<uuid><ext>, same convention as brandWatermarkUrl). brandIntroType
   // is 'video' | 'image', set at upload time from the validated mimetype
@@ -202,74 +202,79 @@ model User {
   // fresh at every render via ffprobe, since apps/api has no ffmpeg/ffprobe
   // dependency to compute it at upload time (see concatIntro()'s own
   // comment).
-  brandIntroUrl                String?
-  brandIntroType                String?
+  brandIntroUrl                  String?
+  brandIntroType                 String?
   brandIntroImageDurationSeconds Float?
   // Outro roadmap (P3e) - same shape as brandIntro* above, applied at the
   // end of the render instead of the start (see ffmpeg.ts's
   // concatBrandSegment, generalized from P3d's concatIntro to take a
   // 'start' | 'end' position rather than duplicating the whole pipeline).
-  brandOutroUrl                String?
-  brandOutroType                String?
+  brandOutroUrl                  String?
+  brandOutroType                 String?
   brandOutroImageDurationSeconds Float?
-  createdAt                   DateTime  @default(now())
-  updatedAt                   DateTime  @updatedAt
+  createdAt                      DateTime  @default(now())
+  updatedAt                      DateTime  @updatedAt
 
-  videos         Video[]
-  socialAccounts SocialAccount[]
-  premiumCredits           PremiumCredit[]
-  activityEvents           ActivityEvent[]
-  sentInvites              PendingInvite[]
-  exportJobs               ExportJob[]
-  notifications            Notification[]
-  notificationPreferences  NotificationPreference[]
-  notificationWebhooks     NotificationWebhook[]
+  videos                          Video[]
+  socialAccounts                  SocialAccount[]
+  premiumCredits                  PremiumCredit[]
+  activityEvents                  ActivityEvent[]
+  sentInvites                     PendingInvite[]
+  exportJobs                      ExportJob[]
+  notifications                   Notification[]
+  notificationPreferences         NotificationPreference[]
+  notificationWebhooks            NotificationWebhook[]
+  // Notification Center v2 (Phase 1 - Database & Backend Foundation)
+  notificationThreads             NotificationThread[]
+  notificationGroups              NotificationGroup[]
+  notificationReadReceipts        NotificationReadReceipt[]
+  notificationCategoryPreferences NotificationCategoryPreference[]
   // Sprint 5A (Collaboration Foundation) - ownedWorkspaces is "created by"
   // display metadata only; workspaceMemberships is the real source of
   // access (see WorkspaceMembership below). Every User has at least one
   // workspaceMemberships row (their own isPersonal workspace, role OWNER).
-  ownedWorkspaces          Workspace[]               @relation("WorkspaceCreator")
-  workspaceMemberships     WorkspaceMembership[]
+  ownedWorkspaces                 Workspace[]                      @relation("WorkspaceCreator")
+  workspaceMemberships            WorkspaceMembership[]
   // Sprint 5B (Shared Clips)
-  createdShareLinks        ShareLink[]
+  createdShareLinks               ShareLink[]
   // Sprint 5C (Comments)
-  comments                 Comment[]                 @relation("CommentAuthor")
-  resolvedComments         Comment[]                 @relation("CommentResolver")
-  commentMentions          CommentMention[]
-  commentReactions         CommentReaction[]
+  comments                        Comment[]                        @relation("CommentAuthor")
+  resolvedComments                Comment[]                        @relation("CommentResolver")
+  commentMentions                 CommentMention[]
+  commentReactions                CommentReaction[]
   // Sprint 5D (Approval)
-  requestedApprovals       Approval[]                @relation("ApprovalRequester")
-  reviewedApprovals        Approval[]                @relation("ApprovalReviewer")
-  approvalEvents           ApprovalEvent[]
+  requestedApprovals              Approval[]                       @relation("ApprovalRequester")
+  reviewedApprovals               Approval[]                       @relation("ApprovalReviewer")
+  approvalEvents                  ApprovalEvent[]
   // Sprint 5E (Version Compare & History)
-  clipVersionsCreated      ClipVersion[]
+  clipVersionsCreated             ClipVersion[]
   // Sprint 5F (Audit Log)
-  auditLogEntries          AuditLogEntry[]
+  auditLogEntries                 AuditLogEntry[]
   // Publishing Expansion Phase 6 (Scheduling)
-  campaignsCreated         Campaign[]
+  campaignsCreated                Campaign[]
   // Sprint 6K (Conversion - first-party click-tracking)
-  createdTrackedLinks      TrackedLink[]
+  createdTrackedLinks             TrackedLink[]
   // Subtitle Presets roadmap (P3b)
-  subtitlePresets          SubtitlePreset[]
+  subtitlePresets                 SubtitlePreset[]
   // Template Presets roadmap (P3f)
-  brandKitTemplates        BrandKitTemplate[]
+  brandKitTemplates               BrandKitTemplate[]
   // Natural Language AI Search roadmap (P4)
-  aiSearchRequests         AiSearchRequest[]
+  aiSearchRequests                AiSearchRequest[]
   // Pre-Processing Settings roadmap (Phase 0/1)
-  processingPresets        ProcessingPreset[]
+  processingPresets               ProcessingPreset[]
 }
 
 model Video {
-  id                    String                @id @default(cuid())
-  ownerId               String
-  owner                 User                  @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  id                        String                @id @default(cuid())
+  ownerId                   String
+  owner                     User                  @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   // Empty string while status is IMPORTING (see VideosService.importFromYoutube) -
   // apps/worker's import-youtube job fills in the real object storage key
   // once the download finishes. Kept non-nullable rather than String? so
   // every other reader of this field (findSourceOrThrow, transcribe/
   // render-clip's sourceUrl reads, etc.) doesn't need a null-check for a
   // state those code paths never actually run in.
-  sourceUrl             String
+  sourceUrl                 String
   // Display name only - never used for storage keys/lookups (those are
   // always the cuid `id` or the object-storage key in sourceUrl). Direct
   // upload: the original filename (Express.Multer.File.originalname).
@@ -279,15 +284,15 @@ model Video {
   // "arrives asynchronously" pattern as durationSeconds. Null for rows
   // created before this field existed - not backfilled (Dashboard falls
   // back to "Untitled video").
-  title                 String?
+  title                     String?
   // Original youtube.com/youtu.be URL, set only by
   // VideosService.importFromYoutube() - null for a direct file upload.
   // Needed so VideosService.retry() can re-enqueue import-youtube (rather
   // than transcribe, which would run against the still-empty sourceUrl
   // above) if a video fails before the download ever finished.
-  importSourceUrl       String?
-  status                VideoStatus           @default(UPLOADED)
-  durationSeconds       Float?
+  importSourceUrl           String?
+  status                    VideoStatus           @default(UPLOADED)
+  durationSeconds           Float?
   // Bytes of the source file in object storage - direct upload sets this
   // synchronously from the already-in-memory multer buffer's length;
   // YouTube import sets it via an fs.stat() of the downloaded file right
@@ -296,7 +301,7 @@ model Video {
   // "Storage Used" stat cheaply from Postgres instead of scanning the whole
   // S3/R2/MinIO bucket (see packages/storage's getBucketUsage(), which is
   // bucket-wide and not owner-scoped). Null for pre-existing rows.
-  sourceSizeBytes       Int?
+  sourceSizeBytes           Int?
   // Quality Validation roadmap (Fase 0 design, Phase 1) - written once by
   // probe-video.worker.ts's ffprobe pass (a single `-show_streams
   // -show_format -of json` call, not the 4 narrow single-field probes
@@ -306,15 +311,15 @@ model Video {
   // never completed (see VideosService.retry's own inferred branch for
   // this). durationSeconds above is populated by this same pass for the
   // first time - no prior code path ever wrote to it.
-  width                 Int?
-  height                Int?
-  fps                   Float?
-  videoCodec            String?
-  videoBitrate          Int?
-  audioCodec            String?
-  audioSampleRate       Int?
-  audioChannels         Int?
-  audioBitrate          Int?
+  width                     Int?
+  height                    Int?
+  fps                       Float?
+  videoCodec                String?
+  videoBitrate              Int?
+  audioCodec                String?
+  audioSampleRate           Int?
+  audioChannels             Int?
+  audioBitrate              Int?
   // The structured { errors: [], warnings: [], info: [] } result of
   // packages/video-validation's rule evaluation over the probed metadata
   // above (Phase 2) - null until that phase lands, and for any video whose
@@ -322,7 +327,7 @@ model Video {
   // against it (pre-Phase-2 rows). Kept even after the user proceeds past
   // Processing Settings, so a future dashboard can show "processed despite
   // warnings: low resolution, low bitrate" per the original design ask.
-  validationReport      Json?
+  validationReport          Json?
   // Object storage key for a single extracted thumbnail frame
   // (thumbnails/<id>.webp - .jpg for rows extracted before Phase 2's WebP
   // switch, never backfilled, still served correctly since the API derives
@@ -333,7 +338,7 @@ model Video {
   // `/videos/:id/thumbnail` endpoint path instead, same treatment as
   // sourceUrl/downloadUrl. Null for pre-existing rows and while extraction is
   // still pending/failed - never backfilled.
-  thumbnailUrl          String?
+  thumbnailUrl              String?
   // Phase 2 (image optimization roadmap) - a tiny (~8px-wide) blurred version
   // of thumbnailUrl, base64 data-URL encoded, generated in the same
   // best-effort extraction step. Small enough to return inline in the video
@@ -341,7 +346,7 @@ model Video {
   // the frontend has *something* to paint before the real image loads. Null
   // whenever thumbnailUrl is null (same lifecycle), and for pre-existing rows
   // predating this column.
-  thumbnailBlurDataUrl  String?
+  thumbnailBlurDataUrl      String?
   // Phase 3 (Hover Preview/Storyboard roadmap) - object storage keys for N
   // evenly-spaced frames (transcribe.worker.ts extracts each independently,
   // best-effort - some can fail while others succeed, so this is the actual
@@ -351,7 +356,7 @@ model Video {
   // treatment as thumbnailUrl. Empty array (not null) once extraction has
   // run and found nothing; null only for pre-existing rows predating this
   // column.
-  storyboardFrameUrls   Json?
+  storyboardFrameUrls       Json?
   // Phase 3 (Animated Thumbnail roadmap) - object storage key for a short,
   // muted, looping animated WebP (extractAnimatedPreview in ffmpeg.ts, same
   // best-effort extraction step as thumbnailUrl above, a separate call so a
@@ -359,7 +364,7 @@ model Video {
   // versa). Never exposed to the client as a raw key - same
   // "/videos/:id/animated-thumbnail" endpoint-path treatment as thumbnailUrl.
   // Null while extraction is still pending/failed, or for pre-existing rows.
-  animatedThumbnailUrl  String?
+  animatedThumbnailUrl      String?
   // Phase 3 (Hover Preview roadmap) - object storage key for a longer,
   // smoother looping WebP than animatedThumbnailUrl above (same
   // extractAnimatedPreview() primitive, a longer/smoother config since this
@@ -370,7 +375,7 @@ model Video {
   // Never exposed to the client as a raw key - same
   // "/videos/:id/hover-preview" endpoint-path treatment as thumbnailUrl.
   // Null while extraction is still pending/failed, or for pre-existing rows.
-  hoverPreviewUrl       String?
+  hoverPreviewUrl           String?
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 1 -
   // "which clip is the video's cover"). Set by render-clip.worker.ts once
   // every sibling clip has rendered and rankClips() has run, by COPYING
@@ -385,8 +390,8 @@ model Video {
   // treatment as Clip.highlightRank, so a cascade-deleted clip can't leave
   // a dangling required FK). Null for pre-existing rows, videos with no
   // rendered clips yet, or if this best-effort promotion step fails.
-  coverClipId           String?
-  coverThumbnailUrl     String?
+  coverClipId               String?
+  coverThumbnailUrl         String?
   coverThumbnailBlurDataUrl String?
   // 0-100, real progress reported by import-youtube.worker.ts as yt-dlp
   // downloads the source - same "never fabricated" convention as
@@ -397,7 +402,7 @@ model Video {
   // the import job has started or once status has moved past IMPORTING.
   // Reset to 0 at the start of every import attempt (including retries),
   // same reasoning as transcribeProgress.
-  importProgress        Int?
+  importProgress            Int?
   // 0-100, real progress reported by transcribe.worker.ts at each checkpoint
   // (source downloaded, each audio chunk transcribed) - never a fabricated/
   // interpolated animation. Null before the transcribe job has started or
@@ -406,13 +411,13 @@ model Video {
   // Transcribe stage). Reset to 0 at the start of every transcribe attempt
   // (including retries) so a re-run never shows a stale value from a
   // previous failed attempt.
-  transcribeProgress    Int?
+  transcribeProgress        Int?
   // Chosen once at upload/import time (see TranscriptionProvider above) -
   // never changes afterward, including on retry (VideosService.retry()
   // re-enqueues transcribe with this same value). OPENAI requires an
   // available PremiumCredit to have been consumed by this video first (see
   // premiumCredit below); GROQ needs no payment at all.
-  transcriptionProvider TranscriptionProvider @default(GROQ)
+  transcriptionProvider     TranscriptionProvider @default(GROQ)
   // Pre-Processing Settings roadmap, Phase 0/1 - the resolved choices from
   // the settings screen shown between file/URL selection and the actual
   // upload/import call (see apps/web/components/processing-settings/), a
@@ -425,7 +430,7 @@ model Video {
   // created before this column existed - detect-clips.worker.ts/
   // render-clip.worker.ts fall back to their own existing hardcoded
   // defaults when absent, so this is purely additive.
-  processingOptions     Json?
+  processingOptions         Json?
   // Speaker Intelligence roadmap, Milestone A (Voice Activity Detection) -
   // the FIRST whole-video intelligence signal stored as its own JSON blob
   // on Video, rather than distributed onto per-TranscriptSegment columns
@@ -440,8 +445,8 @@ model Video {
   // clip. Both null until detectVoiceActivity has run for this video, or
   // when it fails (never fails the transcribe job - same "optional signal"
   // fallback as diarization/vocal-emotion above).
-  voiceActivitySegments Json?
-  voiceActivityFeatures Json?
+  voiceActivitySegments     Json?
+  voiceActivityFeatures     Json?
   // Speaker Intelligence roadmap, Milestone B (Turn/Silence/Overlap
   // Detection) - @speedora/speaker-diarization's deriveDiarizationFeatures()
   // output (speakerCount, per-turn segments, per-speaker total duration,
@@ -452,9 +457,9 @@ model Video {
   // when diarization itself never produced any turns (no
   // HUGGINGFACE_TOKEN, gated-model rejection, or genuine detection
   // failure) - same "optional signal" fallback as voiceActivitySegments.
-  diarizationFeatures   Json?
-  createdAt             DateTime              @default(now())
-  updatedAt             DateTime              @updatedAt
+  diarizationFeatures       Json?
+  createdAt                 DateTime              @default(now())
+  updatedAt                 DateTime              @updatedAt
   // Sprint 5A (Collaboration Foundation) - every Video belongs to exactly
   // one Workspace (nullable only transiently during the backfill
   // migration - see the migration's own README; schema.prisma always
@@ -466,22 +471,22 @@ model Video {
   // Workspace with no Project, matching Figma's "files can live outside
   // any project" behavior. folderId implies projectId is also set,
   // enforced at the service layer (Folder always belongs to one Project).
-  workspaceId           String
-  workspace             Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  projectId             String?
-  project               Project?              @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  folderId              String?
-  folder                Folder?               @relation(fields: [folderId], references: [id], onDelete: SetNull)
+  workspaceId               String
+  workspace                 Workspace             @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  projectId                 String?
+  project                   Project?              @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  folderId                  String?
+  folder                    Folder?               @relation(fields: [folderId], references: [id], onDelete: SetNull)
 
-  transcriptSegments TranscriptSegment[]
+  transcriptSegments  TranscriptSegment[]
   translationRequests TranscriptTranslationRequest[]
-  clips              Clip[]
-  premiumCredit      PremiumCredit?
-  statusEvents       VideoStatusEvent[]
-  exportJobs         ExportJob[]
-  shareLinks         ShareLink[]
-  comments           Comment[]
-  approvals          Approval[]
+  clips               Clip[]
+  premiumCredit       PremiumCredit?
+  statusEvents        VideoStatusEvent[]
+  exportJobs          ExportJob[]
+  shareLinks          ShareLink[]
+  comments            Comment[]
+  approvals           Approval[]
 
   @@index([ownerId])
   @@index([workspaceId])
@@ -609,20 +614,20 @@ model AiSearchRequest {
 // One row per candidate produced by the detect-clips job; outputUrl is set
 // once the render-clip job finishes.
 model Clip {
-  id                      String       @id @default(cuid())
-  videoId                 String
-  video                   Video        @relation(fields: [videoId], references: [id], onDelete: Cascade)
-  startTime               Float
-  endTime                 Float
-  viralityScore           Float
-  outputUrl               String?
+  id                          String       @id @default(cuid())
+  videoId                     String
+  video                       Video        @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  startTime                   Float
+  endTime                     Float
+  viralityScore               Float
+  outputUrl                   String?
   // Bytes of the rendered output in object storage - set alongside
   // outputUrl by render-clip.worker.ts via an fs.stat() of the rendered
   // file, right next to the existing computeFileMd5Hex() stream-based hash
   // (both read the same on-disk file before it's uploaded). Feeds the
   // Dashboard's per-owner "Storage Used" stat - see Video.sourceSizeBytes.
   // Null until the clip finishes rendering, or for pre-existing rows.
-  outputSizeBytes         Int?
+  outputSizeBytes             Int?
   // Object storage key for a single extracted thumbnail frame
   // (thumbnails/<id>.webp - .jpg for pre-Phase-2 rows, see Video.thumbnailUrl's
   // own comment), set by render-clip.worker.ts (best-effort) from the midpoint
@@ -632,24 +637,24 @@ model Clip {
   // ClipsService.toDto()/VideosService.mapVideoWithClips compute a
   // `/clips/:id/thumbnail` endpoint path instead. Null until the clip
   // finishes rendering, extraction fails, or for pre-existing rows.
-  thumbnailUrl            String?
+  thumbnailUrl                String?
   // Phase 2 (image optimization roadmap) - same tiny base64 blur-placeholder
   // treatment as Video.thumbnailBlurDataUrl above, inlined in the clip DTO.
-  thumbnailBlurDataUrl    String?
+  thumbnailBlurDataUrl        String?
   // Phase 3 (Hover Preview/Storyboard roadmap) - same treatment as
   // Video.storyboardFrameUrls above, extracted from the RENDERED output by
   // render-clip.worker.ts (same reasoning as thumbnailUrl - matches exactly
   // what the viewer sees).
-  storyboardFrameUrls     Json?
+  storyboardFrameUrls         Json?
   // Phase 3 (Animated Thumbnail roadmap) - same treatment as
   // Video.animatedThumbnailUrl above, extracted from the RENDERED output by
   // render-clip.worker.ts (same reasoning as thumbnailUrl - matches exactly
   // what the viewer sees).
-  animatedThumbnailUrl    String?
+  animatedThumbnailUrl        String?
   // Phase 3 (Hover Preview roadmap, "Clip Preview" on a clip card) - same
   // treatment as Video.hoverPreviewUrl above, extracted from the RENDERED
   // output by render-clip.worker.ts.
-  hoverPreviewUrl         String?
+  hoverPreviewUrl             String?
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // @speedora/thumbnail-selection's chosen in-clip timestamp (replacing the
   // naive (endTime - startTime) / 2 midpoint thumbnailUrl/
@@ -663,16 +668,16 @@ model Clip {
   thumbnailSelectionBreakdown Json?
   thumbnailSelectionFallback  String?
   thumbnailSelectionReason    String?
-  captionStyle            CaptionStyle @default(DEFAULT)
+  captionStyle                CaptionStyle @default(DEFAULT)
   // Subtitle Studio roadmap (P2c) - orthogonal to captionStyle (composes
   // with any preset) rather than new CaptionStyle enum values, to avoid a
   // combinatorial DEFAULT/DEFAULT_SPEAKER_COLOR/KARAOKE_SPEAKER_COLOR/...
   // explosion. False by default - existing clips render unchanged.
-  speakerColorCaptions    Boolean      @default(false)
+  speakerColorCaptions        Boolean      @default(false)
   // Subtitle Studio roadmap (P2f) - which key of each TranscriptSegment's
   // `translations` map to burn in; null/absent means the original
   // (untranslated) text, same as every existing clip today.
-  captionLanguage         String?
+  captionLanguage             String?
   // Brand Kit roadmap (P3a) - gates whether render-enqueue time (ClipsService
   // .render()/.update(), and detect-clips.worker.ts's initial auto-render)
   // pulls the video owner's Brand Kit (font now; logo/watermark/intro/outro
@@ -682,7 +687,7 @@ model Clip {
   // elsewhere (see the P3 plan's own rationale). Added once here, ahead of
   // watermark/intro/outro actually needing it, rather than retrofitting a
   // migration per sub-phase.
-  applyBrandKit           Boolean      @default(true)
+  applyBrandKit               Boolean      @default(true)
   // Subtitle Presets roadmap (P3b) - per-clip override of the resolved
   // caption font, same nullable-override shape as captionLanguage above.
   // Null means "no override" - render-enqueue time falls back to
@@ -691,20 +696,20 @@ model Clip {
   // always wins, regardless of applyBrandKit - an explicit per-clip choice
   // (e.g. picking a Subtitle Preset) is a deliberate override, not a brand
   // default the user might not have meant to touch.
-  fontFamily              String?
+  fontFamily                  String?
   // Watermark roadmap (P3c) - per-clip on/off gate for the owner's Brand Kit
   // watermark, same shape as applyBrandKit (a per-clip boolean opt-out, not
   // a full per-clip watermark asset/opacity/position override) - composable
   // with applyBrandKit: a clip can use the Brand Kit's font while skipping
   // its watermark, or vice versa. True by default, same "brand gives a good
   // default, user opts out per clip" posture as applyBrandKit.
-  watermarkEnabled        Boolean      @default(true)
+  watermarkEnabled            Boolean      @default(true)
   // Intro roadmap (P3d) - per-clip on/off gate for the owner's Brand Kit
   // intro, same shape/reasoning as watermarkEnabled - composable with it and
   // applyBrandKit independently.
-  introEnabled            Boolean      @default(true)
+  introEnabled                Boolean      @default(true)
   // Outro roadmap (P3e) - per-clip on/off gate, same shape as introEnabled.
-  outroEnabled            Boolean      @default(true)
+  outroEnabled                Boolean      @default(true)
   // Suggested 3-second-opener hook line and social hashtags (without a
   // leading '#') from the same detect-clips LLM call that scores virality -
   // not baked into the rendered video, purely metadata for the
@@ -712,8 +717,8 @@ model Clip {
   // nothing without failing the whole job - see detectCandidates() in
   // detect-clips.worker.ts); hashtags defaults to an empty array rather
   // than nullable so callers never have to null-check it.
-  hookText                String?
-  hashtags                String[]     @default([])
+  hookText                    String?
+  hashtags                    String[]     @default([])
   // Fase 8 (Content Intelligence) - same detect-clips LLM call as
   // viralityScore/hookText/hashtags above, extended with a multi-metric
   // breakdown and explainable-AI reasoning instead of one opaque number.
@@ -722,35 +727,35 @@ model Clip {
   // addition doesn't need its own migration. Shape: { hookStrength,
   // educationalValue, curiosity, emotion, storytelling, novelty,
   // trustAuthority }, each 0-100 - see packages/shared's ClipScores.
-  scores                  Json?
+  scores                      Json?
   // 1-2 sentence explanation of why this clip was picked - the
   // "explainable AI" requirement: a user should never have to take
   // viralityScore on faith.
-  reason                  String?
-  topics                  String[]     @default([])
-  keywords                String[]     @default([])
+  reason                      String?
+  topics                      String[]     @default([])
+  keywords                    String[]     @default([])
   // e.g. "educate" | "entertain" | "persuade" | "inspire" | "story" | "other" -
   // free-form string, not a Postgres enum, since this is an LLM-classified
   // label (see CaptionStyle vs. this: CaptionStyle is a fixed, code-driven
   // set of render presets, this is open-ended content classification that
   // may need new values without a schema migration).
-  intent                  String?
+  intent                      String?
   // Call-to-action text detected in the clip, if any (e.g. "follow for
   // part 2", "link in bio") - null/empty when the clip has none.
-  ctaText                 String?
+  ctaText                     String?
   // Fase 23 (DB+JSON-contract roadmap, Fase 4 - new feature built purely via
   // the checklist) - deterministic keyword-pattern suggestions (see
   // @speedora/emoji-suggester), computed from this clip's own transcript
   // text at detect-clips time. Purely metadata (like hookText/hashtags),
   // never burned into the rendered video - defaults to an empty array
   // rather than nullable so callers never have to null-check it.
-  emojiSuggestions        String[]     @default([])
+  emojiSuggestions            String[]     @default([])
   // Fase 26 (Scene Intelligence, AI Fusion roadmap Phase B) - clip-relative
   // (0 = clip start) timestamps of detected hard shot/scene cuts within
   // this clip, from @speedora/scene-intelligence's ffmpeg-based detector.
   // Empty array (not null) when analysis found no cuts or failed to run -
   // same "always an array" convention as topics/keywords/emojiSuggestions.
-  sceneCuts               Float[]      @default([])
+  sceneCuts                   Float[]      @default([])
   // Batch SC-1 (Scene Intelligence taxonomy expansion, on top of Fase 26) -
   // one JSON array of @speedora/scene-intelligence's classifySceneCutTypes()
   // output ({t, type: 'hard_cut'|'fade'|'dissolve'}[], clip-relative
@@ -759,7 +764,7 @@ model Clip {
   // empty array) when classification wasn't run or failed entirely for the
   // clip, distinct from an empty array (no cuts to classify at all) - same
   // convention as facialEmotions below.
-  sceneCutEvents          Json?
+  sceneCutEvents              Json?
   // Batch SC-2 (Scene Intelligence taxonomy expansion, continuing Batch
   // SC-1) - one JSON array of @speedora/scene-intelligence's
   // analyzeMotionEnergy() output ({t, motionEnergy}[], clip-relative
@@ -769,14 +774,14 @@ model Clip {
   // pair, not a bare number. Defaults to an empty JSON array (never null) -
   // analyzeMotionEnergy() itself never fails the job, same "always an
   // array" convention as sceneCuts.
-  motionEnergy            Json         @default("[]")
+  motionEnergy                Json         @default("[]")
   // Batch SC-2 - derived summary (see audioFeatures/sceneFeatures below) -
   // always computed (deriveMotionEnergyFeatures() never returns null, only
   // all-null fields for an empty `motionEnergy`), same "always populated"
   // convention as sceneFeatures/audioFeatures despite the nullable column
   // type (Prisma Json columns are declared nullable here purely so the
   // adapter isn't forced to fabricate a value before the first render).
-  motionEnergyFeatures    Json?
+  motionEnergyFeatures        Json?
   // Batch SC-3 (Scene Intelligence taxonomy expansion, continuing Batch
   // SC-1/SC-2) - one JSON array of @speedora/scene-intelligence's
   // detectCameraMotion() output ({t, dx, dy, scale, rotation, ecc}[],
@@ -787,11 +792,11 @@ model Clip {
   // below (distinct from sceneCuts/motionEnergy's "always an array"
   // convention, which only applies to ffmpeg-based detectors that catch
   // their own failures).
-  cameraMotion            Json?
+  cameraMotion                Json?
   // Batch SC-3 - derived summary (see motionEnergyFeatures above) - null
   // exactly when `cameraMotion` above is null, same convention as
   // facialFeatures/gestureFeatures.
-  cameraMotionFeatures    Json?
+  cameraMotionFeatures        Json?
   // Taxonomy category F (Editing Rhythm, requested by user after Batch
   // SC-3) - @speedora/editing-rhythm's deriveEditingRhythmFeatures()
   // output (tempoScore/pacingScore/accelerationScore). NO separate "raw"
@@ -803,7 +808,7 @@ model Clip {
   // when render-clip runs (never null in practice), same "always populated
   // despite a nullable column type" convention as sceneFeatures/
   // audioFeatures above.
-  editingRhythmFeatures   Json?
+  editingRhythmFeatures       Json?
   // Fase 27 (Facial Intelligence, AI Fusion roadmap Phase C) - one JSON
   // array of @speedora/facial-intelligence's per-sample output ({t, emotion,
   // score}[], clip-relative seconds), same "one JSON blob, not a column per
@@ -811,7 +816,7 @@ model Clip {
   // Null (not an empty array) when the analysis wasn't run or failed
   // entirely for the clip - distinct from a sample within the array having
   // emotion/score null (no face found in that one sampled frame).
-  facialEmotions          Json?
+  facialEmotions              Json?
   // Fase 28 (Mini Fusion Engine v1 prep, AI Fusion roadmap Checkpoint 1) -
   // dense derived summaries per signal (see packages/contracts/src/
   // intelligence-signal.ts's raw/features convention and each module's own
@@ -822,9 +827,9 @@ model Clip {
   // Null when the underlying raw signal itself is empty/unavailable for
   // this clip (nothing to derive a summary from), not a fabricated
   // all-zero object.
-  audioFeatures           Json?
-  sceneFeatures           Json?
-  facialFeatures          Json?
+  audioFeatures               Json?
+  sceneFeatures               Json?
+  facialFeatures              Json?
   // Fase 29/31 (Mini Fusion Engine v1 -> v2, AI Fusion roadmap - extends
   // Checkpoint 1/2) - @speedora/fusion-engine's computeHighlightScore()
   // output, computed from whichever of audioFeatures/sceneFeatures/
@@ -843,17 +848,17 @@ model Clip {
   // "explainable AI" requirement as Fase 8's `reason`. All four are always
   // populated once computeHighlightScore runs, even when highlightScore
   // itself ends up null.
-  highlightScore          Float?
-  highlightBreakdown      Json?
-  highlightExplainability Json?
-  highlightConfidence     Float?
-  highlightReason         String?
+  highlightScore              Float?
+  highlightBreakdown          Json?
+  highlightExplainability     Json?
+  highlightConfidence         Float?
+  highlightReason             String?
   // Rank among sibling clips of the same video by highlightScore, computed
   // once by @speedora/fusion-engine's rankClips() after every clip in the
   // video has finished rendering (see render-clip.worker.ts) - null until
   // then, and for videos with only one clip this is still populated (rank
   // 1) once that one clip is done, for consistency.
-  highlightRank           Int?
+  highlightRank               Int?
   // Fase 30 (Gesture Intelligence, AI Fusion roadmap Checkpoint 2) - same
   // raw/features split as Scene/Facial Intelligence (Fase 26/28):
   // @speedora/gesture-intelligence's per-sample output ({t, gesture,
@@ -861,8 +866,8 @@ model Clip {
   // ({dominantGesture, gestureTransitions, peakConfidence, stability}).
   // gestures null (not []) when the whole analysis failed to run;
   // gestureFeatures null exactly when gestures is null.
-  gestures                Json?
-  gestureFeatures         Json?
+  gestures                    Json?
+  gestureFeatures             Json?
   // Fase 32 (Mini Fusion Engine v2's 'llm' signal + Prediction/
   // Recommendation stages) - llmFeatures is the SAME object as `scores`
   // above (Fase 8's ClipScores), just snapshotted at render-clip time as
@@ -874,9 +879,9 @@ model Clip {
   // highlightPrediction/highlightRecommendation are computeHighlightScore's
   // own Prediction/Recommendation stage output - always populated once it
   // runs, same as highlightBreakdown/highlightExplainability/highlightReason.
-  llmFeatures             Json?
-  highlightPrediction     Json?
-  highlightRecommendation Json?
+  llmFeatures                 Json?
+  highlightPrediction         Json?
+  highlightRecommendation     Json?
   // AI Fusion roadmap's Face Intelligence initiative, Batch 1 - same raw/
   // features split as Scene/Facial/Gesture Intelligence above:
   // @speedora/facial-intelligence's detectFaceLandmarks() per-sample output
@@ -888,8 +893,8 @@ model Clip {
   // expression classification vs. landmark geometry). faceLandmarks null
   // (not []) when the whole analysis failed to run; faceLandmarkFeatures
   // null exactly when faceLandmarks is null.
-  faceLandmarks           Json?
-  faceLandmarkFeatures    Json?
+  faceLandmarks               Json?
+  faceLandmarkFeatures        Json?
   // AI Fusion roadmap's Face Intelligence initiative, Batch 4.5 (Quality
   // Metrics & Telemetry) - explicitly NOT a scoring signal (user's own
   // framing: "bukan menambah AI baru"). Purely explainability/audit
@@ -899,7 +904,7 @@ model Clip {
   // deriveTrackingQualityMetrics). Not consumed by @speedora/fusion-engine
   // at all, unlike every other *Features column above. Null when
   // faceLandmarks itself is null (nothing to derive telemetry from).
-  trackingQualityMetrics  Json?
+  trackingQualityMetrics      Json?
   // Speaker Intelligence roadmap, Milestone A - Active Speaker Detection,
   // Speaker-Face Association, Lip Sync Verification
   // (@speedora/active-speaker-intelligence). All three are pure
@@ -909,9 +914,9 @@ model Clip {
   // calibrate later" treatment editingRhythm/gesture/faceGeometry got
   // before they were wired in - see ai/fusion.md). Null when faceLandmarks
   // itself is null (nothing to derive these from).
-  activeSpeakerSamples    Json?
-  speakerFaceAssociations Json?
-  lipSyncVerifications    Json?
+  activeSpeakerSamples        Json?
+  speakerFaceAssociations     Json?
+  lipSyncVerifications        Json?
   // Speaker Intelligence roadmap, Milestone B - @speedora/speaker-diarization's
   // buildSpeakerTimeline()/detectSpeakerTransitions() output, fusing this
   // clip's own transcript-derived speaker turns with the Milestone A
@@ -919,8 +924,8 @@ model Clip {
   // one unified per-clip timeline. Null when there are no speaker turns
   // covering this clip's time range at all (diarization never ran/found
   // nothing here) - not a fabricated empty timeline.
-  speakerTimeline         Json?
-  speakerTimelineFeatures Json?
+  speakerTimeline             Json?
+  speakerTimelineFeatures     Json?
   // Speaker Intelligence roadmap, Milestone C - @speedora/speaker-scoring's
   // deriveClipSpeakerScores() output: one entry per speaker in this clip's
   // speakerTimeline for confidence/engagement/importance, one entry per
@@ -931,10 +936,10 @@ model Clip {
   // a re-aggregation of faceLandmarks/audioFeatures/gestureFeatures/
   // speakerTimeline above. Null when speakerTimeline itself is null
   // (nothing to score).
-  speakerConfidenceScores Json?
-  speakerEngagementScores Json?
-  speakerImportanceScores Json?
-  speakerHighlightMoments Json?
+  speakerConfidenceScores     Json?
+  speakerEngagementScores     Json?
+  speakerImportanceScores     Json?
+  speakerHighlightMoments     Json?
   // AI Fusion roadmap's OCR initiative, Batch OCR-1 - @speedora/ocr-
   // intelligence's detectOcrText() per-sample output (Tesseract: text +
   // bounding box + confidence per detected on-screen text region, per
@@ -944,7 +949,7 @@ model Clip {
   // what a derived-features summary would even mean here, so it's added
   // in that batch instead of as a premature placeholder now. Null (not
   // []) when the whole analysis failed to run.
-  ocrText                 Json?
+  ocrText                     Json?
   // AI Fusion roadmap's OCR initiative, Batch OCR-2 - the "store
   // everything" layer between raw (ocrText) and aggregate (ocrFeatures):
   // @speedora/ocr-intelligence's trackOcrText()+classifyOcrTrack() output,
@@ -957,15 +962,15 @@ model Clip {
   // ocrTracks, same "raw/features" relationship as every other module's
   // pair, with this extra middle layer specific to OCR's multi-region-
   // per-frame shape). Both null exactly when ocrText is null.
-  ocrTracks               Json?
-  ocrFeatures             Json?
+  ocrTracks                   Json?
+  ocrFeatures                 Json?
   // Object Intelligence roadmap, Batch OI-1 (Foundation) -
   // @speedora/object-intelligence's detectObjects() per-sample output
   // (MediaPipe Object Detector/EfficientDet-Lite0: category + bounding box
   // + confidence per detected entity, per sampled frame - a frame can have
   // multiple simultaneous objects, same multi-region-per-frame shape as
   // ocrText). Null (not []) when the whole analysis failed to run.
-  objects                 Json?
+  objects                     Json?
   // The "store everything" layer between raw (objects) and aggregate
   // (objectFeatures): @speedora/object-intelligence's trackObjects()
   // output, one entry per tracked object across its lifetime (category,
@@ -977,8 +982,8 @@ model Clip {
   // precedent). objectFeatures is the dense per-clip summary
   // computeHighlightScore actually consumes, derived FROM objectTracks.
   // Both null exactly when objects is null.
-  objectTracks            Json?
-  objectFeatures          Json?
+  objectTracks                Json?
+  objectFeatures              Json?
   // Composition Intelligence roadmap, Batch RB-1/RB-2 (see docs/ai/
   // composition-intelligence.md) - @speedora/composition-intelligence's
   // deriveCompositionFeatures() output (ruleOfThirdsScore/headroomScore/
@@ -991,7 +996,7 @@ model Clip {
   // fresh detector of its own), so there's no independent raw timeline to
   // persist here. Null when there were zero usable primary-subject samples
   // for this clip (not a fabricated all-null features object).
-  compositionFeatures     Json?
+  compositionFeatures         Json?
   // AI Clip Library roadmap, Phase P1 - denormalized endTime - startTime,
   // set alongside them at every write site (detect-clips.worker.ts's
   // initial prisma.clip.create, and ClipsService.update's manual trim) -
@@ -1000,16 +1005,16 @@ model Clip {
   // library filter/sort can use a plain indexed column instead of a
   // cross-column expression Prisma's query builder can't express in a
   // `where`. Null only for pre-existing rows before the backfill script runs.
-  durationSeconds         Float?
-  createdAt               DateTime     @default(now())
-  updatedAt               DateTime     @updatedAt
+  durationSeconds             Float?
+  createdAt                   DateTime     @default(now())
+  updatedAt                   DateTime     @updatedAt
 
-  publishRecords  PublishRecord[]
-  jobExecutions   JobExecution[]
-  comments        Comment[]
-  approvals       Approval[]
-  versions        ClipVersion[]
-  platformCopies  ClipPlatformCopy[]
+  publishRecords PublishRecord[]
+  jobExecutions  JobExecution[]
+  comments       Comment[]
+  approvals      Approval[]
+  versions       ClipVersion[]
+  platformCopies ClipPlatformCopy[]
 
   @@index([videoId])
   @@index([viralityScore])
@@ -1097,26 +1102,26 @@ enum NodeExecutionStatus {
 // One user can connect multiple accounts, including multiple accounts on
 // the same platform (e.g. two different YouTube channels).
 model SocialAccount {
-  id                String         @id @default(cuid())
-  userId            String
-  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
-  platform          SocialPlatform
+  id                      String         @id @default(cuid())
+  userId                  String
+  user                    User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform                SocialPlatform
   // The platform's own account/channel id - e.g. a YouTube channel id.
   // Used together with the unique constraint below to detect "already
   // connected" and upsert instead of creating a duplicate row when a user
   // reconnects the same account.
-  platformAccountId String
+  platformAccountId       String
   // Human-readable label for the "Connect account" UI - e.g. the YouTube
   // channel title. Refreshed from the platform on every (re)connect.
-  displayName       String
+  displayName             String
   // AES-256-GCM encrypted (packages/social's token-encryption.ts, shared
   // with apps/worker's publish-clip job - see Fase 6b) - never plaintext at
   // rest. Stored as "<iv>:<authTag>:<ciphertext>", all hex-encoded.
-  accessToken       String
-  refreshToken      String
-  tokenExpiresAt    DateTime
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
+  accessToken             String
+  refreshToken            String
+  tokenExpiresAt          DateTime
+  createdAt               DateTime       @default(now())
+  updatedAt               DateTime       @updatedAt
   // Stabilization Pass Area 5 tech-debt fix: incremented on every sync
   // failure (sync-publish-stats.worker.ts/sync-follower-count.worker.ts),
   // reset to 0 on any success for that account. Read by alert-engine.worker
@@ -1124,7 +1129,7 @@ model SocialAccount {
   // crosses SYNC_FAILURE_ALERT_THRESHOLD, instead of failing forever with
   // no visibility. lastSyncFailureAt is display-only (surfaced in the
   // notification body), not itself compared against a threshold.
-  consecutiveSyncFailures Int      @default(0)
+  consecutiveSyncFailures Int            @default(0)
   lastSyncFailureAt       DateTime?
 
   publishRecords     PublishRecord[]
@@ -1303,11 +1308,11 @@ model Campaign {
 // assigns each queued clip the next open slot synchronously at queue time,
 // not via a separate periodic sweep.
 model RecurringSchedule {
-  id          String         @id @default(cuid())
-  workspaceId String
-  workspace   Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  name        String
-  platform    SocialPlatform
+  id              String         @id @default(cuid())
+  workspaceId     String
+  workspace       Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name            String
+  platform        SocialPlatform
   // Which connected account to publish to - a workspace/user can have more
   // than one connected account on the same platform, so `platform` alone
   // isn't enough to actually target a SocialAccount (same "picks first,
@@ -1315,21 +1320,21 @@ model RecurringSchedule {
   // selection code, except here the user picks explicitly at create time
   // instead of the app guessing).
   socialAccountId String
-  socialAccount   SocialAccount @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
+  socialAccount   SocialAccount  @relation(fields: [socialAccountId], references: [id], onDelete: Cascade)
   // IANA timezone name (e.g. "Asia/Jakarta") - the first place in this app
   // that's timezone-aware at all; see next-slot.util.ts.
-  timezone   String
+  timezone        String
   // 0=Sunday..6=Saturday, matches JS Date.getDay() - Postgres/Prisma scalar
   // list, not a join table, since order/uniqueness within the array doesn't
   // matter and it's always read as a whole.
-  daysOfWeek Int[]
+  daysOfWeek      Int[]
   // "HH:mm", 24h, wall-clock time in `timezone` - a plain string rather
   // than a DateTime since Prisma/Postgres has no portable "time of day
   // only" type; validated at the DTO level.
-  timeOfDay  String
-  active     Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  timeOfDay       String
+  active          Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
 
   publishRecords PublishRecord[]
 
@@ -1417,43 +1422,304 @@ enum NotificationType {
   // crosses the alert-engine.worker.ts threshold. See alert-engine.ts's own
   // comment on AlertRule for the general re-arm/dedupe pattern this reuses.
   SYNC_FAILURE_WARNING
+  // Notification Center v2 Phase 2 (Notification Engine) - the ONE type used
+  // for every NON-TERMINAL Smart Timeline pipeline-thread update (Importing/
+  // Uploaded/Pending Settings/Transcribed/Clips Detected/Rendering-progress).
+  // The two terminal outcomes reuse existing types instead (CLIP_READY on
+  // success, RENDER_FAILED on failure) - see
+  // derivePipelineThreadPresentation() in video-status.ts, the only place
+  // that decides which type a given VideoStatus/sub-stage maps to. Not used
+  // for any single-shot (non-threaded) notification.
+  PIPELINE_PROGRESS
 }
 
 // Only IN_APP for Sprint 4A. Milestone 04d wired SLACK/DISCORD/WEBHOOK, 04e
 // wired TELEGRAM - each an outbound delivery surface a user can
 // independently enable/disable per NotificationType (see
 // NotificationPreference below), backed by a destination configured once
-// via NotificationWebhook. EMAIL stays deferred (unscheduled), same
-// incremental-enum discipline as ExportType.
+// via NotificationWebhook.
+//
+// Notification Center v2 (Phase 1) - EMAIL/PUSH/DESKTOP added here schema-
+// only, ahead of any delivery logic, so the Preferences UI (Phase 6) doesn't
+// need a second migration. No worker/service reads these 3 values yet - see
+// NotificationCategoryPreference below for why "unimplemented but toggleable"
+// is an explicit, honest UI state rather than a hidden gap. EMAIL was
+// previously unscheduled/deferred; folded into this same batch rather than
+// staying a special case.
 enum NotificationChannel {
   IN_APP
   SLACK
   DISCORD
   WEBHOOK
   TELEGRAM
+  EMAIL
+  PUSH
+  DESKTOP
+}
+
+// Notification Center v2 - a coarse "which product area" bucket for the
+// filter chips/preference grouping UI, orthogonal to NotificationType (many
+// types map to one category, see NOTIFICATION_TYPE_CATEGORY in
+// notification.ts). ANALYTICS has no backing NotificationType yet - reserved
+// so the filter UI has a stable, complete set to render even before a type
+// exists for it.
+enum NotificationCategory {
+  UPLOAD
+  AI_PROCESSING
+  CLIP_GENERATION
+  RENDERING
+  PUBLISHING
+  ANALYTICS
+  BILLING
+  WORKSPACE
+  SYSTEM
+  ERRORS
+}
+
+// A 5-level severity, superseding the narrower 3-value NOTIFICATION_SEVERITY
+// (success/warning/error) that lived only in packages/shared - this is now
+// the source of truth, derived per-type (see NOTIFICATION_TYPE_PRIORITY) with
+// an optional per-call override for types whose real severity depends on an
+// outcome, not just the type (e.g. APPROVAL).
+enum NotificationPriority {
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
+  CRITICAL
+}
+
+// Notification Center v2 - per-channel outbound delivery ledger. Retires the
+// notification-delivery.worker.ts's previous "one job = every channel, any
+// failure retries all of them" accepted V1 risk (see that worker's own
+// comment) by letting each channel track its own attempts/status/lastError
+// independently.
+enum NotificationDeliveryStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
+// Notification Center v2 (Phase 1) - the small, closed state set a
+// NotificationThread's header can be in. Mirrors
+// PipelineTimelineDto['overallStatus'] in notification-timeline.ts (that
+// function derives the live per-stage detail at read time from
+// VideoStatusEvent; this enum is only the thread's own coarse aggregate,
+// cheap to filter/sort on without joining out to VideoStatusEvent).
+enum NotificationThreadStatus {
+  IN_PROGRESS
+  COMPLETED
+  FAILED
 }
 
 model Notification {
-  id        String           @id @default(cuid())
-  userId    String
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      NotificationType
-  title     String
-  body      String
-  videoId   String?
-  clipId    String?
+  id         String               @id @default(cuid())
+  userId     String
+  user       User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type       NotificationType
+  // Notification Center v2 - derived from `type` at write time
+  // (NOTIFICATION_TYPE_CATEGORY/NOTIFICATION_TYPE_PRIORITY in
+  // notification.ts), never chosen ad hoc per call site.
+  category   NotificationCategory
+  priority   NotificationPriority
+  title      String
+  body       String
+  videoId    String?
+  clipId     String?
   // Same "free-form display context, JSON not a live relation" reasoning as
   // ActivityEvent.metadata - e.g. { errorMessage } for RENDER_FAILED, kept
   // out of `body` itself so raw internal error text is never rendered
   // verbatim to the end user.
-  metadata  Json?
-  readAt    DateTime?
-  createdAt DateTime         @default(now())
+  metadata   Json?
+  readAt     DateTime?
+  // Notification Center v2 - a genuine third state alongside unread/read.
+  // NULL = active, non-null = archived. Kept as a nullable timestamp (not a
+  // separate `state` enum) for the same reason `readAt` already is - "when"
+  // is strictly more useful than "whether", and the two states compose
+  // independently (an archived notification can be read or unread).
+  archivedAt DateTime?
+  // Notification Center v2 (Phase 1) - "which thread/group does this
+  // representative row belong to" is now a real FK, not the string groupKey
+  // convention an earlier uncommitted pass used. At most one of
+  // threadId/groupId is ever set on a given row (a Notification either
+  // belongs to a per-video pipeline thread, a flat dedup group, or neither -
+  // never both). onDelete: SetNull, not Cascade - deleting a thread/group
+  // header (e.g. via purgeExpiredNotifications on its own future extension)
+  // should never cascade-delete the representative Notification row itself.
+  thread     NotificationThread?  @relation(fields: [threadId], references: [id], onDelete: SetNull)
+  threadId   String?
+  group      NotificationGroup?   @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  groupId    String?
+  // Notification Center v2 - read by the retention job
+  // (notification-expiry.worker.ts). NULL means "no explicit expiry", not
+  // "never expires" - autoArchiveStaleNotifications()/
+  // purgeExpiredNotifications() key off createdAt/archivedAt age, not this
+  // column, for every existing row; this field is reserved for a future
+  // per-type explicit TTL (e.g. a transient progress-only notification that
+  // should vanish quickly even if unread) and is unused by any write path
+  // today.
+  expiresAt  DateTime?
+  createdAt  DateTime             @default(now())
+  // Notification Center v2 Phase 3 (API Layer) - real "last touched" signal
+  // for the V2 list's sort order. Prisma bumps this automatically on every
+  // .update() call, including the progress/resurface updates
+  // recordThreadNotification()/recordGroupedNotification() already make -
+  // so an updated thread genuinely resurfaces to the top of the V2 list, not
+  // just conceptually (see this model's own groupKey-era comment on
+  // "resurface"). createdAt above stays immutable (when the row was FIRST
+  // created); this is the separate "when it last changed" signal the V1
+  // list's plain createdAt-only sort never needed (V1 never updates a row
+  // after creation).
+  updatedAt  DateTime             @updatedAt
 
+  deliveries   NotificationDelivery[]
+  readReceipts NotificationReadReceipt[]
+
+  // Enforces the "one representative row per thread/group" invariant -
+  // Postgres treats NULL as distinct per row, so the vast majority of
+  // Notification rows (threadId/groupId both null) never collide with each
+  // other. See recordThreadNotification()/recordGroupedNotification() in
+  // notification.ts - each relies on this exact constraint for its
+  // create-then-catch-P2002-then-update idiom.
+  @@unique([threadId])
+  @@unique([groupId])
   @@index([userId, createdAt])
   // Serves the unread-count endpoint's count({ where: { userId, readAt:
   // null } }) query.
   @@index([userId, readAt])
+  // Notification Center v2 - serves V1's list endpoint (non-archived,
+  // most-recent-CREATED-first - V1 never updates a row after creation, so
+  // createdAt is the correct sort key there).
+  @@index([userId, archivedAt, createdAt])
+  // Notification Center v2 Phase 3 - serves the V2 list endpoint's default
+  // query (non-archived, most-recently-ACTIVE-first via updatedAt) - see
+  // that column's own comment above for why V2 needs a different sort key
+  // than V1's createdAt-only index.
+  @@index([userId, archivedAt, updatedAt])
+}
+
+// Notification Center v2 (Phase 1) - one row per per-job pipeline thread
+// (today: one per Video, key = "PIPELINE:<videoId>"). This is a real,
+// separate header/aggregate entity - not a duplicated event log. The
+// detailed per-stage timeline (Upload Started -> ... -> Completed) stays
+// derived at READ TIME from VideoStatusEvent/Video's own progress columns
+// (see notification-timeline.ts's computePipelineTimeline) - "real data
+// only," per this feature's own guiding constraint, means never storing a
+// second copy of state that VideoStatusEvent already durably owns. What a
+// NotificationThread row DOES own for real: which user's thread this is,
+// its coarse aggregate status/title for list rendering, and when it was
+// last active - all genuinely new state, not a fabrication of AI pipeline
+// detail that doesn't exist yet.
+model NotificationThread {
+  id             String                   @id @default(cuid())
+  userId         String
+  user           User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Deterministic per-user dedup key, e.g. "PIPELINE:<videoId>". See
+  // recordThreadNotification() in notification.ts - the sole writer.
+  key            String
+  // Denormalized reference, not a live Prisma relation - same convention as
+  // Notification.videoId/clipId above (see that field's own comment).
+  videoId        String?
+  title          String
+  status         NotificationThreadStatus @default(IN_PROGRESS)
+  lastActivityAt DateTime                 @default(now())
+  archivedAt     DateTime?
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+
+  notifications Notification[]
+
+  // Enforces "at most one active thread per (userId, key)" - the
+  // database-level guarantee recordThreadNotification()'s
+  // create-then-catch-P2002-then-update idiom relies on.
+  @@unique([userId, key])
+  @@index([userId, archivedAt, lastActivityAt])
+}
+
+// Notification Center v2 (Phase 1) - general dedup envelope for identical
+// *repeated* events that are NOT a per-video pipeline (e.g. repeated
+// STORAGE_WARNING, repeated SYNC_FAILURE_WARNING). Same
+// create-or-update-by-key mechanics as NotificationThread, but no sub-
+// timeline - the UI renders this as a flat "x N" badge on the one
+// representative Notification row, never an expandable stage list.
+model NotificationGroup {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Deterministic per-user dedup key, e.g. "TYPE:<type>:<videoId>". See
+  // recordGroupedNotification() in notification.ts - the sole writer.
+  key             String
+  occurrenceCount Int       @default(1)
+  firstOccurredAt DateTime  @default(now())
+  lastOccurredAt  DateTime  @default(now())
+  archivedAt      DateTime?
+  createdAt       DateTime  @default(now())
+
+  notifications Notification[]
+
+  @@unique([userId, key])
+  @@index([userId, archivedAt, lastOccurredAt])
+}
+
+// Notification Center v2 (Phase 1) - a real per-(notification, user) read
+// audit trail. Notification.readAt stays the authoritative fast-path column
+// for the unread-count/list-filter queries (unchanged perf characteristics,
+// no join needed for the hot path) - this table is additive, written
+// alongside it (see recordReadReceipt() in notification.ts) rather than
+// replacing it. Every Notification row is single-recipient today (userId
+// already identifies the one owner), so userId here always equals
+// Notification.userId for now - this is genuine "who read this and when"
+// infrastructure, not a placeholder, ready for a future multi-recipient
+// notification (e.g. a workspace-wide announcement) without a schema
+// change.
+model NotificationReadReceipt {
+  id             String       @id @default(cuid())
+  notificationId String
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt         DateTime     @default(now())
+
+  @@unique([notificationId, userId])
+}
+
+// Notification Center v2 (Phase 1, wired in Phase 6) - a coarse per-category
+// toggle, deliberately a SEPARATE table from the existing per-type
+// NotificationPreference below rather than overloading its shape - adding a
+// nullable `category` dimension to that table's unique index would touch
+// every existing row/query for zero benefit this phase. Resolution order
+// (explicit per-type NotificationPreference row > this category-level row >
+// default-enabled) is an API-layer concern for Phase 6, not a schema one -
+// this table is inert (no reader) until then.
+model NotificationCategoryPreference {
+  id        String               @id @default(cuid())
+  userId    String
+  user      User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category  NotificationCategory
+  channel   NotificationChannel
+  enabled   Boolean              @default(true)
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  @@unique([userId, category, channel])
+}
+
+// Notification Center v2 - one row per (Notification, channel) outbound
+// delivery attempt. See NotificationDeliveryStatus above for why this
+// exists; notification-delivery.worker.ts is the sole writer.
+model NotificationDelivery {
+  id             String                     @id @default(cuid())
+  notificationId String
+  notification   Notification               @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  channel        NotificationChannel
+  status         NotificationDeliveryStatus @default(PENDING)
+  attempts       Int                        @default(0)
+  lastError      String?
+  deliveredAt    DateTime?
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+
+  @@unique([notificationId, channel])
 }
 
 // Was schema-only in Sprint 4A; wired in Sprint 4B (IN_APP only) and
@@ -1505,17 +1771,17 @@ model NotificationPreference {
 // NotificationWebhookDto grew a separate `pending` field rather than
 // reusing `configured` for this in-between state.
 model NotificationWebhook {
-  id        String              @id @default(cuid())
-  userId    String
-  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
-  channel   NotificationChannel
+  id                   String              @id @default(cuid())
+  userId               String
+  user                 User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel              NotificationChannel
   // AES-256-GCM encrypted at rest via webhook-encryption.ts (same pattern
   // as SocialAccount.accessToken/refreshToken - see that field's own
   // comment) - stored as "<iv>:<authTag>:<ciphertext>", all hex. Never
   // decrypted back to a client - NotificationWebhookDto only ever exposes
   // `configured: boolean`. For TELEGRAM this holds the encrypted bot token
   // (see this model's own comment above), not a URL.
-  url       String
+  url                  String
   // TELEGRAM only - the chat_id discovered by telegram-chat-discovery.worker.ts.
   // Null for every other channel and for a TELEGRAM row still pending
   // discovery.
@@ -1530,8 +1796,17 @@ model NotificationWebhook {
   // reason for existing as a durable Postgres column rather than a
   // process-local variable.
   telegramUpdateOffset Int?
-  createdAt DateTime            @default(now())
-  updatedAt DateTime            @updatedAt
+  // Notification Center v2 Phase 5 (Preferences & Delivery) - the simplified
+  // preferences UI's single per-channel "Enabled" checkbox. Separate from
+  // `configured` (whether a destination URL/token exists at all, derived
+  // from row presence) - a channel can be configured but temporarily
+  // disabled without losing/re-entering its secret. Defaults true so every
+  // pre-Phase-5 row (created back when this column didn't exist) keeps
+  // delivering exactly as it always has - see notification-delivery.worker.ts's
+  // own query, which now filters on this directly.
+  enabled              Boolean             @default(true)
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
 
   @@unique([userId, channel])
 }
@@ -1601,27 +1876,27 @@ model ProcessingPreset {
 // flat set on User they always were - a template is purely an editing-
 // convenience layer on top, not a new thing renders resolve against.
 model BrandKitTemplate {
-  id                             String   @id @default(cuid())
-  userId                         String
-  user                           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  name                           String
-  logoUrl                        String?
-  primaryColor                   String?
-  secondaryColor                 String?
-  fontFamily                     String?
-  watermarkUrl                   String?
-  watermarkOpacity               Float?
-  watermarkScale                 Float?
-  watermarkMargin                Float?
-  watermarkPosition              String?
-  introUrl                       String?
-  introType                      String?
-  introImageDurationSeconds      Float?
-  outroUrl                       String?
-  outroType                      String?
-  outroImageDurationSeconds      Float?
-  createdAt                      DateTime @default(now())
-  updatedAt                      DateTime @updatedAt
+  id                        String   @id @default(cuid())
+  userId                    String
+  user                      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name                      String
+  logoUrl                   String?
+  primaryColor              String?
+  secondaryColor            String?
+  fontFamily                String?
+  watermarkUrl              String?
+  watermarkOpacity          Float?
+  watermarkScale            Float?
+  watermarkMargin           Float?
+  watermarkPosition         String?
+  introUrl                  String?
+  introType                 String?
+  introImageDurationSeconds Float?
+  outroUrl                  String?
+  outroType                 String?
+  outroImageDurationSeconds Float?
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
 
   @@index([userId])
 }
@@ -1675,11 +1950,11 @@ enum WorkspaceRole {
 // this app yet (same "smallest viable" posture as Brand Kit's fields
 // living directly on User instead of a new settings system).
 model Workspace {
-  id         String   @id @default(cuid())
-  name       String
-  isPersonal Boolean  @default(false)
-  ownerId    String
-  owner      User     @relation("WorkspaceCreator", fields: [ownerId], references: [id], onDelete: Cascade)
+  id                             String   @id @default(cuid())
+  name                           String
+  isPersonal                     Boolean  @default(false)
+  ownerId                        String
+  owner                          User     @relation("WorkspaceCreator", fields: [ownerId], references: [id], onDelete: Cascade)
   // Workspace-level Brand Kit roadmap (P3g) - an additive sibling to User's
   // own brand* fields above (same 15 fields, same shape), not a migration -
   // this codebase's stronger, more-repeated convention is additive
@@ -1695,29 +1970,29 @@ model Workspace {
   // fields unchanged; any other workspace the requester has EDITOR+ on
   // edits these Workspace fields instead. See BrandKitService's
   // resolveTarget().
-  brandLogoUrl                String?
-  brandPrimaryColor           String?
-  brandSecondaryColor         String?
-  brandFontFamily              String?
-  brandWatermarkUrl           String?
-  brandWatermarkOpacity       Float?
-  brandWatermarkScale         Float?
-  brandWatermarkMargin        Float?
-  brandWatermarkPosition      String?
-  brandIntroUrl                String?
-  brandIntroType                String?
+  brandLogoUrl                   String?
+  brandPrimaryColor              String?
+  brandSecondaryColor            String?
+  brandFontFamily                String?
+  brandWatermarkUrl              String?
+  brandWatermarkOpacity          Float?
+  brandWatermarkScale            Float?
+  brandWatermarkMargin           Float?
+  brandWatermarkPosition         String?
+  brandIntroUrl                  String?
+  brandIntroType                 String?
   brandIntroImageDurationSeconds Float?
-  brandOutroUrl                String?
-  brandOutroType                String?
+  brandOutroUrl                  String?
+  brandOutroType                 String?
   brandOutroImageDurationSeconds Float?
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  createdAt                      DateTime @default(now())
+  updatedAt                      DateTime @updatedAt
 
-  members        WorkspaceMembership[]
-  projects       Project[]
-  videos         Video[]
-  invites        PendingInvite[]
-  auditLogEntries AuditLogEntry[]
+  members            WorkspaceMembership[]
+  projects           Project[]
+  videos             Video[]
+  invites            PendingInvite[]
+  auditLogEntries    AuditLogEntry[]
   // Publishing Expansion Phase 6 (Scheduling)
   campaigns          Campaign[]
   recurringSchedules RecurringSchedule[]
@@ -1924,22 +2199,22 @@ enum ShareRole {
 }
 
 model ShareLink {
-  id          String     @id @default(cuid())
+  id          String    @id @default(cuid())
   // Same "hash at rest, raw token only ever in the shareable URL" convention
   // as User.resetPasswordTokenHash/PendingInvite.tokenHash.
-  tokenHash   String     @unique
+  tokenHash   String    @unique
   videoId     String
-  video       Video      @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  video       Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
   createdById String
-  createdBy   User       @relation(fields: [createdById], references: [id], onDelete: Cascade)
-  role        ShareRole  @default(VIEWER)
+  createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
+  role        ShareRole @default(VIEWER)
   // Null = never expires. Distinct from revokedAt below - an expiry is a
   // passive time-based check at read time; a revocation is an explicit,
   // immediate "the creator turned this off" action, same distinction
   // PendingInviteStatus draws between its own states.
   expiresAt   DateTime?
   revokedAt   DateTime?
-  createdAt   DateTime   @default(now())
+  createdAt   DateTime  @default(now())
 
   @@index([videoId])
   @@index([createdById, createdAt])
@@ -2207,12 +2482,12 @@ model AuditLogEntry {
 // GET /campaigns/:id/analytics) stays O(1) against this counter rather
 // than scanning/counting the full click-detail table.
 model TrackedLink {
-  id          String    @id @default(cuid())
-  workspaceId String
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  id             String    @id @default(cuid())
+  workspaceId    String
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   // Short (8-char, URL-safe) and unique - see slug.util.ts. This IS the
   // public path segment creators share; never regenerated once created.
-  slug        String    @unique
+  slug           String    @unique
   // Validated at creation time only (http(s) protocol only, and rejected
   // if it would redirect back into this app's own /r/ path - see
   // tracked-links.service.ts's validateDestinationUrl()). Never
@@ -2255,13 +2530,13 @@ model TrackedLinkClick {
   // From the Referer header, if present - a real attribution signal (did
   // this click come from the actual published post, or somewhere else) -
   // truncated defensively against an oversized header at ingestion time.
-  referrer String?
+  referrer      String?
   // Derived once from the User-Agent at ingestion (bot-detection.util.ts) -
   // the raw User-Agent string itself is never persisted. isBot: true rows
   // still exist (a real hit happened) but are excluded from
   // TrackedLink.clickCount and from every conversionCount this app reports -
   // an honest, bot-filtered number, not a raw hit count.
-  isBot Boolean @default(false)
+  isBot         Boolean     @default(false)
 
   @@index([trackedLinkId, clickedAt])
 }

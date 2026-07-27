@@ -196,6 +196,8 @@ describe('VideosService', () => {
         data: {
           userId: 'user-1',
           type: 'UPLOAD_COMPLETE',
+          category: 'UPLOAD',
+          priority: 'INFO',
           title: 'Upload selesai',
           body: 'Video "my-video.mp4" berhasil diunggah dan sedang diproses.',
           videoId: 'video-1',
@@ -361,6 +363,8 @@ describe('VideosService', () => {
         data: {
           userId: 'user-1',
           type: 'UPLOAD_COMPLETE',
+          category: 'UPLOAD',
+          priority: 'INFO',
           title: 'Import YouTube dimulai',
           body: 'Video dari YouTube Anda sedang diunduh dan diproses.',
           videoId: 'video-1',

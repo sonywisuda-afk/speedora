@@ -19,10 +19,13 @@ import {
   type CutRange,
 } from '@speedora/cutlist';
 import {
+  derivePipelineThreadPresentation,
+  NotificationCategory,
   Prisma,
   PublishStatus,
   recordActivityEvent,
   recordNotification,
+  recordThreadNotification,
   updateVideoStatus,
   VideoStatus,
   type SocialPlatform as PrismaSocialPlatform,
@@ -1118,8 +1121,13 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // transaction) so it joins this SAME transaction, same "inlined to share one transaction"
             // convention as transcribe.worker.ts's own status write.
             let allRendered = false;
+            // Notification Center v2 Phase 2 - real, already-computed counts
+            // (never a fabricated/interpolated percentage) for the Smart
+            // Timeline's rendering-progress update below - see the
+            // recordThreadNotification call after this block.
+            let renderProgress = { renderedCount: 0, totalCount: 0 };
             try {
-              allRendered = await prisma.$transaction(async (tx) => {
+              const result = await prisma.$transaction(async (tx) => {
                 await tx.clip.update({
                   where: { id: clipId, outputUrl: null },
                   data: toClipUpdateData(graphResult, {
@@ -1142,7 +1150,8 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                 });
 
                 const siblingClips = await tx.clip.findMany({ where: { videoId } });
-                const allDone = siblingClips.every((clip) => clip.outputUrl !== null);
+                const renderedCount = siblingClips.filter((clip) => clip.outputUrl !== null).length;
+                const allDone = renderedCount === siblingClips.length;
                 if (allDone) {
                   await tx.video.update({
                     where: { id: videoId },
@@ -1152,8 +1161,13 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                     data: { videoId, toStatus: VideoStatus.RENDERED, errorMessage: null },
                   });
                 }
-                return allDone;
+                return { allDone, renderedCount, totalCount: siblingClips.length };
               });
+              allRendered = result.allDone;
+              renderProgress = {
+                renderedCount: result.renderedCount,
+                totalCount: result.totalCount,
+              };
             } catch (error) {
               if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2025') {
                 logger.info(
@@ -1164,6 +1178,46 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                 return { clipId, outputUrl: outputKey };
               }
               throw error;
+            }
+
+            // Notification Center v2 Phase 2 - the Smart Timeline's per-clip
+            // rendering update. Each clip renders as its own independent
+            // BullMQ job, so "N of M clips rendered" (computed above, inside
+            // the SAME transaction as the clip write, never a separate racy
+            // read) is real, already-observable progress - the concrete
+            // substrate for "Rendering 15% -> 22% -> 30% updates the same
+            // notification, never creates three". allRendered's own terminal
+            // RENDERED update (below, after CLIP_READY) supersedes this once
+            // every clip is done - both share the exact same threadKey, so
+            // recordThreadNotification's upsert-by-threadId always collapses
+            // them onto the SAME representative row, never a new one.
+            if (!allRendered) {
+              await recordThreadNotification(
+                prisma,
+                {
+                  userId: existingClip.video.ownerId,
+                  type: 'PIPELINE_PROGRESS',
+                  title: existingClip.video.title
+                    ? `Memproses "${existingClip.video.title}"`
+                    : 'Memproses video Anda',
+                  body: `Rendering: ${renderProgress.renderedCount} dari ${renderProgress.totalCount} klip selesai.`,
+                  category: NotificationCategory.RENDERING,
+                  threadKey: `PIPELINE:${videoId}`,
+                  status: 'IN_PROGRESS',
+                  videoId,
+                  metadata: {
+                    renderedClips: renderProgress.renderedCount,
+                    totalClips: renderProgress.totalCount,
+                  },
+                },
+                { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
+              ).catch((error) => {
+                logger.warn(
+                  'failed to record pipeline thread notification (rendering progress)',
+                  { videoId, clipId },
+                  error,
+                );
+              });
             }
 
             // Sprint 1-2 (Dashboard Redesign) - Dashboard's Activity Timeline.
@@ -1202,6 +1256,44 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             await triggerAutoPublish(clipId, existingClip.video.ownerId, processingOptions);
 
             if (allRendered) {
+              // Notification Center v2 Phase 2 - this RENDERED transition is
+              // inlined above (not updateVideoStatus()) so it joins the same
+              // transaction as the last clip's own write, which means it
+              // bypasses updateVideoStatus()'s Smart Timeline hook. Calls the
+              // exact same presentation table directly (terminal: true, same
+              // as updateVideoStatus's own FAILED/RENDERED handling) so the
+              // thread reaches its real COMPLETED state - see
+              // derivePipelineThreadPresentation()'s own comment. try/catch
+              // (not just recordThreadNotification's own .catch()) since
+              // derivePipelineThreadPresentation() runs synchronously first -
+              // a secondary write's failure must never break the primary job.
+              try {
+                const presentation = derivePipelineThreadPresentation(VideoStatus.RENDERED, {
+                  title: existingClip.video.title,
+                });
+                await recordThreadNotification(
+                  prisma,
+                  {
+                    userId: existingClip.video.ownerId,
+                    type: presentation.type,
+                    title: presentation.title,
+                    body: presentation.body,
+                    category: presentation.category,
+                    threadKey: `PIPELINE:${videoId}`,
+                    status: presentation.threadStatus,
+                    videoId,
+                    terminal: true,
+                  },
+                  { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
+                );
+              } catch (error) {
+                logger.warn(
+                  'failed to record pipeline thread notification (RENDERED)',
+                  { videoId },
+                  error,
+                );
+              }
+
               // Ranking (Fase 31) - only meaningful once every clip in the
               // video has a highlightScore to compare against its siblings.
               // Never fails the render job itself: ranking is a pure/

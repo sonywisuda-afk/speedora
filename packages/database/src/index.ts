@@ -6,6 +6,7 @@ export * from './video-status';
 export * from './node-execution';
 export * from './activity';
 export * from './notification';
+export * from './notification-timeline';
 export * from './alert-engine';
 export * from './webhook-encryption';
 export * from './telegram-notifications';
