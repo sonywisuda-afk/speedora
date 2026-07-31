@@ -54,6 +54,18 @@ export interface ProjectListDto {
   projects: ProjectDto[];
 }
 
+// Bulk Actions roadmap - each id in the request is validated and audited
+// independently (reusing archive()/unarchive()/move()/remove()'s own
+// per-project role + business-rule checks), so a batch is a partial-success
+// operation, not all-or-nothing: one project failing a check (e.g. still
+// has videos, blocking a move) doesn't block the others in the same
+// request. `failed[].reason` is the same message the single-item endpoint
+// would have thrown.
+export interface ProjectBulkActionResultDto {
+  succeeded: string[];
+  failed: { id: string; reason: string }[];
+}
+
 export interface FolderDto {
   id: string;
   projectId: string;

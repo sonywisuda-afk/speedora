@@ -239,4 +239,76 @@ describe('ProjectService', () => {
       expect(prisma.project.update).not.toHaveBeenCalled();
     });
   });
+
+  describe('bulk actions', () => {
+    it('bulkArchive reports per-id success and failure without aborting the batch', async () => {
+      prisma.project.findUnique.mockImplementation(({ where: { id } }) =>
+        id === 'missing'
+          ? Promise.resolve(null)
+          : Promise.resolve({ id, workspaceId: 'ws-1', name: id }),
+      );
+      prisma.project.update.mockImplementation(({ where: { id }, data }) =>
+        Promise.resolve({
+          id,
+          workspaceId: 'ws-1',
+          name: id,
+          createdAt: new Date('2026-07-18T00:00:00.000Z'),
+          updatedAt: new Date('2026-07-18T00:00:00.000Z'),
+          archivedAt: data.archivedAt ?? null,
+        }),
+      );
+
+      const result = await service.bulkArchive('user-1', ['project-1', 'missing', 'project-2']);
+
+      expect(result.succeeded).toEqual(['project-1', 'project-2']);
+      expect(result.failed).toEqual([{ id: 'missing', reason: 'Project missing not found' }]);
+    });
+
+    it('bulkMove reports per-id failure for projects that still contain videos', async () => {
+      prisma.project.findUnique.mockImplementation(({ where: { id } }) =>
+        Promise.resolve({ id, workspaceId: 'ws-1', name: id }),
+      );
+      prisma.video.count.mockImplementation(({ where: { projectId } }) =>
+        Promise.resolve(projectId === 'project-with-videos' ? 2 : 0),
+      );
+      prisma.project.update.mockImplementation(({ where: { id } }) =>
+        Promise.resolve({
+          id,
+          workspaceId: 'ws-2',
+          name: id,
+          createdAt: new Date('2026-07-18T00:00:00.000Z'),
+          updatedAt: new Date('2026-07-18T00:00:00.000Z'),
+          archivedAt: null,
+        }),
+      );
+
+      const result = await service.bulkMove(
+        'admin-1',
+        ['project-empty', 'project-with-videos'],
+        'ws-2',
+      );
+
+      expect(result.succeeded).toEqual(['project-empty']);
+      expect(result.failed).toEqual([
+        {
+          id: 'project-with-videos',
+          reason:
+            'Project still contains 2 video(s) - move or detach them before moving the project',
+        },
+      ]);
+    });
+
+    it('bulkRemove deletes every valid id and records an audit log entry per id', async () => {
+      prisma.project.findUnique.mockImplementation(({ where: { id } }) =>
+        Promise.resolve({ id, workspaceId: 'ws-1', name: id }),
+      );
+
+      const result = await service.bulkRemove('admin-1', ['project-1', 'project-2']);
+
+      expect(result.succeeded).toEqual(['project-1', 'project-2']);
+      expect(result.failed).toEqual([]);
+      expect(prisma.project.delete).toHaveBeenCalledTimes(2);
+      expect(prisma.auditLogEntry.create).toHaveBeenCalledTimes(2);
+    });
+  });
 });

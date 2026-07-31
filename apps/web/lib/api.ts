@@ -69,6 +69,7 @@ import type {
   ProcessingOptions,
   ProcessingPresetDto,
   ProcessingPresetListDto,
+  ProjectBulkActionResultDto,
   ProjectDto,
   ProjectListDto,
   PublishRecord,
@@ -1455,6 +1456,55 @@ export async function moveProject(id: string, targetWorkspaceId: string): Promis
     body: JSON.stringify({ targetWorkspaceId }),
   });
   return parseJsonOrThrow<ProjectDto>(res);
+}
+
+// Bulk Actions roadmap - each id runs through the single-item endpoint's own
+// role/business-rule checks server-side, so a batch is partial-success (see
+// ProjectBulkActionResultDto's own comment) - callers should render
+// `failed` even on a 200 response, not just on a thrown error.
+export async function bulkArchiveProjects(
+  projectIds: string[],
+): Promise<ProjectBulkActionResultDto> {
+  const res = await apiFetch('/projects/bulk/archive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectIds }),
+  });
+  return parseJsonOrThrow<ProjectBulkActionResultDto>(res);
+}
+
+export async function bulkUnarchiveProjects(
+  projectIds: string[],
+): Promise<ProjectBulkActionResultDto> {
+  const res = await apiFetch('/projects/bulk/unarchive', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectIds }),
+  });
+  return parseJsonOrThrow<ProjectBulkActionResultDto>(res);
+}
+
+export async function bulkMoveProjects(
+  projectIds: string[],
+  targetWorkspaceId: string,
+): Promise<ProjectBulkActionResultDto> {
+  const res = await apiFetch('/projects/bulk/move', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectIds, targetWorkspaceId }),
+  });
+  return parseJsonOrThrow<ProjectBulkActionResultDto>(res);
+}
+
+export async function bulkDeleteProjects(
+  projectIds: string[],
+): Promise<ProjectBulkActionResultDto> {
+  const res = await apiFetch('/projects/bulk/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ projectIds }),
+  });
+  return parseJsonOrThrow<ProjectBulkActionResultDto>(res);
 }
 
 // Sprint 6D (Leaderboard) - workspace-scoped, parallel to

@@ -13,6 +13,8 @@ import {
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { BulkMoveProjectDto } from './dto/bulk-move-project.dto';
+import { BulkProjectIdsDto } from './dto/bulk-project-ids.dto';
 import { CreateFolderDto } from './dto/create-folder.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { MoveProjectDto } from './dto/move-project.dto';
@@ -44,6 +46,29 @@ export class ProjectController {
     @Query('includeArchived') includeArchived?: string,
   ) {
     return this.projectService.listByWorkspace(user.id, workspaceId, includeArchived === 'true');
+  }
+
+  // Bulk Actions roadmap - registered before the projects/:id/* routes
+  // below (archive/unarchive/move) so Nest's route matching doesn't let
+  // ":id" greedily capture the literal "bulk" segment - order matters here.
+  @Post('projects/bulk/archive')
+  bulkArchive(@CurrentUser() user: SafeUser, @Body() dto: BulkProjectIdsDto) {
+    return this.projectService.bulkArchive(user.id, dto.projectIds);
+  }
+
+  @Post('projects/bulk/unarchive')
+  bulkUnarchive(@CurrentUser() user: SafeUser, @Body() dto: BulkProjectIdsDto) {
+    return this.projectService.bulkUnarchive(user.id, dto.projectIds);
+  }
+
+  @Post('projects/bulk/move')
+  bulkMove(@CurrentUser() user: SafeUser, @Body() dto: BulkMoveProjectDto) {
+    return this.projectService.bulkMove(user.id, dto.projectIds, dto.targetWorkspaceId);
+  }
+
+  @Post('projects/bulk/delete')
+  bulkRemove(@CurrentUser() user: SafeUser, @Body() dto: BulkProjectIdsDto) {
+    return this.projectService.bulkRemove(user.id, dto.projectIds);
   }
 
   @Get('projects/:id')

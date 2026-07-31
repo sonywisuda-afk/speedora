@@ -5,7 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { recordAuditLog, WorkspaceRole } from '@speedora/database';
-import type { ProjectDto } from '@speedora/shared';
+import type { ProjectBulkActionResultDto, ProjectDto } from '@speedora/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceAccessService } from './workspace-access.service';
 
@@ -197,5 +197,53 @@ export class ProjectService {
       targetId: projectId,
       metadata: { name: project.name },
     }).catch(() => {});
+  }
+
+  // Bulk Actions roadmap - each id runs through the SAME single-item method
+  // above (archive/unarchive/move/remove), so role checks, business rules
+  // (move's empty-project/video-count check), and audit logging are all
+  // reused verbatim rather than reimplemented. Sequential (not
+  // Promise.all) - batches are capped at 50 by BulkProjectIdsDto, so
+  // throughput isn't a concern, and sequential keeps each project's audit
+  // log entries in request order. One id failing never aborts the rest -
+  // see ProjectBulkActionResultDto's own comment for why partial success is
+  // the right shape here (unlike Notification's bulk actions, a Project id
+  // can belong to a different workspace with different role/business-rule
+  // outcomes per id).
+  private async runBulk(
+    projectIds: string[],
+    op: (id: string) => Promise<unknown>,
+  ): Promise<ProjectBulkActionResultDto> {
+    const succeeded: string[] = [];
+    const failed: { id: string; reason: string }[] = [];
+    for (const id of projectIds) {
+      try {
+        await op(id);
+        succeeded.push(id);
+      } catch (err) {
+        failed.push({ id, reason: err instanceof Error ? err.message : 'Unknown error' });
+      }
+    }
+    return { succeeded, failed };
+  }
+
+  bulkArchive(userId: string, projectIds: string[]): Promise<ProjectBulkActionResultDto> {
+    return this.runBulk(projectIds, (id) => this.archive(userId, id));
+  }
+
+  bulkUnarchive(userId: string, projectIds: string[]): Promise<ProjectBulkActionResultDto> {
+    return this.runBulk(projectIds, (id) => this.unarchive(userId, id));
+  }
+
+  bulkMove(
+    userId: string,
+    projectIds: string[],
+    targetWorkspaceId: string,
+  ): Promise<ProjectBulkActionResultDto> {
+    return this.runBulk(projectIds, (id) => this.move(userId, id, targetWorkspaceId));
+  }
+
+  bulkRemove(userId: string, projectIds: string[]): Promise<ProjectBulkActionResultDto> {
+    return this.runBulk(projectIds, (id) => this.remove(userId, id));
   }
 }
