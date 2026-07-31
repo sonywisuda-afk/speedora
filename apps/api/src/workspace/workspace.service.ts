@@ -1,6 +1,7 @@
 import * as crypto from 'crypto';
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -448,6 +449,143 @@ export class WorkspaceService {
     );
 
     return this.toDto(workspaceId, requesterId);
+  }
+
+  // Workspace Lifecycle Management roadmap - OWNER-only, gated on
+  // Workspace.ownerId directly, same "the one authoritative field" posture
+  // as transferOwnership (not assertMinRole(OWNER), since membership rank
+  // alone isn't trustworthy - see updateMemberRole's own comment). Blocked
+  // for isPersonal workspaces the same way transferOwnership is - every
+  // User has exactly one, and it isn't a deletable "team" resource.
+  //
+  // Deliberately no cascade delete: every child resource with a direct
+  // workspaceId FK (WorkspaceMembership beyond the owner, Project, Video,
+  // Campaign, RecurringSchedule, TrackedLink) is onDelete: Cascade at the
+  // schema level, so an unconditional workspace.delete() would silently
+  // destroy all of it. Each is checked and rejected with a specific message
+  // instead - the caller must empty the workspace first. PendingInvite and
+  // AuditLogEntry are NOT checked: they're administrative/historical
+  // records, not resources a user would lose real work by cascading away.
+  //
+  // The count checks and the delete itself run inside one $transaction
+  // (same interactive-transaction shape as create()/acceptInvite() above),
+  // not as separate round trips - closes the window where a resource
+  // created by a concurrent request right after the checks would otherwise
+  // get silently swept into the cascade delete despite the workspace no
+  // longer being "empty" by the time delete() actually runs. (Postgres's
+  // own FK enforcement already takes a FOR KEY SHARE lock on the workspace
+  // row for any concurrent child insert, so this race was never a
+  // data-corruption/orphaning risk - only a "swept away instead of blocking
+  // the delete" risk. The transaction closes that too by making the checks
+  // and the delete one atomic unit on a single connection.)
+  async remove(userId: string, workspaceId: string): Promise<void> {
+    const workspace = await this.prisma.workspace.findUnique({ where: { id: workspaceId } });
+    if (!workspace) {
+      throw new NotFoundException(`Workspace ${workspaceId} not found`);
+    }
+    if (workspace.isPersonal) {
+      throw new BadRequestException('A personal workspace cannot be deleted');
+    }
+    if (workspace.ownerId !== userId) {
+      throw new ForbiddenException('Only the current owner can delete this workspace');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      const [
+        memberCount,
+        projectCount,
+        videoCount,
+        campaignCount,
+        recurringScheduleCount,
+        trackedLinkCount,
+      ] = await Promise.all([
+        tx.workspaceMembership.count({ where: { workspaceId } }),
+        tx.project.count({ where: { workspaceId } }),
+        tx.video.count({ where: { workspaceId } }),
+        tx.campaign.count({ where: { workspaceId } }),
+        tx.recurringSchedule.count({ where: { workspaceId } }),
+        tx.trackedLink.count({ where: { workspaceId } }),
+      ]);
+
+      // memberCount includes the owner themselves - >1 means someone else
+      // is still a member.
+      if (memberCount > 1) {
+        throw new ConflictException(
+          'This workspace still has other members. Remove them first.',
+        );
+      }
+      if (projectCount > 0) {
+        throw new ConflictException(
+          'This workspace still contains projects. Remove or move them first.',
+        );
+      }
+      if (videoCount > 0) {
+        throw new ConflictException(
+          'This workspace still contains videos. Move or delete them first.',
+        );
+      }
+      if (campaignCount > 0) {
+        throw new ConflictException(
+          'This workspace still has campaigns. Cancel or remove them first.',
+        );
+      }
+      if (recurringScheduleCount > 0) {
+        throw new ConflictException(
+          'This workspace still has recurring schedules. Remove them first.',
+        );
+      }
+      if (trackedLinkCount > 0) {
+        throw new ConflictException('This workspace still has tracked links. Remove them first.');
+      }
+
+      await tx.workspace.delete({ where: { id: workspaceId } });
+    });
+
+    // AuditLogEntry is NOT used here - AuditLogEntry.workspace is
+    // onDelete: Cascade, so a row logging this workspace's own deletion
+    // would be cascade-deleted in the same statement, losing the record it
+    // exists to keep (see AuditAction's schema comment). ActivityEvent is
+    // only FK'd to User, so it survives. Logged after the delete succeeds,
+    // not before, so a failed delete never produces a false "deleted" event.
+    await recordActivityEvent(this.prisma, {
+      userId,
+      type: 'WORKSPACE_DELETED',
+      metadata: { workspaceId, name: workspace.name },
+    }).catch((error) =>
+      this.logger.warn(`failed to record WORKSPACE_DELETED activity event: ${error}`),
+    );
+  }
+
+  // Workspace Lifecycle Management roadmap - the inverse of removeMember,
+  // called by the member themselves rather than an ADMIN+ acting on someone
+  // else. Reuses assertNotLastOwnerChange's same "would this leave zero
+  // OWNERs" guard, which also naturally rejects an OWNER leaving without an
+  // explicit, clearer message pointing at transfer-ownership instead.
+  async leave(userId: string, workspaceId: string): Promise<void> {
+    const membership = await this.prisma.workspaceMembership.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+    });
+    if (!membership) {
+      throw new NotFoundException(`Workspace ${workspaceId} not found`);
+    }
+    if (membership.role === WorkspaceRole.OWNER) {
+      throw new BadRequestException(
+        'The workspace owner cannot leave - transfer ownership to another member first',
+      );
+    }
+
+    await this.prisma.workspaceMembership.delete({
+      where: { workspaceId_userId: { workspaceId, userId } },
+    });
+
+    await recordAuditLog(this.prisma, {
+      workspaceId,
+      action: 'WORKSPACE_LEFT',
+      actorId: userId,
+      targetType: 'WorkspaceMembership',
+      targetId: userId,
+      metadata: { role: membership.role },
+    }).catch(() => {});
   }
 
   // Sprint 5F (Audit Log) - ADMIN+-only, same role threshold as this

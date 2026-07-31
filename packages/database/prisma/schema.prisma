@@ -1399,6 +1399,11 @@ enum ActivityEventType {
   CLIP_GENERATED
   CLIP_EXPORTED
   MEMBER_INVITED
+  // Workspace Lifecycle Management roadmap - see AuditAction's own comment
+  // on why WORKSPACE_DELETED is recorded here (userId-scoped, survives)
+  // rather than as an AuditLogEntry (cascade-deleted with its own
+  // workspace).
+  WORKSPACE_DELETED
 }
 
 model ActivityEvent {
@@ -2721,6 +2726,16 @@ enum AuditAction {
   CAMPAIGN_CANCELLED
   RECURRING_SCHEDULE_CREATED
   RECURRING_SCHEDULE_DELETED
+  // Workspace Lifecycle Management roadmap - WORKSPACE_LEFT logs normally
+  // here (the workspace itself isn't deleted, same as MEMBER_REMOVED).
+  // Deliberately NO WORKSPACE_DELETED entry in this enum: AuditLogEntry.
+  // workspace is onDelete: Cascade, so a row logging a workspace's own
+  // deletion would be cascade-deleted along with it in the same statement,
+  // silently losing the very record it exists to keep. See
+  // WorkspaceService.remove(), which logs that event to ActivityEvent
+  // (userId-scoped only, survives the workspace's own deletion) instead -
+  // see ActivityEventType.WORKSPACE_DELETED below.
+  WORKSPACE_LEFT
 }
 
 model AuditLogEntry {

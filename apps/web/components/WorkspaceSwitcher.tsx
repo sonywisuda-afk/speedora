@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import useSWR from 'swr';
 import { createWorkspace, listWorkspaces } from '@/lib/api';
@@ -75,6 +76,19 @@ export function WorkspaceSwitcher() {
             </option>
           ))}
         </select>
+      )}
+      {activeWorkspaceId && (
+        // Workspace Lifecycle Management roadmap - the entry point to the
+        // new /workspaces/[id] Settings page (General/Members/Audit
+        // Log/Danger Zone), scoped to whichever workspace is currently
+        // active in this switcher.
+        <Link
+          href={`/workspaces/${activeWorkspaceId}`}
+          className="whitespace-nowrap rounded-md px-2 py-1.5 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          title="Workspace Settings"
+        >
+          Settings
+        </Link>
       )}
       <Dialog
         open={createOpen}

@@ -1,0 +1,5 @@
+-- AlterEnum
+ALTER TYPE "ActivityEventType" ADD VALUE 'WORKSPACE_DELETED';
+
+-- AlterEnum
+ALTER TYPE "AuditAction" ADD VALUE 'WORKSPACE_LEFT';

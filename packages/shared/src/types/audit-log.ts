@@ -19,6 +19,10 @@ export enum AuditAction {
   SHARE_LINK_CREATED = 'SHARE_LINK_CREATED',
   SHARE_LINK_REVOKED = 'SHARE_LINK_REVOKED',
   APPROVAL_DECIDED = 'APPROVAL_DECIDED',
+  // Workspace Lifecycle Management roadmap. No WORKSPACE_DELETED here - see
+  // the Prisma schema's AuditAction comment for why that event is recorded
+  // elsewhere (ActivityEvent, not AuditLogEntry) instead of this one.
+  WORKSPACE_LEFT = 'WORKSPACE_LEFT',
 }
 
 export interface AuditLogEntryDto {

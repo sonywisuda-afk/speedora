@@ -126,6 +126,25 @@ export class WorkspaceController {
     return this.workspaceService.transferOwnership(user.id, id, dto.newOwnerUserId);
   }
 
+  // Workspace Lifecycle Management roadmap - OWNER-only, enforced in the
+  // service. No cascade: WorkspaceService.remove() rejects with a specific
+  // 409 if the workspace still has other members/projects/videos/campaigns/
+  // recurring schedules/tracked links.
+  @Delete(':id')
+  @HttpCode(204)
+  remove(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    return this.workspaceService.remove(user.id, id);
+  }
+
+  // Workspace Lifecycle Management roadmap - any non-OWNER member; the
+  // OWNER is rejected in the service with a message pointing at
+  // transfer-ownership.
+  @Post(':id/leave')
+  @HttpCode(204)
+  leave(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    return this.workspaceService.leave(user.id, id);
+  }
+
   // Sprint 5F (Audit Log) - ADMIN+-only, enforced in the service.
   @Get(':id/audit-log')
   listAuditLog(

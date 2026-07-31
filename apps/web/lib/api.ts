@@ -1392,6 +1392,17 @@ export async function getWorkspace(id: string): Promise<WorkspaceDetailDto> {
   return parseJsonOrThrow<WorkspaceDetailDto>(res);
 }
 
+// Workspace Settings (General tab) - ADMIN+ server-side (WorkspaceService.update),
+// mirrored client-side for UX only.
+export async function updateWorkspace(id: string, name: string): Promise<WorkspaceDetailDto> {
+  const res = await apiFetch(`/workspaces/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return parseJsonOrThrow<WorkspaceDetailDto>(res);
+}
+
 // Project Management UI - ProjectService (Sprint 5A) has always exposed
 // full CRUD (create/list/get/update/delete), but nothing in apps/web called
 // it until now. EDITOR+ can create/rename/archive/unarchive, ADMIN+ can
@@ -1664,6 +1675,32 @@ export async function transferWorkspaceOwnership(
     body: JSON.stringify({ newOwnerUserId }),
   });
   return parseJsonOrThrow<WorkspaceDto>(res);
+}
+
+// Workspace Lifecycle Management roadmap - OWNER-only server-side. Rejects
+// (409) with a specific message when the workspace still has other
+// members/projects/videos/campaigns/recurring schedules/tracked links - see
+// WorkspaceService.remove().
+export async function deleteWorkspace(workspaceId: string): Promise<void> {
+  const res = await apiFetch(`/workspaces/${workspaceId}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message =
+      body && typeof body === 'object' && 'message' in body ? body.message : res.statusText;
+    throw new Error(typeof message === 'string' ? message : 'Gagal menghapus workspace');
+  }
+}
+
+// Workspace Lifecycle Management roadmap - any non-OWNER member; the OWNER
+// is rejected server-side with a message pointing at transfer-ownership.
+export async function leaveWorkspace(workspaceId: string): Promise<void> {
+  const res = await apiFetch(`/workspaces/${workspaceId}/leave`, { method: 'POST' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message =
+      body && typeof body === 'object' && 'message' in body ? body.message : res.statusText;
+    throw new Error(typeof message === 'string' ? message : 'Gagal keluar dari workspace');
+  }
 }
 
 export interface InvitePreviewDto {

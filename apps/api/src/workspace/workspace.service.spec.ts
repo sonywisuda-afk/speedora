@@ -1,4 +1,9 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  NotFoundException,
+} from '@nestjs/common';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { MailService } from '../mail/mail.service';
 import type { NotificationDeliveryProducer } from '../queue/notification-delivery.producer';
@@ -14,6 +19,7 @@ describe('WorkspaceService', () => {
       findUnique: jest.Mock;
       findUniqueOrThrow: jest.Mock;
       update: jest.Mock;
+      delete: jest.Mock;
     };
     workspaceMembership: {
       create: jest.Mock;
@@ -35,6 +41,11 @@ describe('WorkspaceService', () => {
     notification: { create: jest.Mock };
     notificationPreference: { findUnique: jest.Mock };
     publishRecord: { findMany: jest.Mock };
+    project: { count: jest.Mock };
+    video: { count: jest.Mock };
+    campaign: { count: jest.Mock };
+    recurringSchedule: { count: jest.Mock };
+    trackedLink: { count: jest.Mock };
     $transaction: jest.Mock;
   };
   let access: { assertMinRole: jest.Mock; getRole: jest.Mock };
@@ -49,6 +60,7 @@ describe('WorkspaceService', () => {
         findUnique: jest.fn(),
         findUniqueOrThrow: jest.fn(),
         update: jest.fn().mockResolvedValue({}),
+        delete: jest.fn().mockResolvedValue({}),
       },
       workspaceMembership: {
         create: jest.fn(),
@@ -70,6 +82,11 @@ describe('WorkspaceService', () => {
       notification: { create: jest.fn().mockResolvedValue({ id: 'notif-1' }) },
       notificationPreference: { findUnique: jest.fn().mockResolvedValue(null) },
       publishRecord: { findMany: jest.fn().mockResolvedValue([]) },
+      project: { count: jest.fn().mockResolvedValue(0) },
+      video: { count: jest.fn().mockResolvedValue(0) },
+      campaign: { count: jest.fn().mockResolvedValue(0) },
+      recurringSchedule: { count: jest.fn().mockResolvedValue(0) },
+      trackedLink: { count: jest.fn().mockResolvedValue(0) },
       $transaction: jest.fn(),
     };
     // Handles both $transaction call shapes this service uses: a callback
@@ -444,6 +461,154 @@ describe('WorkspaceService', () => {
         BadRequestException,
       );
       expect(prisma.workspace.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('remove', () => {
+    const workspace = {
+      id: 'ws-1',
+      name: 'Acme',
+      isPersonal: false,
+      ownerId: 'owner-1',
+      createdAt: new Date('2026-07-18T00:00:00.000Z'),
+    };
+
+    it('runs the precondition checks and the delete inside one $transaction', async () => {
+      prisma.workspace.findUnique.mockResolvedValue(workspace);
+
+      await service.remove('owner-1', 'ws-1');
+
+      // Every count check + workspace.delete() must go through the same
+      // $transaction call - see remove()'s own comment on why this closes
+      // the race where a resource created between the checks and the
+      // delete would otherwise get silently swept into the cascade instead
+      // of blocking it.
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function));
+    });
+
+    it('deletes an empty workspace and records a WORKSPACE_DELETED activity event', async () => {
+      prisma.workspace.findUnique.mockResolvedValue(workspace);
+
+      await service.remove('owner-1', 'ws-1');
+
+      expect(prisma.workspace.delete).toHaveBeenCalledWith({ where: { id: 'ws-1' } });
+      expect(prisma.activityEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'owner-1',
+          type: 'WORKSPACE_DELETED',
+          metadata: { workspaceId: 'ws-1', name: 'Acme' },
+        }),
+      });
+      // See AuditAction's schema comment - this event must never be written
+      // to AuditLogEntry, since it would be cascade-deleted with the
+      // workspace it describes in the same statement.
+      expect(prisma.auditLogEntry.create).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException for an unknown workspace', async () => {
+      prisma.workspace.findUnique.mockResolvedValue(null);
+
+      await expect(service.remove('owner-1', 'ws-1')).rejects.toThrow(NotFoundException);
+      expect(prisma.workspace.delete).not.toHaveBeenCalled();
+    });
+
+    it('rejects deleting a personal workspace', async () => {
+      prisma.workspace.findUnique.mockResolvedValue({ ...workspace, isPersonal: true });
+
+      await expect(service.remove('owner-1', 'ws-1')).rejects.toThrow(BadRequestException);
+      expect(prisma.workspace.delete).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the requester is not the current owner', async () => {
+      prisma.workspace.findUnique.mockResolvedValue(workspace);
+
+      await expect(service.remove('not-the-owner', 'ws-1')).rejects.toThrow(ForbiddenException);
+      expect(prisma.workspace.delete).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the workspace still has other members', async () => {
+      prisma.workspace.findUnique.mockResolvedValue(workspace);
+      prisma.workspaceMembership.count.mockResolvedValue(2);
+
+      await expect(service.remove('owner-1', 'ws-1')).rejects.toThrow(ConflictException);
+      expect(prisma.workspace.delete).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the workspace still contains projects', async () => {
+      prisma.workspace.findUnique.mockResolvedValue(workspace);
+      prisma.project.count.mockResolvedValue(1);
+
+      await expect(service.remove('owner-1', 'ws-1')).rejects.toThrow(ConflictException);
+      expect(prisma.workspace.delete).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the workspace still contains videos', async () => {
+      prisma.workspace.findUnique.mockResolvedValue(workspace);
+      prisma.video.count.mockResolvedValue(1);
+
+      await expect(service.remove('owner-1', 'ws-1')).rejects.toThrow(ConflictException);
+      expect(prisma.workspace.delete).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the workspace still has campaigns', async () => {
+      prisma.workspace.findUnique.mockResolvedValue(workspace);
+      prisma.campaign.count.mockResolvedValue(1);
+
+      await expect(service.remove('owner-1', 'ws-1')).rejects.toThrow(ConflictException);
+      expect(prisma.workspace.delete).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the workspace still has recurring schedules', async () => {
+      prisma.workspace.findUnique.mockResolvedValue(workspace);
+      prisma.recurringSchedule.count.mockResolvedValue(1);
+
+      await expect(service.remove('owner-1', 'ws-1')).rejects.toThrow(ConflictException);
+      expect(prisma.workspace.delete).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the workspace still has tracked links', async () => {
+      prisma.workspace.findUnique.mockResolvedValue(workspace);
+      prisma.trackedLink.count.mockResolvedValue(1);
+
+      await expect(service.remove('owner-1', 'ws-1')).rejects.toThrow(ConflictException);
+      expect(prisma.workspace.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('leave', () => {
+    it('deletes the membership and records a WORKSPACE_LEFT audit log entry', async () => {
+      prisma.workspaceMembership.findUnique.mockResolvedValue({ role: 'EDITOR' });
+
+      await service.leave('user-2', 'ws-1');
+
+      expect(prisma.workspaceMembership.delete).toHaveBeenCalledWith({
+        where: { workspaceId_userId: { workspaceId: 'ws-1', userId: 'user-2' } },
+      });
+      expect(prisma.auditLogEntry.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          workspaceId: 'ws-1',
+          action: 'WORKSPACE_LEFT',
+          actorId: 'user-2',
+          targetType: 'WorkspaceMembership',
+          targetId: 'user-2',
+          metadata: { role: 'EDITOR' },
+        }),
+      });
+    });
+
+    it('rejects when the OWNER tries to leave', async () => {
+      prisma.workspaceMembership.findUnique.mockResolvedValue({ role: 'OWNER' });
+
+      await expect(service.leave('owner-1', 'ws-1')).rejects.toThrow(BadRequestException);
+      expect(prisma.workspaceMembership.delete).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the requester is not a member', async () => {
+      prisma.workspaceMembership.findUnique.mockResolvedValue(null);
+
+      await expect(service.leave('user-2', 'ws-1')).rejects.toThrow(NotFoundException);
+      expect(prisma.workspaceMembership.delete).not.toHaveBeenCalled();
     });
   });
 
