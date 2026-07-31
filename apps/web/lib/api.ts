@@ -1634,6 +1634,16 @@ export async function markAllNotificationsRead(): Promise<{ count: number }> {
   return parseJsonOrThrow<{ count: number }>(res);
 }
 
+export async function deleteNotification(id: string): Promise<void> {
+  const res = await apiFetch(`/notifications/${id}`, { method: 'DELETE' });
+  await parseJsonOrThrow<void>(res);
+}
+
+export async function deleteAllNotifications(): Promise<{ count: number }> {
+  const res = await apiFetch('/notifications', { method: 'DELETE' });
+  return parseJsonOrThrow<{ count: number }>(res);
+}
+
 // ============================================================================
 // Notification Center v2 Phase 4 (Realtime & Frontend Integration) - every
 // function below hits /notifications/v2/* (Phase 3's additive API), never

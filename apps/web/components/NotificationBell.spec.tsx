@@ -4,6 +4,8 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { SWRConfig } from 'swr';
 import { NotificationType, type NotificationDto } from '@speedora/shared';
 import {
+  deleteAllNotifications,
+  deleteNotification,
   getNotificationPreferences,
   getNotifications,
   getUnreadNotificationCount,
@@ -31,6 +33,8 @@ jest.mock('@/lib/api', () => ({
   getNotificationPreferences: jest.fn(),
   markNotificationRead: jest.fn(),
   markAllNotificationsRead: jest.fn(),
+  deleteNotification: jest.fn(),
+  deleteAllNotifications: jest.fn(),
 }));
 
 jest.mock('@/lib/toast-store', () => ({
@@ -42,6 +46,8 @@ const mockGetUnreadNotificationCount = getUnreadNotificationCount as jest.Mock;
 const mockGetNotificationPreferences = getNotificationPreferences as jest.Mock;
 const mockMarkNotificationRead = markNotificationRead as jest.Mock;
 const mockMarkAllNotificationsRead = markAllNotificationsRead as jest.Mock;
+const mockDeleteNotification = deleteNotification as jest.Mock;
+const mockDeleteAllNotifications = deleteAllNotifications as jest.Mock;
 const mockToast = toast as jest.Mock;
 
 // Milestone 04c - jsdom has no native EventSource. Left unmocked, existing
@@ -82,6 +88,8 @@ describe('NotificationBell', () => {
     mockGetNotificationPreferences.mockResolvedValue({ preferences: [] });
     mockMarkNotificationRead.mockResolvedValue(undefined);
     mockMarkAllNotificationsRead.mockResolvedValue({ count: 0 });
+    mockDeleteNotification.mockResolvedValue(undefined);
+    mockDeleteAllNotifications.mockResolvedValue({ count: 0 });
   });
 
   it('renders the unread count badge', async () => {
@@ -143,6 +151,31 @@ describe('NotificationBell', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Tandai semua dibaca' }));
 
     await waitFor(() => expect(mockMarkAllNotificationsRead).toHaveBeenCalled());
+  });
+
+  it('clicking the delete button on a notification deletes it without marking it read', async () => {
+    mockGetNotifications.mockResolvedValue({
+      notifications: [notification({ id: 'notif-1', title: 'Upload selesai', readAt: null })],
+    });
+
+    renderBell();
+    fireEvent.click(screen.getByRole('button', { name: 'Notifikasi' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Hapus notifikasi' }));
+
+    await waitFor(() => expect(mockDeleteNotification).toHaveBeenCalledWith('notif-1'));
+    expect(mockMarkNotificationRead).not.toHaveBeenCalled();
+  });
+
+  it('"Hapus semua" calls the bulk delete endpoint', async () => {
+    mockGetNotifications.mockResolvedValue({
+      notifications: [notification({ id: 'notif-1', readAt: null })],
+    });
+
+    renderBell();
+    fireEvent.click(screen.getByRole('button', { name: 'Notifikasi' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Hapus semua' }));
+
+    await waitFor(() => expect(mockDeleteAllNotifications).toHaveBeenCalled());
   });
 
   it('does not toast a newly-arrived notification when its type has toast disabled (still updates the list)', async () => {

@@ -150,6 +150,19 @@ export class NotificationsController {
     return this.notificationsService.markRead(id, user.id);
   }
 
+  // Bare DELETE /notifications (delete-all) vs. DELETE /notifications/:id
+  // (delete-one) below - different segment counts, so registration order
+  // doesn't matter, same as list()/markAllRead() vs. markRead() above.
+  @Delete()
+  deleteAll(@CurrentUser() user: SafeUser) {
+    return this.notificationsService.deleteAll(user.id);
+  }
+
+  @Delete(':id')
+  deleteOne(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    return this.notificationsService.deleteOne(id, user.id);
+  }
+
   private resolveChannel(raw: string | undefined): NotificationChannel | undefined {
     if (raw && Object.values(NotificationChannel).includes(raw as NotificationChannel)) {
       return raw as NotificationChannel;

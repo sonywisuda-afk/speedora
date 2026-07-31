@@ -11,6 +11,8 @@ describe('NotificationsController', () => {
     unreadCount: jest.Mock;
     markRead: jest.Mock;
     markAllRead: jest.Mock;
+    deleteOne: jest.Mock;
+    deleteAll: jest.Mock;
     getPreferences: jest.Mock;
     updatePreference: jest.Mock;
     getWebhooks: jest.Mock;
@@ -27,6 +29,8 @@ describe('NotificationsController', () => {
       unreadCount: jest.fn(),
       markRead: jest.fn(),
       markAllRead: jest.fn(),
+      deleteOne: jest.fn(),
+      deleteAll: jest.fn(),
       getPreferences: jest.fn(),
       updatePreference: jest.fn(),
       getWebhooks: jest.fn(),
@@ -94,6 +98,33 @@ describe('NotificationsController', () => {
       notificationsService.markRead.mockRejectedValue(new Error('not found'));
 
       await expect(controller.markRead(user, 'missing')).rejects.toThrow('not found');
+    });
+  });
+
+  describe('deleteOne', () => {
+    it('forwards the id and the requester id', async () => {
+      notificationsService.deleteOne.mockResolvedValue(undefined);
+
+      await controller.deleteOne(user, 'notif-1');
+
+      expect(notificationsService.deleteOne).toHaveBeenCalledWith('notif-1', 'user-1');
+    });
+
+    it('propagates the not-found error from the service', async () => {
+      notificationsService.deleteOne.mockRejectedValue(new Error('not found'));
+
+      await expect(controller.deleteOne(user, 'missing')).rejects.toThrow('not found');
+    });
+  });
+
+  describe('deleteAll', () => {
+    it('forwards the requester id', async () => {
+      notificationsService.deleteAll.mockResolvedValue({ count: 3 });
+
+      const result = await controller.deleteAll(user);
+
+      expect(notificationsService.deleteAll).toHaveBeenCalledWith('user-1');
+      expect(result).toEqual({ count: 3 });
     });
   });
 

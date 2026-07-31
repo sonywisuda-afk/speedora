@@ -79,6 +79,29 @@ export class NotificationsService {
     return { count };
   }
 
+  // Same compound (id, userId) ownership check as markRead - deleteMany
+  // rather than delete so a missing/already-deleted row 404s explicitly
+  // (unlike deleteWebhook, this is a user-initiated single-item delete, not
+  // an idempotent config clear, so silently no-op'ing a wrong id would hide
+  // a real "that notification isn't yours/doesn't exist" bug from the UI).
+  async deleteOne(id: string, userId: string): Promise<void> {
+    const { count } = await this.prisma.notification.deleteMany({ where: { id, userId } });
+    if (count === 0) {
+      throw new NotFoundException(`Notification ${id} not found`);
+    }
+  }
+
+  // Scoped to threadId: null, groupId: null - same V1-visibility filter as
+  // list()/unreadCount() above, so "Hapus semua" on the V1 bell dropdown
+  // only ever clears what that dropdown actually shows, never the
+  // Notification Center v2 thread-linked rows it doesn't render.
+  async deleteAll(userId: string): Promise<{ count: number }> {
+    const { count } = await this.prisma.notification.deleteMany({
+      where: { userId, threadId: null, groupId: null },
+    });
+    return { count };
+  }
+
   // Sprint 4B (IN_APP only) / Milestone 04d (channel becomes a param).
   // `channel` defaults to IN_APP - every existing caller (NotificationBell's
   // preference-gated toast diffing) keeps working unchanged. Always returns

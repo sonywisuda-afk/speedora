@@ -10,6 +10,7 @@ describe('NotificationsService', () => {
       findMany: jest.Mock;
       count: jest.Mock;
       updateMany: jest.Mock;
+      deleteMany: jest.Mock;
     };
     notificationPreference: {
       findMany: jest.Mock;
@@ -30,6 +31,7 @@ describe('NotificationsService', () => {
         findMany: jest.fn(),
         count: jest.fn(),
         updateMany: jest.fn(),
+        deleteMany: jest.fn(),
       },
       notificationPreference: {
         findMany: jest.fn(),
@@ -125,6 +127,37 @@ describe('NotificationsService', () => {
         data: { readAt: expect.any(Date) },
       });
       expect(result).toEqual({ count: 5 });
+    });
+  });
+
+  describe('deleteOne', () => {
+    it('deletes the row when it belongs to the requester', async () => {
+      prisma.notification.deleteMany.mockResolvedValue({ count: 1 });
+
+      await service.deleteOne('notif-1', 'user-1');
+
+      expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
+        where: { id: 'notif-1', userId: 'user-1' },
+      });
+    });
+
+    it("throws NotFoundException when no row matched (missing or someone else's)", async () => {
+      prisma.notification.deleteMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.deleteOne('notif-1', 'user-1')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('deleteAll', () => {
+    it('deletes every V1-visible row for this user and returns the count', async () => {
+      prisma.notification.deleteMany.mockResolvedValue({ count: 7 });
+
+      const result = await service.deleteAll('user-1');
+
+      expect(prisma.notification.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', threadId: null, groupId: null },
+      });
+      expect(result).toEqual({ count: 7 });
     });
   });
 

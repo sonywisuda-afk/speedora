@@ -1,10 +1,12 @@
 'use client';
 
-import { Bell } from 'lucide-react';
+import { Bell, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import useSWR from 'swr';
 import type { NotificationDto } from '@speedora/shared';
 import {
+  deleteAllNotifications,
+  deleteNotification,
   getNotificationPreferences,
   getNotifications,
   getUnreadNotificationCount,
@@ -118,6 +120,22 @@ export function NotificationBell() {
     mutateUnread();
   }
 
+  // Stops propagation - the row itself has its own onClick (handleMarkRead),
+  // and a delete click must never also fire that (would mark-then-remove a
+  // notification the user was only trying to delete outright).
+  async function handleDelete(event: React.MouseEvent, notification: NotificationDto) {
+    event.stopPropagation();
+    await deleteNotification(notification.id);
+    mutateList();
+    mutateUnread();
+  }
+
+  async function handleDeleteAll() {
+    await deleteAllNotifications();
+    mutateList();
+    mutateUnread();
+  }
+
   const count = unread?.count ?? 0;
   const notifications = list?.notifications ?? [];
 
@@ -150,10 +168,15 @@ export function NotificationBell() {
             <TabsTrigger value="pengaturan">Pengaturan</TabsTrigger>
           </TabsList>
           <TabsContent value="notifikasi">
-            <div className="mb-2 flex items-center justify-end">
+            <div className="mb-2 flex items-center justify-end gap-2">
               {notifications.some((n) => !n.readAt) && (
                 <Button size="sm" variant="ghost" onClick={handleMarkAllRead}>
                   Tandai semua dibaca
+                </Button>
+              )}
+              {notifications.length > 0 && (
+                <Button size="sm" variant="ghost" onClick={handleDeleteAll}>
+                  Hapus semua
                 </Button>
               )}
             </div>
@@ -161,28 +184,44 @@ export function NotificationBell() {
             {notifications.length === 0 ? (
               <p className="font-body text-sm text-muted-foreground">Belum ada notifikasi.</p>
             ) : (
-              <div className="max-h-96 divide-y divide-border overflow-y-auto">
+              <div className="divide-y divide-border">
                 {notifications.map((notification) => {
                   const Icon = NOTIFICATION_ICONS[notification.type];
                   return (
-                    <button
+                    <div
                       key={notification.id}
-                      onClick={() => handleMarkRead(notification)}
-                      className={`flex w-full items-start gap-3 p-3 text-left transition-colors hover:bg-accent ${
+                      className={`group flex w-full items-start gap-1 p-3 transition-colors hover:bg-accent ${
                         notification.readAt ? 'opacity-60' : ''
                       }`}
                     >
-                      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-chrome" aria-hidden="true" />
-                      <div className="flex-1">
-                        <p className="font-body text-sm text-foreground">{notification.title}</p>
-                        <p className="font-body text-xs text-muted-foreground">
-                          {notification.body}
-                        </p>
-                      </div>
-                      <span className="shrink-0 font-mono text-xs text-muted-foreground">
-                        {formatRelativeTime(notification.createdAt)}
-                      </span>
-                    </button>
+                      <button
+                        onClick={() => handleMarkRead(notification)}
+                        className="flex flex-1 items-start gap-3 text-left"
+                      >
+                        <Icon
+                          className="mt-0.5 h-4 w-4 shrink-0 text-chrome"
+                          aria-hidden="true"
+                        />
+                        <div className="flex-1">
+                          <p className="font-body text-sm text-foreground">
+                            {notification.title}
+                          </p>
+                          <p className="font-body text-xs text-muted-foreground">
+                            {notification.body}
+                          </p>
+                        </div>
+                        <span className="shrink-0 font-mono text-xs text-muted-foreground">
+                          {formatRelativeTime(notification.createdAt)}
+                        </span>
+                      </button>
+                      <button
+                        aria-label="Hapus notifikasi"
+                        onClick={(event) => handleDelete(event, notification)}
+                        className="shrink-0 rounded p-1 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100 focus-visible:opacity-100"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      </button>
+                    </div>
                   );
                 })}
               </div>
