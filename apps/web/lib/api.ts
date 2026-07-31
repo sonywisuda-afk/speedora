@@ -1,4 +1,8 @@
 import type {
+  PublicKeyCredentialCreationOptionsJSON,
+  RegistrationResponseJSON,
+} from '@simplewebauthn/browser';
+import type {
   AnalyticsHeatmapDto,
   AnalyticsOverviewDto,
   AnalyticsPerformanceClipsDto,
@@ -302,6 +306,78 @@ export async function unlinkOAuthProvider(provider: LinkedProviderDto['provider'
       );
     }
     throw new Error(typeof message === 'string' ? message : 'Gagal memutuskan akun terhubung');
+  }
+}
+
+// Tahap 3 Sprint 1 (Passkey Foundation) - "Passkeys" section on the Accounts
+// page, same shape as the OAuth linked-providers block above (this sprint is
+// enrollment-only: list/register/rename/delete for an already-logged-in
+// user - no login-with-passkey route exists yet, see
+// apps/api/src/auth/passkey/passkey.service.ts's header comment).
+export interface PasskeyDto {
+  id: string;
+  name: string;
+  deviceType: string;
+  backedUp: boolean;
+  createdAt: string;
+  lastUsedAt: string;
+}
+
+export async function listPasskeys(): Promise<PasskeyDto[]> {
+  const res = await apiFetch('/auth/passkeys');
+  return parseJsonOrThrow<PasskeyDto[]>(res);
+}
+
+export async function getPasskeyRegistrationOptions(): Promise<{
+  options: PublicKeyCredentialCreationOptionsJSON;
+  challengeToken: string;
+}> {
+  const res = await apiFetch('/auth/passkeys/register/options', { method: 'POST' });
+  return parseJsonOrThrow(res);
+}
+
+// Gated by RecentMfaGuard server-side, same elevationRequired handling as
+// every other parseJsonOrThrow caller (unlike unlinkOAuthProvider/
+// revokeTrustedDevice above, this DOES have a success body - the saved
+// passkey's summary - so parseJsonOrThrow's shared elevationRequired check
+// applies without needing its own duplicate 204/no-body handling).
+export async function verifyPasskeyRegistration(params: {
+  response: RegistrationResponseJSON;
+  challengeToken: string;
+  name: string;
+}): Promise<PasskeyDto> {
+  const res = await apiFetch('/auth/passkeys/register/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return parseJsonOrThrow<PasskeyDto>(res);
+}
+
+export async function renamePasskey(id: string, name: string): Promise<PasskeyDto> {
+  const res = await apiFetch(`/auth/passkeys/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return parseJsonOrThrow<PasskeyDto>(res);
+}
+
+// Gated by RecentMfaGuard server-side (204 on success, no body) - same
+// manual elevationRequired check as unlinkOAuthProvider/revokeTrustedDevice
+// above.
+export async function deletePasskey(id: string): Promise<void> {
+  const res = await apiFetch(`/auth/passkeys/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message =
+      body && typeof body === 'object' && 'message' in body ? body.message : res.statusText;
+    if (body && typeof body === 'object' && body.elevationRequired === true) {
+      throw new ElevationRequiredError(
+        typeof message === 'string' ? message : 'Recent verification required',
+      );
+    }
+    throw new Error(typeof message === 'string' ? message : 'Gagal menghapus passkey');
   }
 }
 

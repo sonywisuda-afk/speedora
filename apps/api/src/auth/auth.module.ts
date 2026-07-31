@@ -14,6 +14,8 @@ import { MfaService } from './mfa/mfa.service';
 import { GitHubOAuthLoginProvider } from './oauth/github-oauth-login.provider';
 import { GoogleOAuthLoginProvider } from './oauth/google-oauth-login.provider';
 import { OAuthController } from './oauth/oauth.controller';
+import { PasskeyController } from './passkey/passkey.controller';
+import { PasskeyService } from './passkey/passkey.service';
 import { RedisThrottlerStorage } from './redis-throttler-storage.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
@@ -58,12 +60,13 @@ import { JwtStrategy } from './strategies/jwt.strategy';
       }),
     }),
   ],
-  controllers: [AuthController, OAuthController, MfaController],
+  controllers: [AuthController, OAuthController, MfaController, PasskeyController],
   providers: [
     AuthService,
     JwtStrategy,
     LoginBackoffService,
     MfaService,
+    PasskeyService,
     // Authentication Foundation Sprint 4 - AuthService/AuthController inject
     // CaptchaProvider via this token, never TurnstileCaptchaProvider
     // directly - swapping providers later means changing only this one

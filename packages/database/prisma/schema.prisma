@@ -303,6 +303,8 @@ model User {
   mfaRecoveryCodes                MfaRecoveryCode[]
   // Tahap 2 Step 2 Sprint 2a (MFA Enforcement)
   trustedDevices                  TrustedDevice[]
+  // Tahap 3 Sprint 1 (Passkey Foundation)
+  passkeys                        Passkey[]
 }
 
 model Video {
@@ -2397,6 +2399,60 @@ model TrustedDevice {
   @@index([userId])
 }
 
+// Tahap 3 Sprint 1 (Passkey Foundation, WebAuthn) - one row per registered
+// authenticator credential. Closer in kind to OAuthIdentity than to
+// TrustedDevice/Session above: it's a login-CAPABLE credential (Sprint 2),
+// not a short-lived grant with its own revocation lifecycle worth
+// preserving - so deletion is a hard delete (see
+// PasskeyService.deletePasskey, same deleteMany-by-userId+id pattern as
+// AuthService.unlinkOAuthProvider), and there is deliberately no
+// `revokedAt` column here. The audit trail lives in SecurityEvent
+// (PASSKEY_ADDED/PASSKEY_REMOVED), not on this row.
+//
+// This sprint only wires enrollment (register/list/rename/delete while
+// already logged in) - see passkey.service.ts's own comment - but the
+// schema is already shaped for Sprint 2 (login) so that lands without a
+// second migration, same "widen now, wire the consumer later" posture as
+// every other schema-ahead-of-consumer column in this file.
+//
+// credentialId is the authenticator-generated credential ID, base64url
+// text (WebAuthn's own wire encoding - stored as the string form, not raw
+// bytes, so it round-trips through JSON/Prisma without a binary column).
+// publicKey is the COSE public key, stored as raw bytes (Bytes) - this is
+// what verifies future assertions, never a secret the way mfaSecret is
+// (a public key is safe at rest, no encryption needed). counter is the
+// authenticator's signature counter, used to detect a cloned authenticator
+// (Sprint 2's verify step must reject a counter that goes backward or fails
+// to increase per @simplewebauthn/server's own guidance - some platform
+// authenticators always report 0, which is a documented exception, not a
+// clone signal). deviceType/backedUp mirror @simplewebauthn/server's own
+// credentialDeviceType ('singleDevice' | 'multiDevice') /
+// credentialBackedUp output - 'multiDevice'+backedUp=true is a synced
+// passkey (iCloud Keychain/Google Password Manager), 'singleDevice' is a
+// hardware security key or a platform authenticator with no sync. name is
+// the user-chosen label shown in the Accounts page list (e.g. "MacBook
+// Touch ID", "YubiKey") - captured once at registration, editable via
+// rename, never auto-derived from userAgent the way Session/TrustedDevice's
+// deviceName is, since a passkey ceremony's client data doesn't carry
+// device info the way a plain HTTP request's User-Agent header does.
+model Passkey {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentialId String   @unique
+  publicKey    Bytes
+  counter      BigInt   @default(0)
+  deviceType   String
+  backedUp     Boolean  @default(false)
+  transports   String[] @default([])
+  name         String
+
+  createdAt    DateTime @default(now())
+  lastUsedAt   DateTime @default(now())
+
+  @@index([userId])
+}
+
 // Sprint 5C (Comments). Video-scoped (clipId optional - a comment can
 // anchor to a specific clip, or just the video as a whole), threaded via
 // a self-relation (parentId null = a root/top-level comment; only root
@@ -2670,6 +2726,9 @@ enum SecurityEventType {
   MFA_RECOVERY_CODES_REGENERATED
   // Tahap 2 Step 3 (OAuth Account Management)
   OAUTH_UNLINKED
+  // Tahap 3 Sprint 1 (Passkey Foundation)
+  PASSKEY_ADDED
+  PASSKEY_REMOVED
 }
 
 model SecurityEvent {

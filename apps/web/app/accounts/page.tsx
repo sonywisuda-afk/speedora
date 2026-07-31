@@ -1,5 +1,6 @@
 'use client';
 
+import { browserSupportsWebAuthn, startRegistration } from '@simplewebauthn/browser';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
@@ -14,22 +15,28 @@ import {
   changePassword,
   confirmMfaEnrollment,
   deleteAccount,
+  deletePasskey,
   disableMfa,
   ElevationRequiredError,
   elevateSession,
   enrollMfa,
   getMfaStatus,
+  getPasskeyRegistrationOptions,
   listLinkedProviders,
+  listPasskeys,
   listSessions,
   listTrustedDevices,
   logoutOthers,
   regenerateRecoveryCodes,
+  renamePasskey,
   revokeSession,
   revokeTrustedDevice,
   unlinkOAuthProvider,
+  verifyPasskeyRegistration,
   type LinkedProviderDto,
   type MfaEnrollmentDto,
   type MfaStatusDto,
+  type PasskeyDto,
   type SessionDto,
   type TrustedDeviceDto,
 } from '../../lib/api';
@@ -205,12 +212,99 @@ export default function AccountsPage() {
     }
   }
 
+  // Tahap 3 Sprint 1 (Passkey Foundation) - enrollment-only (list/register/
+  // rename/delete for an already-logged-in user), same shape as the OAuth
+  // linked-providers block above. addingPasskey/newPasskeyName hold the
+  // inline "name this passkey" form shown before the browser ceremony
+  // starts; renamingId/renameValue hold the inline rename form for one row
+  // at a time. register/verify and delete are both gated by RecentMfaGuard
+  // server-side, so both go through the same shared runWithElevation/
+  // ElevationDialog as unlink/disable-MFA/change-password/delete-account
+  // above - no new elevation mechanism.
+  const [passkeys, setPasskeys] = useState<PasskeyDto[] | null>(null);
+  const [passkeysError, setPasskeysError] = useState<string | null>(null);
+  const [addingPasskey, setAddingPasskey] = useState(false);
+  const [newPasskeyName, setNewPasskeyName] = useState('');
+  const [registeringPasskey, setRegisteringPasskey] = useState(false);
+  const [renamingPasskeyId, setRenamingPasskeyId] = useState<string | null>(null);
+  const [renamePasskeyValue, setRenamePasskeyValue] = useState('');
+  const [savingPasskeyRename, setSavingPasskeyRename] = useState(false);
+  const [deletingPasskeyId, setDeletingPasskeyId] = useState<string | null>(null);
+
+  async function fetchPasskeys() {
+    try {
+      setPasskeys(await listPasskeys());
+      setPasskeysError(null);
+    } catch (err) {
+      setPasskeysError(err instanceof Error ? err.message : 'Gagal memuat daftar passkey.');
+    }
+  }
+
+  // The browser ceremony (startRegistration, a real Touch ID/Windows Hello/
+  // security-key prompt) runs BEFORE the elevation check, same ordering as
+  // every other runWithElevation call here - if RecentMfaGuard rejects the
+  // subsequent verify call, ElevationDialog opens and retries the exact
+  // same already-completed response/challengeToken, so the user is never
+  // asked to redo the passkey ceremony itself, only to prove elevation.
+  async function handleAddPasskey(e: FormEvent) {
+    e.preventDefault();
+    setPasskeysError(null);
+    if (!browserSupportsWebAuthn()) {
+      setPasskeysError('Browser ini tidak mendukung passkey.');
+      return;
+    }
+    setRegisteringPasskey(true);
+    try {
+      const { options, challengeToken } = await getPasskeyRegistrationOptions();
+      const response = await startRegistration({ optionsJSON: options });
+      await runWithElevation(async () => {
+        await verifyPasskeyRegistration({ response, challengeToken, name: newPasskeyName });
+        setAddingPasskey(false);
+        setNewPasskeyName('');
+        await fetchPasskeys();
+      });
+    } catch (err) {
+      setPasskeysError(err instanceof Error ? err.message : 'Gagal menambahkan passkey.');
+    } finally {
+      setRegisteringPasskey(false);
+    }
+  }
+
+  async function handleSavePasskeyRename(id: string) {
+    setSavingPasskeyRename(true);
+    try {
+      await renamePasskey(id, renamePasskeyValue);
+      setRenamingPasskeyId(null);
+      await fetchPasskeys();
+    } catch (err) {
+      setPasskeysError(err instanceof Error ? err.message : 'Gagal mengganti nama passkey.');
+    } finally {
+      setSavingPasskeyRename(false);
+    }
+  }
+
+  async function handleDeletePasskey(id: string) {
+    setDeletingPasskeyId(id);
+    setPasskeysError(null);
+    try {
+      await runWithElevation(async () => {
+        await deletePasskey(id);
+        await fetchPasskeys();
+      });
+    } catch (err) {
+      setPasskeysError(err instanceof Error ? err.message : 'Gagal menghapus passkey.');
+    } finally {
+      setDeletingPasskeyId(null);
+    }
+  }
+
   useEffect(() => {
     if (!user) return;
     fetchSessions();
     fetchMfaStatus();
     fetchTrustedDevices();
     fetchLinkedProviders();
+    fetchPasskeys();
     // Only ever meant to run once the user is known, same reasoning as
     // useAuth's own mount-only effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -683,6 +777,142 @@ export default function AccountsPage() {
                       >
                         {unlinkingProvider === linked.provider ? 'Memproses...' : 'Putuskan'}
                       </Button>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="mt-10">
+              <CardHeader className="flex-row items-center justify-between space-y-0">
+                <CardTitle>Passkeys</CardTitle>
+                {!addingPasskey && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setAddingPasskey(true);
+                      setNewPasskeyName('');
+                      setPasskeysError(null);
+                    }}
+                  >
+                    Tambah Passkey
+                  </Button>
+                )}
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="font-body text-sm text-muted-foreground">
+                  Masuk tanpa kata sandi menggunakan sidik jari, wajah, PIN perangkat, atau
+                  security key.
+                </p>
+                {passkeysError && <p className="text-sm text-destructive">{passkeysError}</p>}
+
+                {addingPasskey && (
+                  <form
+                    onSubmit={handleAddPasskey}
+                    className="space-y-3 rounded-md border border-border p-3"
+                  >
+                    <div className="space-y-1.5">
+                      <Label htmlFor="new-passkey-name">Nama Passkey</Label>
+                      <Input
+                        id="new-passkey-name"
+                        required
+                        value={newPasskeyName}
+                        onChange={(e) => setNewPasskeyName(e.target.value)}
+                        placeholder="mis. MacBook Touch ID"
+                      />
+                    </div>
+                    <div className="flex gap-2">
+                      <Button type="submit" size="sm" disabled={registeringPasskey}>
+                        {registeringPasskey ? 'Memproses...' : 'Lanjutkan'}
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        disabled={registeringPasskey}
+                        onClick={() => setAddingPasskey(false)}
+                      >
+                        Batal
+                      </Button>
+                    </div>
+                  </form>
+                )}
+
+                {passkeys === null ? (
+                  <p className="font-body text-sm text-muted-foreground">Memuat...</p>
+                ) : passkeys.length === 0 ? (
+                  <p className="font-body text-sm text-muted-foreground">
+                    Belum ada passkey terdaftar.
+                  </p>
+                ) : (
+                  passkeys.map((passkey) => (
+                    <div
+                      key={passkey.id}
+                      className="flex items-center justify-between gap-4 rounded-md border border-border p-3"
+                    >
+                      {renamingPasskeyId === passkey.id ? (
+                        <div className="flex min-w-0 flex-1 items-center gap-2">
+                          <Input
+                            autoFocus
+                            value={renamePasskeyValue}
+                            onChange={(e) => setRenamePasskeyValue(e.target.value)}
+                            className="h-8"
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            disabled={savingPasskeyRename}
+                            onClick={() => handleSavePasskeyRename(passkey.id)}
+                          >
+                            Simpan
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={savingPasskeyRename}
+                            onClick={() => setRenamingPasskeyId(null)}
+                          >
+                            Batal
+                          </Button>
+                        </div>
+                      ) : (
+                        <div className="min-w-0 font-body text-sm">
+                          <p className="font-medium text-foreground">{passkey.name}</p>
+                          <p className="text-muted-foreground">
+                            {passkey.backedUp ? 'Tersinkron di beberapa perangkat' : 'Perangkat tunggal'}
+                          </p>
+                          <p className="text-muted-foreground">
+                            Terakhir digunakan: {new Date(passkey.lastUsedAt).toLocaleString()}
+                          </p>
+                        </div>
+                      )}
+                      {renamingPasskeyId !== passkey.id && (
+                        <div className="flex shrink-0 gap-2">
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              setRenamingPasskeyId(passkey.id);
+                              setRenamePasskeyValue(passkey.name);
+                            }}
+                          >
+                            Ganti Nama
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={deletingPasskeyId === passkey.id}
+                            onClick={() => handleDeletePasskey(passkey.id)}
+                          >
+                            {deletingPasskeyId === passkey.id ? 'Memproses...' : 'Hapus'}
+                          </Button>
+                        </div>
+                      )}
                     </div>
                   ))
                 )}
