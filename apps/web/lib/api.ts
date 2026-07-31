@@ -1393,11 +1393,17 @@ export async function getWorkspace(id: string): Promise<WorkspaceDetailDto> {
 
 // Project Management UI - ProjectService (Sprint 5A) has always exposed
 // full CRUD (create/list/get/update/delete), but nothing in apps/web called
-// it until now. EDITOR+ can create/rename, ADMIN+ can delete - enforced
-// server-side by WorkspaceAccessService, mirrored client-side in
-// /projects for UX only.
-export async function listProjects(workspaceId: string): Promise<ProjectListDto> {
-  const res = await apiFetch(`/workspaces/${workspaceId}/projects`);
+// it until now. EDITOR+ can create/rename/archive/unarchive, ADMIN+ can
+// permanently delete - enforced server-side by WorkspaceAccessService,
+// mirrored client-side in /projects for UX only. Archive roadmap (P1) adds
+// archivedAt filtering (listProjects) plus archive()/unarchive().
+export async function listProjects(
+  workspaceId: string,
+  includeArchived = false,
+): Promise<ProjectListDto> {
+  const res = await apiFetch(
+    `/workspaces/${workspaceId}/projects${includeArchived ? '?includeArchived=true' : ''}`,
+  );
   return parseJsonOrThrow<ProjectListDto>(res);
 }
 
@@ -1427,6 +1433,16 @@ export async function deleteProject(id: string): Promise<void> {
       body && typeof body === 'object' && 'message' in body ? body.message : res.statusText;
     throw new Error(typeof message === 'string' ? message : 'Gagal menghapus project');
   }
+}
+
+export async function archiveProject(id: string): Promise<ProjectDto> {
+  const res = await apiFetch(`/projects/${id}/archive`, { method: 'POST' });
+  return parseJsonOrThrow<ProjectDto>(res);
+}
+
+export async function unarchiveProject(id: string): Promise<ProjectDto> {
+  const res = await apiFetch(`/projects/${id}/unarchive`, { method: 'POST' });
+  return parseJsonOrThrow<ProjectDto>(res);
 }
 
 // Sprint 6D (Leaderboard) - workspace-scoped, parallel to

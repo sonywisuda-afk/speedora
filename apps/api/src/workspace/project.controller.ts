@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import type { SafeUser } from '../auth/auth.service';
@@ -36,8 +37,12 @@ export class ProjectController {
   }
 
   @Get('workspaces/:workspaceId/projects')
-  list(@CurrentUser() user: SafeUser, @Param('workspaceId') workspaceId: string) {
-    return this.projectService.listByWorkspace(user.id, workspaceId);
+  list(
+    @CurrentUser() user: SafeUser,
+    @Param('workspaceId') workspaceId: string,
+    @Query('includeArchived') includeArchived?: string,
+  ) {
+    return this.projectService.listByWorkspace(user.id, workspaceId, includeArchived === 'true');
   }
 
   @Get('projects/:id')
@@ -56,6 +61,16 @@ export class ProjectController {
   @HttpCode(204)
   remove(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.projectService.remove(user.id, id);
+  }
+
+  @Post('projects/:id/archive')
+  archive(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    return this.projectService.archive(user.id, id);
+  }
+
+  @Post('projects/:id/unarchive')
+  unarchive(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    return this.projectService.unarchive(user.id, id);
   }
 
   @Post('projects/:id/folders')

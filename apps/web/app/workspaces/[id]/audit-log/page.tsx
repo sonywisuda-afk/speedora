@@ -16,6 +16,8 @@ const ACTION_LABELS: Record<AuditLogEntryDto['action'], string> = {
   INVITE_ACCEPTED: 'Undangan diterima',
   PROJECT_CREATED: 'Project dibuat',
   PROJECT_DELETED: 'Project dihapus',
+  PROJECT_ARCHIVED: 'Project diarsipkan',
+  PROJECT_UNARCHIVED: 'Project dipulihkan',
   FOLDER_CREATED: 'Folder dibuat',
   FOLDER_DELETED: 'Folder dihapus',
   VIDEO_MOVED: 'Video dipindahkan',

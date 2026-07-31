@@ -1,10 +1,12 @@
 'use client';
 
 import { WorkspaceRole } from '@speedora/shared';
+import type { ProjectDto } from '@speedora/shared';
 import Link from 'next/link';
 import { useState } from 'react';
 import useSWR from 'swr';
 import { Nav } from '@/components/Nav';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -15,8 +17,17 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { createProject, deleteProject, getWorkspace, listProjects, updateProject } from '@/lib/api';
+import {
+  archiveProject,
+  createProject,
+  deleteProject,
+  getWorkspace,
+  listProjects,
+  unarchiveProject,
+  updateProject,
+} from '@/lib/api';
 import { formatRelativeTime } from '@/lib/dashboard';
+import { cn } from '@/lib/utils';
 import { useAuth } from '@/lib/useAuth';
 import { useWorkspaceStore } from '@/lib/workspaceStore';
 
@@ -27,29 +38,39 @@ const EDIT_ROLES: WorkspaceRole[] = [
 ];
 const DELETE_ROLES: WorkspaceRole[] = [WorkspaceRole.OWNER, WorkspaceRole.ADMIN];
 
+type Tab = 'active' | 'archived';
+
 // Project Management UI - ProjectService (apps/api/src/workspace/project.service.ts,
 // Sprint 5A) has always had full create/list/rename/delete, but apps/web never
 // called it - a Project could only ever be created via a direct API call, and
 // never renamed or deleted at all. This closes that gap with the minimum
 // surface: a flat /projects route (same "reads activeWorkspaceId from the
 // store" convention as /campaigns), a create dialog, and per-row
-// rename/delete. Role buttons are hidden client-side per EDIT_ROLES/
+// rename/delete. Archive roadmap (P1) adds an Active/Archived tab plus
+// archive/restore, sitting alongside the permanent (ADMIN+) delete rather
+// than replacing it. Role buttons are hidden client-side per EDIT_ROLES/
 // DELETE_ROLES purely for UX - WorkspaceAccessService.assertMinRole is the
-// real enforcement.
+// real enforcement. Archive/restore are one-click (no confirm dialog) since
+// they're fully reversible; only permanent delete gets a confirm dialog.
 export default function ProjectsPage() {
   const { user, checkingAuth, logout } = useAuth();
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
+  const [tab, setTab] = useState<Tab>('active');
 
   const { data: workspace } = useSWR(
     user && activeWorkspaceId ? ['workspace-detail', activeWorkspaceId] : null,
     () => getWorkspace(activeWorkspaceId as string),
   );
+  // Fetch active + archived together (includeArchived:true) so switching
+  // tabs is instant and both tabs share one mutate() after any action.
   const { data, error, isLoading, mutate } = useSWR(
     user && activeWorkspaceId ? ['projects', activeWorkspaceId] : null,
-    () => listProjects(activeWorkspaceId as string),
+    () => listProjects(activeWorkspaceId as string, true),
   );
 
-  const projects = data?.projects ?? [];
+  const allProjects = data?.projects ?? [];
+  const projects = allProjects.filter((p) => (tab === 'active' ? !p.archivedAt : !!p.archivedAt));
+  const archivedCount = allProjects.filter((p) => p.archivedAt).length;
   const canEdit = workspace ? EDIT_ROLES.includes(workspace.role) : false;
   const canDelete = workspace ? DELETE_ROLES.includes(workspace.role) : false;
 
@@ -94,36 +115,43 @@ export default function ProjectsPage() {
 
             {activeWorkspaceId && (
               <>
+                <div className="mt-6 flex gap-1">
+                  {(['active', 'archived'] as Tab[]).map((t) => (
+                    <button
+                      key={t}
+                      type="button"
+                      onClick={() => setTab(t)}
+                      aria-current={tab === t ? 'true' : undefined}
+                      className={cn(
+                        'rounded-md px-3 py-1.5 font-mono text-xs transition-colors',
+                        tab === t
+                          ? 'bg-primary-surface font-medium text-primary'
+                          : 'text-muted-foreground hover:bg-accent hover:text-foreground',
+                      )}
+                    >
+                      {t === 'active'
+                        ? 'Active'
+                        : `Archived${archivedCount ? ` (${archivedCount})` : ''}`}
+                    </button>
+                  ))}
+                </div>
+
                 {isLoading ? null : projects.length === 0 ? (
                   <p className="mt-8 font-body text-sm text-muted-foreground">
-                    Belum ada project di workspace ini.
+                    {tab === 'active'
+                      ? 'Belum ada project aktif di workspace ini.'
+                      : 'Belum ada project yang diarsipkan.'}
                   </p>
                 ) : (
-                  <ul className="mt-6 space-y-3">
+                  <ul className="mt-4 space-y-3">
                     {projects.map((project) => (
-                      <li
+                      <ProjectRow
                         key={project.id}
-                        className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted p-4"
-                      >
-                        <div className="min-w-0">
-                          <p className="truncate font-body text-sm font-medium text-foreground">
-                            {project.name}
-                          </p>
-                          <p className="mt-1 font-mono text-xs text-muted-foreground">
-                            Dibuat {formatRelativeTime(project.createdAt)}
-                          </p>
-                        </div>
-                        {(canEdit || canDelete) && (
-                          <div className="flex shrink-0 items-center gap-1">
-                            {canEdit && (
-                              <RenameProjectDialog project={project} onRenamed={() => mutate()} />
-                            )}
-                            {canDelete && (
-                              <DeleteProjectDialog project={project} onDeleted={() => mutate()} />
-                            )}
-                          </div>
-                        )}
-                      </li>
+                        project={project}
+                        canEdit={canEdit}
+                        canDelete={canDelete}
+                        onChanged={() => mutate()}
+                      />
                     ))}
                   </ul>
                 )}
@@ -133,6 +161,62 @@ export default function ProjectsPage() {
         )}
       </div>
     </main>
+  );
+}
+
+function ProjectRow({
+  project,
+  canEdit,
+  canDelete,
+  onChanged,
+}: {
+  project: ProjectDto;
+  canEdit: boolean;
+  canDelete: boolean;
+  onChanged: () => void;
+}) {
+  const archived = !!project.archivedAt;
+  const [toggling, setToggling] = useState(false);
+
+  async function handleToggleArchive() {
+    setToggling(true);
+    try {
+      if (archived) {
+        await unarchiveProject(project.id);
+      } else {
+        await archiveProject(project.id);
+      }
+      onChanged();
+    } finally {
+      setToggling(false);
+    }
+  }
+
+  return (
+    <li className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted p-4">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="truncate font-body text-sm font-medium text-foreground">{project.name}</p>
+          {archived && <Badge variant="muted">Archived</Badge>}
+        </div>
+        <p className="mt-1 font-mono text-xs text-muted-foreground">
+          {archived
+            ? `Diarsipkan ${formatRelativeTime(project.archivedAt as string)}`
+            : `Dibuat ${formatRelativeTime(project.createdAt)}`}
+        </p>
+      </div>
+      {(canEdit || canDelete) && (
+        <div className="flex shrink-0 items-center gap-1">
+          {canEdit && !archived && <RenameProjectDialog project={project} onRenamed={onChanged} />}
+          {canEdit && (
+            <Button size="sm" variant="outline" disabled={toggling} onClick={handleToggleArchive}>
+              {toggling ? '...' : archived ? 'Restore' : 'Archive'}
+            </Button>
+          )}
+          {canDelete && <DeleteProjectDialog project={project} onDeleted={onChanged} />}
+        </div>
+      )}
+    </li>
   );
 }
 

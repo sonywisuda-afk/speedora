@@ -2066,11 +2066,18 @@ model Project {
   name        String
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  // Archive roadmap (P1) - NULL = active, non-null = archived. Same
+  // nullable-timestamp convention as Notification.archivedAt: an archived
+  // Project stays fully intact (folders/videos untouched) and is just
+  // excluded from the default list, not soft-deleted - permanent removal is
+  // still the separate, ADMIN-gated remove().
+  archivedAt DateTime?
 
   folders Folder[]
   videos  Video[]
 
   @@index([workspaceId])
+  @@index([workspaceId, archivedAt])
 }
 
 // Sprint 5A - nestable within a Project (parentId self-relation). A
@@ -2690,6 +2697,8 @@ enum AuditAction {
   INVITE_ACCEPTED
   PROJECT_CREATED
   PROJECT_DELETED
+  PROJECT_ARCHIVED
+  PROJECT_UNARCHIVED
   FOLDER_CREATED
   FOLDER_DELETED
   VIDEO_MOVED

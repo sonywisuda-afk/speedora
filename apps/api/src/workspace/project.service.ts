@@ -10,6 +10,7 @@ function toDto(project: {
   name: string;
   createdAt: Date;
   updatedAt: Date;
+  archivedAt: Date | null;
 }): ProjectDto {
   return {
     id: project.id,
@@ -17,6 +18,7 @@ function toDto(project: {
     name: project.name,
     createdAt: project.createdAt.toISOString(),
     updatedAt: project.updatedAt.toISOString(),
+    archivedAt: project.archivedAt ? project.archivedAt.toISOString() : null,
   };
 }
 
@@ -24,7 +26,8 @@ function toDto(project: {
 // (day-to-day organization work); ADMIN+ is required to delete one, since
 // deleting a Project cascades to its Folders and detaches (not deletes) its
 // Videos back to the bare Workspace - a more consequential action than a
-// rename.
+// rename. Archive roadmap (P1) adds archive()/unarchive(), EDITOR+ like
+// create/rename - reversible, so it doesn't need delete's higher bar.
 @Injectable()
 export class ProjectService {
   constructor(
@@ -48,10 +51,18 @@ export class ProjectService {
     return toDto(project);
   }
 
-  async listByWorkspace(userId: string, workspaceId: string): Promise<{ projects: ProjectDto[] }> {
+  // Archive roadmap (P1) - defaults to active-only (archivedAt: null), same
+  // "hide by default, opt in to see the rest" posture as Notification's
+  // archivedAt filter. includeArchived:true returns every project
+  // regardless of archive state, for a future Archived tab.
+  async listByWorkspace(
+    userId: string,
+    workspaceId: string,
+    includeArchived = false,
+  ): Promise<{ projects: ProjectDto[] }> {
     await this.access.assertMinRole(userId, workspaceId, WorkspaceRole.VIEWER);
     const projects = await this.prisma.project.findMany({
-      where: { workspaceId },
+      where: includeArchived ? { workspaceId } : { workspaceId, archivedAt: null },
       orderBy: { createdAt: 'asc' },
       // Stabilization Pass (API Contract Audit) - was fully unbounded.
       take: 200,
@@ -77,6 +88,49 @@ export class ProjectService {
     const project = await this.findOrThrow(projectId);
     await this.access.assertMinRole(userId, project.workspaceId, WorkspaceRole.EDITOR);
     const updated = await this.prisma.project.update({ where: { id: projectId }, data: { name } });
+    return toDto(updated);
+  }
+
+  // Archive roadmap (P1) - EDITOR+ (same rank as create/rename, not
+  // ADMIN+ like remove()): archiving is fully reversible and touches
+  // nothing but this row, unlike delete's cascade to Folders/Videos.
+  async archive(userId: string, projectId: string): Promise<ProjectDto> {
+    const project = await this.findOrThrow(projectId);
+    await this.access.assertMinRole(userId, project.workspaceId, WorkspaceRole.EDITOR);
+    const updated = await this.prisma.project.update({
+      where: { id: projectId },
+      data: { archivedAt: new Date() },
+    });
+
+    await recordAuditLog(this.prisma, {
+      workspaceId: project.workspaceId,
+      action: 'PROJECT_ARCHIVED',
+      actorId: userId,
+      targetType: 'Project',
+      targetId: projectId,
+      metadata: { name: project.name },
+    }).catch(() => {});
+
+    return toDto(updated);
+  }
+
+  async unarchive(userId: string, projectId: string): Promise<ProjectDto> {
+    const project = await this.findOrThrow(projectId);
+    await this.access.assertMinRole(userId, project.workspaceId, WorkspaceRole.EDITOR);
+    const updated = await this.prisma.project.update({
+      where: { id: projectId },
+      data: { archivedAt: null },
+    });
+
+    await recordAuditLog(this.prisma, {
+      workspaceId: project.workspaceId,
+      action: 'PROJECT_UNARCHIVED',
+      actorId: userId,
+      targetType: 'Project',
+      targetId: projectId,
+      metadata: { name: project.name },
+    }).catch(() => {});
+
     return toDto(updated);
   }
 
