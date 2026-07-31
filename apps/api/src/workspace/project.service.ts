@@ -1,4 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { recordAuditLog, WorkspaceRole } from '@speedora/database';
 import type { ProjectDto } from '@speedora/shared';
 import { PrismaService } from '../prisma/prisma.service';
@@ -129,6 +134,51 @@ export class ProjectService {
       targetType: 'Project',
       targetId: projectId,
       metadata: { name: project.name },
+    }).catch(() => {});
+
+    return toDto(updated);
+  }
+
+  // Move roadmap - ADMIN+ on BOTH the source and target workspace (a
+  // cross-workspace boundary change is more consequential than an in-place
+  // delete, which only needs ADMIN+ on one side). Restricted to empty
+  // projects (zero videos, transitively including ones nested in Folders,
+  // since Video.projectId is always set once a video is in a Folder - see
+  // Video's own comment) because Video.workspaceId is independent of its
+  // project's workspaceId: moving a non-empty project would silently
+  // orphan those videos' workspaceId, and Campaign/PublishRecord (which DO
+  // carry their own workspaceId, unlike Clip) could end up pointing across
+  // a workspace boundary. A future "move with contents" would need to
+  // cascade Video.workspaceId and reconcile those cross-workspace refs -
+  // deliberately out of scope here.
+  async move(userId: string, projectId: string, targetWorkspaceId: string): Promise<ProjectDto> {
+    const project = await this.findOrThrow(projectId);
+    if (project.workspaceId === targetWorkspaceId) {
+      throw new BadRequestException('Project already belongs to this workspace');
+    }
+    await this.access.assertMinRole(userId, project.workspaceId, WorkspaceRole.ADMIN);
+    await this.access.assertMinRole(userId, targetWorkspaceId, WorkspaceRole.ADMIN);
+
+    const videoCount = await this.prisma.video.count({ where: { projectId } });
+    if (videoCount > 0) {
+      throw new ConflictException(
+        `Project still contains ${videoCount} video(s) - move or detach them before moving the project`,
+      );
+    }
+
+    const sourceWorkspaceId = project.workspaceId;
+    const updated = await this.prisma.project.update({
+      where: { id: projectId },
+      data: { workspaceId: targetWorkspaceId },
+    });
+
+    await recordAuditLog(this.prisma, {
+      workspaceId: sourceWorkspaceId,
+      action: 'PROJECT_MOVED',
+      actorId: userId,
+      targetType: 'Project',
+      targetId: projectId,
+      metadata: { name: project.name, targetWorkspaceId },
     }).catch(() => {});
 
     return toDto(updated);

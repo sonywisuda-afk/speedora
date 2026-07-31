@@ -23,6 +23,8 @@ import {
   deleteProject,
   getWorkspace,
   listProjects,
+  listWorkspaces,
+  moveProject,
   unarchiveProject,
   updateProject,
 } from '@/lib/api';
@@ -37,6 +39,10 @@ const EDIT_ROLES: WorkspaceRole[] = [
   WorkspaceRole.EDITOR,
 ];
 const DELETE_ROLES: WorkspaceRole[] = [WorkspaceRole.OWNER, WorkspaceRole.ADMIN];
+// Move roadmap - same ADMIN+ bar as delete (a cross-workspace boundary
+// change, requiring ADMIN+ on the target workspace too - enforced
+// server-side, see ProjectService.move).
+const MOVE_ROLES = DELETE_ROLES;
 
 type Tab = 'active' | 'archived';
 
@@ -52,6 +58,9 @@ type Tab = 'active' | 'archived';
 // DELETE_ROLES purely for UX - WorkspaceAccessService.assertMinRole is the
 // real enforcement. Archive/restore are one-click (no confirm dialog) since
 // they're fully reversible; only permanent delete gets a confirm dialog.
+// Move roadmap adds a Move dialog (ADMIN+ on both workspaces, project must
+// have zero videos - see ProjectService.move for why) picking a target from
+// listWorkspaces(), reusing the same Dialog pattern as Create/Rename.
 export default function ProjectsPage() {
   const { user, checkingAuth, logout } = useAuth();
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
@@ -73,6 +82,7 @@ export default function ProjectsPage() {
   const archivedCount = allProjects.filter((p) => p.archivedAt).length;
   const canEdit = workspace ? EDIT_ROLES.includes(workspace.role) : false;
   const canDelete = workspace ? DELETE_ROLES.includes(workspace.role) : false;
+  const canMove = workspace ? MOVE_ROLES.includes(workspace.role) : false;
 
   return (
     <main className="min-h-screen bg-background px-6 py-8">
@@ -150,6 +160,7 @@ export default function ProjectsPage() {
                         project={project}
                         canEdit={canEdit}
                         canDelete={canDelete}
+                        canMove={canMove}
                         onChanged={() => mutate()}
                       />
                     ))}
@@ -168,11 +179,13 @@ function ProjectRow({
   project,
   canEdit,
   canDelete,
+  canMove,
   onChanged,
 }: {
   project: ProjectDto;
   canEdit: boolean;
   canDelete: boolean;
+  canMove: boolean;
   onChanged: () => void;
 }) {
   const archived = !!project.archivedAt;
@@ -205,7 +218,7 @@ function ProjectRow({
             : `Dibuat ${formatRelativeTime(project.createdAt)}`}
         </p>
       </div>
-      {(canEdit || canDelete) && (
+      {(canEdit || canDelete || canMove) && (
         <div className="flex shrink-0 items-center gap-1">
           {canEdit && !archived && <RenameProjectDialog project={project} onRenamed={onChanged} />}
           {canEdit && (
@@ -213,6 +226,7 @@ function ProjectRow({
               {toggling ? '...' : archived ? 'Restore' : 'Archive'}
             </Button>
           )}
+          {canMove && <MoveProjectDialog project={project} onMoved={onChanged} />}
           {canDelete && <DeleteProjectDialog project={project} onDeleted={onChanged} />}
         </div>
       )}
@@ -329,6 +343,94 @@ function RenameProjectDialog({
             }}
           >
             {saving ? 'Menyimpan...' : 'Simpan'}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function MoveProjectDialog({
+  project,
+  onMoved,
+}: {
+  project: { id: string; workspaceId: string; name: string };
+  onMoved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [targetWorkspaceId, setTargetWorkspaceId] = useState('');
+  const [moving, setMoving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const { data } = useSWR(open ? 'workspaces' : null, listWorkspaces);
+  // Target needs ADMIN+ too (enforced server-side) - filtering the option
+  // list here is UX only, same posture as EDIT_ROLES/DELETE_ROLES above.
+  const targets = (data?.workspaces ?? []).filter(
+    (w) => w.id !== project.workspaceId && MOVE_ROLES.includes(w.role),
+  );
+
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) setTargetWorkspaceId('');
+        setError(null);
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button size="sm" variant="outline">
+          Move
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Move Project</DialogTitle>
+        </DialogHeader>
+        <p className="font-body text-sm text-muted-foreground">
+          Pindahkan <span className="font-medium text-foreground">&quot;{project.name}&quot;</span>{' '}
+          ke workspace lain. Hanya project tanpa video yang bisa dipindahkan.
+        </p>
+        {targets.length === 0 ? (
+          <p className="font-body text-xs text-muted-foreground">
+            Tidak ada workspace tujuan yang tersedia (butuh peran Admin/Owner di workspace
+            tersebut).
+          </p>
+        ) : (
+          <select
+            value={targetWorkspaceId}
+            onChange={(e) => setTargetWorkspaceId(e.target.value)}
+            className="h-10 w-full rounded-md border border-input bg-background px-3 font-body text-sm text-foreground"
+          >
+            <option value="" disabled>
+              Pilih workspace tujuan
+            </option>
+            {targets.map((w) => (
+              <option key={w.id} value={w.id}>
+                {w.isPersonal ? 'Personal' : w.name}
+              </option>
+            ))}
+          </select>
+        )}
+        {error && <p className="font-body text-xs text-destructive">{error}</p>}
+        <DialogFooter>
+          <Button
+            disabled={moving || !targetWorkspaceId}
+            onClick={async () => {
+              setError(null);
+              setMoving(true);
+              try {
+                await moveProject(project.id, targetWorkspaceId);
+                setOpen(false);
+                onMoved();
+              } catch (err) {
+                setError(err instanceof Error ? err.message : 'Gagal memindahkan project');
+              } finally {
+                setMoving(false);
+              }
+            }}
+          >
+            {moving ? 'Memindahkan...' : 'Move Project'}
           </Button>
         </DialogFooter>
       </DialogContent>

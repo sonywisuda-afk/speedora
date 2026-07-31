@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { WorkspaceAccessService } from './workspace-access.service';
 import { ProjectService } from './project.service';
@@ -13,6 +13,7 @@ describe('ProjectService', () => {
       update: jest.Mock;
       delete: jest.Mock;
     };
+    video: { count: jest.Mock };
     auditLogEntry: { create: jest.Mock };
   };
   let access: { assertMinRole: jest.Mock };
@@ -26,6 +27,7 @@ describe('ProjectService', () => {
         update: jest.fn(),
         delete: jest.fn(),
       },
+      video: { count: jest.fn().mockResolvedValue(0) },
       auditLogEntry: { create: jest.fn().mockResolvedValue({}) },
     };
     access = { assertMinRole: jest.fn().mockResolvedValue('EDITOR') };
@@ -172,6 +174,69 @@ describe('ProjectService', () => {
       expect(prisma.project.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: { workspaceId: 'ws-1' } }),
       );
+    });
+  });
+
+  describe('move', () => {
+    it('requires ADMIN+ on both workspaces, updates workspaceId, and records an audit log entry', async () => {
+      prisma.project.findUnique.mockResolvedValue({
+        id: 'project-1',
+        workspaceId: 'ws-1',
+        name: 'Q3 Campaign',
+      });
+      prisma.video.count.mockResolvedValue(0);
+      prisma.project.update.mockResolvedValue({
+        id: 'project-1',
+        workspaceId: 'ws-2',
+        name: 'Q3 Campaign',
+        createdAt: new Date('2026-07-18T00:00:00.000Z'),
+        updatedAt: new Date('2026-07-18T00:00:00.000Z'),
+        archivedAt: null,
+      });
+
+      const result = await service.move('admin-1', 'project-1', 'ws-2');
+
+      expect(access.assertMinRole).toHaveBeenCalledWith('admin-1', 'ws-1', 'ADMIN');
+      expect(access.assertMinRole).toHaveBeenCalledWith('admin-1', 'ws-2', 'ADMIN');
+      expect(prisma.video.count).toHaveBeenCalledWith({ where: { projectId: 'project-1' } });
+      expect(prisma.project.update).toHaveBeenCalledWith({
+        where: { id: 'project-1' },
+        data: { workspaceId: 'ws-2' },
+      });
+      expect(prisma.auditLogEntry.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          workspaceId: 'ws-1',
+          action: 'PROJECT_MOVED',
+          targetId: 'project-1',
+          metadata: { name: 'Q3 Campaign', targetWorkspaceId: 'ws-2' },
+        }),
+      });
+      expect(result.workspaceId).toBe('ws-2');
+    });
+
+    it('rejects moving to the same workspace', async () => {
+      prisma.project.findUnique.mockResolvedValue({
+        id: 'project-1',
+        workspaceId: 'ws-1',
+        name: 'Q3 Campaign',
+      });
+
+      await expect(service.move('admin-1', 'project-1', 'ws-1')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.project.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects moving a project that still contains videos', async () => {
+      prisma.project.findUnique.mockResolvedValue({
+        id: 'project-1',
+        workspaceId: 'ws-1',
+        name: 'Q3 Campaign',
+      });
+      prisma.video.count.mockResolvedValue(3);
+
+      await expect(service.move('admin-1', 'project-1', 'ws-2')).rejects.toThrow(ConflictException);
+      expect(prisma.project.update).not.toHaveBeenCalled();
     });
   });
 });

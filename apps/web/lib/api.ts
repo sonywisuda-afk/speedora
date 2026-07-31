@@ -1445,6 +1445,18 @@ export async function unarchiveProject(id: string): Promise<ProjectDto> {
   return parseJsonOrThrow<ProjectDto>(res);
 }
 
+// Move roadmap - ADMIN+ on both workspaces, and only for a project with zero
+// videos (see ProjectService.move's own comment for why: Video.workspaceId
+// is independent of its project's, so a non-empty move would orphan it).
+export async function moveProject(id: string, targetWorkspaceId: string): Promise<ProjectDto> {
+  const res = await apiFetch(`/projects/${id}/move`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ targetWorkspaceId }),
+  });
+  return parseJsonOrThrow<ProjectDto>(res);
+}
+
 // Sprint 6D (Leaderboard) - workspace-scoped, parallel to
 // getAnalyticsPerformance's owner-scoped fetch (never merged with it).
 export interface WorkspaceLeaderboardParams {

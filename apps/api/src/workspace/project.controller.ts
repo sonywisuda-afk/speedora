@@ -15,6 +15,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateFolderDto } from './dto/create-folder.dto';
 import { CreateProjectDto } from './dto/create-project.dto';
+import { MoveProjectDto } from './dto/move-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
 import { FolderService } from './folder.service';
 import { ProjectService } from './project.service';
@@ -71,6 +72,11 @@ export class ProjectController {
   @Post('projects/:id/unarchive')
   unarchive(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.projectService.unarchive(user.id, id);
+  }
+
+  @Post('projects/:id/move')
+  move(@CurrentUser() user: SafeUser, @Param('id') id: string, @Body() dto: MoveProjectDto) {
+    return this.projectService.move(user.id, id, dto.targetWorkspaceId);
   }
 
   @Post('projects/:id/folders')
