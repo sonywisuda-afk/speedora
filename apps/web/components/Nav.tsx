@@ -13,6 +13,7 @@ const LINKS = [
   { href: '/dashboard', label: 'Dashboard' },
   { href: '/notifications', label: 'Notifications' },
   { href: '/library', label: 'Clip Library' },
+  { href: '/projects', label: 'Projects' },
   { href: '/analytics', label: 'Analytics' },
   { href: '/social', label: 'Social Media' },
   { href: '/campaigns', label: 'Campaigns' },

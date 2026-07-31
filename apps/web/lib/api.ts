@@ -69,6 +69,8 @@ import type {
   ProcessingOptions,
   ProcessingPresetDto,
   ProcessingPresetListDto,
+  ProjectDto,
+  ProjectListDto,
   PublishRecord,
   RecurringScheduleDto,
   RecurringScheduleListDto,
@@ -1387,6 +1389,44 @@ export async function createWorkspace(name: string): Promise<WorkspaceDto> {
 export async function getWorkspace(id: string): Promise<WorkspaceDetailDto> {
   const res = await apiFetch(`/workspaces/${id}`);
   return parseJsonOrThrow<WorkspaceDetailDto>(res);
+}
+
+// Project Management UI - ProjectService (Sprint 5A) has always exposed
+// full CRUD (create/list/get/update/delete), but nothing in apps/web called
+// it until now. EDITOR+ can create/rename, ADMIN+ can delete - enforced
+// server-side by WorkspaceAccessService, mirrored client-side in
+// /projects for UX only.
+export async function listProjects(workspaceId: string): Promise<ProjectListDto> {
+  const res = await apiFetch(`/workspaces/${workspaceId}/projects`);
+  return parseJsonOrThrow<ProjectListDto>(res);
+}
+
+export async function createProject(workspaceId: string, name: string): Promise<ProjectDto> {
+  const res = await apiFetch(`/workspaces/${workspaceId}/projects`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return parseJsonOrThrow<ProjectDto>(res);
+}
+
+export async function updateProject(id: string, name: string): Promise<ProjectDto> {
+  const res = await apiFetch(`/projects/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  return parseJsonOrThrow<ProjectDto>(res);
+}
+
+export async function deleteProject(id: string): Promise<void> {
+  const res = await apiFetch(`/projects/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message =
+      body && typeof body === 'object' && 'message' in body ? body.message : res.statusText;
+    throw new Error(typeof message === 'string' ? message : 'Gagal menghapus project');
+  }
 }
 
 // Sprint 6D (Leaderboard) - workspace-scoped, parallel to
