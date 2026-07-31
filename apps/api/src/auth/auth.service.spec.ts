@@ -37,7 +37,13 @@ describe('AuthService', () => {
       updateMany: jest.Mock;
     };
     securityEvent: { create: jest.Mock };
-    oAuthIdentity: { findUnique: jest.Mock; create: jest.Mock };
+    oAuthIdentity: {
+      findUnique: jest.Mock;
+      create: jest.Mock;
+      findMany: jest.Mock;
+      count: jest.Mock;
+      deleteMany: jest.Mock;
+    };
     trustedDevice: {
       findUnique: jest.Mock;
       update: jest.Mock;
@@ -76,7 +82,13 @@ describe('AuthService', () => {
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
       securityEvent: { create: jest.fn().mockResolvedValue({}) },
-      oAuthIdentity: { findUnique: jest.fn(), create: jest.fn() },
+      oAuthIdentity: {
+        findUnique: jest.fn(),
+        create: jest.fn(),
+        findMany: jest.fn().mockResolvedValue([]),
+        count: jest.fn().mockResolvedValue(0),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+      },
       trustedDevice: {
         findUnique: jest.fn(),
         update: jest.fn(),
@@ -1131,6 +1143,70 @@ describe('AuthService', () => {
       prisma.trustedDevice.updateMany.mockResolvedValue({ count: 0 });
 
       await expect(service.revokeTrustedDeviceById('user-1', 'device-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
+  describe('listLinkedProviders', () => {
+    it('maps OAuthIdentity rows to summaries, never exposing providerAccountId', async () => {
+      const createdAt = new Date();
+      prisma.oAuthIdentity.findMany.mockResolvedValue([
+        {
+          provider: 'GOOGLE',
+          providerAccountId: 'google-sub-123',
+          email: 'a@example.com',
+          createdAt,
+        },
+      ]);
+
+      const result = await service.listLinkedProviders('user-1');
+
+      expect(prisma.oAuthIdentity.findMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1' },
+        orderBy: { createdAt: 'asc' },
+      });
+      expect(result).toEqual([{ provider: 'GOOGLE', email: 'a@example.com', createdAt }]);
+    });
+  });
+
+  describe('unlinkOAuthProvider', () => {
+    it('unlinks the provider when the account has a password (other methods remain)', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ password: 'hashed-password' });
+      prisma.oAuthIdentity.count.mockResolvedValue(1);
+      prisma.oAuthIdentity.deleteMany.mockResolvedValue({ count: 1 });
+
+      await service.unlinkOAuthProvider('user-1', 'GOOGLE');
+
+      expect(prisma.oAuthIdentity.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', provider: 'GOOGLE' },
+      });
+    });
+
+    it('unlinks the provider when the account has no password but multiple providers remain', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ password: null });
+      prisma.oAuthIdentity.count.mockResolvedValue(2);
+      prisma.oAuthIdentity.deleteMany.mockResolvedValue({ count: 1 });
+
+      await expect(service.unlinkOAuthProvider('user-1', 'GITHUB')).resolves.toBeUndefined();
+    });
+
+    it('throws BadRequestException when unlinking would leave zero sign-in methods', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ password: null });
+      prisma.oAuthIdentity.count.mockResolvedValue(1);
+
+      await expect(service.unlinkOAuthProvider('user-1', 'GOOGLE')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.oAuthIdentity.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the provider was never linked to this account', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ password: 'hashed-password' });
+      prisma.oAuthIdentity.count.mockResolvedValue(0);
+      prisma.oAuthIdentity.deleteMany.mockResolvedValue({ count: 0 });
+
+      await expect(service.unlinkOAuthProvider('user-1', 'GITHUB')).rejects.toThrow(
         NotFoundException,
       );
     });

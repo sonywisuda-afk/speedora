@@ -19,12 +19,15 @@ import {
   elevateSession,
   enrollMfa,
   getMfaStatus,
+  listLinkedProviders,
   listSessions,
   listTrustedDevices,
   logoutOthers,
   regenerateRecoveryCodes,
   revokeSession,
   revokeTrustedDevice,
+  unlinkOAuthProvider,
+  type LinkedProviderDto,
   type MfaEnrollmentDto,
   type MfaStatusDto,
   type SessionDto,
@@ -149,6 +152,41 @@ export default function AccountsPage() {
     }
   }
 
+  // Tahap 2 Step 3 (OAuth Account Management) - "Akun Terhubung", gated by
+  // the same RequireRecentMfa()/runWithElevation flow as disable/regenerate/
+  // change-password/delete-account above, not a new mechanism.
+  const [linkedProviders, setLinkedProviders] = useState<LinkedProviderDto[] | null>(null);
+  const [linkedProvidersError, setLinkedProvidersError] = useState<string | null>(null);
+  const [unlinkingProvider, setUnlinkingProvider] = useState<string | null>(null);
+
+  async function fetchLinkedProviders() {
+    try {
+      setLinkedProviders(await listLinkedProviders());
+      setLinkedProvidersError(null);
+    } catch (err) {
+      setLinkedProvidersError(
+        err instanceof Error ? err.message : 'Gagal memuat akun terhubung.',
+      );
+    }
+  }
+
+  async function handleUnlinkProvider(provider: LinkedProviderDto['provider']) {
+    setUnlinkingProvider(provider);
+    setLinkedProvidersError(null);
+    try {
+      await runWithElevation(async () => {
+        await unlinkOAuthProvider(provider);
+        await fetchLinkedProviders();
+      });
+    } catch (err) {
+      setLinkedProvidersError(
+        err instanceof Error ? err.message : 'Gagal memutuskan akun terhubung.',
+      );
+    } finally {
+      setUnlinkingProvider(null);
+    }
+  }
+
   async function fetchMfaStatus() {
     try {
       setMfaStatus(await getMfaStatus());
@@ -172,6 +210,7 @@ export default function AccountsPage() {
     fetchSessions();
     fetchMfaStatus();
     fetchTrustedDevices();
+    fetchLinkedProviders();
     // Only ever meant to run once the user is known, same reasoning as
     // useAuth's own mount-only effect.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -595,6 +634,54 @@ export default function AccountsPage() {
                         onClick={() => handleRevokeTrustedDevice(device.id)}
                       >
                         {revokingTrustedDeviceId === device.id ? 'Memproses...' : 'Hapus'}
+                      </Button>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="mt-10">
+              <CardHeader>
+                <CardTitle>Akun Terhubung</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <p className="font-body text-sm text-muted-foreground">
+                  Provider OAuth yang bisa digunakan untuk masuk ke akunmu.
+                </p>
+                {linkedProvidersError && (
+                  <p className="text-sm text-destructive">{linkedProvidersError}</p>
+                )}
+                {linkedProviders === null ? (
+                  <p className="font-body text-sm text-muted-foreground">Memuat...</p>
+                ) : linkedProviders.length === 0 ? (
+                  <p className="font-body text-sm text-muted-foreground">
+                    Tidak ada akun OAuth yang terhubung.
+                  </p>
+                ) : (
+                  linkedProviders.map((linked) => (
+                    <div
+                      key={linked.provider}
+                      className="flex items-center justify-between gap-4 rounded-md border border-border p-3"
+                    >
+                      <div className="min-w-0 font-body text-sm">
+                        <p className="font-medium text-foreground">
+                          {linked.provider === 'GOOGLE' ? 'Google' : 'GitHub'}
+                        </p>
+                        <p className="text-muted-foreground">
+                          {linked.email ?? 'Email tidak diketahui'}
+                        </p>
+                        <p className="text-muted-foreground">
+                          Terhubung sejak {new Date(linked.createdAt).toLocaleString()}
+                        </p>
+                      </div>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={unlinkingProvider === linked.provider}
+                        onClick={() => handleUnlinkProvider(linked.provider)}
+                      >
+                        {unlinkingProvider === linked.provider ? 'Memproses...' : 'Putuskan'}
                       </Button>
                     </div>
                   ))

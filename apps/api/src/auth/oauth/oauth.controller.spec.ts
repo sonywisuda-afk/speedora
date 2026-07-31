@@ -43,6 +43,8 @@ describe('OAuthController', () => {
     computeLoginRisk: jest.Mock;
     checkTrustedDevice: jest.Mock;
     issueMfaChallengeToken: jest.Mock;
+    listLinkedProviders: jest.Mock;
+    unlinkOAuthProvider: jest.Mock;
   };
   let jwt: { sign: jest.Mock; verify: jest.Mock };
   let google: { buildAuthorizeUrl: jest.Mock; exchangeCode: jest.Mock; fetchProfile: jest.Mock };
@@ -57,6 +59,8 @@ describe('OAuthController', () => {
       computeLoginRisk: jest.fn().mockResolvedValue({ score: 0, signals: [] }),
       checkTrustedDevice: jest.fn().mockResolvedValue(false),
       issueMfaChallengeToken: jest.fn().mockReturnValue('mfa-challenge-token'),
+      listLinkedProviders: jest.fn(),
+      unlinkOAuthProvider: jest.fn().mockResolvedValue(undefined),
     };
     jwt = { sign: jest.fn().mockReturnValue('signed-state'), verify: jest.fn() };
     google = {
@@ -222,6 +226,61 @@ describe('OAuthController', () => {
         controller.callback('google', 'code', 'valid-state', undefined, req, res),
       ).resolves.toBeUndefined();
       expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/upload?error=oauth_failed');
+    });
+  });
+
+  describe('listLinked', () => {
+    it('returns the linked-provider list for the current user', async () => {
+      const linked = [{ provider: 'GOOGLE', email: 'a@example.com', createdAt: new Date() }];
+      authService.listLinkedProviders.mockResolvedValue(linked);
+
+      const result = await controller.listLinked(fakeUser);
+
+      expect(authService.listLinkedProviders).toHaveBeenCalledWith('user-1');
+      expect(result).toEqual(linked);
+    });
+  });
+
+  describe('unlinkProvider', () => {
+    it('unlinks the provider and records OAUTH_UNLINKED', async () => {
+      const req = fakeRequest();
+
+      await controller.unlinkProvider(fakeUser, 'google', req);
+
+      expect(authService.unlinkOAuthProvider).toHaveBeenCalledWith('user-1', 'GOOGLE');
+      expect(authService.recordSecurityEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          userId: 'user-1',
+          eventType: 'OAUTH_UNLINKED',
+          metadata: { provider: 'GOOGLE' },
+        }),
+      );
+    });
+
+    it('is case-insensitive on the provider param, same as start/callback', async () => {
+      const req = fakeRequest();
+
+      await controller.unlinkProvider(fakeUser, 'GitHub', req);
+
+      expect(authService.unlinkOAuthProvider).toHaveBeenCalledWith('user-1', 'GITHUB');
+    });
+
+    it('throws NotFoundException for an unrecognized provider without calling the service', async () => {
+      const req = fakeRequest();
+
+      await expect(controller.unlinkProvider(fakeUser, 'facebook', req)).rejects.toThrow(
+        'Unknown provider',
+      );
+      expect(authService.unlinkOAuthProvider).not.toHaveBeenCalled();
+      expect(authService.recordSecurityEvent).not.toHaveBeenCalled();
+    });
+
+    it('propagates AuthService errors (e.g. last-sign-in-method validation) without recording an event', async () => {
+      authService.unlinkOAuthProvider.mockRejectedValue(new Error('blocked'));
+      const req = fakeRequest();
+
+      await expect(controller.unlinkProvider(fakeUser, 'google', req)).rejects.toThrow('blocked');
+      expect(authService.recordSecurityEvent).not.toHaveBeenCalled();
     });
   });
 });

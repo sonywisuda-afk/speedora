@@ -134,6 +134,16 @@ export interface TrustedDeviceSummary {
   expiresAt: Date;
 }
 
+// Tahap 2 Step 3 (OAuth Account Management) - what GET /auth/oauth/linked
+// returns per row. Never exposes providerAccountId (the real lookup key),
+// same "never the raw identifier" convention as SessionSummary/
+// TrustedDeviceSummary above.
+export interface LinkedProviderSummary {
+  provider: OAuthProvider;
+  email: string | null;
+  createdAt: Date;
+}
+
 // Authentication Foundation Sprint 4 (Attack Protection) - result of
 // computeLoginRisk. Never used to block a login by itself - only to decide
 // whether Turnstile verification is required (see AuthController.login).
@@ -807,6 +817,45 @@ export class AuthService {
     });
     if (count === 0) {
       throw new NotFoundException(`Trusted device ${id} not found`);
+    }
+  }
+
+  // Tahap 2 Step 3 (OAuth Account Management) - lists the linked identities
+  // for the "Akun Terhubung" card, never the raw providerAccountId.
+  async listLinkedProviders(userId: string): Promise<LinkedProviderSummary[]> {
+    const identities = await this.prisma.oAuthIdentity.findMany({
+      where: { userId },
+      orderBy: { createdAt: 'asc' },
+    });
+    return identities.map((identity) => ({
+      provider: identity.provider,
+      email: identity.email,
+      createdAt: identity.createdAt,
+    }));
+  }
+
+  // "At least one sign-in method must remain": a login method is either a
+  // set password or a linked OAuth identity. Unlinking is blocked exactly
+  // when it would leave both empty - a password-having user can unlink
+  // every provider; an OAuth-only user can unlink down to one, never to
+  // zero. Ownership-scoped atomic deleteMany (same pattern as
+  // revokeTrustedDeviceById) - count === 0 means this provider was never
+  // actually linked to this account.
+  async unlinkOAuthProvider(userId: string, provider: OAuthProvider): Promise<void> {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { password: true },
+    });
+    const linkedCount = await this.prisma.oAuthIdentity.count({ where: { userId } });
+    if (!user.password && linkedCount <= 1) {
+      throw new BadRequestException('At least one sign-in method must remain on your account');
+    }
+
+    const { count } = await this.prisma.oAuthIdentity.deleteMany({
+      where: { userId, provider },
+    });
+    if (count === 0) {
+      throw new NotFoundException(`${provider} is not linked to this account`);
     }
   }
 

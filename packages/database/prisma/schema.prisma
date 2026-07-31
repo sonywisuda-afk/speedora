@@ -2668,6 +2668,8 @@ enum SecurityEventType {
   MFA_ENABLED
   MFA_DISABLED
   MFA_RECOVERY_CODES_REGENERATED
+  // Tahap 2 Step 3 (OAuth Account Management)
+  OAUTH_UNLINKED
 }
 
 model SecurityEvent {

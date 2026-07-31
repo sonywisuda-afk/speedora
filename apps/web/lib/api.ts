@@ -273,6 +273,38 @@ export async function revokeTrustedDevice(id: string): Promise<void> {
   }
 }
 
+// Tahap 2 Step 3 (OAuth Account Management) - matches apps/api's
+// OAuthController.listLinked. Never carries providerAccountId - display
+// only, same "never the raw identifier" convention as TrustedDeviceDto.
+export interface LinkedProviderDto {
+  provider: 'GOOGLE' | 'GITHUB';
+  email: string | null;
+  createdAt: string;
+}
+
+export async function listLinkedProviders(): Promise<LinkedProviderDto[]> {
+  const res = await apiFetch('/auth/oauth/linked');
+  return parseJsonOrThrow<LinkedProviderDto[]>(res);
+}
+
+// Gated by RecentMfaGuard server-side (204 on success, no body) - same
+// manual elevationRequired check as deleteAccount below, since there's no
+// success body for parseJsonOrThrow to parse.
+export async function unlinkOAuthProvider(provider: LinkedProviderDto['provider']): Promise<void> {
+  const res = await apiFetch(`/auth/oauth/linked/${provider}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message =
+      body && typeof body === 'object' && 'message' in body ? body.message : res.statusText;
+    if (body && typeof body === 'object' && body.elevationRequired === true) {
+      throw new ElevationRequiredError(
+        typeof message === 'string' ? message : 'Recent verification required',
+      );
+    }
+    throw new Error(typeof message === 'string' ? message : 'Gagal memutuskan akun terhubung');
+  }
+}
+
 export async function logout(): Promise<void> {
   await apiFetch('/auth/logout', { method: 'POST' });
 }

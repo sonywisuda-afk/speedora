@@ -1,11 +1,26 @@
-import { Controller, Get, Param, Query, Req, Res } from '@nestjs/common';
+import {
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  NotFoundException,
+  Param,
+  Query,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import type { OAuthProvider } from '@speedora/database';
 import { OAuthNotConfiguredError } from '@speedora/social';
 import * as crypto from 'node:crypto';
 import type { Request, Response } from 'express';
 import { setAuthCookies, TRUSTED_DEVICE_COOKIE_NAME } from '../auth-cookies.util';
-import { AuthService, RISK_TRUSTED_DEVICE_THRESHOLD } from '../auth.service';
+import { AuthService, RISK_TRUSTED_DEVICE_THRESHOLD, type SafeUser } from '../auth.service';
+import { CurrentUser } from '../decorators/current-user.decorator';
+import { RequireRecentMfa } from '../decorators/require-recent-mfa.decorator';
+import { JwtAuthGuard } from '../guards/jwt-auth.guard';
+import { RecentMfaGuard } from '../guards/recent-mfa.guard';
 import { logger } from '../../logger';
 import { GitHubOAuthLoginProvider } from './github-oauth-login.provider';
 import { GoogleOAuthLoginProvider } from './google-oauth-login.provider';
@@ -161,5 +176,43 @@ export class OAuthController {
       logger.error(`${provider} OAuth login callback failed`, {}, err);
       res.redirect(`${webOrigin}/upload?error=oauth_failed`);
     }
+  }
+
+  // Tahap 2 Step 3 (OAuth Account Management) - "Akun Terhubung" on the
+  // Accounts page. Read-only, no elevation needed (nothing changes).
+  @Get('linked')
+  @UseGuards(JwtAuthGuard)
+  async listLinked(@CurrentUser() user: SafeUser) {
+    return this.authService.listLinkedProviders(user.id);
+  }
+
+  // Gated by RecentMfaGuard (reused as-is from Session Elevation, Sprint
+  // 2b) - removing a sign-in method is exactly the kind of sensitive
+  // operation that guard was built for, no new elevation mechanism needed.
+  // Unknown :provider is a genuine client error (only ever reached via the
+  // app's own generated links) - a plain 404, same posture as start/callback.
+  @Delete('linked/:provider')
+  @HttpCode(204)
+  @UseGuards(JwtAuthGuard, RecentMfaGuard)
+  @RequireRecentMfa()
+  async unlinkProvider(
+    @CurrentUser() user: SafeUser,
+    @Param('provider') providerParam: string,
+    @Req() req: Request,
+  ) {
+    const provider = parseProvider(providerParam);
+    if (!provider) {
+      throw new NotFoundException('Unknown provider');
+    }
+
+    await this.authService.unlinkOAuthProvider(user.id, provider);
+    await this.authService.recordSecurityEvent({
+      userId: user.id,
+      email: user.email,
+      eventType: 'OAUTH_UNLINKED',
+      ipAddress: req.ip,
+      userAgent: userAgentOf(req),
+      metadata: { provider },
+    });
   }
 }
