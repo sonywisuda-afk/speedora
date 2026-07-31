@@ -18,7 +18,12 @@ async function bootstrap() {
   const { httpAdapter } = app.get(HttpAdapterHost);
   app.useGlobalFilters(new SentryExceptionFilter(httpAdapter));
 
-  app.use(helmet());
+  // This API is deliberately called cross-origin by apps/web (different
+  // port = different origin even on localhost) - helmet's default
+  // Cross-Origin-Resource-Policy: same-origin blocks that at the browser
+  // level regardless of the CORS config below, surfacing as a generic
+  // "Failed to fetch" with no network-tab detail.
+  app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   app.use(cookieParser());
   app.enableCors({
