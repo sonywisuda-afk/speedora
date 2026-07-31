@@ -8,15 +8,19 @@ import {
   Patch,
   Post,
   Req,
+  Res,
   UseGuards,
 } from '@nestjs/common';
-import type { Request } from 'express';
-import { AuthService, type SafeUser } from '../auth.service';
+import type { Request, Response } from 'express';
+import { setAuthCookies, TRUSTED_DEVICE_COOKIE_NAME } from '../auth-cookies.util';
+import { AuthService, RISK_TRUSTED_DEVICE_THRESHOLD, type SafeUser } from '../auth.service';
 import { CurrentUser } from '../decorators/current-user.decorator';
 import { RequireRecentMfa } from '../decorators/require-recent-mfa.decorator';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { RecentMfaGuard } from '../guards/recent-mfa.guard';
+import { PrismaService } from '../../prisma/prisma.service';
 import { RenamePasskeyDto } from './dto/rename-passkey.dto';
+import { VerifyPasskeyAuthenticationDto } from './dto/verify-authentication.dto';
 import { VerifyPasskeyRegistrationDto } from './dto/verify-registration.dto';
 import { PasskeyService } from './passkey.service';
 
@@ -29,27 +33,30 @@ function userAgentOf(req: Request): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
 
-// Tahap 3 Sprint 1 (Passkey Foundation) - "Passkeys" section on the Accounts
-// page, mirroring OAuthController's own separate-controller precedent
-// (rather than bolting more routes onto AuthController/MfaController). Every
-// route requires an existing session (JwtAuthGuard) - registering/managing a
-// passkey is something an ALREADY-authenticated user does, exactly like MFA
-// enrollment. There is no login-with-passkey route here - see
-// passkey.service.ts's header comment; that's Sprint 2.
+// Tahap 3 Sprint 1/2 (Passkey Foundation/Login) - "Passkeys" section on the
+// Accounts page (list/register/rename/delete) plus, since Sprint 2,
+// unauthenticated login (login/options, login/verify) - mirroring
+// OAuthController's own precedent of mixing guarded "manage" routes and
+// unauthenticated "authenticate" routes in ONE controller rather than
+// splitting into two. JwtAuthGuard moved from class-level (Sprint 1) to
+// per-route here, same reasoning: signing in is, by definition, something
+// done before a session exists.
 @Controller('auth/passkeys')
-@UseGuards(JwtAuthGuard)
 export class PasskeyController {
   constructor(
     private readonly passkeyService: PasskeyService,
     private readonly authService: AuthService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Get()
+  @UseGuards(JwtAuthGuard)
   async list(@CurrentUser() user: SafeUser) {
     return this.passkeyService.list(user.id);
   }
 
   @Post('register/options')
+  @UseGuards(JwtAuthGuard)
   async registerOptions(@CurrentUser() user: SafeUser) {
     return this.passkeyService.generateRegistrationOptionsFor(user.id, user.email);
   }
@@ -61,7 +68,7 @@ export class PasskeyController {
   // credential on the victim's account.
   @Post('register/verify')
   @HttpCode(201)
-  @UseGuards(RecentMfaGuard)
+  @UseGuards(JwtAuthGuard, RecentMfaGuard)
   @RequireRecentMfa()
   async registerVerify(
     @CurrentUser() user: SafeUser,
@@ -86,6 +93,7 @@ export class PasskeyController {
   }
 
   @Patch(':id')
+  @UseGuards(JwtAuthGuard)
   async rename(
     @CurrentUser() user: SafeUser,
     @Param('id') id: string,
@@ -96,7 +104,7 @@ export class PasskeyController {
 
   @Delete(':id')
   @HttpCode(204)
-  @UseGuards(RecentMfaGuard)
+  @UseGuards(JwtAuthGuard, RecentMfaGuard)
   @RequireRecentMfa()
   async delete(@CurrentUser() user: SafeUser, @Param('id') id: string, @Req() req: Request) {
     await this.passkeyService.delete(user.id, id);
@@ -108,5 +116,83 @@ export class PasskeyController {
       userAgent: userAgentOf(req),
       metadata: { passkeyId: id },
     });
+  }
+
+  // Tahap 3 Sprint 2 (Passkey Login) - deliberately unauthenticated and not
+  // rate-limited (no ThrottlerGuard), same posture as OAuthController's
+  // start/callback: generating options has no side effects (no DB write,
+  // just a signed JWT) and, unlike a password, there is no guessable
+  // secret here for a rate limit to actually protect against.
+  @Post('login/options')
+  async loginOptions() {
+    return this.passkeyService.generateAuthenticationOptionsFor();
+  }
+
+  // Also unauthenticated (nobody has a session yet - that's what this
+  // route produces) and also un-throttled, for the same reason as
+  // login/options: a WebAuthn assertion isn't a brute-forceable secret,
+  // it's a challenge-response proof over a key that never leaves the
+  // authenticator - the same reasoning OAuthController's callback route
+  // (also no ThrottlerGuard) already documents for an authorization code.
+  //
+  // Mirrors AuthController.login's own tail exactly once the credential
+  // itself is established: isMfaEnabled -> trusted-device -> maybe
+  // challenge -> recordSecurityEvent -> createSession -> setAuthCookies.
+  // The one difference is WHEN that branch runs at all - Tahap 3 Sprint 2's
+  // decision: a passkey assertion with real user verification (UV) is
+  // already MFA-equivalent, so it skips the branch entirely (and does NOT
+  // set Session.elevatedAt - consistent with a successful MFA CHALLENGE
+  // during login not auto-elevating either; elevation only ever comes from
+  // an explicit POST /auth/elevate). An assertion WITHOUT UV falls through
+  // to the exact same gate password/OAuth login use.
+  @Post('login/verify')
+  @HttpCode(200)
+  async loginVerify(
+    @Body() body: VerifyPasskeyAuthenticationDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { userId, userVerified } = await this.passkeyService.verifyAuthentication(
+      body.response,
+      body.challengeToken,
+    );
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { id: true, email: true, role: true, emailVerified: true },
+    });
+
+    const ipAddress = req.ip;
+    const userAgent = userAgentOf(req);
+    // Computed unconditionally - needed for the trusted-device threshold
+    // check when userVerified is false, and otherwise recorded purely as
+    // SecurityEvent audit context, same as OAuth login's own
+    // "doesn't compute a risk score anywhere else, purely to feed this
+    // gate/log" posture.
+    const risk = await this.authService.computeLoginRisk(user.email, ipAddress, userAgent);
+
+    if (!userVerified && (await this.authService.isMfaEnabled(user.id))) {
+      const trusted =
+        risk.score < RISK_TRUSTED_DEVICE_THRESHOLD &&
+        (await this.authService.checkTrustedDevice(
+          user.id,
+          req.cookies?.[TRUSTED_DEVICE_COOKIE_NAME],
+        ));
+      if (!trusted) {
+        return { mfaRequired: true, mfaToken: this.authService.issueMfaChallengeToken(user.id) };
+      }
+    }
+
+    await this.authService.recordSecurityEvent({
+      userId: user.id,
+      email: user.email,
+      eventType: 'LOGIN_SUCCESS',
+      ipAddress,
+      userAgent,
+      metadata: { method: 'passkey', userVerified, riskScore: risk.score, signals: risk.signals },
+    });
+
+    const tokens = await this.authService.createSession(user, userAgent, ipAddress);
+    setAuthCookies(res, tokens);
+    return user;
   }
 }

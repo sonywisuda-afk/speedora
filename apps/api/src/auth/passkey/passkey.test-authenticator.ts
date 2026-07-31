@@ -1,5 +1,5 @@
 import * as crypto from 'node:crypto';
-import type { RegistrationResponseJSON } from '@simplewebauthn/server';
+import type { AuthenticationResponseJSON, RegistrationResponseJSON } from '@simplewebauthn/server';
 
 // Test-only synthetic WebAuthn authenticator - builds a real, CBOR/COSE-valid
 // 'none'-attestation RegistrationResponseJSON that @simplewebauthn/server's
@@ -77,6 +77,11 @@ function encodeCoseP256PublicKey(x: Buffer, y: Buffer): Buffer {
 export interface SyntheticRegistrationResult {
   response: RegistrationResponseJSON;
   credentialId: string;
+  // Tahap 3 Sprint 2 (Passkey Login) - the same authenticator's private key,
+  // returned so a caller can build a matching AUTHENTICATION assertion
+  // (buildSyntheticAuthenticationResponse below) against the identical
+  // credential a real login flow would - not a fresh, unrelated keypair.
+  privateKey: crypto.KeyObject;
 }
 
 // userVerified controls the authenticatorData UV flag - see this file's
@@ -90,7 +95,9 @@ export function buildSyntheticRegistrationResponse(params: {
 }): SyntheticRegistrationResult {
   const { rpID, origin, challenge, userVerified = true } = params;
 
-  const { publicKey } = crypto.generateKeyPairSync('ec', { namedCurve: 'prime256v1' });
+  const { publicKey, privateKey } = crypto.generateKeyPairSync('ec', {
+    namedCurve: 'prime256v1',
+  });
   const jwk = publicKey.export({ format: 'jwk' }) as { x: string; y: string };
   const x = Buffer.from(jwk.x, 'base64url');
   const y = Buffer.from(jwk.y, 'base64url');
@@ -140,6 +147,7 @@ export function buildSyntheticRegistrationResponse(params: {
 
   return {
     credentialId,
+    privateKey,
     response: {
       id: credentialId,
       rawId: credentialId,
@@ -150,6 +158,67 @@ export function buildSyntheticRegistrationResponse(params: {
         attestationObject: attestationObject.toString('base64url'),
         transports: ['internal'],
       },
+    },
+  };
+}
+
+// Tahap 3 Sprint 2 (Passkey Login) - builds a real, cryptographically valid
+// 'webauthn.get' AuthenticationResponseJSON that verifyAuthenticationResponse()
+// will genuinely accept: a real ECDSA-SHA256 signature (Node's crypto.sign
+// produces ASN.1 DER for an EC key, exactly the encoding WebAuthn assertions
+// use) over authenticatorData || SHA-256(clientDataJSON), using the SAME
+// keypair buildSyntheticRegistrationResponse generated - proving the
+// signature-verification path for real, not just the CBOR/attestation
+// parsing buildSyntheticRegistrationResponse alone exercises. No
+// attestedCredentialData here (that's registration-only) - assertion
+// authenticatorData is just rpIdHash + flags + signCount.
+export function buildSyntheticAuthenticationResponse(params: {
+  rpID: string;
+  origin: string;
+  challenge: string;
+  credentialId: string;
+  privateKey: crypto.KeyObject;
+  counter?: number;
+  userVerified?: boolean;
+}): AuthenticationResponseJSON {
+  const {
+    rpID,
+    origin,
+    challenge,
+    credentialId,
+    privateKey,
+    counter = 1,
+    userVerified = true,
+  } = params;
+
+  const rpIdHash = crypto.createHash('sha256').update(rpID).digest();
+  // eslint-disable-next-line no-bitwise
+  const flags = 0x01 | (userVerified ? 0x04 : 0); // UP | UV? (no AT - not a registration)
+  const counterBuf = Buffer.alloc(4);
+  counterBuf.writeUInt32BE(counter, 0);
+  const authenticatorData = Buffer.concat([rpIdHash, Buffer.from([flags]), counterBuf]);
+
+  const clientDataJSON = Buffer.from(
+    JSON.stringify({ type: 'webauthn.get', challenge, origin, crossOrigin: false }),
+    'utf8',
+  );
+  const clientDataHash = crypto.createHash('sha256').update(clientDataJSON).digest();
+
+  const signature = crypto.sign(
+    'sha256',
+    Buffer.concat([authenticatorData, clientDataHash]),
+    privateKey,
+  );
+
+  return {
+    id: credentialId,
+    rawId: credentialId,
+    type: 'public-key',
+    clientExtensionResults: {},
+    response: {
+      clientDataJSON: clientDataJSON.toString('base64url'),
+      authenticatorData: authenticatorData.toString('base64url'),
+      signature: signature.toString('base64url'),
     },
   };
 }

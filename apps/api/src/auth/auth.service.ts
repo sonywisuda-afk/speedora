@@ -834,11 +834,18 @@ export class AuthService {
     }));
   }
 
-  // "At least one sign-in method must remain": a login method is either a
-  // set password or a linked OAuth identity. Unlinking is blocked exactly
-  // when it would leave both empty - a password-having user can unlink
-  // every provider; an OAuth-only user can unlink down to one, never to
-  // zero. Ownership-scoped atomic deleteMany (same pattern as
+  // "At least one sign-in method must remain": a login method is a set
+  // password, a linked OAuth identity, OR a registered passkey (Tahap 3
+  // Sprint 2 - passkey login means this three-way check replaces the
+  // original password-or-OAuth-only one; PasskeyService.delete carries the
+  // mirror-image guard for deleting the last passkey, duplicated rather
+  // than shared across the two services since each already has its own
+  // PrismaService injected and the check is only a few lines - same small-
+  // duplication-over-cross-module-coupling posture this codebase already
+  // takes with userAgentOf). Unlinking is blocked exactly when it would
+  // leave all three empty - a password-having or passkey-having user can
+  // unlink every provider; an OAuth-only user can unlink down to one, never
+  // to zero. Ownership-scoped atomic deleteMany (same pattern as
   // revokeTrustedDeviceById) - count === 0 means this provider was never
   // actually linked to this account.
   async unlinkOAuthProvider(userId: string, provider: OAuthProvider): Promise<void> {
@@ -847,7 +854,8 @@ export class AuthService {
       select: { password: true },
     });
     const linkedCount = await this.prisma.oAuthIdentity.count({ where: { userId } });
-    if (!user.password && linkedCount <= 1) {
+    const passkeyCount = await this.prisma.passkey.count({ where: { userId } });
+    if (!user.password && linkedCount <= 1 && passkeyCount === 0) {
       throw new BadRequestException('At least one sign-in method must remain on your account');
     }
 

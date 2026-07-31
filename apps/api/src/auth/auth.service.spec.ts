@@ -51,6 +51,9 @@ describe('AuthService', () => {
       findMany: jest.Mock;
       updateMany: jest.Mock;
     };
+    // Tahap 3 Sprint 2 (Passkey Login) - unlinkOAuthProvider's "at least one
+    // sign-in method must remain" check now also counts passkeys.
+    passkey: { count: jest.Mock };
     $transaction: jest.Mock;
   };
   let jwtService: { sign: jest.Mock; verify: jest.Mock };
@@ -96,6 +99,7 @@ describe('AuthService', () => {
         findMany: jest.fn().mockResolvedValue([]),
         updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
+      passkey: { count: jest.fn().mockResolvedValue(0) },
       $transaction: jest.fn().mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma)),
     };
     jwtService = { sign: jest.fn(), verify: jest.fn() };
@@ -1199,6 +1203,18 @@ describe('AuthService', () => {
         BadRequestException,
       );
       expect(prisma.oAuthIdentity.deleteMany).not.toHaveBeenCalled();
+    });
+
+    // Tahap 3 Sprint 2 (Passkey Login) - a registered passkey is now also a
+    // valid sign-in method, so unlinking the last OAuth provider on a
+    // no-password account must NOT be blocked when a passkey remains.
+    it('unlinks the last provider when no password remains but a passkey does', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ password: null });
+      prisma.oAuthIdentity.count.mockResolvedValue(1);
+      prisma.passkey.count.mockResolvedValue(1);
+      prisma.oAuthIdentity.deleteMany.mockResolvedValue({ count: 1 });
+
+      await expect(service.unlinkOAuthProvider('user-1', 'GOOGLE')).resolves.toBeUndefined();
     });
 
     it('throws NotFoundException when the provider was never linked to this account', async () => {

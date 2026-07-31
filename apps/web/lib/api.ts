@@ -1,5 +1,7 @@
 import type {
+  AuthenticationResponseJSON,
   PublicKeyCredentialCreationOptionsJSON,
+  PublicKeyCredentialRequestOptionsJSON,
   RegistrationResponseJSON,
 } from '@simplewebauthn/browser';
 import type {
@@ -229,6 +231,44 @@ export async function login(
     throw new RequiresCaptchaError(
       typeof body.message === 'string' ? body.message : 'CAPTCHA verification required',
     );
+  }
+
+  return parseJsonOrThrow<UserDto>(res);
+}
+
+// Tahap 3 Sprint 2 (Passkey Login) - usernameless: no email/password
+// involved, so there's no separate "register" mode the way OAuth's buttons
+// serve both (a passkey can only be added from the Accounts page by an
+// already-logged-in user - see passkey.service.ts's header comment).
+export async function getPasskeyLoginOptions(): Promise<{
+  options: PublicKeyCredentialRequestOptionsJSON;
+  challengeToken: string;
+}> {
+  const res = await apiFetch('/auth/passkeys/login/options', { method: 'POST' });
+  return parseJsonOrThrow(res);
+}
+
+// Same mfaRequired handling as login() above - a passkey assertion without
+// real user verification falls back to the identical MFA-challenge gate a
+// password login would hit, so the caller (upload/page.tsx's
+// handlePasskeyLogin) can catch MfaRequiredError and route to
+// /mfa-challenge exactly the way it already does for login().
+export async function verifyPasskeyLogin(params: {
+  response: AuthenticationResponseJSON;
+  challengeToken: string;
+}): Promise<UserDto> {
+  const res = await apiFetch('/auth/passkeys/login/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+
+  const body = await res
+    .clone()
+    .json()
+    .catch(() => null);
+  if (res.ok && body && typeof body === 'object' && body.mfaRequired === true) {
+    throw new MfaRequiredError(body.mfaToken);
   }
 
   return parseJsonOrThrow<UserDto>(res);

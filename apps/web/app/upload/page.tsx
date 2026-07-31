@@ -1,5 +1,6 @@
 'use client';
 
+import { browserSupportsWebAuthn, startAuthentication } from '@simplewebauthn/browser';
 import {
   secondsToTimestamp,
   TranscriptionProvider,
@@ -20,6 +21,7 @@ import { UploadErrorPanel } from '@/components/upload/UploadErrorPanel';
 import { UploadProgress } from '@/components/upload/UploadProgress';
 import {
   forgotPassword,
+  getPasskeyLoginOptions,
   getVideo,
   importYoutubeVideo,
   login,
@@ -29,6 +31,7 @@ import {
   retryVideo,
   startProcessing,
   uploadVideo,
+  verifyPasskeyLogin,
   type VideoWithClipsDto,
 } from '@/lib/api';
 import { useAuth } from '@/lib/useAuth';
@@ -150,6 +153,36 @@ export default function UploadPage() {
         setRequiresCaptcha(true);
       } else {
         setAuthError(err instanceof Error ? err.message : 'Terjadi kesalahan. Coba lagi.');
+      }
+    } finally {
+      setAuthSubmitting(false);
+    }
+  }
+
+  // Tahap 3 Sprint 2 (Passkey Login) - usernameless: no allowCredentials
+  // restriction is sent, so the browser's own account picker offers every
+  // discoverable passkey registered for this rpID. Reuses the exact same
+  // MfaRequiredError catch as handleAuthSubmit above (verifyPasskeyLogin
+  // throws it identically) - a passkey assertion without real user
+  // verification falls back to the same /mfa-challenge redirect a password
+  // login would hit.
+  async function handlePasskeyLogin() {
+    setAuthError(null);
+    if (!browserSupportsWebAuthn()) {
+      setAuthError('Browser ini tidak mendukung passkey.');
+      return;
+    }
+    setAuthSubmitting(true);
+    try {
+      const { options, challengeToken } = await getPasskeyLoginOptions();
+      const response = await startAuthentication({ optionsJSON: options });
+      const authedUser = await verifyPasskeyLogin({ response, challengeToken });
+      setUser(authedUser);
+    } catch (err) {
+      if (err instanceof MfaRequiredError) {
+        router.push(`/mfa-challenge?token=${encodeURIComponent(err.mfaToken)}`);
+      } else {
+        setAuthError(err instanceof Error ? err.message : 'Gagal masuk dengan passkey.');
       }
     } finally {
       setAuthSubmitting(false);
@@ -376,6 +409,7 @@ export default function UploadPage() {
                   }}
                   requiresCaptcha={requiresCaptcha}
                   onCaptchaToken={handleCaptchaToken}
+                  onPasskeyLogin={handlePasskeyLogin}
                 />
               )}
             </div>

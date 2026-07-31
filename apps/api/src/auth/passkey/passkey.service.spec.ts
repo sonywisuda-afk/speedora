@@ -2,7 +2,10 @@ import { BadRequestException, NotFoundException, UnauthorizedException } from '@
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@speedora/database';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { buildSyntheticRegistrationResponse } from './passkey.test-authenticator';
+import {
+  buildSyntheticAuthenticationResponse,
+  buildSyntheticRegistrationResponse,
+} from './passkey.test-authenticator';
 import { PasskeyService } from './passkey.service';
 
 process.env.WEB_ORIGIN = 'http://localhost:3000';
@@ -26,7 +29,12 @@ describe('PasskeyService', () => {
       updateMany: jest.Mock;
       deleteMany: jest.Mock;
       findUniqueOrThrow: jest.Mock;
+      count: jest.Mock;
+      findUnique: jest.Mock;
+      update: jest.Mock;
     };
+    user: { findUniqueOrThrow: jest.Mock };
+    oAuthIdentity: { count: jest.Mock };
   };
 
   beforeEach(() => {
@@ -37,7 +45,17 @@ describe('PasskeyService', () => {
         updateMany: jest.fn(),
         deleteMany: jest.fn(),
         findUniqueOrThrow: jest.fn(),
+        // Tahap 3 Sprint 2 (Passkey Login) - default to "1 passkey left,
+        // this delete would be the last one" so the pre-existing delete
+        // tests below (which never set count explicitly) exercise the
+        // guard's password/oauthCount fallback path deterministically,
+        // same reasoning the other default mocks in this file already use.
+        count: jest.fn().mockResolvedValue(1),
+        findUnique: jest.fn(),
+        update: jest.fn(),
       },
+      user: { findUniqueOrThrow: jest.fn().mockResolvedValue({ password: 'hashed' }) },
+      oAuthIdentity: { count: jest.fn().mockResolvedValue(0) },
     };
     // Real JwtService (not mocked) - same "real crypto round trip" posture
     // as MfaService's spec exercising real otplib, since the challenge
@@ -299,6 +317,211 @@ describe('PasskeyService', () => {
       prisma.passkey.deleteMany.mockResolvedValue({ count: 0 });
 
       await expect(service.delete('user-1', 'p1')).rejects.toThrow(NotFoundException);
+    });
+
+    // Tahap 3 Sprint 2 (Passkey Login) - "at least one sign-in method must
+    // remain," mirroring AuthService.unlinkOAuthProvider's own guard.
+    it('does not block deleting the last passkey when a password is set', async () => {
+      prisma.passkey.count.mockResolvedValue(1);
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ password: 'hashed' });
+      prisma.passkey.deleteMany.mockResolvedValue({ count: 1 });
+
+      await expect(service.delete('user-1', 'p1')).resolves.toBeUndefined();
+    });
+
+    it('does not block deleting the last passkey when an OAuth identity remains', async () => {
+      prisma.passkey.count.mockResolvedValue(1);
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ password: null });
+      prisma.oAuthIdentity.count.mockResolvedValue(1);
+      prisma.passkey.deleteMany.mockResolvedValue({ count: 1 });
+
+      await expect(service.delete('user-1', 'p1')).resolves.toBeUndefined();
+    });
+
+    it('blocks deleting the last passkey when no password or OAuth identity remains', async () => {
+      prisma.passkey.count.mockResolvedValue(1);
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ password: null });
+      prisma.oAuthIdentity.count.mockResolvedValue(0);
+
+      await expect(service.delete('user-1', 'p1')).rejects.toThrow(BadRequestException);
+      expect(prisma.passkey.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it('does not even check password/OAuth when more than one passkey remains', async () => {
+      prisma.passkey.count.mockResolvedValue(2);
+      prisma.passkey.deleteMany.mockResolvedValue({ count: 1 });
+
+      await service.delete('user-1', 'p1');
+
+      expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('generateAuthenticationOptionsFor', () => {
+    it('returns usernameless options with no allowCredentials restriction', async () => {
+      const { options } = await service.generateAuthenticationOptionsFor();
+
+      expect(options.rpId).toBe('localhost');
+      expect(options.userVerification).toBe('required');
+      expect(options.allowCredentials).toBeUndefined();
+    });
+
+    it('signs a challenge token carrying no user identity', async () => {
+      const { options, challengeToken } = await service.generateAuthenticationOptionsFor();
+
+      const payload = jwtService.verify<{ sub?: string; purpose: string; challenge: string }>(
+        challengeToken,
+      );
+      expect(payload.sub).toBeUndefined();
+      expect(payload.purpose).toBe('passkey_login');
+      expect(payload.challenge).toBe(options.challenge);
+    });
+  });
+
+  describe('verifyAuthentication', () => {
+    async function issueLoginChallenge() {
+      const { options, challengeToken } = await service.generateAuthenticationOptionsFor();
+      return { challenge: options.challenge, challengeToken };
+    }
+
+    // Registers a real synthetic passkey (via the already-verified
+    // registration path above) and returns everything needed to build a
+    // matching AUTHENTICATION assertion against the SAME keypair - a
+    // genuine end-to-end proof that registration's stored publicKey is
+    // exactly what verifyAuthenticationResponse can later verify a
+    // signature against, not two independently-fabricated fixtures that
+    // happen to both be well-formed.
+    async function registerSyntheticPasskey() {
+      const regChallenge = await service.generateRegistrationOptionsFor('user-1', 'a@example.com');
+      const { response, credentialId, privateKey } = buildSyntheticRegistrationResponse({
+        rpID: 'localhost',
+        origin: 'http://localhost:3000',
+        challenge: regChallenge.options.challenge,
+      });
+      let storedPublicKey: Buffer | undefined;
+      prisma.passkey.create.mockImplementationOnce(({ data }) => {
+        storedPublicKey = data.publicKey;
+        return Promise.resolve({
+          id: 'passkey-1',
+          ...data,
+          createdAt: new Date(),
+          lastUsedAt: new Date(),
+        });
+      });
+      await service.verifyAndSaveRegistration(
+        'user-1',
+        response,
+        regChallenge.challengeToken,
+        'Test Passkey',
+      );
+      return { credentialId, privateKey, storedPublicKey: storedPublicKey! };
+    }
+
+    it('verifies a real synthetic assertion against the stored credential and advances the counter', async () => {
+      const { credentialId, privateKey, storedPublicKey } = await registerSyntheticPasskey();
+      prisma.passkey.findUnique.mockResolvedValue({
+        id: 'passkey-1',
+        userId: 'user-1',
+        credentialId,
+        publicKey: storedPublicKey,
+        counter: 0n,
+        transports: ['internal'],
+      });
+
+      const { challenge, challengeToken } = await issueLoginChallenge();
+      const assertion = buildSyntheticAuthenticationResponse({
+        rpID: 'localhost',
+        origin: 'http://localhost:3000',
+        challenge,
+        credentialId,
+        privateKey,
+      });
+
+      const result = await service.verifyAuthentication(assertion, challengeToken);
+
+      expect(result).toEqual({ userId: 'user-1', userVerified: true });
+      expect(prisma.passkey.update).toHaveBeenCalledWith({
+        where: { id: 'passkey-1' },
+        data: { counter: 1n, lastUsedAt: expect.any(Date) },
+      });
+    });
+
+    it('reports userVerified: false for an assertion without user verification', async () => {
+      const { credentialId, privateKey, storedPublicKey } = await registerSyntheticPasskey();
+      prisma.passkey.findUnique.mockResolvedValue({
+        id: 'passkey-1',
+        userId: 'user-1',
+        credentialId,
+        publicKey: storedPublicKey,
+        counter: 0n,
+        transports: ['internal'],
+      });
+
+      const { challenge, challengeToken } = await issueLoginChallenge();
+      const assertion = buildSyntheticAuthenticationResponse({
+        rpID: 'localhost',
+        origin: 'http://localhost:3000',
+        challenge,
+        credentialId,
+        privateKey,
+        userVerified: false,
+      });
+
+      const result = await service.verifyAuthentication(assertion, challengeToken);
+
+      expect(result).toEqual({ userId: 'user-1', userVerified: false });
+    });
+
+    it('rejects a signature that fails to verify against the stored public key (wrong keypair)', async () => {
+      const { credentialId, storedPublicKey } = await registerSyntheticPasskey();
+      const attacker = buildSyntheticRegistrationResponse({
+        rpID: 'localhost',
+        origin: 'http://localhost:3000',
+        challenge: 'irrelevant-for-this-fixture',
+      });
+      prisma.passkey.findUnique.mockResolvedValue({
+        id: 'passkey-1',
+        userId: 'user-1',
+        credentialId,
+        publicKey: storedPublicKey,
+        counter: 0n,
+        transports: ['internal'],
+      });
+
+      const { challenge, challengeToken } = await issueLoginChallenge();
+      // Signed with a DIFFERENT keypair than the one on file for this
+      // credentialId - simulates a forged assertion.
+      const forged = buildSyntheticAuthenticationResponse({
+        rpID: 'localhost',
+        origin: 'http://localhost:3000',
+        challenge,
+        credentialId,
+        privateKey: attacker.privateKey,
+      });
+
+      await expect(service.verifyAuthentication(forged, challengeToken)).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(prisma.passkey.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects an assertion for an unknown credentialId with a generic error', async () => {
+      prisma.passkey.findUnique.mockResolvedValue(null);
+      const { challengeToken } = await issueLoginChallenge();
+
+      await expect(
+        service.verifyAuthentication(
+          { id: 'unknown-cred', rawId: 'unknown-cred' } as never,
+          challengeToken,
+        ),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(prisma.passkey.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects a tampered/garbage login challenge token', async () => {
+      await expect(
+        service.verifyAuthentication({ id: 'x', rawId: 'x' } as never, 'not-a-real-token'),
+      ).rejects.toThrow(UnauthorizedException);
     });
   });
 });

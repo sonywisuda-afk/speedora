@@ -23,6 +23,7 @@ export function AuthGate({
   onForgotPassword,
   requiresCaptcha,
   onCaptchaToken,
+  onPasskeyLogin,
 }: {
   mode: 'login' | 'register';
   email: string;
@@ -39,6 +40,11 @@ export function AuthGate({
   // upload/page.tsx's handleAuthSubmit catching a RequiresCaptchaError.
   requiresCaptcha?: boolean;
   onCaptchaToken?: (token: string) => void;
+  // Tahap 3 Sprint 2 (Passkey Login) - only rendered for mode:'login'. A
+  // passkey can only be REGISTERED from the Accounts page by an
+  // already-logged-in user (Sprint 1), so there is no equivalent "sign up
+  // with a passkey" action here the way OAuth's buttons serve both modes.
+  onPasskeyLogin?: () => void;
 }) {
   return (
     <Card className="mx-auto max-w-sm">
@@ -114,6 +120,17 @@ export function AuthGate({
             <span className="font-body text-xs text-muted-foreground">atau</span>
             <div className="h-px flex-1 bg-border" />
           </div>
+          {mode === 'login' && onPasskeyLogin ? (
+            <Button
+              type="button"
+              variant="outline"
+              disabled={submitting}
+              onClick={onPasskeyLogin}
+              className="w-full"
+            >
+              Masuk dengan Passkey
+            </Button>
+          ) : null}
           <a
             href={`${API_URL}/auth/oauth/google/start`}
             className="flex w-full items-center justify-center rounded-md border border-border px-4 py-2 font-body text-sm text-foreground transition-colors hover:bg-accent"
