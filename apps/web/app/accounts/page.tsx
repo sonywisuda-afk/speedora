@@ -1,6 +1,6 @@
 'use client';
 
-import { browserSupportsWebAuthn, startRegistration } from '@simplewebauthn/browser';
+import { browserSupportsWebAuthn, startAuthentication, startRegistration } from '@simplewebauthn/browser';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
@@ -21,6 +21,7 @@ import {
   elevateSession,
   enrollMfa,
   getMfaStatus,
+  getPasskeyElevationOptions,
   getPasskeyRegistrationOptions,
   listLinkedProviders,
   listPasskeys,
@@ -83,6 +84,29 @@ export default function AccountsPage() {
     setElevationError(null);
     try {
       await elevateSession(credential);
+      const action = elevationAction;
+      setElevationAction(null);
+      await action();
+    } catch (err) {
+      setElevationError(err instanceof Error ? err.message : 'Verifikasi gagal.');
+    } finally {
+      setElevationSubmitting(false);
+    }
+  }
+
+  // Tahap 3 Sprint 3 (Passkey Elevation) - a third way to satisfy the same
+  // elevationAction retried closure runWithElevation already set up, in
+  // place of handleElevationSubmit's code/password form. hasPasskeys (used
+  // in the JSX below) comes from the same `passkeys` state Sprint 1's list
+  // already fetches - no separate call needed.
+  async function handleElevationWithPasskey() {
+    if (!elevationAction) return;
+    setElevationSubmitting(true);
+    setElevationError(null);
+    try {
+      const { options, challengeToken } = await getPasskeyElevationOptions();
+      const response = await startAuthentication({ optionsJSON: options });
+      await elevateSession({ passkeyResponse: response, passkeyChallengeToken: challengeToken });
       const action = elevationAction;
       setElevationAction(null);
       await action();
@@ -960,9 +984,11 @@ export default function AccountsPage() {
             <ElevationDialog
               open={elevationAction !== null}
               mfaEnabled={mfaStatus?.enabled ?? false}
+              hasPasskeys={(passkeys?.length ?? 0) > 0}
               submitting={elevationSubmitting}
               error={elevationError}
               onSubmit={handleElevationSubmit}
+              onUsePasskey={handleElevationWithPasskey}
               onCancel={() => {
                 setElevationAction(null);
                 setElevationError(null);

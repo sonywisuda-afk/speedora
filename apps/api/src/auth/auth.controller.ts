@@ -44,6 +44,7 @@ import { VerifyEmailDto } from './dto/verify-email.dto';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { RecentMfaGuard } from './guards/recent-mfa.guard';
 import { LoginBackoffService } from './login-backoff.service';
+import { PasskeyService } from './passkey/passkey.service';
 
 // Express types the User-Agent header as string | string[] | undefined (a
 // proxy could in principle send it twice) - createSession only cares about
@@ -58,6 +59,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly loginBackoff: LoginBackoffService,
+    private readonly passkeyService: PasskeyService,
     @Inject(CAPTCHA_PROVIDER) private readonly captchaProvider: CaptchaProvider,
   ) {}
 
@@ -312,6 +314,17 @@ export class AuthController {
   // elevated for ELEVATION_WINDOW_MS. Same ThrottlerGuard as /auth/login -
   // still a credential-guessing surface even though the caller is already
   // authenticated.
+  //
+  // Tahap 3 Sprint 3 (Passkey Elevation) - a passkeyResponse in the body is
+  // a THIRD credential option, checked first and routed to
+  // PasskeyService.verifyElevationAssertion instead of
+  // AuthService.verifyElevationCredential - closes a real lockout gap: an
+  // OAuth-only account with MFA never enabled had no password and no TOTP
+  // to elevate with at all, meaning it could never pass ANY
+  // RecentMfaGuard-protected route, including adding its first passkey.
+  // ThrottlerGuard still applies (passkeyResponse is validated first by
+  // real cryptographic signature verification, but the route itself is
+  // still worth rate-limiting the same as the other two credential shapes).
   @Post('elevate')
   @HttpCode(200)
   @UseGuards(JwtAuthGuard, ThrottlerGuard)
@@ -320,7 +333,14 @@ export class AuthController {
     @CurrentUser() user: SafeUser,
     @CurrentSessionId() sessionId: string,
   ) {
-    const verified = await this.authService.verifyElevationCredential(user.id, body);
+    const verified =
+      body.passkeyResponse && body.passkeyChallengeToken
+        ? await this.passkeyService.verifyElevationAssertion(
+            user.id,
+            body.passkeyResponse,
+            body.passkeyChallengeToken,
+          )
+        : await this.authService.verifyElevationCredential(user.id, body);
     if (!verified) {
       throw new UnauthorizedException('Invalid verification code or password');
     }

@@ -524,4 +524,188 @@ describe('PasskeyService', () => {
       ).rejects.toThrow(UnauthorizedException);
     });
   });
+
+  describe('generateElevationOptionsFor', () => {
+    it("scopes allowCredentials to the caller's own passkeys, unlike login's usernameless options", async () => {
+      prisma.passkey.findMany.mockResolvedValue([
+        { credentialId: 'cred-1', transports: ['internal'] },
+      ]);
+
+      const { options } = await service.generateElevationOptionsFor('user-1');
+
+      expect(prisma.passkey.findMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1' },
+        select: { credentialId: true, transports: true },
+      });
+      expect(options.allowCredentials).toEqual([
+        { id: 'cred-1', transports: ['internal'], type: 'public-key' },
+      ]);
+      expect(options.userVerification).toBe('required');
+    });
+
+    it('refuses to generate options when the account has no passkey at all', async () => {
+      prisma.passkey.findMany.mockResolvedValue([]);
+
+      await expect(service.generateElevationOptionsFor('user-1')).rejects.toThrow(
+        BadRequestException,
+      );
+    });
+
+    it('signs a challenge token bound to this userId', async () => {
+      prisma.passkey.findMany.mockResolvedValue([
+        { credentialId: 'cred-1', transports: ['internal'] },
+      ]);
+
+      const { options, challengeToken } = await service.generateElevationOptionsFor('user-1');
+
+      const payload = jwtService.verify<{ sub: string; purpose: string; challenge: string }>(
+        challengeToken,
+      );
+      expect(payload.sub).toBe('user-1');
+      expect(payload.purpose).toBe('passkey_elevation');
+      expect(payload.challenge).toBe(options.challenge);
+    });
+  });
+
+  describe('verifyElevationAssertion', () => {
+    async function registerSyntheticPasskeyFor(userId: string) {
+      const regChallenge = await service.generateRegistrationOptionsFor(userId, 'a@example.com');
+      const { response, credentialId, privateKey } = buildSyntheticRegistrationResponse({
+        rpID: 'localhost',
+        origin: 'http://localhost:3000',
+        challenge: regChallenge.options.challenge,
+      });
+      let storedPublicKey: Buffer | undefined;
+      prisma.passkey.create.mockImplementationOnce(({ data }) => {
+        storedPublicKey = data.publicKey;
+        return Promise.resolve({
+          id: 'passkey-1',
+          ...data,
+          createdAt: new Date(),
+          lastUsedAt: new Date(),
+        });
+      });
+      await service.verifyAndSaveRegistration(
+        userId,
+        response,
+        regChallenge.challengeToken,
+        'Test Passkey',
+      );
+      return { credentialId, privateKey, storedPublicKey: storedPublicKey! };
+    }
+
+    it('elevates on a real UV assertion for a passkey owned by this user', async () => {
+      const { credentialId, privateKey, storedPublicKey } =
+        await registerSyntheticPasskeyFor('user-1');
+      prisma.passkey.findMany.mockResolvedValue([{ credentialId, transports: ['internal'] }]);
+      prisma.passkey.findUnique.mockResolvedValue({
+        id: 'passkey-1',
+        userId: 'user-1',
+        credentialId,
+        publicKey: storedPublicKey,
+        counter: 0n,
+        transports: ['internal'],
+      });
+
+      const { options, challengeToken } = await service.generateElevationOptionsFor('user-1');
+      const assertion = buildSyntheticAuthenticationResponse({
+        rpID: 'localhost',
+        origin: 'http://localhost:3000',
+        challenge: options.challenge,
+        credentialId,
+        privateKey,
+        userVerified: true,
+      });
+
+      await expect(
+        service.verifyElevationAssertion('user-1', assertion, challengeToken),
+      ).resolves.toBe(true);
+      expect(prisma.passkey.update).toHaveBeenCalledWith({
+        where: { id: 'passkey-1' },
+        data: { counter: 1n, lastUsedAt: expect.any(Date) },
+      });
+    });
+
+    // Elevation has no fallback behind it the way login has trusted-device/
+    // MFA-challenge - a non-UV assertion must be rejected outright, not
+    // merely denied the bypass.
+    it('rejects an assertion without user verification, unlike login', async () => {
+      const { credentialId, privateKey, storedPublicKey } =
+        await registerSyntheticPasskeyFor('user-1');
+      prisma.passkey.findMany.mockResolvedValue([{ credentialId, transports: ['internal'] }]);
+      prisma.passkey.findUnique.mockResolvedValue({
+        id: 'passkey-1',
+        userId: 'user-1',
+        credentialId,
+        publicKey: storedPublicKey,
+        counter: 0n,
+        transports: ['internal'],
+      });
+
+      const { options, challengeToken } = await service.generateElevationOptionsFor('user-1');
+      const assertion = buildSyntheticAuthenticationResponse({
+        rpID: 'localhost',
+        origin: 'http://localhost:3000',
+        challenge: options.challenge,
+        credentialId,
+        privateKey,
+        userVerified: false,
+      });
+
+      await expect(
+        service.verifyElevationAssertion('user-1', assertion, challengeToken),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(prisma.passkey.update).not.toHaveBeenCalled();
+    });
+
+    // Defense in depth beyond allowCredentials scoping the browser prompt -
+    // even if a credential belonging to a DIFFERENT account were somehow
+    // presented, the resolved passkey.userId must match the caller.
+    it('rejects a credential that resolves to a DIFFERENT account than the caller', async () => {
+      const { credentialId, privateKey, storedPublicKey } =
+        await registerSyntheticPasskeyFor('victim-user');
+      prisma.passkey.findMany.mockResolvedValue([]);
+      prisma.passkey.findUnique.mockResolvedValue({
+        id: 'passkey-1',
+        userId: 'victim-user',
+        credentialId,
+        publicKey: storedPublicKey,
+        counter: 0n,
+        transports: ['internal'],
+      });
+
+      // Attacker's own session (userId 'attacker') requests elevation
+      // options - since prisma.passkey.findMany is mocked to [] for this
+      // call, generateElevationOptionsFor would normally refuse (no
+      // passkeys), so build the challenge token directly the way it would
+      // look if an attacker replayed a stolen token bound to their own id.
+      const challengeToken = jwtService.sign(
+        { sub: 'attacker', purpose: 'passkey_elevation', challenge: 'some-challenge' },
+        { expiresIn: '5m' },
+      );
+      const assertion = buildSyntheticAuthenticationResponse({
+        rpID: 'localhost',
+        origin: 'http://localhost:3000',
+        challenge: 'some-challenge',
+        credentialId,
+        privateKey,
+        userVerified: true,
+      });
+
+      await expect(
+        service.verifyElevationAssertion('attacker', assertion, challengeToken),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(prisma.passkey.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects a tampered/garbage elevation challenge token', async () => {
+      await expect(
+        service.verifyElevationAssertion(
+          'user-1',
+          { id: 'x', rawId: 'x' } as never,
+          'not-a-real-token',
+        ),
+      ).rejects.toThrow(UnauthorizedException);
+    });
+  });
 });

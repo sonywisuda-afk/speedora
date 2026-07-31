@@ -494,8 +494,13 @@ export interface ElevateResultDto {
   elevatedUntil: string;
 }
 
+// Tahap 3 Sprint 3 (Passkey Elevation) - the third credential shape
+// AuthController.elevate accepts, alongside {code}/{password}.
 export async function elevateSession(
-  credential: { code: string } | { password: string },
+  credential:
+    | { code: string }
+    | { password: string }
+    | { passkeyResponse: AuthenticationResponseJSON; passkeyChallengeToken: string },
 ): Promise<ElevateResultDto> {
   const res = await apiFetch('/auth/elevate', {
     method: 'POST',
@@ -503,6 +508,16 @@ export async function elevateSession(
     body: JSON.stringify(credential),
   });
   return parseJsonOrThrow<ElevateResultDto>(res);
+}
+
+// Scoped to the caller's own passkeys (unlike getPasskeyLoginOptions'
+// deliberate usernameless-ness) - the caller is already authenticated here.
+export async function getPasskeyElevationOptions(): Promise<{
+  options: PublicKeyCredentialRequestOptionsJSON;
+  challengeToken: string;
+}> {
+  const res = await apiFetch('/auth/passkeys/elevate/options', { method: 'POST' });
+  return parseJsonOrThrow(res);
 }
 
 // Tahap 2 Step 2 Sprint 1 (MFA Foundation) - matches apps/api's

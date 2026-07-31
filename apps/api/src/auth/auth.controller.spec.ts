@@ -4,6 +4,7 @@ import type { AuthService } from './auth.service';
 import { AuthController } from './auth.controller';
 import type { CaptchaProvider } from './captcha/captcha-provider.interface';
 import type { LoginBackoffService } from './login-backoff.service';
+import type { PasskeyService } from './passkey/passkey.service';
 
 function fakeResponse() {
   return {
@@ -60,6 +61,7 @@ describe('AuthController', () => {
     recordFailure: jest.Mock;
     reset: jest.Mock;
   };
+  let passkeyService: { verifyElevationAssertion: jest.Mock };
   let captchaProvider: { verify: jest.Mock };
 
   beforeEach(() => {
@@ -93,10 +95,12 @@ describe('AuthController', () => {
       recordFailure: jest.fn().mockResolvedValue(undefined),
       reset: jest.fn().mockResolvedValue(undefined),
     };
+    passkeyService = { verifyElevationAssertion: jest.fn() };
     captchaProvider = { verify: jest.fn().mockResolvedValue(true) };
     controller = new AuthController(
       authService as unknown as AuthService,
       loginBackoff as unknown as LoginBackoffService,
+      passkeyService as unknown as PasskeyService,
       captchaProvider as unknown as CaptchaProvider,
     );
   });
@@ -602,6 +606,55 @@ describe('AuthController', () => {
         UnauthorizedException,
       );
       expect(authService.elevateSession).not.toHaveBeenCalled();
+    });
+
+    // Tahap 3 Sprint 3 (Passkey Elevation)
+    it('routes to PasskeyService.verifyElevationAssertion when a passkeyResponse is present, not the TOTP/password path', async () => {
+      passkeyService.verifyElevationAssertion.mockResolvedValue(true);
+      const elevatedUntil = new Date(Date.now() + 15 * 60 * 1000);
+      authService.elevateSession.mockResolvedValue(elevatedUntil);
+
+      const result = await controller.elevate(
+        { passkeyResponse: { id: 'cred' } as never, passkeyChallengeToken: 'tok' },
+        user,
+        'session-1',
+      );
+
+      expect(passkeyService.verifyElevationAssertion).toHaveBeenCalledWith(
+        'user-1',
+        { id: 'cred' },
+        'tok',
+      );
+      expect(authService.verifyElevationCredential).not.toHaveBeenCalled();
+      expect(authService.elevateSession).toHaveBeenCalledWith('session-1');
+      expect(result).toEqual({ success: true, elevatedUntil });
+    });
+
+    it('does not elevate when PasskeyService.verifyElevationAssertion rejects', async () => {
+      passkeyService.verifyElevationAssertion.mockRejectedValue(
+        new UnauthorizedException('Could not verify passkey'),
+      );
+
+      await expect(
+        controller.elevate(
+          { passkeyResponse: { id: 'cred' } as never, passkeyChallengeToken: 'tok' },
+          user,
+          'session-1',
+        ),
+      ).rejects.toThrow(UnauthorizedException);
+      expect(authService.elevateSession).not.toHaveBeenCalled();
+    });
+
+    it('falls back to the TOTP/password path when passkeyResponse is absent', async () => {
+      authService.verifyElevationCredential.mockResolvedValue(true);
+      authService.elevateSession.mockResolvedValue(new Date());
+
+      await controller.elevate({ password: 'hunter2' }, user, 'session-1');
+
+      expect(passkeyService.verifyElevationAssertion).not.toHaveBeenCalled();
+      expect(authService.verifyElevationCredential).toHaveBeenCalledWith('user-1', {
+        password: 'hunter2',
+      });
     });
   });
 });

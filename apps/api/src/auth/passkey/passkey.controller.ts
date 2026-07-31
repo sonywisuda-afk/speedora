@@ -92,6 +92,19 @@ export class PasskeyController {
     return passkey;
   }
 
+  // Tahap 3 Sprint 3 (Passkey Elevation) - scoped to the CALLER's own
+  // passkeys (unlike login/options' deliberate usernameless-ness), since
+  // the caller is already authenticated here. The actual elevation
+  // completion is NOT a route on this controller - it's a third branch of
+  // AuthController.elevate (POST /auth/elevate), which stays the single
+  // place that marks Session.elevatedAt, same as it already does for
+  // TOTP/password.
+  @Post('elevate/options')
+  @UseGuards(JwtAuthGuard)
+  async elevateOptions(@CurrentUser() user: SafeUser) {
+    return this.passkeyService.generateElevationOptionsFor(user.id);
+  }
+
   @Patch(':id')
   @UseGuards(JwtAuthGuard)
   async rename(

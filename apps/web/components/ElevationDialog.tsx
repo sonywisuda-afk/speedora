@@ -17,25 +17,36 @@ import { PasswordInput } from '@/components/ui/password-input';
 
 // Tahap 2 Step 2 Sprint 2b (Session Elevation) - a single reusable prompt
 // for every RecentMfaGuard-protected action (disable MFA, regenerate
-// recovery codes, change password, delete account). Which credential to
-// ask for depends on the account: a TOTP/recovery code if MFA is enabled,
-// the current password otherwise - mfaEnabled is passed in from the
-// Accounts page's already-fetched MfaStatusDto, not re-fetched here.
+// recovery codes, change password, delete account, and since Tahap 3
+// Sprint 1/3, register/delete a passkey). Which credential to ask for
+// depends on the account: a TOTP/recovery code if MFA is enabled, the
+// current password otherwise - mfaEnabled is passed in from the Accounts
+// page's already-fetched MfaStatusDto, not re-fetched here. hasPasskeys
+// (Sprint 3) offers a THIRD option alongside that - a passkey assertion is
+// a strictly stronger proof of identity than either, so it's always offered
+// when available, never gated behind mfaEnabled/password state.
 export interface ElevationDialogProps {
   open: boolean;
   mfaEnabled: boolean;
+  hasPasskeys: boolean;
   submitting: boolean;
   error: string | null;
   onSubmit: (credential: { code: string } | { password: string }) => void;
+  // Fires the whole WebAuthn ceremony (options -> browser prompt -> verify)
+  // - owned by the caller (accounts/page.tsx), not this dialog, same
+  // "dialog stays a dumb credential collector" shape onSubmit already has.
+  onUsePasskey: () => void;
   onCancel: () => void;
 }
 
 export function ElevationDialog({
   open,
   mfaEnabled,
+  hasPasskeys,
   submitting,
   error,
   onSubmit,
+  onUsePasskey,
   onCancel,
 }: ElevationDialogProps) {
   const [value, setValue] = useState('');
@@ -99,6 +110,24 @@ export function ElevationDialog({
             </Button>
           </DialogFooter>
         </form>
+        {hasPasskeys ? (
+          <>
+            <div className="flex items-center gap-3">
+              <div className="h-px flex-1 bg-border" />
+              <span className="font-body text-xs text-muted-foreground">atau</span>
+              <div className="h-px flex-1 bg-border" />
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              className="w-full"
+              disabled={submitting}
+              onClick={onUsePasskey}
+            >
+              Verifikasi dengan Passkey
+            </Button>
+          </>
+        ) : null}
       </DialogContent>
     </Dialog>
   );

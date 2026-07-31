@@ -34,6 +34,11 @@ import { PrismaService } from '../../prisma/prisma.service';
 // shape as OAuthController's login-flow `state`.
 const PASSKEY_REGISTRATION_PURPOSE = 'passkey_registration';
 const PASSKEY_LOGIN_PURPOSE = 'passkey_login';
+// Tahap 3 Sprint 3 (Passkey Elevation) - carries a `sub` like registration's
+// token (the caller's identity IS already known - unlike login, this
+// ceremony is scoped to one specific account via allowCredentials below),
+// not an anonymous nonce like login's.
+const PASSKEY_ELEVATION_PURPOSE = 'passkey_elevation';
 const PASSKEY_CHALLENGE_TOKEN_TTL = '5m';
 
 export interface PasskeySummary {
@@ -275,6 +280,73 @@ export class PasskeyService {
     return payload.challenge;
   }
 
+  // Shared by verifyAuthentication (login) and verifyElevationAssertion
+  // (Sprint 3) - both ultimately do the same thing (verify a signature
+  // against a stored credential, then advance its counter/lastUsedAt), they
+  // just differ in WHICH credentials are eligible and whether a non-UV
+  // assertion is tolerated. requireUserVerification is the one knob that
+  // differs: false for login (Sprint 2's decision - a non-UV assertion
+  // still authenticates, it just doesn't earn the MFA-equivalence bypass),
+  // true for elevation (Sprint 3's decision - elevation IS the gate, there
+  // is no fallback path behind it the way login has trusted-device/MFA-
+  // challenge, so a non-UV assertion must be rejected outright here).
+  private async verifyAndConsumeAssertion(
+    passkey: {
+      id: string;
+      credentialId: string;
+      publicKey: Uint8Array;
+      counter: bigint;
+      transports: string[];
+    },
+    response: AuthenticationResponseJSON,
+    expectedChallenge: string,
+    requireUserVerification: boolean,
+  ): Promise<{ userVerified: boolean }> {
+    const { rpID, origin } = rpConfig();
+
+    let verification: Awaited<ReturnType<typeof verifyAuthenticationResponse>>;
+    try {
+      verification = await verifyAuthenticationResponse({
+        response,
+        expectedChallenge,
+        expectedOrigin: origin,
+        expectedRPID: rpID,
+        credential: {
+          id: passkey.credentialId,
+          // A fresh Uint8Array (not the Buffer Prisma's Bytes field
+          // actually returns) - Buffer's type is Uint8Array<ArrayBufferLike>,
+          // which @simplewebauthn/server's Uint8Array_ (Uint8Array<ArrayBuffer>)
+          // doesn't structurally accept even though Buffer IS one at runtime.
+          publicKey: new Uint8Array(passkey.publicKey),
+          counter: Number(passkey.counter),
+          transports: passkey.transports as AuthenticatorTransportFuture[],
+        },
+        requireUserVerification,
+      });
+    } catch {
+      throw new UnauthorizedException('Could not verify passkey');
+    }
+
+    if (!verification.verified) {
+      throw new UnauthorizedException('Could not verify passkey');
+    }
+
+    // Clone-detection backstop: verifyAuthenticationResponse itself already
+    // rejected a counter that failed to increase (excusing authenticators
+    // that always report 0) before reaching here - persisting the new
+    // value is what makes that check meaningful on the NEXT assertion,
+    // whether that next one is a login or an elevation.
+    await this.prisma.passkey.update({
+      where: { id: passkey.id },
+      data: {
+        counter: BigInt(verification.authenticationInfo.newCounter),
+        lastUsedAt: new Date(),
+      },
+    });
+
+    return { userVerified: verification.authenticationInfo.userVerified };
+  }
+
   // Returns userId (never a full user - PasskeyController fetches that
   // itself, same "service returns primitives, controller assembles the
   // response" split as verifyAndSaveRegistration returning a summary
@@ -288,7 +360,6 @@ export class PasskeyService {
     challengeToken: string,
   ): Promise<{ userId: string; userVerified: boolean }> {
     const expectedChallenge = this.verifyLoginChallengeToken(challengeToken);
-    const { rpID, origin } = rpConfig();
 
     // Looking this up BY the assertion's own credential id (rather than
     // trying to resolve a user first) is what makes the ceremony
@@ -302,50 +373,107 @@ export class PasskeyService {
       throw new UnauthorizedException('Could not verify passkey login');
     }
 
-    let verification: Awaited<ReturnType<typeof verifyAuthenticationResponse>>;
-    try {
-      verification = await verifyAuthenticationResponse({
-        response,
-        expectedChallenge,
-        expectedOrigin: origin,
-        expectedRPID: rpID,
-        credential: {
-          id: passkey.credentialId,
-          publicKey: passkey.publicKey,
-          counter: Number(passkey.counter),
-          transports: passkey.transports as AuthenticatorTransportFuture[],
-        },
-        // Same reasoning as verifyAndSaveRegistration's own override, one
-        // step further: Sprint 2's own decision is that an assertion
-        // WITHOUT real user verification must still be allowed to
-        // authenticate (the credential is genuinely this user's), it just
-        // doesn't earn the MFA-equivalence bypass - PasskeyController
-        // reads authenticationInfo.userVerified below and falls back to
-        // the normal MFA gate when false, rather than this call rejecting
-        // the login outright.
-        requireUserVerification: false,
-      });
-    } catch {
-      throw new UnauthorizedException('Could not verify passkey login');
+    const { userVerified } = await this.verifyAndConsumeAssertion(
+      passkey,
+      response,
+      expectedChallenge,
+      false,
+    );
+
+    return { userId: passkey.userId, userVerified };
+  }
+
+  // Tahap 3 Sprint 3 (Passkey Elevation) - closes a real lockout gap:
+  // AuthService.verifyElevationCredential only ever accepted a TOTP code
+  // (MFA enabled) or a password, so an OAuth-only account with MFA never
+  // enabled had NO way to elevate at all - and since register/verify and
+  // delete above are both RecentMfaGuard-protected, such an account could
+  // never even add its FIRST passkey. Unlike login's
+  // generateAuthenticationOptionsFor (deliberately usernameless), this
+  // scopes allowCredentials to the CALLER's own passkeys - the caller is
+  // already authenticated (JwtAuthGuard), so there is no reason to make the
+  // browser guess which account's credentials are relevant, and doing so
+  // also means the credential lookup at verify time can double-check
+  // ownership (see verifyElevationAssertion below) rather than trusting
+  // allowCredentials alone.
+  async generateElevationOptionsFor(userId: string): Promise<{
+    options: PublicKeyCredentialRequestOptionsJSON;
+    challengeToken: string;
+  }> {
+    const { rpID } = rpConfig();
+    const passkeys = await this.prisma.passkey.findMany({
+      where: { userId },
+      select: { credentialId: true, transports: true },
+    });
+    if (passkeys.length === 0) {
+      throw new BadRequestException('No passkey registered on this account');
     }
 
-    if (!verification.verified) {
-      throw new UnauthorizedException('Could not verify passkey login');
-    }
-
-    // Clone-detection backstop: verifyAuthenticationResponse itself already
-    // rejected a counter that failed to increase (excusing authenticators
-    // that always report 0) before reaching here - persisting the new
-    // value is what makes that check meaningful on the NEXT login.
-    await this.prisma.passkey.update({
-      where: { id: passkey.id },
-      data: {
-        counter: BigInt(verification.authenticationInfo.newCounter),
-        lastUsedAt: new Date(),
-      },
+    const options = await generateAuthenticationOptions({
+      rpID,
+      userVerification: 'required',
+      allowCredentials: passkeys.map((passkey) => ({
+        id: passkey.credentialId,
+        transports: passkey.transports as AuthenticatorTransportFuture[],
+      })),
     });
 
-    return { userId: passkey.userId, userVerified: verification.authenticationInfo.userVerified };
+    const challengeToken = this.jwtService.sign(
+      { sub: userId, purpose: PASSKEY_ELEVATION_PURPOSE, challenge: options.challenge },
+      { expiresIn: PASSKEY_CHALLENGE_TOKEN_TTL },
+    );
+
+    return { options, challengeToken };
+  }
+
+  // Same expectedUserId-bound shape as verifyChallengeToken (registration) -
+  // elevation, like registration, always knows in advance whose ceremony
+  // this is.
+  private verifyElevationChallengeToken(token: string, expectedUserId: string): string {
+    let payload: { sub?: string; purpose?: string; challenge?: string };
+    try {
+      payload = this.jwtService.verify(token);
+    } catch {
+      throw new UnauthorizedException('Passkey elevation challenge is invalid or has expired');
+    }
+    if (
+      payload.purpose !== PASSKEY_ELEVATION_PURPOSE ||
+      !payload.sub ||
+      !payload.challenge ||
+      payload.sub !== expectedUserId
+    ) {
+      throw new UnauthorizedException('Passkey elevation challenge is invalid or has expired');
+    }
+    return payload.challenge;
+  }
+
+  // Called from AuthController.elevate as a third credential option
+  // alongside TOTP/password (AuthService.verifyElevationCredential) -
+  // returns a plain boolean, same contract that method already has, so
+  // AuthController's elevate() branches on which one ran without either
+  // needing to know about the other's internals. requireUserVerification:
+  // true (via verifyAndConsumeAssertion) means a non-UV assertion is
+  // rejected outright here - see that method's own comment on why
+  // elevation can't be as lenient as login.
+  async verifyElevationAssertion(
+    userId: string,
+    response: AuthenticationResponseJSON,
+    challengeToken: string,
+  ): Promise<boolean> {
+    const expectedChallenge = this.verifyElevationChallengeToken(challengeToken, userId);
+
+    const passkey = await this.prisma.passkey.findUnique({
+      where: { credentialId: response.id },
+    });
+    // Missing OR belongs to a different account - collapsed into the same
+    // generic failure either way (defense in depth beyond allowCredentials
+    // scoping the browser's own prompt; never confirms which case it was).
+    if (!passkey || passkey.userId !== userId) {
+      throw new UnauthorizedException('Could not verify passkey');
+    }
+
+    await this.verifyAndConsumeAssertion(passkey, response, expectedChallenge, true);
+    return true;
   }
 
   async list(userId: string): Promise<PasskeySummary[]> {
