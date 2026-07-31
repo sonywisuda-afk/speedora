@@ -19,6 +19,7 @@ const ACTION_LABELS: Record<AuditLogEntryDto['action'], string> = {
   PROJECT_ARCHIVED: 'Project diarsipkan',
   PROJECT_UNARCHIVED: 'Project dipulihkan',
   PROJECT_MOVED: 'Project dipindahkan ke workspace lain',
+  WORKSPACE_OWNERSHIP_TRANSFERRED: 'Kepemilikan workspace ditransfer',
   FOLDER_CREATED: 'Folder dibuat',
   FOLDER_DELETED: 'Folder dihapus',
   VIDEO_MOVED: 'Video dipindahkan',

@@ -318,6 +318,16 @@ export class WorkspaceService {
     targetUserId: string,
     role: WorkspaceRole,
   ): Promise<void> {
+    // Transfer Ownership roadmap - OWNER can no longer be granted through
+    // this generic role-PATCH (previously any ADMIN could set a second
+    // member's role to OWNER here without demoting the existing owner or
+    // touching Workspace.ownerId, silently producing >1 OWNER-ranked
+    // membership). Granting OWNER is now exclusively transferOwnership()'s
+    // job, which demotes the old owner and updates Workspace.ownerId in the
+    // same transaction.
+    if (role === WorkspaceRole.OWNER) {
+      throw new BadRequestException('Use transfer-ownership to make another member the OWNER');
+    }
     await this.access.assertMinRole(requesterId, workspaceId, WorkspaceRole.ADMIN);
     const previous = await this.assertNotLastOwnerChange(workspaceId, targetUserId, role);
 
@@ -356,6 +366,88 @@ export class WorkspaceService {
       targetId: targetUserId,
       metadata: { role: previous.role },
     }).catch(() => {});
+  }
+
+  // Transfer Ownership roadmap - gated on Workspace.ownerId directly (not
+  // assertMinRole(OWNER)), the one authoritative "who really owns this"
+  // field, rather than OWNER-rank membership - see updateMemberRole's own
+  // comment on why membership rank alone isn't trustworthy here. Blocked
+  // for isPersonal workspaces: every User has exactly one, auto-created at
+  // signup and structurally 1:1 with their own account (see
+  // WorkspaceAccessService.getPersonalWorkspaceId) - "transferring" it
+  // would leave the original owner without a personal workspace at all.
+  // The recipient must already be a member (no implicit invite-and-transfer
+  // in one step) - same "membership is a precondition, not a side effect"
+  // posture as every other membership-scoped action here.
+  async transferOwnership(
+    requesterId: string,
+    workspaceId: string,
+    newOwnerUserId: string,
+  ): Promise<WorkspaceDto> {
+    const workspace = await this.prisma.workspace.findUnique({ where: { id: workspaceId } });
+    if (!workspace) {
+      throw new NotFoundException(`Workspace ${workspaceId} not found`);
+    }
+    if (workspace.isPersonal) {
+      throw new BadRequestException('A personal workspace cannot be transferred');
+    }
+    if (workspace.ownerId !== requesterId) {
+      throw new ForbiddenException('Only the current owner can transfer ownership');
+    }
+    if (newOwnerUserId === requesterId) {
+      throw new BadRequestException('Workspace already belongs to this user');
+    }
+
+    const target = await this.prisma.workspaceMembership.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: newOwnerUserId } },
+      include: { user: { select: { email: true } } },
+    });
+    if (!target) {
+      throw new BadRequestException('The recipient must already be a member of this workspace');
+    }
+
+    await this.prisma.$transaction([
+      this.prisma.workspace.update({
+        where: { id: workspaceId },
+        data: { ownerId: newOwnerUserId },
+      }),
+      this.prisma.workspaceMembership.update({
+        where: { workspaceId_userId: { workspaceId, userId: requesterId } },
+        data: { role: WorkspaceRole.ADMIN },
+      }),
+      this.prisma.workspaceMembership.update({
+        where: { workspaceId_userId: { workspaceId, userId: newOwnerUserId } },
+        data: { role: WorkspaceRole.OWNER },
+      }),
+    ]);
+
+    await recordAuditLog(this.prisma, {
+      workspaceId,
+      action: 'WORKSPACE_OWNERSHIP_TRANSFERRED',
+      actorId: requesterId,
+      targetType: 'Workspace',
+      targetId: workspaceId,
+      metadata: { fromUserId: requesterId, toUserId: newOwnerUserId, toEmail: target.user.email },
+    }).catch(() => {});
+
+    await recordNotification(
+      this.prisma,
+      {
+        userId: newOwnerUserId,
+        type: 'WORKSPACE_OWNERSHIP_TRANSFERRED',
+        title: 'Kepemilikan workspace ditransfer',
+        body: `Kamu sekarang menjadi owner workspace "${workspace.name}"`,
+        metadata: { workspaceId },
+      },
+      {
+        publish: (event) => this.notificationPublisher.publish(event),
+        enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
+      },
+    ).catch((error) =>
+      this.logger.warn(`failed to record WORKSPACE_OWNERSHIP_TRANSFERRED notification: ${error}`),
+    );
+
+    return this.toDto(workspaceId, requesterId);
   }
 
   // Sprint 5F (Audit Log) - ADMIN+-only, same role threshold as this

@@ -1650,6 +1650,22 @@ export async function removeWorkspaceMember(workspaceId: string, userId: string)
   }
 }
 
+// Transfer Ownership roadmap - OWNER-only (enforced server-side against
+// Workspace.ownerId, not just OWNER-rank membership - see
+// WorkspaceService.transferOwnership's own comment). newOwnerUserId must
+// already be a member; blocked for isPersonal workspaces.
+export async function transferWorkspaceOwnership(
+  workspaceId: string,
+  newOwnerUserId: string,
+): Promise<WorkspaceDto> {
+  const res = await apiFetch(`/workspaces/${workspaceId}/transfer-ownership`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ newOwnerUserId }),
+  });
+  return parseJsonOrThrow<WorkspaceDto>(res);
+}
+
 export interface InvitePreviewDto {
   email: string;
   role: WorkspaceRole;

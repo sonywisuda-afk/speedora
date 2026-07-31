@@ -9,7 +9,12 @@ import { WorkspaceService } from './workspace.service';
 describe('WorkspaceService', () => {
   let service: WorkspaceService;
   let prisma: {
-    workspace: { create: jest.Mock; findUniqueOrThrow: jest.Mock; update: jest.Mock };
+    workspace: {
+      create: jest.Mock;
+      findUnique: jest.Mock;
+      findUniqueOrThrow: jest.Mock;
+      update: jest.Mock;
+    };
     workspaceMembership: {
       create: jest.Mock;
       findMany: jest.Mock;
@@ -41,6 +46,7 @@ describe('WorkspaceService', () => {
     prisma = {
       workspace: {
         create: jest.fn(),
+        findUnique: jest.fn(),
         findUniqueOrThrow: jest.fn(),
         update: jest.fn().mockResolvedValue({}),
       },
@@ -66,7 +72,14 @@ describe('WorkspaceService', () => {
       publishRecord: { findMany: jest.fn().mockResolvedValue([]) },
       $transaction: jest.fn(),
     };
-    prisma.$transaction.mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma));
+    // Handles both $transaction call shapes this service uses: a callback
+    // (create/acceptInvite) and an array of already-in-flight operations
+    // (transferOwnership).
+    prisma.$transaction.mockImplementation((arg: unknown) =>
+      typeof arg === 'function'
+        ? (arg as (tx: unknown) => unknown)(prisma)
+        : Promise.all(arg as unknown[]),
+    );
     access = {
       assertMinRole: jest.fn().mockResolvedValue('ADMIN'),
       getRole: jest.fn().mockResolvedValue('OWNER'),
@@ -284,6 +297,13 @@ describe('WorkspaceService', () => {
         service.updateMemberRole('admin-1', 'ws-1', 'missing-user', 'EDITOR' as never),
       ).rejects.toThrow(NotFoundException);
     });
+
+    it('rejects granting OWNER through this route (Transfer Ownership roadmap)', async () => {
+      await expect(
+        service.updateMemberRole('admin-1', 'ws-1', 'user-2', 'OWNER' as never),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.workspaceMembership.update).not.toHaveBeenCalled();
+    });
   });
 
   describe('removeMember', () => {
@@ -312,6 +332,118 @@ describe('WorkspaceService', () => {
         BadRequestException,
       );
       expect(prisma.workspaceMembership.delete).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('transferOwnership', () => {
+    const workspace = {
+      id: 'ws-1',
+      name: 'Acme',
+      isPersonal: false,
+      ownerId: 'owner-1',
+      createdAt: new Date('2026-07-18T00:00:00.000Z'),
+    };
+
+    it('updates ownerId, demotes the old owner, promotes the new owner, and records an audit log entry', async () => {
+      prisma.workspace.findUnique.mockResolvedValue(workspace);
+      prisma.workspace.findUniqueOrThrow.mockResolvedValue(workspace);
+      prisma.workspaceMembership.findUnique.mockResolvedValue({
+        role: 'EDITOR',
+        user: { email: 'newowner@example.com' },
+      });
+      access.getRole.mockResolvedValue('ADMIN');
+
+      const result = await service.transferOwnership('owner-1', 'ws-1', 'user-2');
+
+      expect(prisma.workspace.update).toHaveBeenCalledWith({
+        where: { id: 'ws-1' },
+        data: { ownerId: 'user-2' },
+      });
+      expect(prisma.workspaceMembership.update).toHaveBeenCalledWith({
+        where: { workspaceId_userId: { workspaceId: 'ws-1', userId: 'owner-1' } },
+        data: { role: 'ADMIN' },
+      });
+      expect(prisma.workspaceMembership.update).toHaveBeenCalledWith({
+        where: { workspaceId_userId: { workspaceId: 'ws-1', userId: 'user-2' } },
+        data: { role: 'OWNER' },
+      });
+      expect(prisma.auditLogEntry.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          workspaceId: 'ws-1',
+          action: 'WORKSPACE_OWNERSHIP_TRANSFERRED',
+          actorId: 'owner-1',
+          targetType: 'Workspace',
+          targetId: 'ws-1',
+          metadata: { fromUserId: 'owner-1', toUserId: 'user-2', toEmail: 'newowner@example.com' },
+        }),
+      });
+      expect(result.id).toBe('ws-1');
+    });
+
+    it('records a WORKSPACE_OWNERSHIP_TRANSFERRED notification for the new owner', async () => {
+      prisma.workspace.findUnique.mockResolvedValue(workspace);
+      prisma.workspace.findUniqueOrThrow.mockResolvedValue(workspace);
+      prisma.workspaceMembership.findUnique.mockResolvedValue({
+        role: 'EDITOR',
+        user: { email: 'newowner@example.com' },
+      });
+
+      await service.transferOwnership('owner-1', 'ws-1', 'user-2');
+
+      expect(prisma.notification.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'user-2',
+          type: 'WORKSPACE_OWNERSHIP_TRANSFERRED',
+        }),
+      });
+      expect(notificationPublisher.publish).toHaveBeenCalledWith(
+        expect.objectContaining({ userId: 'user-2', type: 'WORKSPACE_OWNERSHIP_TRANSFERRED' }),
+      );
+    });
+
+    it('throws NotFoundException for an unknown workspace', async () => {
+      prisma.workspace.findUnique.mockResolvedValue(null);
+
+      await expect(service.transferOwnership('owner-1', 'ws-1', 'user-2')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('rejects transferring a personal workspace', async () => {
+      prisma.workspace.findUnique.mockResolvedValue({ ...workspace, isPersonal: true });
+
+      await expect(service.transferOwnership('owner-1', 'ws-1', 'user-2')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.workspace.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the requester is not the current owner', async () => {
+      prisma.workspace.findUnique.mockResolvedValue(workspace);
+
+      await expect(service.transferOwnership('not-the-owner', 'ws-1', 'user-2')).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(prisma.workspace.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects transferring to self', async () => {
+      prisma.workspace.findUnique.mockResolvedValue(workspace);
+
+      await expect(service.transferOwnership('owner-1', 'ws-1', 'owner-1')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.workspace.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects when the recipient is not already a member', async () => {
+      prisma.workspace.findUnique.mockResolvedValue(workspace);
+      prisma.workspaceMembership.findUnique.mockResolvedValue(null);
+
+      await expect(service.transferOwnership('owner-1', 'ws-1', 'user-2')).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.workspace.update).not.toHaveBeenCalled();
     });
   });
 

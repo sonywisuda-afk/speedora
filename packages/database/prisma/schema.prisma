@@ -1474,6 +1474,10 @@ enum NotificationType {
   // that decides which type a given VideoStatus/sub-stage maps to. Not used
   // for any single-shot (non-threaded) notification.
   PIPELINE_PROGRESS
+  // Transfer Ownership roadmap - fires to the new owner when
+  // WorkspaceService.transferOwnership completes, same "positive
+  // collaboration event" tone as MEMBER_INVITATION_ACCEPTED.
+  WORKSPACE_OWNERSHIP_TRANSFERRED
 }
 
 // Only IN_APP for Sprint 4A. Milestone 04d wired SLACK/DISCORD/WEBHOOK, 04e
@@ -2700,6 +2704,7 @@ enum AuditAction {
   PROJECT_ARCHIVED
   PROJECT_UNARCHIVED
   PROJECT_MOVED
+  WORKSPACE_OWNERSHIP_TRANSFERRED
   FOLDER_CREATED
   FOLDER_DELETED
   VIDEO_MOVED

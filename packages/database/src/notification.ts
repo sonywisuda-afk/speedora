@@ -55,6 +55,7 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   REVIEW_REQUEST: NotificationCategory.WORKSPACE,
   APPROVAL: NotificationCategory.WORKSPACE,
   MEMBER_INVITATION_ACCEPTED: NotificationCategory.WORKSPACE,
+  WORKSPACE_OWNERSHIP_TRANSFERRED: NotificationCategory.WORKSPACE,
   // Notification Center v2 Phase 2 - a default only; every real call site
   // (see derivePipelineThreadPresentation() in video-status.ts) passes an
   // explicit `category` override reflecting the pipeline's REAL current
@@ -81,6 +82,7 @@ export const NOTIFICATION_TYPE_PRIORITY: Record<NotificationType, NotificationPr
   REVIEW_REQUEST: NotificationPriority.INFO,
   APPROVAL: NotificationPriority.SUCCESS,
   MEMBER_INVITATION_ACCEPTED: NotificationPriority.SUCCESS,
+  WORKSPACE_OWNERSHIP_TRANSFERRED: NotificationPriority.SUCCESS,
   // Notification Center v2 Phase 2 - a non-terminal progress update is
   // always informational; the two terminal outcomes reuse CLIP_READY
   // (SUCCESS)/RENDER_FAILED (ERROR) instead of this type - see

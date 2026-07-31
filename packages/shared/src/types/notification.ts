@@ -30,6 +30,9 @@ export enum NotificationType {
   // rather than system-wide. See alert-engine.worker.ts's
   // syncFailureWarningRule.
   SYNC_FAILURE_WARNING = 'SYNC_FAILURE_WARNING',
+  // Transfer Ownership roadmap - fires to the new owner once
+  // WorkspaceService.transferOwnership completes.
+  WORKSPACE_OWNERSHIP_TRANSFERRED = 'WORKSPACE_OWNERSHIP_TRANSFERRED',
 }
 
 // Mirrors NotificationChannel in packages/database's Prisma schema, same
@@ -78,6 +81,7 @@ export const NOTIFICATION_SEVERITY: Record<NotificationType, NotificationSeverit
   [NotificationType.REVIEW_REQUEST]: 'success',
   [NotificationType.APPROVAL]: 'success',
   [NotificationType.MEMBER_INVITATION_ACCEPTED]: 'success',
+  [NotificationType.WORKSPACE_OWNERSHIP_TRANSFERRED]: 'success',
 };
 
 export interface NotificationDto {

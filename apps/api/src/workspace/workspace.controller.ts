@@ -16,6 +16,7 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateInviteDto } from './dto/create-invite.dto';
 import { CreateWorkspaceDto } from './dto/create-workspace.dto';
+import { TransferOwnershipDto } from './dto/transfer-ownership.dto';
 import { UpdateMemberDto } from './dto/update-member.dto';
 import { UpdateWorkspaceDto } from './dto/update-workspace.dto';
 import { WorkspaceService } from './workspace.service';
@@ -114,6 +115,15 @@ export class WorkspaceController {
     @Param('userId') targetUserId: string,
   ) {
     return this.workspaceService.removeMember(user.id, id, targetUserId);
+  }
+
+  @Post(':id/transfer-ownership')
+  transferOwnership(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Body() dto: TransferOwnershipDto,
+  ) {
+    return this.workspaceService.transferOwnership(user.id, id, dto.newOwnerUserId);
   }
 
   // Sprint 5F (Audit Log) - ADMIN+-only, enforced in the service.

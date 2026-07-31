@@ -1,6 +1,7 @@
 import {
   AtSign,
   Bell,
+  Crown,
   CreditCard,
   Download,
   FileWarning,
@@ -37,6 +38,7 @@ export const NOTIFICATION_ICONS: Record<NotificationType, typeof Bell> = {
   [NotificationType.REVIEW_REQUEST]: ShieldCheck,
   [NotificationType.APPROVAL]: ShieldCheck,
   [NotificationType.MEMBER_INVITATION_ACCEPTED]: UserPlus,
+  [NotificationType.WORKSPACE_OWNERSHIP_TRANSFERRED]: Crown,
 };
 
 // Same 'good' | 'neutral' | 'bad' tone vocabulary as lib/export.ts's
@@ -69,4 +71,5 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   [NotificationType.REVIEW_REQUEST]: 'Permintaan review',
   [NotificationType.APPROVAL]: 'Keputusan review',
   [NotificationType.MEMBER_INVITATION_ACCEPTED]: 'Undangan diterima',
+  [NotificationType.WORKSPACE_OWNERSHIP_TRANSFERRED]: 'Kepemilikan workspace ditransfer',
 };

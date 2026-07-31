@@ -8,6 +8,7 @@ import {
   createWorkspaceInvite,
   getWorkspace,
   removeWorkspaceMember,
+  transferWorkspaceOwnership,
   updateWorkspaceMemberRole,
 } from '@/lib/api';
 import { Button } from '@/components/ui/button';
@@ -43,6 +44,11 @@ export function WorkspaceMembersDialog() {
   const [sending, setSending] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [transferTarget, setTransferTarget] = useState<{ userId: string; email: string } | null>(
+    null,
+  );
+  const [transferring, setTransferring] = useState(false);
+  const [transferError, setTransferError] = useState<string | null>(null);
 
   const { data: workspace, mutate } = useSWR(
     open && activeWorkspaceId ? ['workspace-detail', activeWorkspaceId] : null,
@@ -50,12 +56,18 @@ export function WorkspaceMembersDialog() {
   );
 
   const isAdmin = workspace ? workspace.role === 'OWNER' || workspace.role === 'ADMIN' : false;
+  // Transfer Ownership roadmap - OWNER-only and never for a personal
+  // workspace (server-enforced in WorkspaceService.transferOwnership,
+  // mirrored here for UX).
+  const isOwner = workspace ? workspace.role === 'OWNER' && !workspace.isPersonal : false;
 
   function reset() {
     setEmail('');
     setRole(WorkspaceRole.EDITOR);
     setSent(false);
     setError(null);
+    setTransferTarget(null);
+    setTransferError(null);
   }
 
   async function handleSend() {
@@ -83,6 +95,21 @@ export function WorkspaceMembersDialog() {
     if (!activeWorkspaceId) return;
     await removeWorkspaceMember(activeWorkspaceId, userId);
     await mutate();
+  }
+
+  async function handleTransferConfirm() {
+    if (!activeWorkspaceId || !transferTarget) return;
+    setTransferError(null);
+    setTransferring(true);
+    try {
+      await transferWorkspaceOwnership(activeWorkspaceId, transferTarget.userId);
+      setTransferTarget(null);
+      await mutate();
+    } catch (err) {
+      setTransferError(err instanceof Error ? err.message : 'Gagal mentransfer kepemilikan');
+    } finally {
+      setTransferring(false);
+    }
   }
 
   return (
@@ -137,6 +164,16 @@ export function WorkspaceMembersDialog() {
                           </option>
                         ))}
                     </select>
+                    {isOwner && (
+                      <button
+                        onClick={() =>
+                          setTransferTarget({ userId: member.userId, email: member.email })
+                        }
+                        className="text-xs text-muted-foreground hover:underline"
+                      >
+                        Jadikan Owner
+                      </button>
+                    )}
                     <button
                       onClick={() => handleRemove(member.userId)}
                       className="text-xs text-destructive hover:underline"
@@ -151,6 +188,28 @@ export function WorkspaceMembersDialog() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+
+        {transferTarget && (
+          <div className="rounded-md border border-border bg-muted p-3 font-body text-sm">
+            <p className="text-foreground">
+              Jadikan <span className="font-medium">{transferTarget.email}</span> owner workspace
+              ini? Kamu akan turun jadi Admin, dan tindakan ini tidak bisa dibatalkan sendiri (harus
+              ditransfer balik oleh owner baru).
+            </p>
+            {transferError && <p className="mt-1.5 text-xs text-destructive">{transferError}</p>}
+            <div className="mt-2 flex justify-end gap-2">
+              <button
+                onClick={() => setTransferTarget(null)}
+                className="font-body text-xs text-muted-foreground hover:text-foreground hover:underline"
+              >
+                Batal
+              </button>
+              <Button size="sm" disabled={transferring} onClick={handleTransferConfirm}>
+                {transferring ? 'Mentransfer...' : 'Ya, Transfer'}
+              </Button>
+            </div>
           </div>
         )}
 
