@@ -226,7 +226,13 @@ export class MfaController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const userId = this.authService.verifyMfaChallengeToken(body.mfaToken);
+    // Tahap 3.5 (Passkey UX & Observability) - `method` is whichever of
+    // password/google/github/passkey originated this challenge (see
+    // AuthService.issueMfaChallengeToken's own comment on why the token
+    // itself now carries it, rather than every login this challenge could
+    // possibly complete collapsing into indistinguishable
+    // {mfaVerified: true} metadata).
+    const { userId, method } = this.authService.verifyMfaChallengeToken(body.mfaToken);
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: userId } });
     const ipAddress = req.ip;
     const userAgent = userAgentOf(req);
@@ -241,7 +247,7 @@ export class MfaController {
         eventType: 'LOGIN_FAILED',
         ipAddress,
         userAgent,
-        metadata: { reason: 'invalid_mfa_code' },
+        metadata: { method, reason: 'invalid_mfa_code' },
       });
       throw new UnauthorizedException('Invalid verification code');
     }
@@ -252,7 +258,7 @@ export class MfaController {
       eventType: 'LOGIN_SUCCESS',
       ipAddress,
       userAgent,
-      metadata: { mfaVerified: true },
+      metadata: { method, mfaVerified: true },
     });
 
     const safeUser: SafeUser = {
@@ -261,7 +267,7 @@ export class MfaController {
       role: user.role,
       emailVerified: user.emailVerified,
     };
-    const tokens = await this.authService.createSession(safeUser, userAgent, ipAddress);
+    const tokens = await this.authService.createSession(safeUser, userAgent, ipAddress, method);
     setAuthCookies(res, tokens);
 
     if (body.rememberDevice) {

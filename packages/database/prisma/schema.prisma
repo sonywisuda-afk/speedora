@@ -2284,6 +2284,23 @@ model Session {
   user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   refreshTokenHash String    @unique
 
+  // Tahap 3.5 (Passkey UX & Observability) - 'password' | 'google' |
+  // 'github' | 'passkey', app-level string not a Postgres enum (same
+  // posture as revokedReason below). Set once at createSession() time from
+  // whichever of AuthController.login/OAuthController.callback/
+  // PasskeyController.loginVerify/MfaController.challenge actually created
+  // this row - MfaController.challenge reads it back off the MFA challenge
+  // token (which now carries a `method` claim) rather than losing it, since
+  // completing an MFA challenge is the tail of ALL FOUR login paths, not a
+  // fifth one. Exists because there was previously no reliable way to
+  // recover "how was this specific still-active session created" at all -
+  // SecurityEvent's LOGIN_SUCCESS has no session-row join key, and for any
+  // login that went through the MFA challenge the originating method wasn't
+  // even captured anywhere. Null only for sessions created before this
+  // column existed (never backfilled, same posture as every other
+  // introduced-later nullable column in this schema).
+  createdVia       String?
+
   userAgent        String?
   browser          String?
   os               String?
@@ -2432,23 +2449,31 @@ model TrustedDevice {
 // hardware security key or a platform authenticator with no sync. name is
 // the user-chosen label shown in the Accounts page list (e.g. "MacBook
 // Touch ID", "YubiKey") - captured once at registration, editable via
-// rename, never auto-derived from userAgent the way Session/TrustedDevice's
-// deviceName is, since a passkey ceremony's client data doesn't carry
-// device info the way a plain HTTP request's User-Agent header does.
+// rename, never auto-derived from the WebAuthn CEREMONY data itself (the
+// attestation/clientDataJSON carry no human-readable device info at all).
+// createdDeviceLabel (Tahap 3.5) is a SEPARATE thing - a ua-parser-js
+// summary (e.g. "Chrome on macOS") of the enclosing HTTP request's own
+// User-Agent header at registration time, same primitive Session/
+// TrustedDevice already use for their own deviceName/browser/os. That
+// header exists on the plain POST wrapping the ceremony regardless of what
+// WebAuthn itself carries - shown as secondary/muted text alongside the
+// user's own `name` in the Accounts UI, never used to override it. Null
+// for passkeys registered before this column existed.
 model Passkey {
-  id           String   @id @default(cuid())
-  userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  credentialId String   @unique
-  publicKey    Bytes
-  counter      BigInt   @default(0)
-  deviceType   String
-  backedUp     Boolean  @default(false)
-  transports   String[] @default([])
-  name         String
+  id                 String   @id @default(cuid())
+  userId             String
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  credentialId       String   @unique
+  publicKey          Bytes
+  counter            BigInt   @default(0)
+  deviceType         String
+  backedUp           Boolean  @default(false)
+  transports         String[] @default([])
+  name               String
+  createdDeviceLabel String?
 
-  createdAt    DateTime @default(now())
-  lastUsedAt   DateTime @default(now())
+  createdAt          DateTime @default(now())
+  lastUsedAt         DateTime @default(now())
 
   @@index([userId])
 }
@@ -2729,6 +2754,12 @@ enum SecurityEventType {
   // Tahap 3 Sprint 1 (Passkey Foundation)
   PASSKEY_ADDED
   PASSKEY_REMOVED
+  // Tahap 3.5 (Passkey UX & Observability) - POST /auth/elevate previously
+  // recorded nothing at all, success or failure, for any of its three
+  // credential types (TOTP/password/passkey) - a repeated-failure pattern
+  // here is a real signal (someone trying to step up a stolen session).
+  ELEVATION_SUCCESS
+  ELEVATION_FAILED
 }
 
 model SecurityEvent {

@@ -120,6 +120,7 @@ describe('PasskeyController', () => {
         {},
         'tok',
         'My Passkey',
+        null,
       );
       expect(authService.recordSecurityEvent).toHaveBeenCalledWith({
         userId: 'user-1',
@@ -130,6 +131,32 @@ describe('PasskeyController', () => {
         metadata: { passkeyId: 'p1', deviceType: 'singleDevice' },
       });
       expect(result).toBe(passkey);
+    });
+
+    // Tahap 3.5 (Passkey UX & Observability)
+    it('derives createdDeviceLabel from the real request User-Agent', async () => {
+      passkeyService.verifyAndSaveRegistration.mockResolvedValue({ id: 'p1' });
+      const req = {
+        headers: {
+          'user-agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        },
+        ip: '127.0.0.1',
+      } as unknown as Request;
+
+      await controller.registerVerify(
+        fakeUser,
+        { response: {} as never, challengeToken: 'tok', name: 'My Passkey' },
+        req,
+      );
+
+      expect(passkeyService.verifyAndSaveRegistration).toHaveBeenCalledWith(
+        'user-1',
+        {},
+        'tok',
+        'My Passkey',
+        'Chrome on macOS',
+      );
     });
 
     it('does not record a security event when verification throws', async () => {
@@ -196,6 +223,31 @@ describe('PasskeyController', () => {
   });
 
   describe('loginVerify', () => {
+    // Tahap 3.5 (Passkey UX & Observability) - previously a failed passkey
+    // login left no audit trail at all, unlike password login's
+    // LOGIN_FAILED.
+    it('records LOGIN_FAILED and rethrows when verifyAuthentication rejects', async () => {
+      passkeyService.verifyAuthentication.mockRejectedValue(
+        new Error('Could not verify passkey login'),
+      );
+
+      await expect(
+        controller.loginVerify(
+          { response: { id: 'cred-123' } as never, challengeToken: 'tok' },
+          fakeRequest(),
+          fakeResponse(),
+        ),
+      ).rejects.toThrow('Could not verify passkey login');
+
+      expect(authService.recordSecurityEvent).toHaveBeenCalledWith({
+        eventType: 'LOGIN_FAILED',
+        ipAddress: '127.0.0.1',
+        userAgent: 'Mozilla/5.0 (Test)',
+        metadata: { method: 'passkey', credentialId: 'cred-123' },
+      });
+      expect(authService.createSession).not.toHaveBeenCalled();
+    });
+
     it('creates a session directly when the assertion carried user verification', async () => {
       passkeyService.verifyAuthentication.mockResolvedValue({
         userId: 'user-1',
@@ -227,6 +279,7 @@ describe('PasskeyController', () => {
         fakeUser,
         'Mozilla/5.0 (Test)',
         '127.0.0.1',
+        'passkey',
       );
       expect(res.cookie).toHaveBeenCalled();
       expect(result).toEqual(fakeUser);

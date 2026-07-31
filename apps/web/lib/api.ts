@@ -118,6 +118,10 @@ export interface SessionDto {
   os: string | null;
   deviceName: string | null;
   ipAddress: string | null;
+  // Tahap 3.5 (Passkey UX & Observability) - 'password' | 'google' |
+  // 'github' | 'passkey', null for sessions created before this field
+  // existed.
+  createdVia: string | null;
   createdAt: string;
   lastSeenAt: string;
   expiresAt: string;
@@ -359,6 +363,10 @@ export interface PasskeyDto {
   name: string;
   deviceType: string;
   backedUp: boolean;
+  // Tahap 3.5 (Passkey UX & Observability) - ua-parser-js summary of the
+  // browser/OS the passkey was registered from (e.g. "Chrome on macOS"),
+  // null for passkeys registered before this field existed.
+  createdDeviceLabel: string | null;
   createdAt: string;
   lastUsedAt: string;
 }

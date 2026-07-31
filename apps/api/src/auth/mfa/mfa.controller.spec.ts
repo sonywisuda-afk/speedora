@@ -78,7 +78,7 @@ describe('MfaController', () => {
     };
     authService = {
       recordSecurityEvent: jest.fn().mockResolvedValue(undefined),
-      verifyMfaChallengeToken: jest.fn().mockReturnValue(user.id),
+      verifyMfaChallengeToken: jest.fn().mockReturnValue({ userId: user.id, method: 'password' }),
       createSession: jest.fn().mockResolvedValue({
         accessToken: 'access-tok',
         refreshToken: 'refresh-tok',
@@ -280,7 +280,7 @@ describe('MfaController', () => {
       expect(authService.recordSecurityEvent).toHaveBeenCalledWith(
         expect.objectContaining({
           eventType: 'LOGIN_FAILED',
-          metadata: { reason: 'invalid_mfa_code' },
+          metadata: { method: 'password', reason: 'invalid_mfa_code' },
         }),
       );
       expect(authService.createSession).not.toHaveBeenCalled();
@@ -298,9 +298,17 @@ describe('MfaController', () => {
       );
 
       expect(authService.recordSecurityEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ eventType: 'LOGIN_SUCCESS', metadata: { mfaVerified: true } }),
+        expect.objectContaining({
+          eventType: 'LOGIN_SUCCESS',
+          metadata: { method: 'password', mfaVerified: true },
+        }),
       );
-      expect(authService.createSession).toHaveBeenCalled();
+      expect(authService.createSession).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        'password',
+      );
       expect(res.cookie).toHaveBeenCalledWith('token', 'access-tok', expect.any(Object));
       expect(authService.createTrustedDevice).not.toHaveBeenCalled();
       expect(result).toEqual({

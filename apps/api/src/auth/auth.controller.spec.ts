@@ -124,6 +124,7 @@ describe('AuthController', () => {
         user,
         'Mozilla/5.0 (Test)',
         '127.0.0.1',
+        'password',
       );
       expect(res.cookie).toHaveBeenCalledWith(
         'token',
@@ -165,6 +166,7 @@ describe('AuthController', () => {
         user,
         'Mozilla/5.0 (Test)',
         '127.0.0.1',
+        'password',
       );
       expect(res.cookie).toHaveBeenCalledWith('token', fakeTokens.accessToken, expect.any(Object));
       expect(res.cookie).toHaveBeenCalledWith(
@@ -518,6 +520,7 @@ describe('AuthController', () => {
         user,
         'Mozilla/5.0 (Test)',
         '127.0.0.1',
+        'password',
       );
       expect(res.cookie).toHaveBeenCalledWith('token', fakeTokens.accessToken, expect.any(Object));
       expect(result).toEqual(user);
@@ -585,27 +588,39 @@ describe('AuthController', () => {
       emailVerified: true,
     };
 
-    it('verifies the credential, elevates the session, and returns the expiry', async () => {
+    it('verifies the credential, elevates the session, records ELEVATION_SUCCESS, and returns the expiry', async () => {
       authService.verifyElevationCredential.mockResolvedValue(true);
       const elevatedUntil = new Date(Date.now() + 15 * 60 * 1000);
       authService.elevateSession.mockResolvedValue(elevatedUntil);
 
-      const result = await controller.elevate({ code: '123456' }, user, 'session-1');
+      const result = await controller.elevate({ code: '123456' }, user, fakeRequest(), 'session-1');
 
       expect(authService.verifyElevationCredential).toHaveBeenCalledWith('user-1', {
         code: '123456',
       });
       expect(authService.elevateSession).toHaveBeenCalledWith('session-1');
+      expect(authService.recordSecurityEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'ELEVATION_SUCCESS',
+          metadata: { credentialType: 'totp' },
+        }),
+      );
       expect(result).toEqual({ success: true, elevatedUntil });
     });
 
-    it('rejects an invalid credential without elevating the session', async () => {
+    it('rejects an invalid credential, records ELEVATION_FAILED, and does not elevate', async () => {
       authService.verifyElevationCredential.mockResolvedValue(false);
 
-      await expect(controller.elevate({ code: 'wrong' }, user, 'session-1')).rejects.toThrow(
-        UnauthorizedException,
-      );
+      await expect(
+        controller.elevate({ code: 'wrong' }, user, fakeRequest(), 'session-1'),
+      ).rejects.toThrow(UnauthorizedException);
       expect(authService.elevateSession).not.toHaveBeenCalled();
+      expect(authService.recordSecurityEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'ELEVATION_FAILED',
+          metadata: { credentialType: 'totp' },
+        }),
+      );
     });
 
     // Tahap 3 Sprint 3 (Passkey Elevation)
@@ -617,6 +632,7 @@ describe('AuthController', () => {
       const result = await controller.elevate(
         { passkeyResponse: { id: 'cred' } as never, passkeyChallengeToken: 'tok' },
         user,
+        fakeRequest(),
         'session-1',
       );
 
@@ -627,10 +643,16 @@ describe('AuthController', () => {
       );
       expect(authService.verifyElevationCredential).not.toHaveBeenCalled();
       expect(authService.elevateSession).toHaveBeenCalledWith('session-1');
+      expect(authService.recordSecurityEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'ELEVATION_SUCCESS',
+          metadata: { credentialType: 'passkey' },
+        }),
+      );
       expect(result).toEqual({ success: true, elevatedUntil });
     });
 
-    it('does not elevate when PasskeyService.verifyElevationAssertion rejects', async () => {
+    it('does not elevate when PasskeyService.verifyElevationAssertion rejects, and records ELEVATION_FAILED', async () => {
       passkeyService.verifyElevationAssertion.mockRejectedValue(
         new UnauthorizedException('Could not verify passkey'),
       );
@@ -639,22 +661,35 @@ describe('AuthController', () => {
         controller.elevate(
           { passkeyResponse: { id: 'cred' } as never, passkeyChallengeToken: 'tok' },
           user,
+          fakeRequest(),
           'session-1',
         ),
       ).rejects.toThrow(UnauthorizedException);
       expect(authService.elevateSession).not.toHaveBeenCalled();
+      expect(authService.recordSecurityEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'ELEVATION_FAILED',
+          metadata: { credentialType: 'passkey' },
+        }),
+      );
     });
 
     it('falls back to the TOTP/password path when passkeyResponse is absent', async () => {
       authService.verifyElevationCredential.mockResolvedValue(true);
       authService.elevateSession.mockResolvedValue(new Date());
 
-      await controller.elevate({ password: 'hunter2' }, user, 'session-1');
+      await controller.elevate({ password: 'hunter2' }, user, fakeRequest(), 'session-1');
 
       expect(passkeyService.verifyElevationAssertion).not.toHaveBeenCalled();
       expect(authService.verifyElevationCredential).toHaveBeenCalledWith('user-1', {
         password: 'hunter2',
       });
+      expect(authService.recordSecurityEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'ELEVATION_SUCCESS',
+          metadata: { credentialType: 'password' },
+        }),
+      );
     });
   });
 });

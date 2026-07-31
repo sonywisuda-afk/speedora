@@ -12,8 +12,14 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import { UAParser } from 'ua-parser-js';
 import { setAuthCookies, TRUSTED_DEVICE_COOKIE_NAME } from '../auth-cookies.util';
-import { AuthService, RISK_TRUSTED_DEVICE_THRESHOLD, type SafeUser } from '../auth.service';
+import {
+  AuthService,
+  RISK_TRUSTED_DEVICE_THRESHOLD,
+  type AuthMethod,
+  type SafeUser,
+} from '../auth.service';
 import { CurrentUser } from '../decorators/current-user.decorator';
 import { RequireRecentMfa } from '../decorators/require-recent-mfa.decorator';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
@@ -31,6 +37,17 @@ import { PasskeyService } from './passkey.service';
 function userAgentOf(req: Request): string | undefined {
   const value = req.headers['user-agent'];
   return Array.isArray(value) ? value[0] : value;
+}
+
+// Tahap 3.5 (Passkey UX & Observability) - "Chrome on macOS"-style summary
+// of the enclosing HTTP request's own User-Agent, same ua-parser-js
+// primitive AuthService.createSession already uses for Session's browser/os
+// columns - deliberately NOT derived from the WebAuthn ceremony data itself
+// (see Passkey model's own comment on why those are separate concerns).
+function deviceLabelOf(req: Request): string | null {
+  const { browser, os } = UAParser(userAgentOf(req) ?? '');
+  const parts = [browser.name, os.name].filter(Boolean);
+  return parts.length > 0 ? parts.join(' on ') : null;
 }
 
 // Tahap 3 Sprint 1/2 (Passkey Foundation/Login) - "Passkeys" section on the
@@ -80,6 +97,7 @@ export class PasskeyController {
       body.response,
       body.challengeToken,
       body.name,
+      deviceLabelOf(req),
     );
     await this.authService.recordSecurityEvent({
       userId: user.id,
@@ -165,17 +183,39 @@ export class PasskeyController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const { userId, userVerified } = await this.passkeyService.verifyAuthentication(
-      body.response,
-      body.challengeToken,
-    );
+    const ipAddress = req.ip;
+    const userAgent = userAgentOf(req);
+    const method: AuthMethod = 'passkey';
+
+    let userId: string;
+    let userVerified: boolean;
+    try {
+      ({ userId, userVerified } = await this.passkeyService.verifyAuthentication(
+        body.response,
+        body.challengeToken,
+      ));
+    } catch (err) {
+      // Tahap 3.5 (Passkey UX & Observability) - previously a failed
+      // passkey login attempt (forged/tampered assertion, unknown
+      // credential, expired challenge) left NO audit trail at all, unlike
+      // password login's LOGIN_FAILED. userId/email are usually unknown at
+      // this point (same as REFRESH_REJECTED's own no-identity posture) -
+      // credentialId is included for correlation since it's already public
+      // WebAuthn wire data, never a secret.
+      await this.authService.recordSecurityEvent({
+        eventType: 'LOGIN_FAILED',
+        ipAddress,
+        userAgent,
+        metadata: { method, credentialId: body.response?.id },
+      });
+      throw err;
+    }
+
     const user = await this.prisma.user.findUniqueOrThrow({
       where: { id: userId },
       select: { id: true, email: true, role: true, emailVerified: true },
     });
 
-    const ipAddress = req.ip;
-    const userAgent = userAgentOf(req);
     // Computed unconditionally - needed for the trusted-device threshold
     // check when userVerified is false, and otherwise recorded purely as
     // SecurityEvent audit context, same as OAuth login's own
@@ -191,7 +231,10 @@ export class PasskeyController {
           req.cookies?.[TRUSTED_DEVICE_COOKIE_NAME],
         ));
       if (!trusted) {
-        return { mfaRequired: true, mfaToken: this.authService.issueMfaChallengeToken(user.id) };
+        return {
+          mfaRequired: true,
+          mfaToken: this.authService.issueMfaChallengeToken(user.id, method),
+        };
       }
     }
 
@@ -201,10 +244,10 @@ export class PasskeyController {
       eventType: 'LOGIN_SUCCESS',
       ipAddress,
       userAgent,
-      metadata: { method: 'passkey', userVerified, riskScore: risk.score, signals: risk.signals },
+      metadata: { method, userVerified, riskScore: risk.score, signals: risk.signals },
     });
 
-    const tokens = await this.authService.createSession(user, userAgent, ipAddress);
+    const tokens = await this.authService.createSession(user, userAgent, ipAddress, method);
     setAuthCookies(res, tokens);
     return user;
   }

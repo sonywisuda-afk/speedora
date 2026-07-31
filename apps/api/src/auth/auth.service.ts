@@ -7,9 +7,9 @@ import {
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import {
+  Prisma,
   recordSecurityEvent,
   type OAuthProvider,
-  type Prisma,
   type SecurityEventType,
   type UserRole,
 } from '@speedora/database';
@@ -74,6 +74,16 @@ const MFA_CHALLENGE_TOKEN_PURPOSE = 'mfa_challenge';
 // that a session left open on a shared machine isn't permanently elevated.
 export const ELEVATION_WINDOW_MS = 15 * 60 * 1000;
 
+// Tahap 3.5 (Passkey UX & Observability) - the one canonical vocabulary for
+// "how did this login prove identity," threaded through Session.createdVia,
+// every LOGIN_SUCCESS/LOGIN_FAILED SecurityEvent's metadata, and the MFA
+// challenge token (so completing a challenge doesn't lose which of the
+// three OTHER methods originated it - see issueMfaChallengeToken below).
+// Previously each of these four call sites picked its own ad hoc metadata
+// shape (see the fix's own PR description for the inconsistency this
+// closes).
+export type AuthMethod = 'password' | 'google' | 'github' | 'passkey';
+
 export interface SafeUser {
   id: string;
   email: string;
@@ -113,6 +123,9 @@ export interface SessionSummary {
   os: string | null;
   deviceName: string | null;
   ipAddress: string | null;
+  // Tahap 3.5 (Passkey UX & Observability) - see Session.createdVia's own
+  // schema comment. Null for sessions created before this column existed.
+  createdVia: string | null;
   createdAt: Date;
   lastSeenAt: Date;
   expiresAt: Date;
@@ -322,6 +335,7 @@ export class AuthService {
     user: SafeUser,
     userAgent: string | undefined,
     ipAddress: string | undefined,
+    createdVia: AuthMethod,
   ): Promise<SessionTokens> {
     const { browser, os, device } = UAParser(userAgent ?? '');
     const deviceName = [device.vendor, device.model].filter(Boolean).join(' ') || null;
@@ -337,6 +351,7 @@ export class AuthService {
       data: {
         userId: user.id,
         refreshTokenHash,
+        createdVia,
         userAgent: userAgent ?? null,
         browser: browser.name ?? null,
         os: os.name ?? null,
@@ -435,6 +450,7 @@ export class AuthService {
       os: session.os,
       deviceName: session.deviceName,
       ipAddress: session.ipAddress,
+      createdVia: session.createdVia,
       createdAt: session.createdAt,
       lastSeenAt: session.lastSeenAt,
       expiresAt: session.expiresAt,
@@ -732,10 +748,16 @@ export class AuthService {
 
   // Signs a short-lived, purpose-scoped JWT identifying which account still
   // needs to complete an MFA challenge - deliberately NOT a Session/access
-  // token (no session exists yet at this point in the login flow).
-  issueMfaChallengeToken(userId: string): string {
+  // token (no session exists yet at this point in the login flow). Carries
+  // `method` (Tahap 3.5) so completing the challenge (MfaController.challenge)
+  // can pass the ORIGINATING login method through to createSession/
+  // recordSecurityEvent instead of losing it - previously every login that
+  // went through this challenge collapsed to indistinguishable {mfaVerified:
+  // true} metadata regardless of whether it started as password, OAuth, or
+  // a non-UV passkey assertion.
+  issueMfaChallengeToken(userId: string, method: AuthMethod): string {
     return this.jwtService.sign(
-      { sub: userId, purpose: MFA_CHALLENGE_TOKEN_PURPOSE },
+      { sub: userId, purpose: MFA_CHALLENGE_TOKEN_PURPOSE, method },
       { expiresIn: MFA_CHALLENGE_TOKEN_TTL },
     );
   }
@@ -743,18 +765,21 @@ export class AuthService {
   // Throws the same generic UnauthorizedException for "expired," "tampered,"
   // and "not actually an MFA challenge token" (e.g. someone replaying an
   // access token here) - the caller only needs to know the challenge can't
-  // proceed, not why.
-  verifyMfaChallengeToken(token: string): string {
-    let payload: { sub?: string; purpose?: string };
+  // proceed, not why. A token issued before the `method` claim existed
+  // (impossible in practice given the 10-minute TTL, but handled the same
+  // "fail closed" way as every other malformed-payload case here) is
+  // rejected the same as any other invalid token.
+  verifyMfaChallengeToken(token: string): { userId: string; method: AuthMethod } {
+    let payload: { sub?: string; purpose?: string; method?: AuthMethod };
     try {
       payload = this.jwtService.verify(token);
     } catch {
       throw new UnauthorizedException('MFA challenge is invalid or has expired');
     }
-    if (payload.purpose !== MFA_CHALLENGE_TOKEN_PURPOSE || !payload.sub) {
+    if (payload.purpose !== MFA_CHALLENGE_TOKEN_PURPOSE || !payload.sub || !payload.method) {
       throw new UnauthorizedException('MFA challenge is invalid or has expired');
     }
-    return payload.sub;
+    return { userId: payload.sub, method: payload.method };
   }
 
   // "Remember this device" - called by MfaController's challenge endpoint
@@ -848,22 +873,44 @@ export class AuthService {
   // to zero. Ownership-scoped atomic deleteMany (same pattern as
   // revokeTrustedDeviceById) - count === 0 means this provider was never
   // actually linked to this account.
+  //
+  // Tahap 3.5 (Passkey UX & Observability) - same Serializable-transaction
+  // race fix as PasskeyService.delete's own comment describes in detail:
+  // two concurrent unlinks (or an unlink racing a passkey delete) against
+  // an account down to its last method could both read a stale count and
+  // both succeed, leaving zero sign-in methods. P2034 (the write-conflict
+  // Postgres/Prisma report under Serializable isolation) is mapped to a 409
+  // asking the caller to retry.
   async unlinkOAuthProvider(userId: string, provider: OAuthProvider): Promise<void> {
-    const user = await this.prisma.user.findUniqueOrThrow({
-      where: { id: userId },
-      select: { password: true },
-    });
-    const linkedCount = await this.prisma.oAuthIdentity.count({ where: { userId } });
-    const passkeyCount = await this.prisma.passkey.count({ where: { userId } });
-    if (!user.password && linkedCount <= 1 && passkeyCount === 0) {
-      throw new BadRequestException('At least one sign-in method must remain on your account');
-    }
+    try {
+      await this.prisma.$transaction(
+        async (tx) => {
+          const user = await tx.user.findUniqueOrThrow({
+            where: { id: userId },
+            select: { password: true },
+          });
+          const linkedCount = await tx.oAuthIdentity.count({ where: { userId } });
+          const passkeyCount = await tx.passkey.count({ where: { userId } });
+          if (!user.password && linkedCount <= 1 && passkeyCount === 0) {
+            throw new BadRequestException(
+              'At least one sign-in method must remain on your account',
+            );
+          }
 
-    const { count } = await this.prisma.oAuthIdentity.deleteMany({
-      where: { userId, provider },
-    });
-    if (count === 0) {
-      throw new NotFoundException(`${provider} is not linked to this account`);
+          const { count } = await tx.oAuthIdentity.deleteMany({
+            where: { userId, provider },
+          });
+          if (count === 0) {
+            throw new NotFoundException(`${provider} is not linked to this account`);
+          }
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
+        throw new ConflictException('This request conflicted with another change - please retry');
+      }
+      throw error;
     }
   }
 

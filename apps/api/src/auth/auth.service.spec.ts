@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import type { JwtService } from '@nestjs/jwt';
+import { Prisma } from '@speedora/database';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'node:crypto';
 import type { MailService } from '../mail/mail.service';
@@ -15,6 +16,15 @@ import type { LoginBackoffService } from './login-backoff.service';
 import type { MfaService } from './mfa/mfa.service';
 
 jest.mock('bcrypt');
+
+// Tahap 3.5 (Passkey UX & Observability) - what Prisma throws when a
+// Serializable transaction is aborted due to a concurrent write conflict.
+function p2034(): Prisma.PrismaClientKnownRequestError {
+  return new Prisma.PrismaClientKnownRequestError(
+    'Transaction failed due to a write conflict or a deadlock. Please retry your transaction',
+    { code: 'P2034', clientVersion: '5.0.0' },
+  );
+}
 
 describe('AuthService', () => {
   let service: AuthService;
@@ -362,6 +372,7 @@ describe('AuthService', () => {
         { id: 'user-1', email: 'a@example.com', role: 'CREATOR', emailVerified: false },
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120.0',
         '127.0.0.1',
+        'password',
       );
 
       expect(prisma.session.create).toHaveBeenCalledTimes(1);
@@ -370,6 +381,7 @@ describe('AuthService', () => {
       expect(createArgs.data.ipAddress).toBe('127.0.0.1');
       expect(createArgs.data.browser).toBe('Chrome');
       expect(createArgs.data.os).toBe('Windows');
+      expect(createArgs.data.createdVia).toBe('password');
       expect(createArgs.data.expiresAt).toBeInstanceOf(Date);
       expect(createArgs.data.refreshTokenHash).toMatch(/^[0-9a-f]{64}$/);
 
@@ -502,6 +514,7 @@ describe('AuthService', () => {
           os: 'Windows',
           deviceName: null,
           ipAddress: '127.0.0.1',
+          createdVia: 'password',
           createdAt: now,
           lastSeenAt: now,
           expiresAt: new Date(now.getTime() + 60_000),
@@ -512,6 +525,7 @@ describe('AuthService', () => {
           os: 'macOS',
           deviceName: null,
           ipAddress: '10.0.0.1',
+          createdVia: 'passkey',
           createdAt: now,
           lastSeenAt: now,
           expiresAt: new Date(now.getTime() + 60_000),
@@ -525,8 +539,8 @@ describe('AuthService', () => {
         orderBy: { lastSeenAt: 'desc' },
       });
       expect(result).toEqual([
-        expect.objectContaining({ id: 'session-1', current: true }),
-        expect.objectContaining({ id: 'session-2', current: false }),
+        expect.objectContaining({ id: 'session-1', current: true, createdVia: 'password' }),
+        expect.objectContaining({ id: 'session-2', current: false, createdVia: 'passkey' }),
       ]);
     });
   });
@@ -1050,24 +1064,44 @@ describe('AuthService', () => {
   });
 
   describe('issueMfaChallengeToken / verifyMfaChallengeToken', () => {
-    it('signs a purpose-scoped token and verifyMfaChallengeToken accepts it', () => {
+    it('signs a purpose-scoped token carrying the originating method, and verifyMfaChallengeToken accepts it', () => {
       jwtService.sign.mockReturnValue('signed-mfa-token');
-      jwtService.verify.mockReturnValue({ sub: 'user-1', purpose: 'mfa_challenge' });
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'mfa_challenge',
+        method: 'password',
+      });
 
-      const token = service.issueMfaChallengeToken('user-1');
+      const token = service.issueMfaChallengeToken('user-1', 'password');
 
       expect(token).toBe('signed-mfa-token');
       expect(jwtService.sign).toHaveBeenCalledWith(
-        { sub: 'user-1', purpose: 'mfa_challenge' },
+        { sub: 'user-1', purpose: 'mfa_challenge', method: 'password' },
         { expiresIn: '10m' },
       );
-      expect(service.verifyMfaChallengeToken('signed-mfa-token')).toBe('user-1');
+      expect(service.verifyMfaChallengeToken('signed-mfa-token')).toEqual({
+        userId: 'user-1',
+        method: 'password',
+      });
     });
 
     it('rejects a token with the wrong purpose claim', () => {
-      jwtService.verify.mockReturnValue({ sub: 'user-1', purpose: 'something_else' });
+      jwtService.verify.mockReturnValue({
+        sub: 'user-1',
+        purpose: 'something_else',
+        method: 'password',
+      });
 
       expect(() => service.verifyMfaChallengeToken('other-token')).toThrow(UnauthorizedException);
+    });
+
+    // Tahap 3.5 (Passkey UX & Observability)
+    it('rejects a token missing the method claim', () => {
+      jwtService.verify.mockReturnValue({ sub: 'user-1', purpose: 'mfa_challenge' });
+
+      expect(() => service.verifyMfaChallengeToken('no-method-token')).toThrow(
+        UnauthorizedException,
+      );
     });
 
     it('rejects an expired/tampered token', () => {
@@ -1224,6 +1258,28 @@ describe('AuthService', () => {
 
       await expect(service.unlinkOAuthProvider('user-1', 'GITHUB')).rejects.toThrow(
         NotFoundException,
+      );
+    });
+
+    // Tahap 3.5 (Passkey UX & Observability) - race condition fix: same
+    // guard-then-delete race PasskeyService.delete's own comment describes.
+    it('runs the guard+delete inside a Serializable transaction', async () => {
+      prisma.user.findUniqueOrThrow.mockResolvedValue({ password: 'hashed-password' });
+      prisma.oAuthIdentity.count.mockResolvedValue(1);
+      prisma.oAuthIdentity.deleteMany.mockResolvedValue({ count: 1 });
+
+      await service.unlinkOAuthProvider('user-1', 'GOOGLE');
+
+      expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      });
+    });
+
+    it('maps a P2034 write-conflict into a 409 asking the caller to retry', async () => {
+      prisma.$transaction.mockRejectedValue(p2034());
+
+      await expect(service.unlinkOAuthProvider('user-1', 'GOOGLE')).rejects.toThrow(
+        'This request conflicted with another change - please retry',
       );
     });
   });

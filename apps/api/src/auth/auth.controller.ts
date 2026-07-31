@@ -70,7 +70,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const user = await this.authService.register(body.email, body.password);
-    const tokens = await this.authService.createSession(user, userAgentOf(req), req.ip);
+    const tokens = await this.authService.createSession(user, userAgentOf(req), req.ip, 'password');
     setAuthCookies(res, tokens);
     // Best-effort - MailService itself never rethrows on a send failure, so
     // this can't turn a successful registration into a failed response.
@@ -136,7 +136,7 @@ export class AuthController {
         eventType: 'LOGIN_FAILED',
         ipAddress,
         userAgent,
-        metadata: { riskScore: risk.score, signals: risk.signals },
+        metadata: { method: 'password', riskScore: risk.score, signals: risk.signals },
       });
       throw error;
     }
@@ -158,7 +158,10 @@ export class AuthController {
           req.cookies?.[TRUSTED_DEVICE_COOKIE_NAME],
         ));
       if (!trusted) {
-        return { mfaRequired: true, mfaToken: this.authService.issueMfaChallengeToken(user.id) };
+        return {
+          mfaRequired: true,
+          mfaToken: this.authService.issueMfaChallengeToken(user.id, 'password'),
+        };
       }
     }
 
@@ -168,10 +171,10 @@ export class AuthController {
       eventType: 'LOGIN_SUCCESS',
       ipAddress,
       userAgent,
-      metadata: { riskScore: risk.score, signals: risk.signals },
+      metadata: { method: 'password', riskScore: risk.score, signals: risk.signals },
     });
 
-    const tokens = await this.authService.createSession(user, userAgent, ipAddress);
+    const tokens = await this.authService.createSession(user, userAgent, ipAddress, 'password');
     setAuthCookies(res, tokens);
     return user;
   }
@@ -331,19 +334,65 @@ export class AuthController {
   async elevate(
     @Body() body: ElevateDto,
     @CurrentUser() user: SafeUser,
+    @Req() req: Request,
     @CurrentSessionId() sessionId: string,
   ) {
-    const verified =
-      body.passkeyResponse && body.passkeyChallengeToken
-        ? await this.passkeyService.verifyElevationAssertion(
-            user.id,
-            body.passkeyResponse,
-            body.passkeyChallengeToken,
-          )
-        : await this.authService.verifyElevationCredential(user.id, body);
+    // Tahap 3.5 (Passkey UX & Observability) - which credential shape the
+    // caller actually sent, purely for audit context (not a security
+    // decision - that's still made by whichever verify* call below actually
+    // runs). Previously POST /auth/elevate recorded NOTHING, success or
+    // failure, for any of its three credential types - a repeated-failure
+    // pattern here is a real signal (someone trying to step up a stolen
+    // session).
+    const credentialType = body.passkeyResponse ? 'passkey' : body.code ? 'totp' : 'password';
+    const ipAddress = req.ip;
+    const userAgent = userAgentOf(req);
+
+    let verified: boolean;
+    try {
+      verified =
+        body.passkeyResponse && body.passkeyChallengeToken
+          ? await this.passkeyService.verifyElevationAssertion(
+              user.id,
+              body.passkeyResponse,
+              body.passkeyChallengeToken,
+            )
+          : await this.authService.verifyElevationCredential(user.id, body);
+    } catch (err) {
+      // verifyElevationAssertion throws rather than returning false - same
+      // generic ELEVATION_FAILED regardless of which of the two verify
+      // paths rejected it.
+      await this.authService.recordSecurityEvent({
+        userId: user.id,
+        email: user.email,
+        eventType: 'ELEVATION_FAILED',
+        ipAddress,
+        userAgent,
+        metadata: { credentialType },
+      });
+      throw err;
+    }
     if (!verified) {
+      await this.authService.recordSecurityEvent({
+        userId: user.id,
+        email: user.email,
+        eventType: 'ELEVATION_FAILED',
+        ipAddress,
+        userAgent,
+        metadata: { credentialType },
+      });
       throw new UnauthorizedException('Invalid verification code or password');
     }
+
+    await this.authService.recordSecurityEvent({
+      userId: user.id,
+      email: user.email,
+      eventType: 'ELEVATION_SUCCESS',
+      ipAddress,
+      userAgent,
+      metadata: { credentialType },
+    });
+
     const elevatedUntil = await this.authService.elevateSession(sessionId);
     return { success: true, elevatedUntil };
   }
@@ -375,7 +424,7 @@ export class AuthController {
       userAgent: userAgentOf(req),
     });
     // Auto-login after a successful reset, same as register/login.
-    const tokens = await this.authService.createSession(user, userAgentOf(req), req.ip);
+    const tokens = await this.authService.createSession(user, userAgentOf(req), req.ip, 'password');
     setAuthCookies(res, tokens);
     return user;
   }

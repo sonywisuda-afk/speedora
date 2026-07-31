@@ -150,6 +150,31 @@ describe('OAuthController', () => {
       expect(res.redirect).toHaveBeenCalledWith('http://localhost:3000/upload');
     });
 
+    // Tahap 3.5 (Passkey UX & Observability) - LOGIN_SUCCESS metadata now
+    // consistently carries method + riskScore/signals, same shape as
+    // password/passkey login, instead of just {provider}.
+    it('tags LOGIN_SUCCESS with method + risk data, and createSession with the provider-derived method', async () => {
+      jwt.verify.mockReturnValue({ nonce: 'abc' });
+      authService.computeLoginRisk.mockResolvedValue({ score: 12, signals: ['new_ip'] });
+      const req = fakeRequest();
+      const res = fakeResponse();
+
+      await controller.callback('github', 'raw-code', 'valid-state', undefined, req, res);
+
+      expect(authService.recordSecurityEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'LOGIN_SUCCESS',
+          metadata: { method: 'github', provider: 'GITHUB', riskScore: 12, signals: ['new_ip'] },
+        }),
+      );
+      expect(authService.createSession).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.anything(),
+        expect.anything(),
+        'github',
+      );
+    });
+
     it('redirects to /mfa-challenge instead of creating a session when MFA is required', async () => {
       jwt.verify.mockReturnValue({ nonce: 'abc' });
       authService.isMfaEnabled.mockResolvedValue(true);

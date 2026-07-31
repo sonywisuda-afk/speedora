@@ -47,6 +47,18 @@ import { useAuth } from '../../lib/useAuth';
 // against an accidental single click wiping everything.
 const DELETE_CONFIRM_WORD = 'HAPUS';
 
+// Tahap 3.5 (Passkey UX & Observability) - Session.createdVia's own values
+// (AuthMethod in apps/api), shown as a small badge per row in "Perangkat
+// Aktif". Missing/unknown key (including null, from a pre-existing session)
+// deliberately renders nothing rather than a fallback label - there's
+// nothing wrong with an old session, no need to call it out.
+const AUTH_METHOD_LABELS: Record<string, string> = {
+  password: 'Kata Sandi',
+  google: 'Google',
+  github: 'GitHub',
+  passkey: 'Passkey',
+};
+
 export default function AccountsPage() {
   const { user, setUser, checkingAuth, logout } = useAuth();
   const router = useRouter();
@@ -254,6 +266,13 @@ export default function AccountsPage() {
   const [renamePasskeyValue, setRenamePasskeyValue] = useState('');
   const [savingPasskeyRename, setSavingPasskeyRename] = useState(false);
   const [deletingPasskeyId, setDeletingPasskeyId] = useState<string | null>(null);
+  // Tahap 3.5 (Passkey UX & Observability) - same "default true, correct
+  // once mounted" posture as upload/page.tsx's own webAuthnSupported -
+  // browserSupportsWebAuthn() is a client-only check.
+  const [webAuthnSupported, setWebAuthnSupported] = useState(true);
+  useEffect(() => {
+    setWebAuthnSupported(browserSupportsWebAuthn());
+  }, []);
 
   async function fetchPasskeys() {
     try {
@@ -680,6 +699,11 @@ export default function AccountsPage() {
                               Perangkat ini
                             </span>
                           )}
+                          {AUTH_METHOD_LABELS[session.createdVia ?? ''] && (
+                            <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground">
+                              {AUTH_METHOD_LABELS[session.createdVia ?? '']}
+                            </span>
+                          )}
                         </p>
                         <p className="text-muted-foreground">
                           {[session.browser, session.os].filter(Boolean).join(' · ') ||
@@ -810,7 +834,7 @@ export default function AccountsPage() {
             <Card className="mt-10">
               <CardHeader className="flex-row items-center justify-between space-y-0">
                 <CardTitle>Passkeys</CardTitle>
-                {!addingPasskey && (
+                {!addingPasskey && webAuthnSupported && (
                   <Button
                     type="button"
                     variant="outline"
@@ -906,7 +930,14 @@ export default function AccountsPage() {
                         <div className="min-w-0 font-body text-sm">
                           <p className="font-medium text-foreground">{passkey.name}</p>
                           <p className="text-muted-foreground">
-                            {passkey.backedUp ? 'Tersinkron di beberapa perangkat' : 'Perangkat tunggal'}
+                            {[
+                              passkey.createdDeviceLabel,
+                              passkey.backedUp
+                                ? 'Tersinkron di beberapa perangkat'
+                                : 'Perangkat tunggal',
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
                           </p>
                           <p className="text-muted-foreground">
                             Terakhir digunakan: {new Date(passkey.lastUsedAt).toLocaleString()}

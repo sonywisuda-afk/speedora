@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   NotFoundException,
   UnauthorizedException,
@@ -46,6 +47,7 @@ export interface PasskeySummary {
   name: string;
   deviceType: string;
   backedUp: boolean;
+  createdDeviceLabel: string | null;
   createdAt: Date;
   lastUsedAt: Date;
 }
@@ -55,13 +57,14 @@ interface PasskeyRow {
   name: string;
   deviceType: string;
   backedUp: boolean;
+  createdDeviceLabel: string | null;
   createdAt: Date;
   lastUsedAt: Date;
 }
 
 function toSummary(passkey: PasskeyRow): PasskeySummary {
-  const { id, name, deviceType, backedUp, createdAt, lastUsedAt } = passkey;
-  return { id, name, deviceType, backedUp, createdAt, lastUsedAt };
+  const { id, name, deviceType, backedUp, createdDeviceLabel, createdAt, lastUsedAt } = passkey;
+  return { id, name, deviceType, backedUp, createdDeviceLabel, createdAt, lastUsedAt };
 }
 
 // rpID must be a valid domain with no scheme/port (WebAuthn spec) - derived
@@ -169,11 +172,17 @@ export class PasskeyService {
     return payload.challenge;
   }
 
+  // createdDeviceLabel (Tahap 3.5) is a ua-parser-js summary of the
+  // enclosing HTTP request's own User-Agent header (computed by the
+  // controller, same as AuthService.createSession's browser/os parsing) -
+  // see the Passkey model's own comment on why this is separate from the
+  // WebAuthn ceremony data entirely.
   async verifyAndSaveRegistration(
     userId: string,
     response: RegistrationResponseJSON,
     challengeToken: string,
     name: string,
+    createdDeviceLabel: string | null,
   ): Promise<PasskeySummary> {
     const expectedChallenge = this.verifyChallengeToken(challengeToken, userId);
     const { rpID, origin } = rpConfig();
@@ -223,6 +232,7 @@ export class PasskeyService {
           backedUp: credentialBackedUp,
           transports: credential.transports ?? [],
           name: trimmedName,
+          createdDeviceLabel,
         },
       });
       return toSummary(passkey);
@@ -509,22 +519,48 @@ export class PasskeyService {
   // file's header comment on why login methods return primitives, not
   // shared cross-service calls, for the same reasoning duplicating this
   // few-line check keeps the two services independent).
+  //
+  // Tahap 3.5 (Passkey UX & Observability) - the count-check-then-delete
+  // sequence is wrapped in a Serializable transaction to close a real race:
+  // two concurrent deletes against an account with exactly 2 passkeys (and
+  // no password/OAuth) could BOTH read count=2, both pass the guard, and
+  // both succeed - leaving zero sign-in methods, a permanent lockout. Under
+  // Serializable isolation Postgres detects the conflicting concurrent
+  // writes and aborts one transaction (Prisma surfaces this as P2034),
+  // which is mapped to a 409 asking the caller to retry - the SECOND
+  // attempt then correctly sees the updated count and is blocked by the
+  // guard for real. Same fix applied to
+  // AuthService.unlinkOAuthProvider for the identical race.
   async delete(userId: string, id: string): Promise<void> {
-    const passkeyCount = await this.prisma.passkey.count({ where: { userId } });
-    if (passkeyCount <= 1) {
-      const user = await this.prisma.user.findUniqueOrThrow({
-        where: { id: userId },
-        select: { password: true },
-      });
-      const oauthCount = await this.prisma.oAuthIdentity.count({ where: { userId } });
-      if (!user.password && oauthCount === 0) {
-        throw new BadRequestException('At least one sign-in method must remain on your account');
-      }
-    }
+    try {
+      await this.prisma.$transaction(
+        async (tx) => {
+          const passkeyCount = await tx.passkey.count({ where: { userId } });
+          if (passkeyCount <= 1) {
+            const user = await tx.user.findUniqueOrThrow({
+              where: { id: userId },
+              select: { password: true },
+            });
+            const oauthCount = await tx.oAuthIdentity.count({ where: { userId } });
+            if (!user.password && oauthCount === 0) {
+              throw new BadRequestException(
+                'At least one sign-in method must remain on your account',
+              );
+            }
+          }
 
-    const { count } = await this.prisma.passkey.deleteMany({ where: { id, userId } });
-    if (count === 0) {
-      throw new NotFoundException(`Passkey ${id} not found`);
+          const { count } = await tx.passkey.deleteMany({ where: { id, userId } });
+          if (count === 0) {
+            throw new NotFoundException(`Passkey ${id} not found`);
+          }
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2034') {
+        throw new ConflictException('This request conflicted with another change - please retry');
+      }
+      throw error;
     }
   }
 }

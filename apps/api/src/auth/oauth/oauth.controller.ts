@@ -16,7 +16,12 @@ import { OAuthNotConfiguredError } from '@speedora/social';
 import * as crypto from 'node:crypto';
 import type { Request, Response } from 'express';
 import { setAuthCookies, TRUSTED_DEVICE_COOKIE_NAME } from '../auth-cookies.util';
-import { AuthService, RISK_TRUSTED_DEVICE_THRESHOLD, type SafeUser } from '../auth.service';
+import {
+  AuthService,
+  RISK_TRUSTED_DEVICE_THRESHOLD,
+  type AuthMethod,
+  type SafeUser,
+} from '../auth.service';
 import { CurrentUser } from '../decorators/current-user.decorator';
 import { RequireRecentMfa } from '../decorators/require-recent-mfa.decorator';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
@@ -138,15 +143,20 @@ export class OAuthController {
 
       const ipAddress = req.ip;
       const userAgent = userAgentOf(req);
+      const method: AuthMethod = provider === 'GOOGLE' ? 'google' : 'github';
+
+      // Tahap 3.5 (Passkey UX & Observability) - computed unconditionally
+      // now (previously only inside the isMfaEnabled branch below) so it's
+      // always available for the LOGIN_SUCCESS metadata, same "audit
+      // context even when it didn't gate anything" posture
+      // PasskeyController.loginVerify already uses.
+      const risk = await this.authService.computeLoginRisk(user.email, ipAddress, userAgent);
 
       // Tahap 2 Step 2 Sprint 2a (MFA Enforcement) - same isMfaEnabled/
       // checkTrustedDevice/risk-gate sequence as AuthController.login's own
       // password path (see that method's comment on why a valid cookie is
-      // still ignored under meaningful risk). OAuth login doesn't compute a
-      // risk score anywhere else today - it's computed here purely to feed
-      // this gate, same computeLoginRisk call password login already makes.
+      // still ignored under meaningful risk).
       if (await this.authService.isMfaEnabled(user.id)) {
-        const risk = await this.authService.computeLoginRisk(user.email, ipAddress, userAgent);
         const trusted =
           risk.score < RISK_TRUSTED_DEVICE_THRESHOLD &&
           (await this.authService.checkTrustedDevice(
@@ -154,7 +164,7 @@ export class OAuthController {
             req.cookies?.[TRUSTED_DEVICE_COOKIE_NAME],
           ));
         if (!trusted) {
-          const mfaToken = this.authService.issueMfaChallengeToken(user.id);
+          const mfaToken = this.authService.issueMfaChallengeToken(user.id, method);
           res.redirect(`${webOrigin}/mfa-challenge?token=${encodeURIComponent(mfaToken)}`);
           return;
         }
@@ -166,10 +176,15 @@ export class OAuthController {
         eventType: 'LOGIN_SUCCESS',
         ipAddress,
         userAgent,
-        metadata: { provider },
+        metadata: { method, provider, riskScore: risk.score, signals: risk.signals },
       });
 
-      const sessionTokens = await this.authService.createSession(user, userAgent, ipAddress);
+      const sessionTokens = await this.authService.createSession(
+        user,
+        userAgent,
+        ipAddress,
+        method,
+      );
       setAuthCookies(res, sessionTokens);
       res.redirect(`${webOrigin}/upload`);
     } catch (err) {

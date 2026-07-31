@@ -19,6 +19,15 @@ function p2002(): Prisma.PrismaClientKnownRequestError {
   });
 }
 
+// Tahap 3.5 (Passkey UX & Observability) - what Prisma throws when a
+// Serializable transaction is aborted due to a concurrent write conflict.
+function p2034(): Prisma.PrismaClientKnownRequestError {
+  return new Prisma.PrismaClientKnownRequestError(
+    'Transaction failed due to a write conflict or a deadlock. Please retry your transaction',
+    { code: 'P2034', clientVersion: '5.0.0' },
+  );
+}
+
 describe('PasskeyService', () => {
   let service: PasskeyService;
   let jwtService: JwtService;
@@ -35,6 +44,7 @@ describe('PasskeyService', () => {
     };
     user: { findUniqueOrThrow: jest.Mock };
     oAuthIdentity: { count: jest.Mock };
+    $transaction: jest.Mock;
   };
 
   beforeEach(() => {
@@ -56,6 +66,13 @@ describe('PasskeyService', () => {
       },
       user: { findUniqueOrThrow: jest.fn().mockResolvedValue({ password: 'hashed' }) },
       oAuthIdentity: { count: jest.fn().mockResolvedValue(0) },
+      // Tahap 3.5 (Passkey UX & Observability) - delete() now runs its
+      // guard+deleteMany inside $transaction(tx => ...). Passing `prisma`
+      // itself as `tx` (same pattern auth.service.spec.ts's own
+      // $transaction mock already uses) means every existing
+      // prisma.passkey.*/prisma.user.*/prisma.oAuthIdentity.* mock above
+      // still applies unchanged inside the callback.
+      $transaction: jest.fn().mockImplementation((fn: (tx: unknown) => unknown) => fn(prisma)),
     };
     // Real JwtService (not mocked) - same "real crypto round trip" posture
     // as MfaService's spec exercising real otplib, since the challenge
@@ -135,6 +152,7 @@ describe('PasskeyService', () => {
         response,
         challengeToken,
         '  MacBook Touch ID  ',
+        'Chrome on macOS',
       );
 
       expect(prisma.passkey.create).toHaveBeenCalledTimes(1);
@@ -146,6 +164,8 @@ describe('PasskeyService', () => {
       expect(createArgs.data.deviceType).toBe('singleDevice');
       expect(createArgs.data.backedUp).toBe(false);
       expect(createArgs.data.name).toBe('MacBook Touch ID');
+      // Tahap 3.5 (Passkey UX & Observability)
+      expect(createArgs.data.createdDeviceLabel).toBe('Chrome on macOS');
       expect(summary.id).toBe('passkey-1');
     });
 
@@ -167,7 +187,7 @@ describe('PasskeyService', () => {
       });
 
       await expect(
-        service.verifyAndSaveRegistration('user-1', response, challengeToken, 'Security Key'),
+        service.verifyAndSaveRegistration('user-1', response, challengeToken, 'Security Key', null),
       ).resolves.toMatchObject({ id: 'passkey-1' });
     });
 
@@ -180,7 +200,7 @@ describe('PasskeyService', () => {
       });
 
       await expect(
-        service.verifyAndSaveRegistration('user-1', response, challengeToken, 'Passkey'),
+        service.verifyAndSaveRegistration('user-1', response, challengeToken, 'Passkey', null),
       ).rejects.toThrow(BadRequestException);
       expect(prisma.passkey.create).not.toHaveBeenCalled();
     });
@@ -193,7 +213,7 @@ describe('PasskeyService', () => {
       });
 
       await expect(
-        service.verifyAndSaveRegistration('user-1', response, 'not-a-real-token', 'Passkey'),
+        service.verifyAndSaveRegistration('user-1', response, 'not-a-real-token', 'Passkey', null),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -206,7 +226,7 @@ describe('PasskeyService', () => {
       });
 
       await expect(
-        service.verifyAndSaveRegistration('user-2', response, challengeToken, 'Passkey'),
+        service.verifyAndSaveRegistration('user-2', response, challengeToken, 'Passkey', null),
       ).rejects.toThrow(UnauthorizedException);
     });
 
@@ -220,7 +240,7 @@ describe('PasskeyService', () => {
       prisma.passkey.create.mockRejectedValue(p2002());
 
       await expect(
-        service.verifyAndSaveRegistration('user-1', response, challengeToken, 'Passkey'),
+        service.verifyAndSaveRegistration('user-1', response, challengeToken, 'Passkey', null),
       ).rejects.toThrow('This passkey is already registered');
     });
 
@@ -240,7 +260,7 @@ describe('PasskeyService', () => {
         }),
       );
 
-      await service.verifyAndSaveRegistration('user-1', response, challengeToken, '   ');
+      await service.verifyAndSaveRegistration('user-1', response, challengeToken, '   ', null);
 
       expect(prisma.passkey.create.mock.calls[0][0].data.name).toBe('Passkey');
     });
@@ -355,6 +375,26 @@ describe('PasskeyService', () => {
 
       expect(prisma.user.findUniqueOrThrow).not.toHaveBeenCalled();
     });
+
+    // Tahap 3.5 (Passkey UX & Observability) - race condition fix.
+    it('runs the guard+delete inside a Serializable transaction', async () => {
+      prisma.passkey.count.mockResolvedValue(2);
+      prisma.passkey.deleteMany.mockResolvedValue({ count: 1 });
+
+      await service.delete('user-1', 'p1');
+
+      expect(prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      });
+    });
+
+    it('maps a P2034 write-conflict into a 409 asking the caller to retry', async () => {
+      prisma.$transaction.mockRejectedValue(p2034());
+
+      await expect(service.delete('user-1', 'p1')).rejects.toThrow(
+        'This request conflicted with another change - please retry',
+      );
+    });
   });
 
   describe('generateAuthenticationOptionsFor', () => {
@@ -413,6 +453,7 @@ describe('PasskeyService', () => {
         response,
         regChallenge.challengeToken,
         'Test Passkey',
+        null,
       );
       return { credentialId, privateKey, storedPublicKey: storedPublicKey! };
     }
@@ -590,6 +631,7 @@ describe('PasskeyService', () => {
         response,
         regChallenge.challengeToken,
         'Test Passkey',
+        null,
       );
       return { credentialId, privateKey, storedPublicKey: storedPublicKey! };
     }

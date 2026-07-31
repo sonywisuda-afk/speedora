@@ -53,6 +53,18 @@ export default function UploadPage() {
   // relevant for authView 'login' - register never risk-gates.
   const [requiresCaptcha, setRequiresCaptcha] = useState(false);
 
+  // Tahap 3.5 (Passkey UX & Observability) - defaults true (the common
+  // case: Chrome 108+/Safari 16+/Edge 108+ all support WebAuthn) so the
+  // button doesn't flash in on every load; browserSupportsWebAuthn() only
+  // runs client-side (it reads window.PublicKeyCredential), so this can't
+  // be computed synchronously without an SSR/hydration mismatch. Previously
+  // the "Masuk dengan Passkey" button always rendered regardless of actual
+  // support, only failing with an error message after the user clicked it.
+  const [webAuthnSupported, setWebAuthnSupported] = useState(true);
+  useEffect(() => {
+    setWebAuthnSupported(browserSupportsWebAuthn());
+  }, []);
+
   // Tahap 2 Step 1 (OAuth Login) - the OAuth callback (apps/api's
   // OAuthController) is a server-side redirect, not a fetch() this page
   // can await - a failure surfaces as ?error=<reason> on the redirect back
@@ -409,7 +421,7 @@ export default function UploadPage() {
                   }}
                   requiresCaptcha={requiresCaptcha}
                   onCaptchaToken={handleCaptchaToken}
-                  onPasskeyLogin={handlePasskeyLogin}
+                  onPasskeyLogin={webAuthnSupported ? handlePasskeyLogin : undefined}
                 />
               )}
             </div>
