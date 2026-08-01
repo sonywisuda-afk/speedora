@@ -1239,6 +1239,45 @@ export interface PaginatedVideos {
   nextCursor: string | null;
 }
 
+// Dashboard Improvement Sprint Phase B ("View All" video processing
+// history) - deliberately a lean row shape, not VideoWithClips/
+// PaginatedVideos, which drag every AI-feature JSON blob and publishRecord
+// per clip across the wire for what a history table only ever renders as a
+// title/badge/number. "Cancelled" has no VideoHistoryStatusFilter value -
+// VideoStatus has no such state.
+export type VideoHistoryStatusFilter = 'COMPLETED' | 'RUNNING' | 'FAILED';
+export type VideoHistorySortBy = 'newest' | 'oldest' | 'processingTime' | 'topScore';
+
+export interface VideoHistoryRow {
+  id: string;
+  title: string | null;
+  status: VideoStatus;
+  createdAt: string;
+  ownerId: string;
+  workspaceId: string;
+  // Same first->last VideoStatusEvent span as DashboardService.getStats'
+  // avgProcessingTimeSeconds calc - null unless status is RENDERED/FAILED
+  // and there are >=2 status events.
+  processingTimeSeconds: number | null;
+  // Highest Clip.viralityScore among this video's clips - null with 0 clips.
+  topClipScore: number | null;
+  clipCount: number;
+}
+
+// sortBy newest/oldest use true keyset cursor pagination (nextCursor set,
+// page/totalPages/totalCount null); sortBy processingTime/topScore use
+// page-number pagination instead (nextCursor null, page/totalPages/
+// totalCount set) - see VideosService.findHistory for why these two modes
+// can't share one pagination mechanism.
+export interface VideoHistoryPage {
+  videos: VideoHistoryRow[];
+  sortBy: VideoHistorySortBy;
+  nextCursor: string | null;
+  page: number | null;
+  totalPages: number | null;
+  totalCount: number | null;
+}
+
 // PATCH /clips/:id payload - manual trim from the timeline editor. Partial:
 // either field can be adjusted independently.
 export interface UpdateClipInput {

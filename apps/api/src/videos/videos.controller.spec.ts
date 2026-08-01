@@ -22,6 +22,7 @@ describe('VideosController', () => {
     upload: jest.Mock;
     importFromYoutube: jest.Mock;
     findAll: jest.Mock;
+    findHistory: jest.Mock;
     getVideoReportJson: jest.Mock;
     getVideoReportCsv: jest.Mock;
     getClipMetadataJson: jest.Mock;
@@ -51,6 +52,7 @@ describe('VideosController', () => {
       upload: jest.fn(),
       importFromYoutube: jest.fn(),
       findAll: jest.fn(),
+      findHistory: jest.fn(),
       getVideoReportJson: jest.fn(),
       getVideoReportCsv: jest.fn(),
       getClipMetadataJson: jest.fn(),
@@ -175,6 +177,140 @@ describe('VideosController', () => {
         cursor: 'video-9',
         limit: 50,
       });
+    });
+  });
+
+  // Dashboard Improvement Sprint Phase B ("View All" video processing
+  // history).
+  describe('findHistory', () => {
+    it('defaults page/limit/sortBy and leaves optional filters undefined when none are given', () => {
+      controller.findHistory(user);
+
+      expect(videosService.findHistory).toHaveBeenCalledWith('user-1', {
+        cursor: undefined,
+        page: 1,
+        limit: 20,
+        workspaceId: undefined,
+        ownerId: undefined,
+        status: undefined,
+        search: undefined,
+        dateFrom: undefined,
+        dateTo: undefined,
+        sortBy: 'newest',
+      });
+    });
+
+    it('forwards every filter/sort param unchanged when all are given', () => {
+      controller.findHistory(
+        user,
+        'video-9',
+        '3',
+        '30',
+        'ws-1',
+        'owner-1',
+        'FAILED',
+        'zoo',
+        '2026-01-01',
+        '2026-02-01',
+        'topScore',
+      );
+
+      expect(videosService.findHistory).toHaveBeenCalledWith('user-1', {
+        cursor: 'video-9',
+        page: 3,
+        limit: 30,
+        workspaceId: 'ws-1',
+        ownerId: 'owner-1',
+        status: 'FAILED',
+        search: 'zoo',
+        dateFrom: new Date('2026-01-01'),
+        dateTo: new Date('2026-02-01'),
+        sortBy: 'topScore',
+      });
+    });
+
+    it('falls back to newest for an invalid sortBy instead of throwing', () => {
+      controller.findHistory(
+        user,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'not-a-real-sort',
+      );
+
+      expect(videosService.findHistory).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ sortBy: 'newest' }),
+      );
+    });
+
+    it('falls back to no status filter for an invalid status instead of throwing', () => {
+      controller.findHistory(
+        user,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'CANCELLED',
+      );
+
+      expect(videosService.findHistory).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ status: undefined }),
+      );
+    });
+
+    it('falls back to page 1 for an invalid page number instead of throwing', () => {
+      controller.findHistory(user, undefined, '-5');
+
+      expect(videosService.findHistory).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ page: 1 }),
+      );
+    });
+
+    it('ignores an unparseable date instead of throwing', () => {
+      controller.findHistory(
+        user,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        'not-a-date',
+      );
+
+      expect(videosService.findHistory).toHaveBeenCalledWith(
+        'user-1',
+        expect.objectContaining({ dateFrom: undefined }),
+      );
+    });
+  });
+
+  // Regression guard for the route-declaration-order requirement noted on
+  // findHistory itself: NestJS matches @Get routes in declaration order, so
+  // GET /videos/history must resolve to findHistory, not be swallowed by
+  // @Get(':id')'s findOne with id="history". Class method declaration order
+  // is exactly Object.getOwnPropertyNames(prototype)'s order for
+  // string-keyed members (ECMAScript-guaranteed insertion order).
+  describe('route registration order', () => {
+    it('declares findHistory before findOne', () => {
+      const methodNames = Object.getOwnPropertyNames(VideosController.prototype);
+      const historyIndex = methodNames.indexOf('findHistory');
+      const findOneIndex = methodNames.indexOf('findOne');
+
+      expect(historyIndex).toBeGreaterThan(-1);
+      expect(findOneIndex).toBeGreaterThan(-1);
+      expect(historyIndex).toBeLessThan(findOneIndex);
     });
   });
 

@@ -500,9 +500,19 @@ export function DashboardClient({
           <ProcessingQueue videos={videos} />
           {videos.length > 0 && (
             <div>
-              <h2 className="mb-2 font-display text-sm uppercase tracking-wide text-muted-foreground">
-                Recent Projects
-              </h2>
+              <div className="mb-2 flex items-center justify-between">
+                <h2 className="font-display text-sm uppercase tracking-wide text-muted-foreground">
+                  Recent Projects
+                </h2>
+                {/* Dashboard Improvement Sprint Phase B - read-only, so
+                    unlike UploadVideoQuickAction this is a plain link, not
+                    gated on activeWorkspaceId (falls back to the requester's
+                    personal workspace the same way GET /videos itself
+                    does). */}
+                <Button size="sm" variant="outline" asChild>
+                  <Link href="/videos/history">View All</Link>
+                </Button>
+              </div>
               <RecentProjectsGrid videos={videos} />
               {hasMore && (
                 <div className="mt-3 flex justify-center">

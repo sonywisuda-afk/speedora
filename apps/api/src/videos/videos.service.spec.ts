@@ -39,6 +39,7 @@ describe('VideosService', () => {
     user: { findUniqueOrThrow: jest.Mock };
     workspace: { findUniqueOrThrow: jest.Mock };
     $transaction: jest.Mock;
+    $queryRaw: jest.Mock;
   };
   let workspaceAccess: {
     assertMinRole: jest.Mock;
@@ -66,6 +67,9 @@ describe('VideosService', () => {
         update: jest.fn().mockResolvedValue({}),
         delete: jest.fn().mockResolvedValue({}),
       },
+      // Dashboard Improvement Sprint Phase B ("View All" video processing
+      // history) - findHistory's processingTime/topScore sort branch.
+      $queryRaw: jest.fn(),
       videoStatusEvent: {
         create: jest.fn().mockResolvedValue({}),
         findMany: jest.fn().mockResolvedValue([]),
@@ -682,6 +686,278 @@ describe('VideosService', () => {
       );
       expect(result.videos.map((v) => v.id)).toEqual(['video-3']);
       expect(result.nextCursor).toBe('video-3');
+    });
+  });
+
+  // Dashboard Improvement Sprint Phase B ("View All" video processing
+  // history) - a separate method/endpoint from findAll (see
+  // VideosService.findHistory's own comment), split into two pagination
+  // branches. newest/oldest reuse findAll's Prisma findMany path; the two
+  // computed sorts (processingTime/topScore) go through prisma.$queryRaw.
+  describe('findHistory', () => {
+    function rawRow(overrides: Partial<Record<string, unknown>> = {}) {
+      return {
+        id: 'video-1',
+        title: 'My Video',
+        status: VideoStatus.RENDERED,
+        createdAt: new Date('2026-07-01T00:00:00.000Z'),
+        ownerId: 'user-1',
+        workspaceId: 'workspace-1',
+        topClipScore: 88,
+        clipCount: 3,
+        processingTimeSeconds: 120,
+        ...overrides,
+      };
+    }
+
+    describe('sortBy newest/oldest (Prisma path)', () => {
+      it('defaults to newest and resolves the personal workspace when none is given', async () => {
+        prisma.video.findMany.mockResolvedValue([]);
+
+        await service.findHistory('user-1', { limit: 20 });
+
+        expect(workspaceAccess.getPersonalWorkspaceId).toHaveBeenCalledWith('user-1');
+        expect(prisma.video.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: { workspaceId: 'workspace-1' },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            take: 21,
+          }),
+        );
+      });
+
+      it('sortBy oldest flips the orderBy direction', async () => {
+        prisma.video.findMany.mockResolvedValue([]);
+
+        await service.findHistory('user-1', { limit: 20, sortBy: 'oldest' });
+
+        expect(prisma.video.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({ orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] }),
+        );
+      });
+
+      it('applies ownerId, status, search, and date-range filters together', async () => {
+        prisma.video.findMany.mockResolvedValue([]);
+
+        await service.findHistory('user-1', {
+          limit: 20,
+          workspaceId: 'ws-1',
+          ownerId: 'owner-2',
+          status: 'FAILED',
+          search: 'zoo',
+          dateFrom: new Date('2026-01-01T00:00:00.000Z'),
+          dateTo: new Date('2026-02-01T00:00:00.000Z'),
+        });
+
+        expect(workspaceAccess.assertMinRole).toHaveBeenCalledWith('user-1', 'ws-1', 'VIEWER');
+        expect(prisma.video.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: {
+              workspaceId: 'ws-1',
+              ownerId: 'owner-2',
+              status: { in: [VideoStatus.FAILED] },
+              title: { contains: 'zoo', mode: 'insensitive' },
+              createdAt: {
+                gte: new Date('2026-01-01T00:00:00.000Z'),
+                // PR #37 review fix - dateTo is shifted to the exclusive
+                // start of the NEXT day (see endOfDayExclusive), compared
+                // with `lt` not `lte`, so the entire selected end day is
+                // actually included.
+                lt: new Date('2026-02-02T00:00:00.000Z'),
+              },
+            },
+          }),
+        );
+      });
+
+      // PR #37 review fix regression test - dateTo previously compared with
+      // `lte` against midnight of the selected day, excluding everything
+      // created later that same day. This pins the corrected behavior.
+      it('dateTo includes the entire selected day, not just its first instant', async () => {
+        prisma.video.findMany.mockResolvedValue([]);
+
+        await service.findHistory('user-1', {
+          limit: 20,
+          dateTo: new Date('2026-02-01T00:00:00.000Z'),
+        });
+
+        expect(prisma.video.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              createdAt: { lt: new Date('2026-02-02T00:00:00.000Z') },
+            }),
+          }),
+        );
+      });
+
+      it('maps status RUNNING to every non-terminal VideoStatus value', async () => {
+        prisma.video.findMany.mockResolvedValue([]);
+
+        await service.findHistory('user-1', { limit: 20, status: 'RUNNING' });
+
+        expect(prisma.video.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              status: {
+                in: [
+                  VideoStatus.IMPORTING,
+                  VideoStatus.UPLOADED,
+                  VideoStatus.PENDING_SETTINGS,
+                  VideoStatus.TRANSCRIBED,
+                  VideoStatus.CLIPS_DETECTED,
+                ],
+              },
+            }),
+          }),
+        );
+      });
+
+      it('computes processingTimeSeconds as the first->last status-event span for a terminal video', async () => {
+        prisma.video.findMany.mockResolvedValue([
+          {
+            id: 'video-1',
+            title: 'Done',
+            status: VideoStatus.RENDERED,
+            createdAt: new Date('2026-07-01T00:00:00.000Z'),
+            ownerId: 'user-1',
+            workspaceId: 'workspace-1',
+            clips: [{ viralityScore: 77 }],
+            _count: { clips: 1 },
+            statusEvents: [
+              { createdAt: new Date('2026-07-01T00:00:00.000Z') },
+              { createdAt: new Date('2026-07-01T00:02:00.000Z') },
+            ],
+          },
+        ]);
+
+        const result = await service.findHistory('user-1', { limit: 20 });
+
+        expect(result.videos[0]).toMatchObject({
+          processingTimeSeconds: 120,
+          topClipScore: 77,
+          clipCount: 1,
+        });
+      });
+
+      it('leaves processingTimeSeconds null for a non-terminal video even with >=2 status events', async () => {
+        prisma.video.findMany.mockResolvedValue([
+          {
+            id: 'video-1',
+            title: 'In progress',
+            status: VideoStatus.TRANSCRIBED,
+            createdAt: new Date('2026-07-01T00:00:00.000Z'),
+            ownerId: 'user-1',
+            workspaceId: 'workspace-1',
+            clips: [],
+            _count: { clips: 0 },
+            statusEvents: [
+              { createdAt: new Date('2026-07-01T00:00:00.000Z') },
+              { createdAt: new Date('2026-07-01T00:02:00.000Z') },
+            ],
+          },
+        ]);
+
+        const result = await service.findHistory('user-1', { limit: 20 });
+
+        expect(result.videos[0].processingTimeSeconds).toBeNull();
+        expect(result.videos[0].topClipScore).toBeNull();
+      });
+
+      it('leaves processingTimeSeconds null for a terminal video with fewer than 2 status events', async () => {
+        prisma.video.findMany.mockResolvedValue([
+          {
+            id: 'video-1',
+            title: 'Failed fast',
+            status: VideoStatus.FAILED,
+            createdAt: new Date('2026-07-01T00:00:00.000Z'),
+            ownerId: 'user-1',
+            workspaceId: 'workspace-1',
+            clips: [],
+            _count: { clips: 0 },
+            statusEvents: [{ createdAt: new Date('2026-07-01T00:00:00.000Z') }],
+          },
+        ]);
+
+        const result = await service.findHistory('user-1', { limit: 20 });
+
+        expect(result.videos[0].processingTimeSeconds).toBeNull();
+      });
+
+      it('returns cursor-mode pagination fields (page/totalPages/totalCount null)', async () => {
+        const created = new Date('2026-07-01T00:00:00.000Z');
+        prisma.video.findMany.mockResolvedValue([
+          {
+            id: 'video-2',
+            ownerId: 'user-1',
+            createdAt: created,
+            clips: [],
+            _count: { clips: 0 },
+            statusEvents: [],
+          },
+          {
+            id: 'video-1',
+            ownerId: 'user-1',
+            createdAt: created,
+            clips: [],
+            _count: { clips: 0 },
+            statusEvents: [],
+          },
+        ]);
+
+        const result = await service.findHistory('user-1', { limit: 1 });
+
+        expect(result.nextCursor).toBe('video-2');
+        expect(result.page).toBeNull();
+        expect(result.totalPages).toBeNull();
+        expect(result.totalCount).toBeNull();
+      });
+    });
+
+    describe('sortBy processingTime/topScore (raw SQL path)', () => {
+      it('returns page-mode pagination fields (nextCursor null) from $queryRaw results', async () => {
+        prisma.$queryRaw
+          .mockResolvedValueOnce([rawRow()])
+          .mockResolvedValueOnce([{ count: BigInt(45) }]);
+
+        const result = await service.findHistory('user-1', {
+          limit: 20,
+          sortBy: 'topScore',
+          page: 2,
+        });
+
+        expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+        expect(result.sortBy).toBe('topScore');
+        expect(result.nextCursor).toBeNull();
+        expect(result.page).toBe(2);
+        expect(result.totalCount).toBe(45);
+        expect(result.totalPages).toBe(3); // ceil(45 / 20)
+        expect(result.videos[0]).toMatchObject({
+          id: 'video-1',
+          topClipScore: 88,
+          clipCount: 3,
+          processingTimeSeconds: 120,
+        });
+      });
+
+      it('falls back to page 1 for an invalid/missing page number', async () => {
+        prisma.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ count: BigInt(0) }]);
+
+        const result = await service.findHistory('user-1', {
+          limit: 20,
+          sortBy: 'processingTime',
+          page: 0,
+        });
+
+        expect(result.page).toBe(1);
+      });
+
+      it('resolves an explicit workspaceId the same way as the Prisma path', async () => {
+        prisma.$queryRaw.mockResolvedValueOnce([]).mockResolvedValueOnce([{ count: BigInt(0) }]);
+
+        await service.findHistory('user-1', { limit: 20, sortBy: 'topScore', workspaceId: 'ws-1' });
+
+        expect(workspaceAccess.assertMinRole).toHaveBeenCalledWith('user-1', 'ws-1', 'VIEWER');
+      });
     });
   });
 
