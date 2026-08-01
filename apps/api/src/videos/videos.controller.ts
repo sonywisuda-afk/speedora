@@ -52,6 +52,41 @@ function parseLimit(raw: string | undefined): number {
   return Math.min(MAX_LIMIT, Math.max(MIN_LIMIT, Math.round(parsed)));
 }
 
+// Dashboard Improvement Sprint Phase B ("View All" video processing
+// history) - same clamped/fallback-to-default-not-throw posture as
+// parseLimit above.
+const HISTORY_SORT_VALUES = ['newest', 'oldest', 'processingTime', 'topScore'] as const;
+type HistorySortBy = (typeof HISTORY_SORT_VALUES)[number];
+
+function parseSortBy(raw: string | undefined): HistorySortBy {
+  return (HISTORY_SORT_VALUES as readonly string[]).includes(raw ?? '')
+    ? (raw as HistorySortBy)
+    : 'newest';
+}
+
+// No CANCELLED value - VideoStatus has no such state (see
+// VideosService's HISTORY_STATUS_FILTER_MAP).
+const HISTORY_STATUS_VALUES = ['COMPLETED', 'RUNNING', 'FAILED'] as const;
+type HistoryStatusFilter = (typeof HISTORY_STATUS_VALUES)[number];
+
+function parseStatusFilter(raw: string | undefined): HistoryStatusFilter | undefined {
+  return (HISTORY_STATUS_VALUES as readonly string[]).includes(raw ?? '')
+    ? (raw as HistoryStatusFilter)
+    : undefined;
+}
+
+function parsePage(raw: string | undefined): number {
+  const parsed = Number(raw);
+  if (!raw || !Number.isFinite(parsed) || parsed < 1) return 1;
+  return Math.floor(parsed);
+}
+
+function parseDate(raw: string | undefined): Date | undefined {
+  if (!raw) return undefined;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed;
+}
+
 // Derived from the stored key's own extension (Phase 2, image optimization
 // roadmap) rather than hardcoded - thumbnails extracted before the WebP
 // switch are still `.jpg` (never backfilled), and serving those with a
@@ -117,6 +152,38 @@ export class VideosController {
       workspaceId,
       projectId,
       folderId,
+    });
+  }
+
+  // Dashboard Improvement Sprint Phase B ("View All" video processing
+  // history) - must be declared before @Get(':id') below: NestJS matches
+  // routes in declaration order, so a later position here would have
+  // /videos/history swallowed by findOne with id="history".
+  @Get('history')
+  findHistory(
+    @CurrentUser() user: SafeUser,
+    @Query('cursor') cursor?: string,
+    @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    @Query('workspaceId') workspaceId?: string,
+    @Query('ownerId') ownerId?: string,
+    @Query('status') status?: string,
+    @Query('search') search?: string,
+    @Query('dateFrom') dateFrom?: string,
+    @Query('dateTo') dateTo?: string,
+    @Query('sortBy') sortBy?: string,
+  ) {
+    return this.videosService.findHistory(user.id, {
+      cursor,
+      page: parsePage(page),
+      limit: parseLimit(limit),
+      workspaceId,
+      ownerId,
+      status: parseStatusFilter(status),
+      search,
+      dateFrom: parseDate(dateFrom),
+      dateTo: parseDate(dateTo),
+      sortBy: parseSortBy(sortBy),
     });
   }
 

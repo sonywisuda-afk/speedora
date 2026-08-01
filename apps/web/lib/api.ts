@@ -93,6 +93,9 @@ import type {
   UpdateNotificationPreferenceDto,
   UserRole,
   Video,
+  VideoHistoryPage,
+  VideoHistorySortBy,
+  VideoHistoryStatusFilter,
   VideoWithClips,
   WorkspaceDetailDto,
   WorkspaceDto,
@@ -836,6 +839,42 @@ export async function listVideos(params?: {
   const qs = query.toString();
   const res = await apiFetch(`/videos${qs ? `?${qs}` : ''}`);
   return parseJsonOrThrow<PaginatedVideos>(res);
+}
+
+// Dashboard Improvement Sprint Phase B ("View All" video processing
+// history) - separate from listVideos/PaginatedVideos on purpose (see
+// VideosService.findHistory's own comment): a history table only needs a
+// lean row shape, not every clip's full AI-feature JSON. sortBy newest/
+// oldest use cursor (nextCursor set, page/totalPages/totalCount null);
+// processingTime/topScore use page-number pagination instead (opposite
+// nullness) - see the response shape itself, not a second return type.
+export async function listVideoHistory(params?: {
+  cursor?: string;
+  page?: number;
+  limit?: number;
+  workspaceId?: string;
+  ownerId?: string;
+  status?: VideoHistoryStatusFilter;
+  search?: string;
+  dateFrom?: string;
+  dateTo?: string;
+  sortBy?: VideoHistorySortBy;
+}): Promise<VideoHistoryPage> {
+  const res = await apiFetch(
+    `/videos/history${toQueryString({
+      cursor: params?.cursor,
+      page: params?.page,
+      limit: params?.limit,
+      workspaceId: params?.workspaceId,
+      ownerId: params?.ownerId,
+      status: params?.status,
+      search: params?.search,
+      dateFrom: params?.dateFrom,
+      dateTo: params?.dateTo,
+      sortBy: params?.sortBy,
+    })}`,
+  );
+  return parseJsonOrThrow<VideoHistoryPage>(res);
 }
 
 export function clipDownloadUrl(downloadUrl: string): string {

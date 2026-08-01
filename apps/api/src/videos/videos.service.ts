@@ -109,6 +109,21 @@ const CLIPS_WITH_PUBLISH_RECORDS = {
   include: { publishRecords: { include: { socialAccount: true } } },
 } as const;
 
+// Dashboard Improvement Sprint Phase B ("View All" video processing
+// history) - VideoStatus has no CANCELLED value, so the history status
+// filter only offers these three; RUNNING covers every non-terminal stage.
+const HISTORY_STATUS_FILTER_MAP: Record<'COMPLETED' | 'RUNNING' | 'FAILED', VideoStatus[]> = {
+  COMPLETED: [VideoStatus.RENDERED],
+  FAILED: [VideoStatus.FAILED],
+  RUNNING: [
+    VideoStatus.IMPORTING,
+    VideoStatus.UPLOADED,
+    VideoStatus.PENDING_SETTINGS,
+    VideoStatus.TRANSCRIBED,
+    VideoStatus.CLIPS_DETECTED,
+  ],
+};
+
 // Watermark roadmap (P3c) - same defaults as ClipsService's own
 // DEFAULT_WATERMARK_* constants, duplicated here rather than exported/
 // shared - same "each render-enqueue site inlines its own resolution"
@@ -529,6 +544,289 @@ export class VideosService {
     return {
       videos: page.map((video) => this.mapVideoWithClips(video)),
       nextCursor: hasMore ? page[page.length - 1].id : null,
+    };
+  }
+
+  // Dashboard Improvement Sprint Phase B ("View All" video processing
+  // history) - a deliberately separate endpoint/method from findAll, which
+  // is the poll-hot-path (2s interval from the Dashboard) findAll's own
+  // comment above documents the correctness reason for. Bolting a 4-way
+  // sort, 5 new filters, and a raw-SQL branch onto that path risked
+  // regressing it; this method leaves findAll byte-for-byte untouched.
+  //
+  // newest/oldest reuse findAll's exact cursor idiom (no computed column
+  // needed). processingTime/topScore key off values Prisma's query builder
+  // cannot ORDER BY (a to-many relation's MAX(), and a computed
+  // first->last-VideoStatusEvent span) - once the ORDER BY has to be raw
+  // SQL, the WHERE/pagination boundary has to move into the same query too
+  // (a video excluded by a Prisma-side WHERE could be exactly the row that
+  // determines the raw-SQL page boundary), so those two sorts use
+  // page-number pagination instead of a cursor. This page is never
+  // live-polled (unlike GET /videos), so the small risk of a boundary row
+  // shifting by one page mid-browse if a video's score/processing-time
+  // changes while paging is an accepted, documented tradeoff - not a
+  // live-feed dup/skip bug.
+  async findHistory(
+    requesterId: string,
+    {
+      cursor,
+      page = 1,
+      limit,
+      workspaceId,
+      ownerId,
+      status,
+      search,
+      dateFrom,
+      dateTo,
+      sortBy = 'newest',
+    }: {
+      cursor?: string;
+      page?: number;
+      limit: number;
+      workspaceId?: string;
+      ownerId?: string;
+      status?: 'COMPLETED' | 'RUNNING' | 'FAILED';
+      search?: string;
+      dateFrom?: Date;
+      dateTo?: Date;
+      sortBy?: 'newest' | 'oldest' | 'processingTime' | 'topScore';
+    },
+  ) {
+    let targetWorkspaceId: string;
+    if (workspaceId) {
+      await this.workspaceAccess.assertMinRole(requesterId, workspaceId, WorkspaceRole.VIEWER);
+      targetWorkspaceId = workspaceId;
+    } else {
+      targetWorkspaceId = await this.workspaceAccess.getPersonalWorkspaceId(requesterId);
+    }
+
+    const statusList = status ? HISTORY_STATUS_FILTER_MAP[status] : undefined;
+
+    if (sortBy === 'newest' || sortBy === 'oldest') {
+      return this.findHistoryByDate(targetWorkspaceId, {
+        cursor,
+        limit,
+        ownerId,
+        statusList,
+        search,
+        dateFrom,
+        dateTo,
+        sortBy,
+      });
+    }
+
+    return this.findHistoryByComputedSort(targetWorkspaceId, {
+      page,
+      limit,
+      ownerId,
+      statusList,
+      search,
+      dateFrom,
+      dateTo,
+      sortBy,
+    });
+  }
+
+  private async findHistoryByDate(
+    targetWorkspaceId: string,
+    {
+      cursor,
+      limit,
+      ownerId,
+      statusList,
+      search,
+      dateFrom,
+      dateTo,
+      sortBy,
+    }: {
+      cursor?: string;
+      limit: number;
+      ownerId?: string;
+      statusList?: VideoStatus[];
+      search?: string;
+      dateFrom?: Date;
+      dateTo?: Date;
+      sortBy: 'newest' | 'oldest';
+    },
+  ) {
+    const videos = await this.prisma.video.findMany({
+      where: {
+        workspaceId: targetWorkspaceId,
+        ...(ownerId ? { ownerId } : {}),
+        ...(statusList ? { status: { in: statusList } } : {}),
+        ...(search ? { title: { contains: search, mode: 'insensitive' as const } } : {}),
+        ...(dateFrom || dateTo
+          ? {
+              createdAt: {
+                ...(dateFrom ? { gte: dateFrom } : {}),
+                ...(dateTo ? { lte: dateTo } : {}),
+              },
+            }
+          : {}),
+      },
+      orderBy:
+        sortBy === 'oldest'
+          ? [{ createdAt: 'asc' as const }, { id: 'asc' as const }]
+          : [{ createdAt: 'desc' as const }, { id: 'desc' as const }],
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      select: {
+        id: true,
+        title: true,
+        status: true,
+        createdAt: true,
+        ownerId: true,
+        workspaceId: true,
+        clips: { select: { viralityScore: true }, orderBy: { viralityScore: 'desc' }, take: 1 },
+        _count: { select: { clips: true } },
+        statusEvents: { select: { createdAt: true }, orderBy: { createdAt: 'asc' } },
+      },
+    });
+
+    const hasMore = videos.length > limit;
+    const page = hasMore ? videos.slice(0, limit) : videos;
+
+    return {
+      videos: page.map((video) => this.mapVideoHistoryRow(video)),
+      sortBy,
+      nextCursor: hasMore ? page[page.length - 1].id : null,
+      page: null,
+      totalPages: null,
+      totalCount: null,
+    };
+  }
+
+  // Same processing-time formula as DashboardService.getStats
+  // (apps/api/src/dashboard/dashboard.service.ts) - duplicated, not shared,
+  // matching this codebase's existing per-call-site-copy convention (see
+  // parseLimit's own comment on this in videos.controller.ts).
+  private mapVideoHistoryRow(video: {
+    id: string;
+    title: string | null;
+    status: VideoStatus;
+    createdAt: Date;
+    ownerId: string;
+    workspaceId: string;
+    clips: { viralityScore: number }[];
+    _count: { clips: number };
+    statusEvents: { createdAt: Date }[];
+  }) {
+    const isTerminal = video.status === VideoStatus.RENDERED || video.status === VideoStatus.FAILED;
+    const processingTimeSeconds =
+      isTerminal && video.statusEvents.length >= 2
+        ? (video.statusEvents[video.statusEvents.length - 1].createdAt.getTime() -
+            video.statusEvents[0].createdAt.getTime()) /
+          1000
+        : null;
+
+    return {
+      id: video.id,
+      title: video.title,
+      status: video.status,
+      createdAt: video.createdAt.toISOString(),
+      ownerId: video.ownerId,
+      workspaceId: video.workspaceId,
+      processingTimeSeconds,
+      topClipScore: video.clips[0]?.viralityScore ?? null,
+      clipCount: video._count.clips,
+    };
+  }
+
+  // The ORDER BY here depends on a per-row aggregate Prisma's findMany
+  // cannot express, so the WHERE/pagination boundary has to live in the
+  // same raw query (see findHistory's comment for why). Every interpolated
+  // value stays a bound parameter via Prisma.sql's tagged template - never
+  // string-concatenated - same safe pattern as ClipsService.getTopicFacets
+  // (apps/api/src/clips/clips.service.ts).
+  private async findHistoryByComputedSort(
+    targetWorkspaceId: string,
+    {
+      page,
+      limit,
+      ownerId,
+      statusList,
+      search,
+      dateFrom,
+      dateTo,
+      sortBy,
+    }: {
+      page: number;
+      limit: number;
+      ownerId?: string;
+      statusList?: VideoStatus[];
+      search?: string;
+      dateFrom?: Date;
+      dateTo?: Date;
+      sortBy: 'processingTime' | 'topScore';
+    },
+  ) {
+    const safePage = Number.isFinite(page) && page >= 1 ? Math.floor(page) : 1;
+
+    const whereFragment = Prisma.sql`
+      v."workspaceId" = ${targetWorkspaceId}
+      ${ownerId ? Prisma.sql`AND v."ownerId" = ${ownerId}` : Prisma.empty}
+      ${statusList ? Prisma.sql`AND v.status::text IN (${Prisma.join(statusList)})` : Prisma.empty}
+      ${search ? Prisma.sql`AND v.title ILIKE ${`%${search}%`}` : Prisma.empty}
+      ${dateFrom ? Prisma.sql`AND v."createdAt" >= ${dateFrom}` : Prisma.empty}
+      ${dateTo ? Prisma.sql`AND v."createdAt" <= ${dateTo}` : Prisma.empty}
+    `;
+
+    const orderFragment =
+      sortBy === 'topScore'
+        ? Prisma.sql`"topClipScore" DESC NULLS LAST, v.id DESC`
+        : Prisma.sql`"processingTimeSeconds" DESC NULLS LAST, v.id DESC`;
+
+    type RawRow = {
+      id: string;
+      title: string | null;
+      status: VideoStatus;
+      createdAt: Date;
+      ownerId: string;
+      workspaceId: string;
+      topClipScore: number | null;
+      clipCount: number;
+      processingTimeSeconds: number | null;
+    };
+
+    const [rows, countResult] = await Promise.all([
+      this.prisma.$queryRaw<RawRow[]>`
+        SELECT
+          v.id, v.title, v.status, v."createdAt", v."ownerId", v."workspaceId",
+          (SELECT MAX(c."viralityScore") FROM "Clip" c WHERE c."videoId" = v.id) AS "topClipScore",
+          (SELECT COUNT(*)::int FROM "Clip" c WHERE c."videoId" = v.id) AS "clipCount",
+          CASE WHEN v.status IN ('RENDERED', 'FAILED') THEN (
+            SELECT EXTRACT(EPOCH FROM (MAX(e."createdAt") - MIN(e."createdAt")))
+            FROM "VideoStatusEvent" e WHERE e."videoId" = v.id HAVING COUNT(*) >= 2
+          ) ELSE NULL END AS "processingTimeSeconds"
+        FROM "Video" v
+        WHERE ${whereFragment}
+        ORDER BY ${orderFragment}
+        LIMIT ${limit} OFFSET ${(safePage - 1) * limit}
+      `,
+      this.prisma.$queryRaw<{ count: bigint }[]>`
+        SELECT COUNT(*)::bigint AS count FROM "Video" v WHERE ${whereFragment}
+      `,
+    ]);
+
+    const totalCount = Number(countResult[0]?.count ?? 0);
+
+    return {
+      videos: rows.map((row) => ({
+        id: row.id,
+        title: row.title,
+        status: row.status,
+        createdAt: row.createdAt.toISOString(),
+        ownerId: row.ownerId,
+        workspaceId: row.workspaceId,
+        processingTimeSeconds: row.processingTimeSeconds,
+        topClipScore: row.topClipScore,
+        clipCount: row.clipCount,
+      })),
+      sortBy,
+      nextCursor: null,
+      page: safePage,
+      totalPages: Math.ceil(totalCount / limit),
+      totalCount,
     };
   }
 
