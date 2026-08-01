@@ -848,9 +848,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
               {selectedClip.intent || selectedClip.topics.length > 0 ? (
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {selectedClip.intent ? (
-                    <Badge variant="muted">
-                      {intentLabel(selectedClip.intent)}
-                    </Badge>
+                    <Badge variant="muted">{intentLabel(selectedClip.intent)}</Badge>
                   ) : null}
                   {selectedClip.topics.map((topic) => (
                     <Badge key={topic} variant="outline">

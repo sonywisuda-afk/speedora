@@ -49,7 +49,11 @@ export function QuickActions({ videos }: { videos: VideoWithClipsDto[] }) {
 
       <UploadVideoQuickAction workspaceId={activeWorkspaceId} />
 
-      <Button variant="outline" disabled={!activeWorkspaceId} onClick={() => setYoutubePickerOpen(true)}>
+      <Button
+        variant="outline"
+        disabled={!activeWorkspaceId}
+        onClick={() => setYoutubePickerOpen(true)}
+      >
         <Play className="mr-2 h-4 w-4" aria-hidden="true" />
         Import YouTube URL
       </Button>

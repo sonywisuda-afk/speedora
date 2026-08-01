@@ -77,9 +77,7 @@ export function ElevationDialog({
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="elevation-value">
-              {mfaEnabled ? 'Kode Verifikasi' : 'Kata Sandi'}
-            </Label>
+            <Label htmlFor="elevation-value">{mfaEnabled ? 'Kode Verifikasi' : 'Kata Sandi'}</Label>
             {mfaEnabled ? (
               <Input
                 id="elevation-value"

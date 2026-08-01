@@ -170,7 +170,9 @@ describe('useNotificationCenter', () => {
     mockList
       .mockResolvedValueOnce({ notifications: [notification()], nextCursor: null })
       .mockResolvedValueOnce({
-        notifications: [notification({ title: 'Video selesai diproses', updatedAt: '2026-07-27T00:05:00.000Z' })],
+        notifications: [
+          notification({ title: 'Video selesai diproses', updatedAt: '2026-07-27T00:05:00.000Z' }),
+        ],
         nextCursor: null,
       });
 

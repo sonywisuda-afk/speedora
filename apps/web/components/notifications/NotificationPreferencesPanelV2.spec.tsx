@@ -62,14 +62,7 @@ describe('NotificationPreferencesPanelV2', () => {
     renderPanel();
 
     await waitFor(() => expect(screen.getByText('Upload')).toBeInTheDocument());
-    for (const label of [
-      'Processing',
-      'Rendering',
-      'Publish',
-      'Analytics',
-      'Billing',
-      'System',
-    ]) {
+    for (const label of ['Processing', 'Rendering', 'Publish', 'Analytics', 'Billing', 'System']) {
       expect(screen.getByText(label)).toBeInTheDocument();
     }
     // Workspace and Errors are essential/always-on - never shown as toggles.

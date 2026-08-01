@@ -11,7 +11,9 @@ import { useTimelineStore } from '@/lib/timelineStore';
 // unrecognized value degrades to the raw value instead of crashing the
 // Record<FacialEmotion, string> lookup.
 function emotionLabel(emotion: string): string {
-  return emotion in EMOTION_LABELS ? EMOTION_LABELS[emotion as keyof typeof EMOTION_LABELS] : emotion;
+  return emotion in EMOTION_LABELS
+    ? EMOTION_LABELS[emotion as keyof typeof EMOTION_LABELS]
+    : emotion;
 }
 
 function dominantEmotions(samples: Clip['facialEmotions']): string {

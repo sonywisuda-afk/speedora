@@ -1,6 +1,10 @@
 'use client';
 
-import { browserSupportsWebAuthn, startAuthentication, startRegistration } from '@simplewebauthn/browser';
+import {
+  browserSupportsWebAuthn,
+  startAuthentication,
+  startRegistration,
+} from '@simplewebauthn/browser';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState, type FormEvent } from 'react';
@@ -222,9 +226,7 @@ export default function AccountsPage() {
       setLinkedProviders(await listLinkedProviders());
       setLinkedProvidersError(null);
     } catch (err) {
-      setLinkedProvidersError(
-        err instanceof Error ? err.message : 'Gagal memuat akun terhubung.',
-      );
+      setLinkedProvidersError(err instanceof Error ? err.message : 'Gagal memuat akun terhubung.');
     }
   }
 
@@ -866,8 +868,8 @@ export default function AccountsPage() {
               </CardHeader>
               <CardContent className="space-y-3">
                 <p className="font-body text-sm text-muted-foreground">
-                  Masuk tanpa kata sandi menggunakan sidik jari, wajah, PIN perangkat, atau
-                  security key.
+                  Masuk tanpa kata sandi menggunakan sidik jari, wajah, PIN perangkat, atau security
+                  key.
                 </p>
                 {passkeysError && <p className="text-sm text-destructive">{passkeysError}</p>}
 

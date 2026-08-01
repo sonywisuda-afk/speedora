@@ -198,14 +198,9 @@ export function NotificationBell() {
                         onClick={() => handleMarkRead(notification)}
                         className="flex flex-1 items-start gap-3 text-left"
                       >
-                        <Icon
-                          className="mt-0.5 h-4 w-4 shrink-0 text-chrome"
-                          aria-hidden="true"
-                        />
+                        <Icon className="mt-0.5 h-4 w-4 shrink-0 text-chrome" aria-hidden="true" />
                         <div className="flex-1">
-                          <p className="font-body text-sm text-foreground">
-                            {notification.title}
-                          </p>
+                          <p className="font-body text-sm text-foreground">{notification.title}</p>
                           <p className="font-body text-xs text-muted-foreground">
                             {notification.body}
                           </p>
