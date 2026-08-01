@@ -3,13 +3,24 @@
 import {
   PublishStatus,
   VideoStatus,
+  type CampaignDto,
   type PaginatedVideos,
   type PublishRecord,
+  type RecurringScheduleDto,
   type SocialAccount,
 } from '@speedora/shared';
 import { AlertTriangle, ExternalLink, Ghost, Trash2, Trophy, UploadCloud } from 'lucide-react';
 import Link from 'next/link';
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import {
+  memo,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import useSWR from 'swr';
 import { ProgressSteps } from '@/components/ProgressSteps';
 import { ScoreGauge } from '@/components/ScoreGauge';
@@ -44,6 +55,8 @@ import { QuickActions } from './QuickActions';
 import { RecentProjectsGrid } from './RecentProjectsGrid';
 import { SearchBar } from './SearchBar';
 import { UploadVideoQuickAction } from './UploadVideoQuickAction';
+
+type VideoClip = VideoWithClipsDto['clips'][number];
 
 // GET /videos is now cursor-paginated (see PaginatedVideos in
 // packages/shared) - this page only ever polls page 1 (the videos a user is
@@ -120,6 +133,792 @@ function findBestClipId(videos: VideoWithClipsDto[]): string | null {
   }
   return best?.clipId ?? null;
 }
+
+// Phase F (performance hardening) - ClipRow is the expensive part of this
+// list (video preview, publish/schedule form, publish-record history) that
+// used to have zero memoization boundary at all: DashboardClient kept every
+// per-clip interactive value (selectedAccountId, scheduleInput, etc.) in one
+// Record<clipId, value> state object each, so typing into a single clip's
+// schedule input re-rendered and reconciled EVERY clip in EVERY video.
+//
+// Fixed by (a) wrapping every handler this component receives in
+// useCallback below (a stable function reference is required for
+// React.memo's shallow prop comparison to actually bail out), and (b)
+// deriving per-clip PRIMITIVES (booleans/strings, never a shared Record) at
+// each call site right before rendering a ClipRow, so a keystroke in one
+// clip's input produces an unchanged prop value for every sibling clip -
+// same "extract the specific slice, not the whole state blob" discipline
+// already used by ActivityRow/ProjectCard/QueueItem elsewhere in this
+// dashboard. Plain useState setters (setConfirmDeleteClipId,
+// setSelectedAccountId, etc.) are already stable across renders and are
+// passed straight through rather than wrapped - only the real async
+// handlers need useCallback.
+interface ClipRowProps {
+  videoId: string;
+  clip: VideoClip;
+  isBest: boolean;
+  isConfirmingDelete: boolean;
+  setConfirmDeleteClipId: Dispatch<SetStateAction<string | null>>;
+  setDeleteClipError: Dispatch<
+    SetStateAction<{ clipId: string; message: string } | null>
+  >;
+  isDeletingClip: boolean;
+  deleteClipErrorMessage: string | null;
+  onDeleteClip: (videoId: string, clipId: string) => void;
+  accounts: SocialAccount[] | null;
+  selectedAccountIdOverride: string | undefined;
+  setSelectedAccountId: Dispatch<SetStateAction<Record<string, string>>>;
+  isPublishing: boolean;
+  isScheduling: boolean;
+  publishErrorMessage: string | null;
+  scheduleValue: string;
+  setScheduleInput: Dispatch<SetStateAction<Record<string, string>>>;
+  campaignIdValue: string;
+  setSelectedCampaignId: Dispatch<SetStateAction<Record<string, string>>>;
+  recurringScheduleIdValue: string;
+  setSelectedRecurringScheduleId: Dispatch<SetStateAction<Record<string, string>>>;
+  publishableCampaigns: CampaignDto[];
+  publishableSchedules: RecurringScheduleDto[];
+  onPublish: (clipId: string, socialAccountId: string, campaignId?: string) => void;
+  onSchedule: (
+    clipId: string,
+    socialAccountId: string,
+    localDateTime: string,
+    campaignId?: string,
+  ) => void;
+  onQueueToSchedule: (
+    clipId: string,
+    socialAccountId: string,
+    recurringScheduleId: string,
+    campaignId?: string,
+  ) => void;
+  // Pre-filtered by the caller to null unless the id actually belongs to
+  // one of THIS clip's own publishRecords - see the two callers below.
+  cancelingRecordId: string | null;
+  onCancelScheduled: (clipId: string, recordId: string) => void;
+  reschedulingRecordId: string | null;
+  setReschedulingRecordId: Dispatch<SetStateAction<string | null>>;
+  rescheduleValue: string;
+  setRescheduleInput: Dispatch<SetStateAction<Record<string, string>>>;
+  onReschedule: (clipId: string, recordId: string, localDateTime: string) => void;
+  scheduleActionErrorMessage: { recordId: string; message: string } | null;
+}
+
+const ClipRow = memo(function ClipRow({
+  videoId,
+  clip,
+  isBest,
+  isConfirmingDelete,
+  setConfirmDeleteClipId,
+  setDeleteClipError,
+  isDeletingClip,
+  deleteClipErrorMessage,
+  onDeleteClip,
+  accounts,
+  selectedAccountIdOverride,
+  setSelectedAccountId,
+  isPublishing,
+  isScheduling,
+  publishErrorMessage,
+  scheduleValue,
+  setScheduleInput,
+  campaignIdValue,
+  setSelectedCampaignId,
+  recurringScheduleIdValue,
+  setSelectedRecurringScheduleId,
+  publishableCampaigns,
+  publishableSchedules,
+  onPublish,
+  onSchedule,
+  onQueueToSchedule,
+  cancelingRecordId,
+  onCancelScheduled,
+  reschedulingRecordId,
+  setReschedulingRecordId,
+  rescheduleValue,
+  setRescheduleInput,
+  onReschedule,
+  scheduleActionErrorMessage,
+}: ClipRowProps) {
+  const busy = isPublishing || isScheduling;
+
+  return (
+    <li
+      className={cn(
+        'rounded-md border p-3',
+        isBest ? 'border-primary/60 bg-primary/5' : 'border-border bg-muted',
+      )}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <ScoreGauge score={clip.viralityScore} size={32} />
+          <span className="font-mono text-xs text-muted-foreground">
+            {clip.startTime.toFixed(1)}s–{clip.endTime.toFixed(1)}s
+          </span>
+          {isBest && (
+            <Badge variant="outline" className="gap-1 border-primary text-primary">
+              <Trophy className="h-3 w-3" aria-hidden="true" />
+              Performa Terbaik
+            </Badge>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          {/* Per-clip (not per-video) - the video-level "Edit
+              Timeline"/"AI Explainability" links above default
+              to clip[0]/the top-scored clip regardless of which
+              clip row this is, so this row needs its own
+              `?clip=` deep links, same convention as
+              ClipCard.tsx's own per-clip edit link. */}
+          <Button size="sm" variant="outline" asChild>
+            <Link href={`/videos/${videoId}/edit?clip=${clip.id}`}>Edit</Link>
+          </Button>
+          {clip.highlightScore !== null && (
+            <Button size="sm" variant="outline" asChild>
+              <Link href={`/videos/${videoId}/explainability?clip=${clip.id}`}>
+                AI Explainability
+              </Link>
+            </Button>
+          )}
+          {clip.publishRecords.length > 0 && (
+            <Button size="sm" variant="outline" asChild>
+              <Link href={`/videos/${videoId}/performance?clip=${clip.id}`}>Performance</Link>
+            </Button>
+          )}
+          {clip.downloadUrl ? (
+            <>
+              <Button size="sm" variant="outline" asChild>
+                <a href={clipDownloadUrl(clip.downloadUrl)}>Unduh</a>
+              </Button>
+              {/* Multi-Platform Publishing Expansion, Phase 5 - Snapchat
+                  has no server-side publish API for third-party apps, and
+                  Creative Kit (its one attach-and-share mechanism) is a
+                  native iOS/Android SDK only - a web page cannot hand off
+                  a specific video to it (no pasteboard/Intent access from
+                  a browser). This is deliberately just the same download
+                  as "Unduh" above, labeled honestly rather than dressed up
+                  as a real automated publish - the user finishes posting
+                  manually inside the Snapchat app themselves, the same
+                  "Sent to inbox, open the app to finish" honesty precedent
+                  as TikTok's Upload-to-Inbox mode (see CLAUDE.md's Publish
+                  Center section). No SocialAccount/PublishRecord/OAuth for
+                  this platform - there is no server-side action at all. */}
+              <Button
+                size="sm"
+                variant="outline"
+                className="gap-1.5"
+                title="Downloads your clip - open Snapchat and add it from your camera roll"
+                asChild
+              >
+                <a href={clipDownloadUrl(clip.downloadUrl)}>
+                  <Ghost className="h-3.5 w-3.5" aria-hidden="true" />
+                  Share to Snapchat
+                </a>
+              </Button>
+              <span className="font-mono text-[10px] text-muted-foreground">
+                Manual publish required - not auto-published
+              </span>
+            </>
+          ) : (
+            <span className="font-mono text-xs text-muted-foreground">Merender...</span>
+          )}
+          {isConfirmingDelete ? (
+            <span className="flex items-center gap-2">
+              <span className="font-body text-xs text-muted-foreground">Hapus?</span>
+              <button
+                onClick={() => onDeleteClip(videoId, clip.id)}
+                disabled={isDeletingClip}
+                className="font-body text-xs font-medium text-destructive underline underline-offset-2 disabled:opacity-50"
+              >
+                {isDeletingClip ? 'Menghapus...' : 'Ya, hapus'}
+              </button>
+              <button
+                onClick={() => setConfirmDeleteClipId(null)}
+                disabled={isDeletingClip}
+                className="font-body text-xs text-muted-foreground underline underline-offset-2"
+              >
+                Batal
+              </button>
+            </span>
+          ) : (
+            <button
+              onClick={() => {
+                setConfirmDeleteClipId(clip.id);
+                setDeleteClipError(null);
+              }}
+              aria-label="Hapus klip"
+              title="Hapus klip"
+              className="text-muted-foreground transition-colors hover:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
+        </div>
+      </div>
+      {deleteClipErrorMessage && (
+        <p className="mt-1 font-body text-xs text-destructive">{deleteClipErrorMessage}</p>
+      )}
+
+      {clip.downloadUrl && (
+        <video
+          key={clip.id}
+          src={clipStreamUrl(clip.id)}
+          crossOrigin="use-credentials"
+          controls
+          preload="metadata"
+          className="mt-3 max-h-80 rounded-md bg-slate-950"
+          style={{ aspectRatio: '9/16' }}
+        />
+      )}
+
+      {clip.hookText && (
+        <p className="mt-2 font-body text-sm italic text-foreground">
+          &quot;{clip.hookText}&quot;
+        </p>
+      )}
+      {clip.hashtags.length > 0 && (
+        <p className="mt-1 font-mono text-xs text-muted-foreground">
+          {clip.hashtags.map((tag) => `#${tag}`).join(' ')}
+        </p>
+      )}
+
+      {clip.downloadUrl &&
+        (() => {
+          if (!accounts || accounts.length === 0) {
+            return (
+              <p className="mt-2 font-body text-xs text-muted-foreground">
+                <Link href="/social" className="underline">
+                  Hubungkan akun
+                </Link>{' '}
+                untuk publish klip ini.
+              </p>
+            );
+          }
+          const selectedId = selectedAccountIdOverride ?? accounts[0].id;
+          const selectedAccount = accounts.find((a) => a.id === selectedId) ?? accounts[0];
+          return (
+            <div className="mt-3 space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                {accounts.length > 1 && !recurringScheduleIdValue && (
+                  <select
+                    value={selectedId}
+                    onChange={(e) =>
+                      setSelectedAccountId((prev) => ({ ...prev, [clip.id]: e.target.value }))
+                    }
+                    className="h-8 rounded-md border border-input bg-background px-2 font-body text-xs text-foreground"
+                  >
+                    {accounts.map((account) => (
+                      <option key={account.id} value={account.id}>
+                        {platformLabel(account.platform)} — {account.displayName}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                {recurringScheduleIdValue ? (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() =>
+                      onQueueToSchedule(
+                        clip.id,
+                        selectedId,
+                        recurringScheduleIdValue,
+                        campaignIdValue || undefined,
+                      )
+                    }
+                  >
+                    {isScheduling ? 'Menambahkan ke antrian...' : 'Queue to Schedule'}
+                  </Button>
+                ) : (
+                  <>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => onPublish(clip.id, selectedId, campaignIdValue || undefined)}
+                    >
+                      {isPublishing
+                        ? 'Publishing...'
+                        : `Publish ke ${platformLabel(selectedAccount.platform)}`}
+                    </Button>
+                    <input
+                      type="datetime-local"
+                      value={scheduleValue}
+                      onChange={(e) =>
+                        setScheduleInput((prev) => ({ ...prev, [clip.id]: e.target.value }))
+                      }
+                      className="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs text-foreground"
+                    />
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={busy || !scheduleValue}
+                      onClick={() =>
+                        scheduleValue &&
+                        onSchedule(clip.id, selectedId, scheduleValue, campaignIdValue || undefined)
+                      }
+                    >
+                      {isScheduling ? 'Menjadwalkan...' : 'Jadwalkan'}
+                    </Button>
+                  </>
+                )}
+              </div>
+              {(publishableCampaigns.length > 0 || publishableSchedules.length > 0) && (
+                <div className="flex flex-wrap items-center gap-2">
+                  {publishableCampaigns.length > 0 && (
+                    <select
+                      value={campaignIdValue}
+                      onChange={(e) =>
+                        setSelectedCampaignId((prev) => ({ ...prev, [clip.id]: e.target.value }))
+                      }
+                      className="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs text-muted-foreground"
+                    >
+                      <option value="">No campaign</option>
+                      {publishableCampaigns.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {publishableSchedules.length > 0 && (
+                    <select
+                      value={recurringScheduleIdValue}
+                      onChange={(e) => {
+                        const id = e.target.value;
+                        setSelectedRecurringScheduleId((prev) => ({ ...prev, [clip.id]: id }));
+                        const schedule = publishableSchedules.find((s) => s.id === id);
+                        if (schedule) {
+                          setSelectedAccountId((prev) => ({
+                            ...prev,
+                            [clip.id]: schedule.socialAccountId,
+                          }));
+                        }
+                      }}
+                      className="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs text-muted-foreground"
+                    >
+                      <option value="">Publish now / schedule manually</option>
+                      {publishableSchedules.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name} ({platformLabel(s.platform)})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              )}
+              <PlatformFitHint clipId={clip.id} />
+              <PlatformCopyPanel clipId={clip.id} platform={selectedAccount.platform} />
+            </div>
+          );
+        })()}
+      {publishErrorMessage && (
+        <p className="mt-2 font-body text-xs text-destructive">{publishErrorMessage}</p>
+      )}
+      {clip.publishRecords.length > 0 && (
+        <ul className="mt-3 space-y-2 border-t border-border pt-2">
+          {clip.publishRecords.map((record) => (
+            <li key={record.id} className="font-body text-xs text-muted-foreground">
+              {record.status === PublishStatus.SCHEDULED ? (
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span>
+                      {platformLabel(record.platform)}: Dijadwalkan untuk{' '}
+                      <span className="font-mono">
+                        {record.scheduledAt
+                          ? new Date(record.scheduledAt).toLocaleString()
+                          : 'segera'}
+                      </span>
+                    </span>
+                    <button
+                      onClick={() => onCancelScheduled(clip.id, record.id)}
+                      disabled={cancelingRecordId === record.id}
+                      className="text-destructive underline disabled:opacity-50"
+                    >
+                      {cancelingRecordId === record.id ? 'Membatalkan...' : 'Batalkan'}
+                    </button>
+                    <button
+                      onClick={() =>
+                        setReschedulingRecordId((prev) => (prev === record.id ? null : record.id))
+                      }
+                      className="underline"
+                    >
+                      Jadwal Ulang
+                    </button>
+                  </div>
+                  {reschedulingRecordId === record.id && (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="datetime-local"
+                        value={rescheduleValue}
+                        onChange={(e) =>
+                          setRescheduleInput((prev) => ({ ...prev, [record.id]: e.target.value }))
+                        }
+                        className="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs text-foreground"
+                      />
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          if (rescheduleValue) {
+                            onReschedule(clip.id, record.id, rescheduleValue);
+                          }
+                        }}
+                      >
+                        Simpan
+                      </Button>
+                    </div>
+                  )}
+                  {scheduleActionErrorMessage && scheduleActionErrorMessage.recordId === record.id && (
+                    <p className="text-destructive">{scheduleActionErrorMessage.message}</p>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {platformLabel(record.platform)}:{' '}
+                  {record.status === PublishStatus.PUBLISHED &&
+                  record.platform === 'YOUTUBE' &&
+                  record.platformPostId ? (
+                    <a
+                      href={`https://youtu.be/${record.platformPostId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center gap-1 underline"
+                    >
+                      {publishedLabel(record)}
+                      <ExternalLink className="h-3 w-3" aria-hidden="true" />
+                    </a>
+                  ) : (
+                    <span>
+                      {record.status === PublishStatus.PUBLISHED
+                        ? publishedLabel(record)
+                        : getPublishStatusLabel(record.status)}
+                      {record.status === PublishStatus.FAILED && record.errorMessage
+                        ? ` - ${record.errorMessage}`
+                        : ''}
+                    </span>
+                  )}
+                  {record.status === PublishStatus.PUBLISHED && statsLine(record) && (
+                    <p
+                      className={cn(
+                        'mt-0.5 font-mono',
+                        isBest ? 'text-primary' : 'text-muted-foreground',
+                      )}
+                    >
+                      {statsLine(record)}
+                    </p>
+                  )}
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
+  );
+});
+
+interface VideoRowProps {
+  video: VideoWithClipsDto;
+  bestClipId: string | null;
+  isConfirmingDeleteVideo: boolean;
+  setConfirmDeleteId: Dispatch<SetStateAction<string | null>>;
+  isDeletingVideo: boolean;
+  deleteErrorMessage: string | null;
+  setDeleteError: Dispatch<SetStateAction<{ videoId: string; message: string } | null>>;
+  onDeleteVideo: (videoId: string) => void;
+  isRetrying: boolean;
+  retryErrorMessage: string | null;
+  onRetry: (videoId: string) => void;
+  confirmDeleteClipId: string | null;
+  setConfirmDeleteClipId: Dispatch<SetStateAction<string | null>>;
+  deletingClipId: string | null;
+  deleteClipError: { clipId: string; message: string } | null;
+  setDeleteClipError: Dispatch<SetStateAction<{ clipId: string; message: string } | null>>;
+  onDeleteClip: (videoId: string, clipId: string) => void;
+  accounts: SocialAccount[] | null;
+  selectedAccountId: Record<string, string>;
+  setSelectedAccountId: Dispatch<SetStateAction<Record<string, string>>>;
+  publishingClipId: string | null;
+  schedulingClipId: string | null;
+  publishError: { clipId: string; message: string } | null;
+  scheduleInput: Record<string, string>;
+  setScheduleInput: Dispatch<SetStateAction<Record<string, string>>>;
+  selectedCampaignId: Record<string, string>;
+  setSelectedCampaignId: Dispatch<SetStateAction<Record<string, string>>>;
+  selectedRecurringScheduleId: Record<string, string>;
+  setSelectedRecurringScheduleId: Dispatch<SetStateAction<Record<string, string>>>;
+  publishableCampaigns: CampaignDto[];
+  publishableSchedules: RecurringScheduleDto[];
+  onPublish: (clipId: string, socialAccountId: string, campaignId?: string) => void;
+  onSchedule: (
+    clipId: string,
+    socialAccountId: string,
+    localDateTime: string,
+    campaignId?: string,
+  ) => void;
+  onQueueToSchedule: (
+    clipId: string,
+    socialAccountId: string,
+    recurringScheduleId: string,
+    campaignId?: string,
+  ) => void;
+  cancelingRecordId: string | null;
+  onCancelScheduled: (clipId: string, recordId: string) => void;
+  reschedulingRecordId: string | null;
+  setReschedulingRecordId: Dispatch<SetStateAction<string | null>>;
+  rescheduleInput: Record<string, string>;
+  setRescheduleInput: Dispatch<SetStateAction<Record<string, string>>>;
+  onReschedule: (clipId: string, recordId: string, localDateTime: string) => void;
+  scheduleActionError: { recordId: string; message: string } | null;
+}
+
+// Phase F (performance hardening) - the per-video wrapper (header links,
+// ProgressSteps, delete-confirm, FAILED/RENDERED branch). Cheap to
+// re-render on its own (no per-video Record-keyed state exists at this
+// level - confirmDeleteId/deletingId/deleteError/retryingId/retryError are
+// plain nullable values, already narrowed to this-video-or-not by the
+// caller below) - the real cost this pass targets is ClipRow's subtree,
+// isolated by narrowing every cross-clip shared value to a per-clip
+// primitive right here, in this component's own clips.map(), before ever
+// reaching ClipRow's props.
+const VideoRow = memo(function VideoRow({
+  video,
+  bestClipId,
+  isConfirmingDeleteVideo,
+  setConfirmDeleteId,
+  isDeletingVideo,
+  deleteErrorMessage,
+  setDeleteError,
+  onDeleteVideo,
+  isRetrying,
+  retryErrorMessage,
+  onRetry,
+  confirmDeleteClipId,
+  setConfirmDeleteClipId,
+  deletingClipId,
+  deleteClipError,
+  setDeleteClipError,
+  onDeleteClip,
+  accounts,
+  selectedAccountId,
+  setSelectedAccountId,
+  publishingClipId,
+  schedulingClipId,
+  publishError,
+  scheduleInput,
+  setScheduleInput,
+  selectedCampaignId,
+  setSelectedCampaignId,
+  selectedRecurringScheduleId,
+  setSelectedRecurringScheduleId,
+  publishableCampaigns,
+  publishableSchedules,
+  onPublish,
+  onSchedule,
+  onQueueToSchedule,
+  cancelingRecordId,
+  onCancelScheduled,
+  reschedulingRecordId,
+  setReschedulingRecordId,
+  rescheduleInput,
+  setRescheduleInput,
+  onReschedule,
+  scheduleActionError,
+}: VideoRowProps) {
+  return (
+    <li
+      id={`video-${video.id}`}
+      className="scroll-mt-4 rounded-lg border border-border bg-card p-5"
+    >
+      <h2 className="sr-only">Riwayat lengkap untuk {video.title ?? 'video tanpa judul'}</h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="font-mono text-xs text-muted-foreground">
+          {new Date(video.createdAt).toLocaleString()}
+        </p>
+        <div className="flex items-center gap-3">
+          {video.clips.length > 0 && (
+            <Link
+              href={`/videos/${video.id}/edit`}
+              className="font-body text-sm text-foreground underline underline-offset-2 hover:text-primary"
+            >
+              Edit Timeline
+            </Link>
+          )}
+          {video.clips.length > 0 && (
+            <Link
+              href={`/videos/${video.id}/review`}
+              className="font-body text-sm text-foreground underline underline-offset-2 hover:text-primary"
+            >
+              Review Mode
+            </Link>
+          )}
+          {video.clips.some((clip) => (clip.ocrTracks?.length ?? 0) > 0) && (
+            <Link
+              href={`/videos/${video.id}/ocr-review`}
+              className="font-body text-sm text-foreground underline underline-offset-2 hover:text-primary"
+            >
+              OCR Review
+            </Link>
+          )}
+          {video.clips.some((clip) => clip.highlightScore !== null) && (
+            <Link
+              href={`/videos/${video.id}/explainability`}
+              className="font-body text-sm text-foreground underline underline-offset-2 hover:text-primary"
+            >
+              AI Explainability
+            </Link>
+          )}
+          {video.clips.some((clip) => clip.publishRecords.length > 0) && (
+            <Link
+              href={`/videos/${video.id}/performance`}
+              className="font-body text-sm text-foreground underline underline-offset-2 hover:text-primary"
+            >
+              Performance
+            </Link>
+          )}
+          <ShareDialog videoId={video.id} />
+          {isConfirmingDeleteVideo ? (
+            <span className="flex items-center gap-2">
+              <span className="font-body text-xs text-muted-foreground">Hapus?</span>
+              <button
+                onClick={() => onDeleteVideo(video.id)}
+                disabled={isDeletingVideo}
+                className="font-body text-xs font-medium text-destructive underline underline-offset-2 disabled:opacity-50"
+              >
+                {isDeletingVideo ? 'Menghapus...' : 'Ya, hapus'}
+              </button>
+              <button
+                onClick={() => setConfirmDeleteId(null)}
+                disabled={isDeletingVideo}
+                className="font-body text-xs text-muted-foreground underline underline-offset-2"
+              >
+                Batal
+              </button>
+            </span>
+          ) : (
+            <button
+              onClick={() => {
+                setConfirmDeleteId(video.id);
+                setDeleteError(null);
+              }}
+              aria-label="Hapus video"
+              title="Hapus video"
+              className="text-muted-foreground transition-colors hover:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
+        </div>
+      </div>
+      {deleteErrorMessage && (
+        <p className="mt-2 font-body text-xs text-destructive">{deleteErrorMessage}</p>
+      )}
+      <div className="mt-2">
+        <ProgressSteps status={video.status} />
+      </div>
+
+      {video.status === VideoStatus.FAILED && (
+        <div className="mt-4 rounded-md border border-destructive bg-destructive/10 p-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+            <div>
+              <p className="font-body text-sm text-foreground">Video ini gagal diproses.</p>
+              {retryErrorMessage && (
+                <p className="mt-1 font-body text-xs text-destructive">{retryErrorMessage}</p>
+              )}
+              <Button
+                size="sm"
+                className="mt-2"
+                disabled={isRetrying}
+                onClick={() => onRetry(video.id)}
+              >
+                {isRetrying ? 'Menjalankan Ulang...' : 'Jalankan Ulang'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {video.status === VideoStatus.RENDERED && (
+        <div className="mt-4">
+          {video.clips.length === 0 ? (
+            <p className="font-body text-sm text-muted-foreground">
+              Tidak ada klip ditemukan untuk video ini.
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {video.clips.map((clip) => {
+                // Per-clip narrowing - see this file's own ClipRow comment
+                // for why this has to happen here, not be forwarded raw.
+                const clipRecordIds = new Set(clip.publishRecords.map((r) => r.id));
+                return (
+                  <ClipRow
+                    key={clip.id}
+                    videoId={video.id}
+                    clip={clip}
+                    isBest={clip.id === bestClipId}
+                    isConfirmingDelete={confirmDeleteClipId === clip.id}
+                    setConfirmDeleteClipId={setConfirmDeleteClipId}
+                    setDeleteClipError={setDeleteClipError}
+                    isDeletingClip={deletingClipId === clip.id}
+                    deleteClipErrorMessage={
+                      deleteClipError?.clipId === clip.id ? deleteClipError.message : null
+                    }
+                    onDeleteClip={onDeleteClip}
+                    accounts={accounts}
+                    selectedAccountIdOverride={selectedAccountId[clip.id]}
+                    setSelectedAccountId={setSelectedAccountId}
+                    isPublishing={publishingClipId === clip.id}
+                    isScheduling={schedulingClipId === clip.id}
+                    publishErrorMessage={
+                      publishError?.clipId === clip.id ? publishError.message : null
+                    }
+                    scheduleValue={scheduleInput[clip.id] ?? ''}
+                    setScheduleInput={setScheduleInput}
+                    campaignIdValue={selectedCampaignId[clip.id] ?? ''}
+                    setSelectedCampaignId={setSelectedCampaignId}
+                    recurringScheduleIdValue={selectedRecurringScheduleId[clip.id] ?? ''}
+                    setSelectedRecurringScheduleId={setSelectedRecurringScheduleId}
+                    publishableCampaigns={publishableCampaigns}
+                    publishableSchedules={publishableSchedules}
+                    onPublish={onPublish}
+                    onSchedule={onSchedule}
+                    onQueueToSchedule={onQueueToSchedule}
+                    cancelingRecordId={
+                      cancelingRecordId && clipRecordIds.has(cancelingRecordId)
+                        ? cancelingRecordId
+                        : null
+                    }
+                    onCancelScheduled={onCancelScheduled}
+                    reschedulingRecordId={
+                      reschedulingRecordId && clipRecordIds.has(reschedulingRecordId)
+                        ? reschedulingRecordId
+                        : null
+                    }
+                    setReschedulingRecordId={setReschedulingRecordId}
+                    rescheduleValue={
+                      reschedulingRecordId && clipRecordIds.has(reschedulingRecordId)
+                        ? (rescheduleInput[reschedulingRecordId] ?? '')
+                        : ''
+                    }
+                    setRescheduleInput={setRescheduleInput}
+                    onReschedule={onReschedule}
+                    scheduleActionErrorMessage={
+                      scheduleActionError && clipRecordIds.has(scheduleActionError.recordId)
+                        ? scheduleActionError
+                        : null
+                    }
+                  />
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+    </li>
+  );
+});
 
 export interface DashboardClientProps {
   user: UserDto;
@@ -199,12 +998,15 @@ export function DashboardClient({
   // question just returns equivalent entries, so this is safe to call
   // unconditionally rather than first figuring out which bucket a video
   // lives in.
-  function updateVideos(updater: (videos: VideoWithClipsDto[]) => VideoWithClipsDto[]) {
-    mutate((current) => current && { ...current, videos: updater(current.videos) }, {
-      revalidate: false,
-    });
-    setExtraVideos((prev) => updater(prev));
-  }
+  const updateVideos = useCallback(
+    (updater: (videos: VideoWithClipsDto[]) => VideoWithClipsDto[]) => {
+      mutate((current) => current && { ...current, videos: updater(current.videos) }, {
+        revalidate: false,
+      });
+      setExtraVideos((prev) => updater(prev));
+    },
+    [mutate],
+  );
 
   const [retryingId, setRetryingId] = useState<string | null>(null);
   const [retryError, setRetryError] = useState<{ videoId: string; message: string } | null>(null);
@@ -254,11 +1056,23 @@ export function DashboardClient({
     activeWorkspaceId ? ['schedules-for-publish', activeWorkspaceId] : null,
     () => listRecurringSchedules(activeWorkspaceId as string),
   );
-  const publishableCampaigns = (campaignsForPublish?.campaigns ?? []).filter(
-    (c) => c.status !== 'CANCELLED' && c.status !== 'COMPLETED',
+  // Phase F (performance hardening) - memoized (not a bare .filter() on
+  // every render) since these are now passed all the way down into every
+  // ClipRow's props. Without this, even the `?? []` fallback alone produces
+  // a brand new array reference every DashboardClient render (regardless of
+  // whether campaignsForPublish/schedulesForPublish actually changed),
+  // which defeats ClipRow's React.memo for every clip in every video -
+  // caught by DashboardClient.spec.tsx's own render-count regression test.
+  const publishableCampaigns = useMemo(
+    () =>
+      (campaignsForPublish?.campaigns ?? []).filter(
+        (c) => c.status !== 'CANCELLED' && c.status !== 'COMPLETED',
+      ),
+    [campaignsForPublish],
   );
-  const publishableSchedules = (schedulesForPublish?.recurringSchedules ?? []).filter(
-    (s) => s.active,
+  const publishableSchedules = useMemo(
+    () => (schedulesForPublish?.recurringSchedules ?? []).filter((s) => s.active),
+    [schedulesForPublish],
   );
 
   useEffect(() => {
@@ -277,186 +1091,205 @@ export function DashboardClient({
     };
   }, []);
 
-  function replaceClipPublishRecords(
-    clipId: string,
-    updater: (records: PublishRecord[]) => PublishRecord[],
-  ) {
-    updateVideos((videos) =>
-      videos.map((video) => ({
-        ...video,
-        clips: video.clips.map((clip) =>
-          clip.id === clipId ? { ...clip, publishRecords: updater(clip.publishRecords) } : clip,
-        ),
-      })),
-    );
-  }
+  const replaceClipPublishRecords = useCallback(
+    (clipId: string, updater: (records: PublishRecord[]) => PublishRecord[]) => {
+      updateVideos((videos) =>
+        videos.map((video) => ({
+          ...video,
+          clips: video.clips.map((clip) =>
+            clip.id === clipId ? { ...clip, publishRecords: updater(clip.publishRecords) } : clip,
+          ),
+        })),
+      );
+    },
+    [updateVideos],
+  );
 
-  async function handlePublish(clipId: string, socialAccountId: string, campaignId?: string) {
-    setPublishError(null);
-    setPublishingClipId(clipId);
-    try {
-      const record = await publishClip(clipId, socialAccountId, undefined, { campaignId });
-      replaceClipPublishRecords(clipId, (records) => [...records, record]);
-    } catch (err) {
-      setPublishError({
-        clipId,
-        message: err instanceof Error ? err.message : 'Publish gagal',
-      });
-    } finally {
-      setPublishingClipId(null);
-    }
-  }
+  const handlePublish = useCallback(
+    async (clipId: string, socialAccountId: string, campaignId?: string) => {
+      setPublishError(null);
+      setPublishingClipId(clipId);
+      try {
+        const record = await publishClip(clipId, socialAccountId, undefined, { campaignId });
+        replaceClipPublishRecords(clipId, (records) => [...records, record]);
+      } catch (err) {
+        setPublishError({
+          clipId,
+          message: err instanceof Error ? err.message : 'Publish gagal',
+        });
+      } finally {
+        setPublishingClipId(null);
+      }
+    },
+    [replaceClipPublishRecords],
+  );
 
-  async function handleSchedule(
-    clipId: string,
-    socialAccountId: string,
-    localDateTime: string,
-    campaignId?: string,
-  ) {
-    setPublishError(null);
-    setSchedulingClipId(clipId);
-    try {
-      const scheduledAt = new Date(localDateTime).toISOString();
-      const record = await publishClip(clipId, socialAccountId, scheduledAt, { campaignId });
-      replaceClipPublishRecords(clipId, (records) => [...records, record]);
-      setScheduleInput((prev) => ({ ...prev, [clipId]: '' }));
-    } catch (err) {
-      setPublishError({ clipId, message: err instanceof Error ? err.message : 'Jadwal gagal' });
-    } finally {
-      setSchedulingClipId(null);
-    }
-  }
+  const handleSchedule = useCallback(
+    async (clipId: string, socialAccountId: string, localDateTime: string, campaignId?: string) => {
+      setPublishError(null);
+      setSchedulingClipId(clipId);
+      try {
+        const scheduledAt = new Date(localDateTime).toISOString();
+        const record = await publishClip(clipId, socialAccountId, scheduledAt, { campaignId });
+        replaceClipPublishRecords(clipId, (records) => [...records, record]);
+        setScheduleInput((prev) => ({ ...prev, [clipId]: '' }));
+      } catch (err) {
+        setPublishError({ clipId, message: err instanceof Error ? err.message : 'Jadwal gagal' });
+      } finally {
+        setSchedulingClipId(null);
+      }
+    },
+    [replaceClipPublishRecords],
+  );
 
   // Phase 6 (Scheduling) - queues a clip against a RecurringSchedule's next
   // open slot. The server computes scheduledAt itself (ignores any client
   // value) and is authoritative on socialAccountId, so this never sends a
   // scheduledAt - see ClipsService.publish().
-  async function handleQueueToSchedule(
-    clipId: string,
-    socialAccountId: string,
-    recurringScheduleId: string,
-    campaignId?: string,
-  ) {
-    setPublishError(null);
-    setSchedulingClipId(clipId);
-    try {
-      const record = await publishClip(clipId, socialAccountId, undefined, {
-        campaignId,
-        recurringScheduleId,
-      });
-      replaceClipPublishRecords(clipId, (records) => [...records, record]);
-      setSelectedRecurringScheduleId((prev) => ({ ...prev, [clipId]: '' }));
-    } catch (err) {
-      setPublishError({
-        clipId,
-        message: err instanceof Error ? err.message : 'Gagal menambahkan ke antrian',
-      });
-    } finally {
-      setSchedulingClipId(null);
-    }
-  }
+  const handleQueueToSchedule = useCallback(
+    async (
+      clipId: string,
+      socialAccountId: string,
+      recurringScheduleId: string,
+      campaignId?: string,
+    ) => {
+      setPublishError(null);
+      setSchedulingClipId(clipId);
+      try {
+        const record = await publishClip(clipId, socialAccountId, undefined, {
+          campaignId,
+          recurringScheduleId,
+        });
+        replaceClipPublishRecords(clipId, (records) => [...records, record]);
+        setSelectedRecurringScheduleId((prev) => ({ ...prev, [clipId]: '' }));
+      } catch (err) {
+        setPublishError({
+          clipId,
+          message: err instanceof Error ? err.message : 'Gagal menambahkan ke antrian',
+        });
+      } finally {
+        setSchedulingClipId(null);
+      }
+    },
+    [replaceClipPublishRecords],
+  );
 
-  async function handleCancelScheduled(clipId: string, recordId: string) {
-    setScheduleActionError(null);
-    setCancelingRecordId(recordId);
-    try {
-      await cancelScheduledPublish(clipId, recordId);
-      replaceClipPublishRecords(clipId, (records) => records.filter((r) => r.id !== recordId));
-    } catch (err) {
-      setScheduleActionError({
-        recordId,
-        message: err instanceof Error ? err.message : 'Gagal membatalkan',
-      });
-    } finally {
-      setCancelingRecordId(null);
-    }
-  }
+  const handleCancelScheduled = useCallback(
+    async (clipId: string, recordId: string) => {
+      setScheduleActionError(null);
+      setCancelingRecordId(recordId);
+      try {
+        await cancelScheduledPublish(clipId, recordId);
+        replaceClipPublishRecords(clipId, (records) => records.filter((r) => r.id !== recordId));
+      } catch (err) {
+        setScheduleActionError({
+          recordId,
+          message: err instanceof Error ? err.message : 'Gagal membatalkan',
+        });
+      } finally {
+        setCancelingRecordId(null);
+      }
+    },
+    [replaceClipPublishRecords],
+  );
 
-  async function handleReschedule(clipId: string, recordId: string, localDateTime: string) {
-    setScheduleActionError(null);
-    try {
-      const scheduledAt = new Date(localDateTime).toISOString();
-      const updated = await reschedulePublish(clipId, recordId, scheduledAt);
-      replaceClipPublishRecords(clipId, (records) =>
-        records.map((r) => (r.id === recordId ? updated : r)),
-      );
-      setReschedulingRecordId(null);
-    } catch (err) {
-      setScheduleActionError({
-        recordId,
-        message: err instanceof Error ? err.message : 'Gagal menjadwalkan ulang',
-      });
-    }
-  }
+  const handleReschedule = useCallback(
+    async (clipId: string, recordId: string, localDateTime: string) => {
+      setScheduleActionError(null);
+      try {
+        const scheduledAt = new Date(localDateTime).toISOString();
+        const updated = await reschedulePublish(clipId, recordId, scheduledAt);
+        replaceClipPublishRecords(clipId, (records) =>
+          records.map((r) => (r.id === recordId ? updated : r)),
+        );
+        setReschedulingRecordId(null);
+      } catch (err) {
+        setScheduleActionError({
+          recordId,
+          message: err instanceof Error ? err.message : 'Gagal menjadwalkan ulang',
+        });
+      }
+    },
+    [replaceClipPublishRecords],
+  );
 
-  async function handleRetry(videoId: string) {
-    setRetryError(null);
-    setRetryingId(videoId);
-    try {
-      const updated = await retryVideo(videoId);
-      updateVideos((videos) => videos.map((v) => (v.id === videoId ? updated : v)));
-    } catch (err) {
-      setRetryError({
-        videoId,
-        message: err instanceof Error ? err.message : 'Gagal menjalankan ulang',
-      });
-    } finally {
-      setRetryingId(null);
-    }
-  }
+  const handleRetry = useCallback(
+    async (videoId: string) => {
+      setRetryError(null);
+      setRetryingId(videoId);
+      try {
+        const updated = await retryVideo(videoId);
+        updateVideos((videos) => videos.map((v) => (v.id === videoId ? updated : v)));
+      } catch (err) {
+        setRetryError({
+          videoId,
+          message: err instanceof Error ? err.message : 'Gagal menjalankan ulang',
+        });
+      } finally {
+        setRetryingId(null);
+      }
+    },
+    [updateVideos],
+  );
 
   // Optimistic (matching the existing clip-delete convention below) - the
   // row disappears immediately rather than waiting a full round trip; on
   // failure, re-fetch the real first page (a snapshot rollback could
   // resurrect state a poll has since moved past).
-  async function handleDeleteVideo(videoId: string) {
-    setDeleteError(null);
-    setDeletingId(videoId);
-    updateVideos((videos) => videos.filter((v) => v.id !== videoId));
-    setConfirmDeleteId(null);
-    try {
-      await deleteVideo(videoId);
-    } catch (err) {
-      setDeleteError({
-        videoId,
-        message: err instanceof Error ? err.message : 'Gagal menghapus video',
-      });
+  const handleDeleteVideo = useCallback(
+    async (videoId: string) => {
+      setDeleteError(null);
+      setDeletingId(videoId);
+      updateVideos((videos) => videos.filter((v) => v.id !== videoId));
+      setConfirmDeleteId(null);
       try {
-        await mutate();
-      } catch {
-        // The next poll tick (or reload) will resync - the delete error
-        // above is the message that matters here.
+        await deleteVideo(videoId);
+      } catch (err) {
+        setDeleteError({
+          videoId,
+          message: err instanceof Error ? err.message : 'Gagal menghapus video',
+        });
+        try {
+          await mutate();
+        } catch {
+          // The next poll tick (or reload) will resync - the delete error
+          // above is the message that matters here.
+        }
+      } finally {
+        setDeletingId(null);
       }
-    } finally {
-      setDeletingId(null);
-    }
-  }
+    },
+    [updateVideos, mutate],
+  );
 
-  async function handleDeleteClip(videoId: string, clipId: string) {
-    setDeleteClipError(null);
-    setDeletingClipId(clipId);
-    updateVideos((videos) =>
-      videos.map((v) =>
-        v.id === videoId ? { ...v, clips: v.clips.filter((c) => c.id !== clipId) } : v,
-      ),
-    );
-    setConfirmDeleteClipId(null);
-    try {
-      await deleteClip(clipId);
-    } catch (err) {
-      setDeleteClipError({
-        clipId,
-        message: err instanceof Error ? err.message : 'Gagal menghapus klip',
-      });
+  const handleDeleteClip = useCallback(
+    async (videoId: string, clipId: string) => {
+      setDeleteClipError(null);
+      setDeletingClipId(clipId);
+      updateVideos((videos) =>
+        videos.map((v) =>
+          v.id === videoId ? { ...v, clips: v.clips.filter((c) => c.id !== clipId) } : v,
+        ),
+      );
+      setConfirmDeleteClipId(null);
       try {
-        await mutate();
-      } catch {
-        // Same reasoning as handleDeleteVideo's catch above.
+        await deleteClip(clipId);
+      } catch (err) {
+        setDeleteClipError({
+          clipId,
+          message: err instanceof Error ? err.message : 'Gagal menghapus klip',
+        });
+        try {
+          await mutate();
+        } catch {
+          // Same reasoning as handleDeleteVideo's catch above.
+        }
+      } finally {
+        setDeletingClipId(null);
       }
-    } finally {
-      setDeletingClipId(null);
-    }
-  }
+    },
+    [updateVideos, mutate],
+  );
 
   const bestClipId = useMemo(() => findBestClipId(videos), [videos]);
 
@@ -550,605 +1383,51 @@ export function DashboardClient({
         ) : (
           <ul className="mt-6 space-y-4">
             {videos.map((video) => (
-              <li
+              <VideoRow
                 key={video.id}
-                id={`video-${video.id}`}
-                className="scroll-mt-4 rounded-lg border border-border bg-card p-5"
-              >
-                <h2 className="sr-only">
-                  Riwayat lengkap untuk {video.title ?? 'video tanpa judul'}
-                </h2>
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-mono text-xs text-muted-foreground">
-                    {new Date(video.createdAt).toLocaleString()}
-                  </p>
-                  <div className="flex items-center gap-3">
-                    {video.clips.length > 0 && (
-                      <Link
-                        href={`/videos/${video.id}/edit`}
-                        className="font-body text-sm text-foreground underline underline-offset-2 hover:text-primary"
-                      >
-                        Edit Timeline
-                      </Link>
-                    )}
-                    {video.clips.length > 0 && (
-                      <Link
-                        href={`/videos/${video.id}/review`}
-                        className="font-body text-sm text-foreground underline underline-offset-2 hover:text-primary"
-                      >
-                        Review Mode
-                      </Link>
-                    )}
-                    {video.clips.some((clip) => (clip.ocrTracks?.length ?? 0) > 0) && (
-                      <Link
-                        href={`/videos/${video.id}/ocr-review`}
-                        className="font-body text-sm text-foreground underline underline-offset-2 hover:text-primary"
-                      >
-                        OCR Review
-                      </Link>
-                    )}
-                    {video.clips.some((clip) => clip.highlightScore !== null) && (
-                      <Link
-                        href={`/videos/${video.id}/explainability`}
-                        className="font-body text-sm text-foreground underline underline-offset-2 hover:text-primary"
-                      >
-                        AI Explainability
-                      </Link>
-                    )}
-                    {video.clips.some((clip) => clip.publishRecords.length > 0) && (
-                      <Link
-                        href={`/videos/${video.id}/performance`}
-                        className="font-body text-sm text-foreground underline underline-offset-2 hover:text-primary"
-                      >
-                        Performance
-                      </Link>
-                    )}
-                    <ShareDialog videoId={video.id} />
-                    {confirmDeleteId === video.id ? (
-                      <span className="flex items-center gap-2">
-                        <span className="font-body text-xs text-muted-foreground">Hapus?</span>
-                        <button
-                          onClick={() => handleDeleteVideo(video.id)}
-                          disabled={deletingId === video.id}
-                          className="font-body text-xs font-medium text-destructive underline underline-offset-2 disabled:opacity-50"
-                        >
-                          {deletingId === video.id ? 'Menghapus...' : 'Ya, hapus'}
-                        </button>
-                        <button
-                          onClick={() => setConfirmDeleteId(null)}
-                          disabled={deletingId === video.id}
-                          className="font-body text-xs text-muted-foreground underline underline-offset-2"
-                        >
-                          Batal
-                        </button>
-                      </span>
-                    ) : (
-                      <button
-                        onClick={() => {
-                          setConfirmDeleteId(video.id);
-                          setDeleteError(null);
-                        }}
-                        aria-label="Hapus video"
-                        title="Hapus video"
-                        className="text-muted-foreground transition-colors hover:text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" aria-hidden="true" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-                {deleteError && deleteError.videoId === video.id && (
-                  <p className="mt-2 font-body text-xs text-destructive">{deleteError.message}</p>
-                )}
-                <div className="mt-2">
-                  <ProgressSteps status={video.status} />
-                </div>
-
-                {video.status === VideoStatus.FAILED && (
-                  <div className="mt-4 rounded-md border border-destructive bg-destructive/10 p-3">
-                    <div className="flex items-start gap-2">
-                      <AlertTriangle
-                        className="mt-0.5 h-4 w-4 shrink-0 text-destructive"
-                        aria-hidden="true"
-                      />
-                      <div>
-                        <p className="font-body text-sm text-foreground">
-                          Video ini gagal diproses.
-                        </p>
-                        {retryError && retryError.videoId === video.id && (
-                          <p className="mt-1 font-body text-xs text-destructive">
-                            {retryError.message}
-                          </p>
-                        )}
-                        <Button
-                          size="sm"
-                          className="mt-2"
-                          disabled={retryingId === video.id}
-                          onClick={() => handleRetry(video.id)}
-                        >
-                          {retryingId === video.id ? 'Menjalankan Ulang...' : 'Jalankan Ulang'}
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {video.status === VideoStatus.RENDERED && (
-                  <div className="mt-4">
-                    {video.clips.length === 0 ? (
-                      <p className="font-body text-sm text-muted-foreground">
-                        Tidak ada klip ditemukan untuk video ini.
-                      </p>
-                    ) : (
-                      <ul className="space-y-3">
-                        {video.clips.map((clip) => {
-                          const isBest = clip.id === bestClipId;
-                          return (
-                            <li
-                              key={clip.id}
-                              className={cn(
-                                'rounded-md border p-3',
-                                isBest
-                                  ? 'border-primary/60 bg-primary/5'
-                                  : 'border-border bg-muted',
-                              )}
-                            >
-                              <div className="flex flex-wrap items-center justify-between gap-2">
-                                <div className="flex items-center gap-2">
-                                  <ScoreGauge score={clip.viralityScore} size={32} />
-                                  <span className="font-mono text-xs text-muted-foreground">
-                                    {clip.startTime.toFixed(1)}s–{clip.endTime.toFixed(1)}s
-                                  </span>
-                                  {isBest && (
-                                    <Badge
-                                      variant="outline"
-                                      className="gap-1 border-primary text-primary"
-                                    >
-                                      <Trophy className="h-3 w-3" aria-hidden="true" />
-                                      Performa Terbaik
-                                    </Badge>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  {/* Per-clip (not per-video) - the video-level "Edit
-                                      Timeline"/"AI Explainability" links above default
-                                      to clip[0]/the top-scored clip regardless of which
-                                      clip row this is, so this row needs its own
-                                      `?clip=` deep links, same convention as
-                                      ClipCard.tsx's own per-clip edit link. */}
-                                  <Button size="sm" variant="outline" asChild>
-                                    <Link href={`/videos/${video.id}/edit?clip=${clip.id}`}>
-                                      Edit
-                                    </Link>
-                                  </Button>
-                                  {clip.highlightScore !== null && (
-                                    <Button size="sm" variant="outline" asChild>
-                                      <Link
-                                        href={`/videos/${video.id}/explainability?clip=${clip.id}`}
-                                      >
-                                        AI Explainability
-                                      </Link>
-                                    </Button>
-                                  )}
-                                  {clip.publishRecords.length > 0 && (
-                                    <Button size="sm" variant="outline" asChild>
-                                      <Link
-                                        href={`/videos/${video.id}/performance?clip=${clip.id}`}
-                                      >
-                                        Performance
-                                      </Link>
-                                    </Button>
-                                  )}
-                                  {clip.downloadUrl ? (
-                                    <>
-                                      <Button size="sm" variant="outline" asChild>
-                                        <a href={clipDownloadUrl(clip.downloadUrl)}>Unduh</a>
-                                      </Button>
-                                      {/* Multi-Platform Publishing Expansion, Phase 5 - Snapchat
-                                          has no server-side publish API for third-party apps, and
-                                          Creative Kit (its one attach-and-share mechanism) is a
-                                          native iOS/Android SDK only - a web page cannot hand off
-                                          a specific video to it (no pasteboard/Intent access from
-                                          a browser). This is deliberately just the same download
-                                          as "Unduh" above, labeled honestly rather than dressed up
-                                          as a real automated publish - the user finishes posting
-                                          manually inside the Snapchat app themselves, the same
-                                          "Sent to inbox, open the app to finish" honesty precedent
-                                          as TikTok's Upload-to-Inbox mode (see CLAUDE.md's Publish
-                                          Center section). No SocialAccount/PublishRecord/OAuth for
-                                          this platform - there is no server-side action at all. */}
-                                      <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className="gap-1.5"
-                                        title="Downloads your clip - open Snapchat and add it from your camera roll"
-                                        asChild
-                                      >
-                                        <a href={clipDownloadUrl(clip.downloadUrl)}>
-                                          <Ghost className="h-3.5 w-3.5" aria-hidden="true" />
-                                          Share to Snapchat
-                                        </a>
-                                      </Button>
-                                      <span className="font-mono text-[10px] text-muted-foreground">
-                                        Manual publish required - not auto-published
-                                      </span>
-                                    </>
-                                  ) : (
-                                    <span className="font-mono text-xs text-muted-foreground">
-                                      Merender...
-                                    </span>
-                                  )}
-                                  {confirmDeleteClipId === clip.id ? (
-                                    <span className="flex items-center gap-2">
-                                      <span className="font-body text-xs text-muted-foreground">
-                                        Hapus?
-                                      </span>
-                                      <button
-                                        onClick={() => handleDeleteClip(video.id, clip.id)}
-                                        disabled={deletingClipId === clip.id}
-                                        className="font-body text-xs font-medium text-destructive underline underline-offset-2 disabled:opacity-50"
-                                      >
-                                        {deletingClipId === clip.id ? 'Menghapus...' : 'Ya, hapus'}
-                                      </button>
-                                      <button
-                                        onClick={() => setConfirmDeleteClipId(null)}
-                                        disabled={deletingClipId === clip.id}
-                                        className="font-body text-xs text-muted-foreground underline underline-offset-2"
-                                      >
-                                        Batal
-                                      </button>
-                                    </span>
-                                  ) : (
-                                    <button
-                                      onClick={() => {
-                                        setConfirmDeleteClipId(clip.id);
-                                        setDeleteClipError(null);
-                                      }}
-                                      aria-label="Hapus klip"
-                                      title="Hapus klip"
-                                      className="text-muted-foreground transition-colors hover:text-destructive"
-                                    >
-                                      <Trash2 className="h-4 w-4" aria-hidden="true" />
-                                    </button>
-                                  )}
-                                </div>
-                              </div>
-                              {deleteClipError && deleteClipError.clipId === clip.id && (
-                                <p className="mt-1 font-body text-xs text-destructive">
-                                  {deleteClipError.message}
-                                </p>
-                              )}
-
-                              {clip.downloadUrl && (
-                                <video
-                                  key={clip.id}
-                                  src={clipStreamUrl(clip.id)}
-                                  crossOrigin="use-credentials"
-                                  controls
-                                  preload="metadata"
-                                  className="mt-3 max-h-80 rounded-md bg-slate-950"
-                                  style={{ aspectRatio: '9/16' }}
-                                />
-                              )}
-
-                              {clip.hookText && (
-                                <p className="mt-2 font-body text-sm italic text-foreground">
-                                  &quot;{clip.hookText}&quot;
-                                </p>
-                              )}
-                              {clip.hashtags.length > 0 && (
-                                <p className="mt-1 font-mono text-xs text-muted-foreground">
-                                  {clip.hashtags.map((tag) => `#${tag}`).join(' ')}
-                                </p>
-                              )}
-
-                              {clip.downloadUrl &&
-                                (() => {
-                                  if (!accounts || accounts.length === 0) {
-                                    return (
-                                      <p className="mt-2 font-body text-xs text-muted-foreground">
-                                        <Link href="/social" className="underline">
-                                          Hubungkan akun
-                                        </Link>{' '}
-                                        untuk publish klip ini.
-                                      </p>
-                                    );
-                                  }
-                                  const selectedId = selectedAccountId[clip.id] ?? accounts[0].id;
-                                  const selectedAccount =
-                                    accounts.find((a) => a.id === selectedId) ?? accounts[0];
-                                  const scheduleValue = scheduleInput[clip.id] ?? '';
-                                  const campaignId = selectedCampaignId[clip.id] ?? '';
-                                  const recurringScheduleId =
-                                    selectedRecurringScheduleId[clip.id] ?? '';
-                                  const busy =
-                                    publishingClipId === clip.id || schedulingClipId === clip.id;
-                                  return (
-                                    <div className="mt-3 space-y-2">
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        {accounts.length > 1 && !recurringScheduleId && (
-                                          <select
-                                            value={selectedId}
-                                            onChange={(e) =>
-                                              setSelectedAccountId((prev) => ({
-                                                ...prev,
-                                                [clip.id]: e.target.value,
-                                              }))
-                                            }
-                                            className="h-8 rounded-md border border-input bg-background px-2 font-body text-xs text-foreground"
-                                          >
-                                            {accounts.map((account) => (
-                                              <option key={account.id} value={account.id}>
-                                                {platformLabel(account.platform)} —{' '}
-                                                {account.displayName}
-                                              </option>
-                                            ))}
-                                          </select>
-                                        )}
-                                        {recurringScheduleId ? (
-                                          <Button
-                                            size="sm"
-                                            variant="outline"
-                                            disabled={busy}
-                                            onClick={() =>
-                                              handleQueueToSchedule(
-                                                clip.id,
-                                                selectedId,
-                                                recurringScheduleId,
-                                                campaignId || undefined,
-                                              )
-                                            }
-                                          >
-                                            {schedulingClipId === clip.id
-                                              ? 'Menambahkan ke antrian...'
-                                              : 'Queue to Schedule'}
-                                          </Button>
-                                        ) : (
-                                          <>
-                                            <Button
-                                              size="sm"
-                                              variant="outline"
-                                              disabled={busy}
-                                              onClick={() =>
-                                                handlePublish(
-                                                  clip.id,
-                                                  selectedId,
-                                                  campaignId || undefined,
-                                                )
-                                              }
-                                            >
-                                              {publishingClipId === clip.id
-                                                ? 'Publishing...'
-                                                : `Publish ke ${platformLabel(selectedAccount.platform)}`}
-                                            </Button>
-                                            <input
-                                              type="datetime-local"
-                                              value={scheduleValue}
-                                              onChange={(e) =>
-                                                setScheduleInput((prev) => ({
-                                                  ...prev,
-                                                  [clip.id]: e.target.value,
-                                                }))
-                                              }
-                                              className="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs text-foreground"
-                                            />
-                                            <Button
-                                              size="sm"
-                                              variant="outline"
-                                              disabled={busy || !scheduleValue}
-                                              onClick={() =>
-                                                scheduleValue &&
-                                                handleSchedule(
-                                                  clip.id,
-                                                  selectedId,
-                                                  scheduleValue,
-                                                  campaignId || undefined,
-                                                )
-                                              }
-                                            >
-                                              {schedulingClipId === clip.id
-                                                ? 'Menjadwalkan...'
-                                                : 'Jadwalkan'}
-                                            </Button>
-                                          </>
-                                        )}
-                                      </div>
-                                      {(publishableCampaigns.length > 0 ||
-                                        publishableSchedules.length > 0) && (
-                                        <div className="flex flex-wrap items-center gap-2">
-                                          {publishableCampaigns.length > 0 && (
-                                            <select
-                                              value={campaignId}
-                                              onChange={(e) =>
-                                                setSelectedCampaignId((prev) => ({
-                                                  ...prev,
-                                                  [clip.id]: e.target.value,
-                                                }))
-                                              }
-                                              className="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs text-muted-foreground"
-                                            >
-                                              <option value="">No campaign</option>
-                                              {publishableCampaigns.map((c) => (
-                                                <option key={c.id} value={c.id}>
-                                                  {c.name}
-                                                </option>
-                                              ))}
-                                            </select>
-                                          )}
-                                          {publishableSchedules.length > 0 && (
-                                            <select
-                                              value={recurringScheduleId}
-                                              onChange={(e) => {
-                                                const id = e.target.value;
-                                                setSelectedRecurringScheduleId((prev) => ({
-                                                  ...prev,
-                                                  [clip.id]: id,
-                                                }));
-                                                const schedule = publishableSchedules.find(
-                                                  (s) => s.id === id,
-                                                );
-                                                if (schedule) {
-                                                  setSelectedAccountId((prev) => ({
-                                                    ...prev,
-                                                    [clip.id]: schedule.socialAccountId,
-                                                  }));
-                                                }
-                                              }}
-                                              className="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs text-muted-foreground"
-                                            >
-                                              <option value="">
-                                                Publish now / schedule manually
-                                              </option>
-                                              {publishableSchedules.map((s) => (
-                                                <option key={s.id} value={s.id}>
-                                                  {s.name} ({platformLabel(s.platform)})
-                                                </option>
-                                              ))}
-                                            </select>
-                                          )}
-                                        </div>
-                                      )}
-                                      <PlatformFitHint clipId={clip.id} />
-                                      <PlatformCopyPanel
-                                        clipId={clip.id}
-                                        platform={selectedAccount.platform}
-                                      />
-                                    </div>
-                                  );
-                                })()}
-                              {publishError && publishError.clipId === clip.id && (
-                                <p className="mt-2 font-body text-xs text-destructive">
-                                  {publishError.message}
-                                </p>
-                              )}
-                              {clip.publishRecords.length > 0 && (
-                                <ul className="mt-3 space-y-2 border-t border-border pt-2">
-                                  {clip.publishRecords.map((record) => (
-                                    <li
-                                      key={record.id}
-                                      className="font-body text-xs text-muted-foreground"
-                                    >
-                                      {record.status === PublishStatus.SCHEDULED ? (
-                                        <div className="space-y-1.5">
-                                          <div className="flex flex-wrap items-center gap-2">
-                                            <span>
-                                              {platformLabel(record.platform)}: Dijadwalkan untuk{' '}
-                                              <span className="font-mono">
-                                                {record.scheduledAt
-                                                  ? new Date(record.scheduledAt).toLocaleString()
-                                                  : 'segera'}
-                                              </span>
-                                            </span>
-                                            <button
-                                              onClick={() =>
-                                                handleCancelScheduled(clip.id, record.id)
-                                              }
-                                              disabled={cancelingRecordId === record.id}
-                                              className="text-destructive underline disabled:opacity-50"
-                                            >
-                                              {cancelingRecordId === record.id
-                                                ? 'Membatalkan...'
-                                                : 'Batalkan'}
-                                            </button>
-                                            <button
-                                              onClick={() =>
-                                                setReschedulingRecordId((prev) =>
-                                                  prev === record.id ? null : record.id,
-                                                )
-                                              }
-                                              className="underline"
-                                            >
-                                              Jadwal Ulang
-                                            </button>
-                                          </div>
-                                          {reschedulingRecordId === record.id && (
-                                            <div className="flex items-center gap-2">
-                                              <input
-                                                type="datetime-local"
-                                                value={rescheduleInput[record.id] ?? ''}
-                                                onChange={(e) =>
-                                                  setRescheduleInput((prev) => ({
-                                                    ...prev,
-                                                    [record.id]: e.target.value,
-                                                  }))
-                                                }
-                                                className="h-8 rounded-md border border-input bg-background px-2 font-mono text-xs text-foreground"
-                                              />
-                                              <Button
-                                                size="sm"
-                                                variant="outline"
-                                                onClick={() => {
-                                                  const value = rescheduleInput[record.id];
-                                                  if (value) {
-                                                    handleReschedule(clip.id, record.id, value);
-                                                  }
-                                                }}
-                                              >
-                                                Simpan
-                                              </Button>
-                                            </div>
-                                          )}
-                                          {scheduleActionError &&
-                                            scheduleActionError.recordId === record.id && (
-                                              <p className="text-destructive">
-                                                {scheduleActionError.message}
-                                              </p>
-                                            )}
-                                        </div>
-                                      ) : (
-                                        <>
-                                          {platformLabel(record.platform)}:{' '}
-                                          {record.status === PublishStatus.PUBLISHED &&
-                                          record.platform === 'YOUTUBE' &&
-                                          record.platformPostId ? (
-                                            <a
-                                              href={`https://youtu.be/${record.platformPostId}`}
-                                              target="_blank"
-                                              rel="noreferrer"
-                                              className="inline-flex items-center gap-1 underline"
-                                            >
-                                              {publishedLabel(record)}
-                                              <ExternalLink
-                                                className="h-3 w-3"
-                                                aria-hidden="true"
-                                              />
-                                            </a>
-                                          ) : (
-                                            <span>
-                                              {record.status === PublishStatus.PUBLISHED
-                                                ? publishedLabel(record)
-                                                : getPublishStatusLabel(record.status)}
-                                              {record.status === PublishStatus.FAILED &&
-                                              record.errorMessage
-                                                ? ` - ${record.errorMessage}`
-                                                : ''}
-                                            </span>
-                                          )}
-                                          {record.status === PublishStatus.PUBLISHED &&
-                                            statsLine(record) && (
-                                              <p
-                                                className={cn(
-                                                  'mt-0.5 font-mono',
-                                                  isBest ? 'text-primary' : 'text-muted-foreground',
-                                                )}
-                                              >
-                                                {statsLine(record)}
-                                              </p>
-                                            )}
-                                        </>
-                                      )}
-                                    </li>
-                                  ))}
-                                </ul>
-                              )}
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    )}
-                  </div>
-                )}
-              </li>
+                video={video}
+                bestClipId={bestClipId}
+                isConfirmingDeleteVideo={confirmDeleteId === video.id}
+                setConfirmDeleteId={setConfirmDeleteId}
+                isDeletingVideo={deletingId === video.id}
+                deleteErrorMessage={deleteError?.videoId === video.id ? deleteError.message : null}
+                setDeleteError={setDeleteError}
+                onDeleteVideo={handleDeleteVideo}
+                isRetrying={retryingId === video.id}
+                retryErrorMessage={retryError?.videoId === video.id ? retryError.message : null}
+                onRetry={handleRetry}
+                confirmDeleteClipId={confirmDeleteClipId}
+                setConfirmDeleteClipId={setConfirmDeleteClipId}
+                deletingClipId={deletingClipId}
+                deleteClipError={deleteClipError}
+                setDeleteClipError={setDeleteClipError}
+                onDeleteClip={handleDeleteClip}
+                accounts={accounts}
+                selectedAccountId={selectedAccountId}
+                setSelectedAccountId={setSelectedAccountId}
+                publishingClipId={publishingClipId}
+                schedulingClipId={schedulingClipId}
+                publishError={publishError}
+                scheduleInput={scheduleInput}
+                setScheduleInput={setScheduleInput}
+                selectedCampaignId={selectedCampaignId}
+                setSelectedCampaignId={setSelectedCampaignId}
+                selectedRecurringScheduleId={selectedRecurringScheduleId}
+                setSelectedRecurringScheduleId={setSelectedRecurringScheduleId}
+                publishableCampaigns={publishableCampaigns}
+                publishableSchedules={publishableSchedules}
+                onPublish={handlePublish}
+                onSchedule={handleSchedule}
+                onQueueToSchedule={handleQueueToSchedule}
+                cancelingRecordId={cancelingRecordId}
+                onCancelScheduled={handleCancelScheduled}
+                reschedulingRecordId={reschedulingRecordId}
+                setReschedulingRecordId={setReschedulingRecordId}
+                rescheduleInput={rescheduleInput}
+                setRescheduleInput={setRescheduleInput}
+                onReschedule={handleReschedule}
+                scheduleActionError={scheduleActionError}
+              />
             ))}
           </ul>
         )}

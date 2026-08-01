@@ -265,8 +265,12 @@ High-level state of each major initiative (see the linked docs for what's actual
   Campaign→Followers→Heatmap→Insight→Prediction→Tracked Link→Conversion actually works end to end,
   plus 6 explicit failure scenarios; `apps/worker/src/scripts/cross-feature-e2e/`, see
   `testing.md`), Visual QA (Area 4 — a code-level audit given no browser automation is available
-  here; dark mode confirmed absent, tooltips/empty/loading states pass by construction, 2
-  responsive-layout gaps flagged as backlog), and Performance Evaluation (Area 5 — real `EXPLAIN
+  here; dark mode confirmed absent at the time (2026-07-19) — **stale as of 2026-07-27**: dark mode
+  shipped in the Design System full replace (commit `9ffa077`, `next-themes` + a full `.dark`
+  CSS-variable palette + `ThemeToggle`, working app-wide via the semantic-token convention with no
+  per-component `dark:` variants needed) — tooltips/empty/loading states pass by
+  construction, 2 responsive-layout gaps flagged as backlog and fixed in the Phase F cross-cutting
+  hardening pass (2026-08-02)), and Performance Evaluation (Area 5 — real `EXPLAIN
   ANALYZE`/index review/N+1 audit plus worker throughput, redirect latency, and Recharts bundle
   impact, see `performance-evaluation.md`). Three tech-debt findings were deliberately left open and
   documented rather than fixed in this pass (none blocked production-readiness): a dotenv/module-load

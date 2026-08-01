@@ -180,6 +180,24 @@ describe('WorkspaceService', () => {
       });
       expect(result.id).toBe('invite-1');
     });
+
+    // Phase F (RBAC hardening) - same "granting OWNER only happens through
+    // transferOwnership()" rule as updateMemberRole's own "rejects granting
+    // OWNER through this route" test below, closing the gap where this
+    // route had no matching check.
+    it('rejects inviting a member as OWNER', async () => {
+      await expect(
+        service.createInvite(
+          'admin-1',
+          'admin@example.com',
+          'ws-1',
+          { email: 'friend@example.com', role: 'OWNER' as never },
+          'https://app.test',
+        ),
+      ).rejects.toThrow(BadRequestException);
+      expect(access.assertMinRole).not.toHaveBeenCalled();
+      expect(prisma.pendingInvite.create).not.toHaveBeenCalled();
+    });
   });
 
   describe('acceptInvite', () => {
@@ -281,6 +299,18 @@ describe('WorkspaceService', () => {
       await expect(
         service.acceptInvite('user-2', 'friend@example.com', 'raw-token'),
       ).rejects.toThrow(NotFoundException);
+    });
+
+    // Phase F (RBAC hardening) - defense in depth for a PendingInvite row
+    // with role=OWNER created before createInvite's own new guard shipped;
+    // must never reach workspaceMembership.upsert.
+    it('throws BadRequestException for an invite with role OWNER', async () => {
+      prisma.pendingInvite.findUnique.mockResolvedValue({ ...invite, role: 'OWNER' });
+
+      await expect(
+        service.acceptInvite('user-2', 'friend@example.com', 'raw-token'),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.workspaceMembership.upsert).not.toHaveBeenCalled();
     });
   });
 

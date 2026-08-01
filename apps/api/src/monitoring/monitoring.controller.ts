@@ -53,6 +53,12 @@ interface QueueCounts {
   likelyStalled: number;
 }
 
+// Every route below is unauthenticated and unthrottled on purpose - same
+// posture as HealthController's own /health, documented in full in
+// docs/monitoring.md ("a load balancer, uptime checker, or on-call engineer
+// needs to reach them without a session, and none of them return video/user
+// data, only operational numbers"). Not an oversight - do not add a guard
+// here without revisiting that doc first.
 @Controller()
 export class MonitoringController {
   private readonly logger = new Logger(MonitoringController.name);
