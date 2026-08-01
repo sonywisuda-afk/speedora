@@ -1567,6 +1567,41 @@ describe('VideosService', () => {
     });
   });
 
+  // Export format expansion (Phase D).
+  describe('getVideoReportMarkdown', () => {
+    it('renders the JSON report as Markdown', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        title: 'My video',
+        durationSeconds: 30,
+        transcriptSegments: [],
+        clips: [],
+      });
+
+      const md = await service.getVideoReportMarkdown('video-1', 'user-1');
+
+      expect(md).toContain('# My video');
+    });
+  });
+
+  describe('getVideoReportHtml', () => {
+    it('renders the JSON report as HTML', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        title: 'My video',
+        durationSeconds: 30,
+        transcriptSegments: [],
+        clips: [],
+      });
+
+      const html = await service.getVideoReportHtml('video-1', 'user-1');
+
+      expect(html).toContain('<h1>My video</h1>');
+    });
+  });
+
   describe('getClipMetadataJson', () => {
     it('builds clip metadata from findOne', async () => {
       prisma.video.findUnique.mockResolvedValue({

@@ -61,10 +61,11 @@ describe('exportTypeLabel', () => {
     }
   });
 
-  it('lists all 4 video-scoped export types with no duplicates, excluding ANALYTICS_REPORT', () => {
-    expect(new Set(EXPORT_TYPES).size).toBe(4);
+  it('lists all 5 video-scoped export types with no duplicates, excluding ANALYTICS_REPORT', () => {
+    expect(new Set(EXPORT_TYPES).size).toBe(5);
     expect(EXPORT_TYPES).toContain(ExportType.PDF);
     expect(EXPORT_TYPES).toContain(ExportType.EXCEL);
+    expect(EXPORT_TYPES).toContain(ExportType.PPTX);
     expect(EXPORT_TYPES).toContain(ExportType.HIGHLIGHT_REPORT);
     expect(EXPORT_TYPES).toContain(ExportType.BRAND_REPORT);
     expect(EXPORT_TYPES).not.toContain(ExportType.ANALYTICS_REPORT);

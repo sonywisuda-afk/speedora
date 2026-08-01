@@ -2176,6 +2176,10 @@ enum ExportType {
   HIGHLIGHT_REPORT
   BRAND_REPORT
   ANALYTICS_REPORT
+  // Export format expansion (Phase D) - same video-scoped VideoReportData
+  // pipeline as PDF/EXCEL, just a PowerPoint renderer
+  // (apps/worker/src/export-generate/pptx/video-report-presentation.ts).
+  PPTX
 }
 
 enum ExportJobStatus {

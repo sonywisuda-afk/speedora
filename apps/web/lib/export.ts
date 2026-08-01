@@ -33,6 +33,9 @@ export function isExportJobInFlight(status: ExportJobStatus): boolean {
 const FORMAT_LABELS: Record<VideoExportFormat, string> = {
   'report.json': 'Laporan (JSON)',
   'report.csv': 'Laporan (CSV)',
+  // Export format expansion (Phase D).
+  'report.md': 'Laporan (Markdown)',
+  'report.html': 'Laporan (HTML)',
   'clip-metadata.json': 'Metadata Klip (JSON)',
   'clip-metadata.csv': 'Metadata Klip (CSV)',
   'transcript.txt': 'Transkrip (TXT)',
@@ -47,6 +50,8 @@ export function videoExportFormatLabel(format: VideoExportFormat): string {
 export const VIDEO_EXPORT_FORMATS: VideoExportFormat[] = [
   'report.json',
   'report.csv',
+  'report.md',
+  'report.html',
   'clip-metadata.json',
   'clip-metadata.csv',
   'transcript.txt',
@@ -60,6 +65,8 @@ const EXPORT_TYPE_LABELS: Record<ExportType, string> = {
   [ExportType.HIGHLIGHT_REPORT]: 'PDF — Highlight Report',
   [ExportType.BRAND_REPORT]: 'PDF — Brand Report',
   [ExportType.ANALYTICS_REPORT]: 'PDF — Analytics Report',
+  // Export format expansion (Phase D).
+  [ExportType.PPTX]: 'PowerPoint — Laporan Lengkap',
 };
 
 export function exportTypeLabel(type: ExportType): string {
@@ -72,6 +79,7 @@ export function exportTypeLabel(type: ExportType): string {
 export const EXPORT_TYPES: ExportType[] = [
   ExportType.PDF,
   ExportType.EXCEL,
+  ExportType.PPTX,
   ExportType.HIGHLIGHT_REPORT,
   ExportType.BRAND_REPORT,
 ];

@@ -11,6 +11,13 @@ export function exportFileInfo(type: ExportType): { extension: string; contentTy
       contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     };
   }
+  // Export format expansion (Phase D).
+  if (type === ExportType.PPTX) {
+    return {
+      extension: 'pptx',
+      contentType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    };
+  }
   // PDF, HIGHLIGHT_REPORT, BRAND_REPORT, ANALYTICS_REPORT all render to PDF
   // (ANALYTICS_REPORT is PDF-only by design, same as Highlight/Brand Report -
   // no Excel variant).

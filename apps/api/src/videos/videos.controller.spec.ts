@@ -25,6 +25,8 @@ describe('VideosController', () => {
     findHistory: jest.Mock;
     getVideoReportJson: jest.Mock;
     getVideoReportCsv: jest.Mock;
+    getVideoReportMarkdown: jest.Mock;
+    getVideoReportHtml: jest.Mock;
     getClipMetadataJson: jest.Mock;
     getClipMetadataCsv: jest.Mock;
     exportTranscriptTxt: jest.Mock;
@@ -55,6 +57,8 @@ describe('VideosController', () => {
       findHistory: jest.fn(),
       getVideoReportJson: jest.fn(),
       getVideoReportCsv: jest.fn(),
+      getVideoReportMarkdown: jest.fn(),
+      getVideoReportHtml: jest.fn(),
       getClipMetadataJson: jest.fn(),
       getClipMetadataCsv: jest.fn(),
       exportTranscriptTxt: jest.fn(),
@@ -601,6 +605,37 @@ describe('VideosController', () => {
       const sent = (res.send as jest.Mock).mock.calls[0][0] as string;
       expect(sent.charCodeAt(0)).toBe(0xfeff);
       expect(sent.slice(1)).toBe('Section,ClipId,Field,Value\n');
+    });
+
+    // Export format expansion (Phase D).
+    it('report.md sends the Markdown report as text/markdown', async () => {
+      videosService.getVideoReportMarkdown.mockResolvedValue('# My video\n');
+      const res = { setHeader: jest.fn(), send: jest.fn() } as unknown as Response;
+
+      await controller.exportReportMarkdown(user, 'video-1', res);
+
+      expect(videosService.getVideoReportMarkdown).toHaveBeenCalledWith('video-1', 'user-1');
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/markdown; charset=utf-8');
+      expect(res.setHeader).toHaveBeenCalledWith(
+        'Content-Disposition',
+        'attachment; filename="video-video-1-report.md"',
+      );
+      expect(res.send).toHaveBeenCalledWith('# My video\n');
+    });
+
+    it('report.html sends the HTML report as text/html', async () => {
+      videosService.getVideoReportHtml.mockResolvedValue('<html></html>');
+      const res = { setHeader: jest.fn(), send: jest.fn() } as unknown as Response;
+
+      await controller.exportReportHtml(user, 'video-1', res);
+
+      expect(videosService.getVideoReportHtml).toHaveBeenCalledWith('video-1', 'user-1');
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/html; charset=utf-8');
+      expect(res.setHeader).toHaveBeenCalledWith(
+        'Content-Disposition',
+        'attachment; filename="video-video-1-report.html"',
+      );
+      expect(res.send).toHaveBeenCalledWith('<html></html>');
     });
 
     it('clip-metadata.json sends the clip metadata as an attachment', async () => {

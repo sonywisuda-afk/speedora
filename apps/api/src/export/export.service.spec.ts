@@ -290,6 +290,8 @@ describe('mapExportType', () => {
     expect(mapExportType('HIGHLIGHT_REPORT')).toBe(ExportType.HIGHLIGHT_REPORT);
     expect(mapExportType('BRAND_REPORT')).toBe(ExportType.BRAND_REPORT);
     expect(mapExportType('ANALYTICS_REPORT')).toBe(ExportType.ANALYTICS_REPORT);
+    // Export format expansion (Phase D).
+    expect(mapExportType('PPTX')).toBe(ExportType.PPTX);
   });
 
   it('throws on an unrecognized value instead of silently passing it through', () => {

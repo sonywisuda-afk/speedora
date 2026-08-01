@@ -26,6 +26,7 @@ import { buildBrandReportDocument } from './pdf/brand-report-document';
 import { buildHighlightReportDocument } from './pdf/highlight-report-document';
 import { buildVideoReportDocument } from './pdf/video-report-document';
 import { buildVideoReportWorkbook } from './xlsx/video-report-workbook';
+import { buildVideoReportPresentation } from './pptx/video-report-presentation';
 
 const logger = forStage('export-generate');
 
@@ -55,6 +56,8 @@ export function mapExportType(type: ExportType): SharedExportType {
       return SharedExportType.BRAND_REPORT;
     case 'ANALYTICS_REPORT':
       return SharedExportType.ANALYTICS_REPORT;
+    case 'PPTX':
+      return SharedExportType.PPTX;
     default:
       return assertNever(type);
   }
@@ -95,12 +98,12 @@ async function fetchBrandKit(userId: string) {
 }
 
 // Sprint 03d - one shared VideoReportData (built once above, regardless of
-// output format) fans out into 4 renderers here. EXCEL is the only
-// non-PDF branch; HIGHLIGHT_REPORT/BRAND_REPORT are both still
-// @react-pdf/renderer documents, just a different document builder.
-// BRAND_REPORT is the only branch that needs an extra Prisma read (the
-// job's own user's Brand Kit fields) - deliberately not fetched for every
-// job, only when actually needed.
+// output format) fans out into 5 renderers here. EXCEL and PPTX (Export
+// format expansion, Phase D) are the only non-PDF branches; HIGHLIGHT_REPORT/
+// BRAND_REPORT are both still @react-pdf/renderer documents, just a
+// different document builder. BRAND_REPORT is the only branch that needs an
+// extra Prisma read (the job's own user's Brand Kit fields) - deliberately
+// not fetched for every job, only when actually needed.
 async function renderVideoReportBuffer(
   type: ExportType,
   report: VideoReportData,
@@ -111,6 +114,11 @@ async function renderVideoReportBuffer(
       const workbook = buildVideoReportWorkbook(report);
       const raw = await workbook.xlsx.writeBuffer();
       return Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+    }
+    case ExportType.PPTX: {
+      const presentation = buildVideoReportPresentation(report);
+      const raw = await presentation.write({ outputType: 'nodebuffer' });
+      return Buffer.isBuffer(raw) ? raw : Buffer.from(raw as ArrayBuffer);
     }
     case ExportType.HIGHLIGHT_REPORT:
       return renderToBuffer(buildHighlightReportDocument(report) as never);

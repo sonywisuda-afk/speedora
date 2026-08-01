@@ -12,9 +12,12 @@ PR that touches Export Center routes, before merging.
 
 Sprint 03a-03e are all shipped as of 2026-07-17: sync CSV/JSON/TXT/SRT/VTT downloads (03b), async
 PDF via `ExportJob`+BullMQ (03c), Excel/Highlight Report/Brand Report + Brand Kit (03d), and the
-`ExportCenterDialog` frontend UI wiring all of it together (03e). This doc has two sections: the
-**API-level** checklist below (direct URLs, useful for verifying backend behavior in isolation)
-and the **Frontend UI** checklist further down (the actual user-facing flow through
+`ExportCenterDialog` frontend UI wiring all of it together (03e). Export format expansion (Phase
+D, 2026-08-01) added two more sync formats (`report.md`/`report.html`, same route/DTO/UI pattern
+as the existing 7) and one more async type (`PPTX`, same `ExportJob` pattern as `EXCEL`) — see
+that section's own checklist items below, they don't get a separate doc. This doc has two
+sections: the **API-level** checklist below (direct URLs, useful for verifying backend behavior
+in isolation) and the **Frontend UI** checklist further down (the actual user-facing flow through
 `/videos/:id/edit`'s Export button — the more relevant one to run end-to-end before merging).
 
 ## Setup
@@ -33,6 +36,8 @@ Base URL: `http://localhost:3001/videos/<VIDEO_ID>/export/`
 |---|---|---|
 | `report.json` | `application/json; charset=utf-8` | `video-<VIDEO_ID>-report.json` |
 | `report.csv` | `text/csv; charset=utf-8` | `video-<VIDEO_ID>-report.csv` |
+| `report.md` | `text/markdown; charset=utf-8` | `video-<VIDEO_ID>-report.md` |
+| `report.html` | `text/html; charset=utf-8` | `video-<VIDEO_ID>-report.html` |
 | `clip-metadata.json` | `application/json; charset=utf-8` | `video-<VIDEO_ID>-clip-metadata.json` |
 | `clip-metadata.csv` | `text/csv; charset=utf-8` | `video-<VIDEO_ID>-clip-metadata.csv` |
 | `transcript.txt` | `text/plain; charset=utf-8` | `video-<VIDEO_ID>-transcript.txt` |
@@ -43,6 +48,13 @@ Base URL: `http://localhost:3001/videos/<VIDEO_ID>/export/`
       JSON with all 11 sections present: `cover`, `videoSummary`, `timeline`, `highlight`,
       `topMoments`, `faceAnalysis`, `speechAnalysis`, `ocrSummary`, `keyword`, `cta`, `thumbnail`
 - [ ] Export `report.csv`
+- [ ] Export `report.md` — opens as valid Markdown (VS Code preview or GitHub upload); confirm a
+      clip whose `hookText`/`highlightReason`/keywords contain `*`, `_`, `` ` ``, `[]`, `#`, or `<>`
+      render as literal characters, never as unintended emphasis/links/headings or raw HTML
+      (`video-report.util.ts`'s `escapeMarkdown()` is unit-tested for this, but a real render is
+      the only way to see it visually)
+- [ ] Export `report.html` — opens directly in a browser (double-click or drag into a tab), same
+      dark-input/light-output styling every time, no broken layout
 - [ ] Export `clip-metadata.json`
 - [ ] Export `clip-metadata.csv`
 - [ ] Export `transcript.txt`
@@ -82,11 +94,21 @@ Checklist:
       `VideoAnalysisDashboard`), klik memunculkan Dialog "Export Center"
 - [ ] **Semua tab tampil** — 3 tab (Unduh Cepat, Laporan, Brand Kit), masing-masing bisa diklik
       dan menampilkan isi yang berbeda
-- [ ] **Semua tombol download** (tab Unduh Cepat) — 7 tombol, satu per format (lihat tabel API di
+- [ ] **Semua tombol download** (tab Unduh Cepat) — 9 tombol, satu per format (lihat tabel API di
       atas untuk nama file/Content-Type yang diharapkan tiap tombol)
 - [ ] **Generate PDF** (tab Laporan) — klik "Generate" di baris PDF, badge status muncul dan
       berubah dari "Menunggu"/"Memproses" → "Siap"
 - [ ] **Generate Excel** — sama, di baris Excel
+- [ ] **Generate PowerPoint** — sama, di baris "PowerPoint — Laporan Lengkap". Setelah "Siap",
+      unduh dan **buka file `.pptx` yang sebenarnya di aplikasi presentasi nyata** (Microsoft
+      PowerPoint, LibreOffice Impress, atau import ke Google Slides) — ini belum pernah diverifikasi
+      otomatis, hanya divalidasi sebagai arsip ZIP/OOXML yang sah (`unzip -l`, struktur
+      `ppt/slides/*.xml` sesuai, `pptxgenjs` mengonfirmasi meng-escape karakter `<`/`>`/`&`/`"`
+      dengan benar di setiap `addText()`/`addTable()`) - lihat 4 slide-nya (Cover, Ringkasan +
+      Timeline, Detail Klip, Analisis AI) benar-benar terbuka tanpa "file rusak"/repair-prompt di
+      ketiga aplikasi, dan ukuran file wajar untuk deck teks-only tanpa gambar (fixture 4-slide
+      referensi ada di kisaran 75-80 KB — jauh lebih besar dari itu untuk video dengan sedikit klip
+      berarti ada aset yang tidak seharusnya ikut ter-embed)
 - [ ] **Progress polling** — status berubah otomatis tanpa refresh manual (SWR polling tiap ~2
       detik, lihat `ExportTypeRow`'s `refreshInterval`) — coba buka DevTools → Network, harus
       terlihat request `GET /export/:id` berulang selama status masih `PENDING`/`PROCESSING`,
@@ -136,3 +158,15 @@ Checklist:
 - All export routes declare `charset=utf-8` explicitly in `Content-Type` — added in the same pass
   as the BOM fix, since neither NestJS nor Express appends a charset automatically for a
   manually-set `Content-Type` header on a `res.send(string)` response.
+- `buildVideoReportMarkdown` (Phase D) initially had no escaping at all for free-text fields
+  (video title, `hookText`, `highlightReason`, `ctaText`, keywords/hashtags/topics) - a
+  CommonMark-compliant renderer passes raw inline/block HTML straight through, so an unescaped
+  `<script>` in one of those fields would reach a browser as real HTML the moment the `.md` file
+  is rendered by a viewer, and unescaped `*`/`_`/`` ` ``/`[]`/`#` could inject fake emphasis/
+  links/headings into the document structure. Fixed via `escapeMarkdown()` (backslash first, then
+  `&`/`<`/`>`, then collapse embedded newlines to a space, then backslash-escape the CommonMark
+  punctuation that's actually exploitable inline: `` ` * _ [ ] # ! ``). `buildVideoReportHtml` was
+  never affected - it already had its own `escapeHtml()` from the start. If a future format
+  addition renders free-text fields into a document format with its own escaping rules (Markdown,
+  HTML, RTF, etc.), it needs the same treatment - this is not automatic just because the input
+  data is already-trusted-shaped `VideoReportData`.

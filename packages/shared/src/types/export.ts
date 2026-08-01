@@ -18,6 +18,9 @@ export enum ExportType {
   // video (see ExportJobDto.videoId below and schema.prisma's ExportType
   // comment). Built from packages/analytics-report, not report-builder.
   ANALYTICS_REPORT = 'ANALYTICS_REPORT',
+  // Export format expansion (Phase D) - same video-scoped data pipeline as
+  // PDF/EXCEL, just a PowerPoint renderer.
+  PPTX = 'PPTX',
 }
 
 export enum ExportJobStatus {

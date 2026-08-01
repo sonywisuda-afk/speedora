@@ -1821,6 +1821,9 @@ export async function acceptInvite(token: string): Promise<WorkspaceDto> {
 export type VideoExportFormat =
   | 'report.json'
   | 'report.csv'
+  // Export format expansion (Phase D).
+  | 'report.md'
+  | 'report.html'
   | 'clip-metadata.json'
   | 'clip-metadata.csv'
   | 'transcript.txt'

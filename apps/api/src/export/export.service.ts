@@ -42,6 +42,8 @@ export function mapExportType(type: PrismaExportType): ExportType {
       return ExportType.BRAND_REPORT;
     case 'ANALYTICS_REPORT':
       return ExportType.ANALYTICS_REPORT;
+    case 'PPTX':
+      return ExportType.PPTX;
     default:
       return assertNever(type);
   }

@@ -43,7 +43,12 @@ import { StorageService } from '../storage/storage.service';
 import { WorkspaceAccessService } from '../workspace/workspace-access.service';
 import { buildClipMetadataCsv, toClipMetadataInput } from './clip-metadata.util';
 import { buildSrtCaptions, buildTranscriptTxt, buildVttCaptions } from './transcript-export.util';
-import { buildVideoReportCsv, buildVideoReportInput } from './video-report.util';
+import {
+  buildVideoReportCsv,
+  buildVideoReportHtml,
+  buildVideoReportInput,
+  buildVideoReportMarkdown,
+} from './video-report.util';
 import {
   toSharedActiveSpeakerSamples,
   toSharedAudioFeatures,
@@ -1654,6 +1659,17 @@ export class VideosService {
 
   async getVideoReportCsv(id: string, requesterId: string): Promise<string> {
     return buildVideoReportCsv(await this.getVideoReportJson(id, requesterId));
+  }
+
+  // Export format expansion (Phase D) - same one-line shape as
+  // getVideoReportCsv above, just a different renderer over the same
+  // VideoReportData.
+  async getVideoReportMarkdown(id: string, requesterId: string): Promise<string> {
+    return buildVideoReportMarkdown(await this.getVideoReportJson(id, requesterId));
+  }
+
+  async getVideoReportHtml(id: string, requesterId: string): Promise<string> {
+    return buildVideoReportHtml(await this.getVideoReportJson(id, requesterId));
   }
 
   async getClipMetadataJson(id: string, requesterId: string): Promise<ClipMetadataOutput> {

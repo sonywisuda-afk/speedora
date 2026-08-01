@@ -104,6 +104,17 @@ jest.mock('./xlsx/video-report-workbook', () => ({
   buildVideoReportWorkbook: (...args: unknown[]) => buildVideoReportWorkbookMock(...args),
 }));
 
+// Export format expansion (Phase D) - same mocking shape as the xlsx builder
+// above (pptxgenjs has its own real-module Jest wall - see
+// pptx/video-report-presentation.spec.ts's own comment - so this worker spec
+// mocks the adapter's dependency on it entirely, same as it already does for
+// @react-pdf/renderer below).
+const pptxWriteMock = jest.fn();
+const buildVideoReportPresentationMock = jest.fn();
+jest.mock('./pptx/video-report-presentation', () => ({
+  buildVideoReportPresentation: (...args: unknown[]) => buildVideoReportPresentationMock(...args),
+}));
+
 const renderToBufferMock = jest.fn();
 jest.mock('@react-pdf/renderer', () => ({
   renderToBuffer: (...args: unknown[]) => renderToBufferMock(...args),
@@ -162,6 +173,8 @@ describe('export-generate worker', () => {
     buildBrandReportDocumentMock.mockReturnValue({});
     writeBufferMock.mockResolvedValue(Buffer.from('PK-fake'));
     buildVideoReportWorkbookMock.mockReturnValue({ xlsx: { writeBuffer: writeBufferMock } });
+    pptxWriteMock.mockResolvedValue(Buffer.from('PK-fake-pptx'));
+    buildVideoReportPresentationMock.mockReturnValue({ write: pptxWriteMock });
     renderToBufferMock.mockResolvedValue(Buffer.from('%PDF-fake'));
     uploadObjectMock.mockResolvedValue('etag');
     notificationCreateMock.mockResolvedValue({ id: 'notif-1' });
@@ -234,6 +247,29 @@ describe('export-generate worker', () => {
       'exports/job-1.xlsx',
       expect.any(Buffer),
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    );
+  });
+
+  // Export format expansion (Phase D).
+  it('PPTX: builds a presentation and uploads it as .pptx with the presentation content type', async () => {
+    exportJobFindUniqueOrThrowMock.mockResolvedValue({
+      id: 'job-1',
+      userId: 'user-1',
+      videoId: 'video-1',
+      type: 'PPTX',
+      status: 'PENDING',
+    });
+    const processor = getProcessor();
+
+    await processor({ data: { exportJobId: 'job-1' } });
+
+    expect(buildVideoReportPresentationMock).toHaveBeenCalled();
+    expect(pptxWriteMock).toHaveBeenCalledWith({ outputType: 'nodebuffer' });
+    expect(renderToBufferMock).not.toHaveBeenCalled();
+    expect(uploadObjectMock).toHaveBeenCalledWith(
+      'exports/job-1.pptx',
+      expect.any(Buffer),
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     );
   });
 
@@ -414,6 +450,8 @@ describe('mapExportType', () => {
     expect(mapExportType('HIGHLIGHT_REPORT')).toBe(ExportType.HIGHLIGHT_REPORT);
     expect(mapExportType('BRAND_REPORT')).toBe(ExportType.BRAND_REPORT);
     expect(mapExportType('ANALYTICS_REPORT')).toBe(ExportType.ANALYTICS_REPORT);
+    // Export format expansion (Phase D).
+    expect(mapExportType('PPTX')).toBe(ExportType.PPTX);
   });
 
   it('throws on an unrecognized value instead of silently passing it through', () => {

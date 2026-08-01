@@ -451,6 +451,32 @@ export class VideosController {
     res.send(withUtf8Bom(csv));
   }
 
+  // Export format expansion (Phase D) - same sync, no-queue shape as every
+  // route above.
+  @Get(':id/export/report.md')
+  async exportReportMarkdown(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const md = await this.videosService.getVideoReportMarkdown(id, user.id);
+    res.setHeader('Content-Type', 'text/markdown; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="video-${id}-report.md"`);
+    res.send(md);
+  }
+
+  @Get(':id/export/report.html')
+  async exportReportHtml(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const html = await this.videosService.getVideoReportHtml(id, user.id);
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="video-${id}-report.html"`);
+    res.send(html);
+  }
+
   @Get(':id/export/clip-metadata.json')
   async exportClipMetadataJson(
     @CurrentUser() user: SafeUser,
