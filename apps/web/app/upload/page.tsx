@@ -26,6 +26,7 @@ import {
   importYoutubeVideo,
   login,
   MfaRequiredError,
+  moveVideo,
   register,
   RequiresCaptchaError,
   retryVideo,
@@ -79,6 +80,26 @@ export default function UploadPage() {
       window.history.replaceState(null, '', '/upload');
     }
     // Mount-only, matches useAuth's own mount-only effect reasoning.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Dashboard Improvement Sprint Phase A - ProjectPickerDialog navigates
+  // here as /upload?projectId=X[&import=youtube]. Read once on mount, same
+  // window.location.search convention as the OAuth ?error= effect above;
+  // moveVideo() is called right after upload/import succeeds (see
+  // startUpload/handleYoutubeImport below) rather than threading projectId
+  // through the upload/import-youtube endpoints themselves.
+  const [pendingProjectId, setPendingProjectId] = useState<string | null>(null);
+  const [importDefaultTab, setImportDefaultTab] = useState<'file' | 'youtube' | undefined>(
+    undefined,
+  );
+  const [linkProjectError, setLinkProjectError] = useState<string | null>(null);
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const projectId = params.get('projectId');
+    if (projectId) setPendingProjectId(projectId);
+    if (params.get('import') === 'youtube') setImportDefaultTab('youtube');
+    // Mount-only, same reasoning as the OAuth ?error= effect above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -274,7 +295,21 @@ export default function UploadPage() {
       onProgress: setUploadProgress,
       signal: controller.signal,
     })
-      .then((uploaded) => {
+      .then(async (uploaded) => {
+        if (pendingProjectId) {
+          try {
+            await moveVideo(uploaded.id, { projectId: pendingProjectId });
+          } catch (err) {
+            // Non-blocking - the video uploaded fine, it just didn't get
+            // attached to the project. Surfaced as an inline warning below,
+            // never fails the upload itself.
+            setLinkProjectError(
+              err instanceof Error
+                ? err.message
+                : 'Video berhasil diupload, tapi gagal ditautkan ke project.',
+            );
+          }
+        }
         setVideo({ ...uploaded, clips: [] });
         setFile(null);
         setUploading(false);
@@ -299,7 +334,18 @@ export default function UploadPage() {
     setImportingUrl(true);
 
     importYoutubeVideo(url, provider)
-      .then((imported) => {
+      .then(async (imported) => {
+        if (pendingProjectId) {
+          try {
+            await moveVideo(imported.id, { projectId: pendingProjectId });
+          } catch (err) {
+            setLinkProjectError(
+              err instanceof Error
+                ? err.message
+                : 'Video berhasil diimpor, tapi gagal ditautkan ke project.',
+            );
+          }
+        }
         setVideo({ ...imported, clips: [] });
       })
       .catch((err) => {
@@ -326,6 +372,7 @@ export default function UploadPage() {
     setProvider(null);
     setStartProcessingError(null);
     setBrowserPreview(null);
+    setLinkProjectError(null);
   }
 
   // Quality Validation roadmap (Fase 0 design, Phase 1) - "Kembali" from
@@ -454,8 +501,19 @@ export default function UploadPage() {
                 onFileRejected={setUploadError}
                 onImport={handleYoutubeImport}
                 importing={importingUrl}
+                defaultTab={importDefaultTab}
               />
             )}
+          </div>
+        </div>
+      ) : null}
+
+      {user && !checkingAuth && video && linkProjectError ? (
+        <div className="px-6 pt-4">
+          <div className="mx-auto max-w-xl">
+            <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 font-body text-xs text-warning">
+              {linkProjectError}
+            </p>
           </div>
         </div>
       ) : null}

@@ -14,11 +14,17 @@ export function ImportTabs({
   onFileRejected,
   onImport,
   importing,
+  defaultTab,
 }: {
   onFileAccepted: (file: File) => void;
   onFileRejected: (message: string) => void;
   onImport: (url: string) => void;
   importing: boolean;
+  // Dashboard Improvement Sprint Phase A - lets the Dashboard's
+  // "Import YouTube URL" quick action deep-link straight to this tab via
+  // /upload?projectId=X&import=youtube instead of landing on the default
+  // file tab.
+  defaultTab?: 'file' | 'youtube';
 }) {
   const [url, setUrl] = useState('');
   const [urlError, setUrlError] = useState<string | null>(null);
@@ -37,7 +43,7 @@ export function ImportTabs({
   }
 
   return (
-    <Tabs defaultValue="file">
+    <Tabs defaultValue={defaultTab ?? 'file'}>
       <TabsList>
         <TabsTrigger value="file">Upload Video</TabsTrigger>
         <TabsTrigger value="youtube" className="gap-2">

@@ -160,8 +160,15 @@ export class ElevationRequiredError extends Error {
 export async function parseJsonOrThrow<T>(res: Response): Promise<T> {
   const body = await res.json().catch(() => null);
   if (!res.ok) {
-    const message =
+    const rawMessage =
       body && typeof body === 'object' && 'message' in body ? body.message : res.statusText;
+    // NestJS's global ValidationPipe (class-validator) always returns
+    // `message` as a string[] on a DTO validation failure (even for a
+    // single violation) - previously only the `typeof message === 'string'`
+    // branch below was handled, so every validation error app-wide (e.g. a
+    // too-long project name) silently fell back to a generic "Request
+    // failed" instead of the actual validation message.
+    const message = Array.isArray(rawMessage) ? rawMessage.join(', ') : rawMessage;
     if (body && typeof body === 'object' && body.elevationRequired === true) {
       throw new ElevationRequiredError(
         typeof message === 'string' ? message : 'Recent verification required',
@@ -700,6 +707,28 @@ export async function startProcessing(
 export async function retryVideo(id: string): Promise<VideoWithClipsDto> {
   const res = await apiFetch(`/videos/${id}/retry`, { method: 'POST' });
   return parseJsonOrThrow<VideoWithClipsDto>(res);
+}
+
+// Dashboard Improvement Sprint Phase A - attaches an already-uploaded/
+// imported video to a project right after the fact, reusing Sprint 5A's
+// existing PATCH /videos/:id/move rather than threading projectId through
+// upload/import-youtube (see the Phase A plan for why).
+export async function moveVideo(
+  id: string,
+  target: { workspaceId?: string; projectId?: string | null; folderId?: string | null },
+): Promise<VideoDto> {
+  const res = await apiFetch(`/videos/${id}/move`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(target),
+  });
+  return parseJsonOrThrow<VideoDto>(res);
+}
+
+// Not fetched - used directly as an <a href> so the browser handles the
+// download, same convention as dashboardExportCsvUrl/clipDownloadUrl.
+export function videoReportCsvUrl(videoId: string): string {
+  return `${API_URL}/videos/${videoId}/export/report.csv`;
 }
 
 // Permanently deletes a video, its clips, and their files. 204 No Content on

@@ -3,9 +3,10 @@
 import { WorkspaceRole } from '@speedora/shared';
 import type { ProjectBulkActionResultDto, ProjectDto } from '@speedora/shared';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import useSWR from 'swr';
 import { Nav } from '@/components/Nav';
+import { CreateProjectDialog } from '@/components/projects/CreateProjectDialog';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -23,7 +24,6 @@ import {
   bulkDeleteProjects,
   bulkMoveProjects,
   bulkUnarchiveProjects,
-  createProject,
   deleteProject,
   getWorkspace,
   listProjects,
@@ -73,6 +73,16 @@ type Tab = 'active' | 'archived';
 export default function ProjectsPage() {
   const { user, checkingAuth, logout } = useAuth();
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
+  // Dashboard Improvement Sprint Phase A - "Open Last Project" deep-links
+  // here as /projects?highlight=<id> instead of a new per-project page (see
+  // the Phase A plan for why). Read directly off window.location rather
+  // than next/navigation's useSearchParams() - same convention as
+  // social/page.tsx's readRedirectParams(), avoids the Suspense-boundary
+  // requirement for reading one query param once.
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  useEffect(() => {
+    setHighlightId(new URLSearchParams(window.location.search).get('highlight'));
+  }, []);
   const [tab, setTab] = useState<Tab>('active');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkResult, setBulkResult] = useState<{
@@ -153,7 +163,11 @@ export default function ProjectsPage() {
             </p>
           </div>
           {user && activeWorkspaceId && canEdit && (
-            <CreateProjectDialog workspaceId={activeWorkspaceId} onCreated={() => mutate()} />
+            <CreateProjectDialog
+              workspaceId={activeWorkspaceId}
+              onCreated={() => mutate()}
+              triggerLabel="+ Project"
+            />
           )}
         </div>
 
@@ -271,6 +285,7 @@ export default function ProjectsPage() {
                         canMove={canMove}
                         canSelect={canSelect}
                         selected={selected.has(project.id)}
+                        highlighted={project.id === highlightId}
                         onToggleSelected={() => toggleSelected(project.id)}
                         onChanged={() => mutate()}
                       />
@@ -293,6 +308,7 @@ function ProjectRow({
   canMove,
   canSelect,
   selected,
+  highlighted = false,
   onToggleSelected,
   onChanged,
 }: {
@@ -302,11 +318,22 @@ function ProjectRow({
   canMove: boolean;
   canSelect: boolean;
   selected: boolean;
+  highlighted?: boolean;
   onToggleSelected: () => void;
   onChanged: () => void;
 }) {
   const archived = !!project.archivedAt;
   const [toggling, setToggling] = useState(false);
+  const rowRef = useRef<HTMLLIElement>(null);
+  const [showHighlight, setShowHighlight] = useState(highlighted);
+
+  useEffect(() => {
+    if (!highlighted) return;
+    rowRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const timer = setTimeout(() => setShowHighlight(false), 2000);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleToggleArchive() {
     setToggling(true);
@@ -323,7 +350,13 @@ function ProjectRow({
   }
 
   return (
-    <li className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted p-4">
+    <li
+      ref={rowRef}
+      className={cn(
+        'flex items-center justify-between gap-4 rounded-lg border border-border bg-muted p-4 transition-colors duration-500',
+        showHighlight && 'border-primary ring-2 ring-primary',
+      )}
+    >
       <div className="flex min-w-0 items-center gap-3">
         {canSelect && (
           <input
@@ -557,65 +590,6 @@ function BulkDeleteDialog({
             }}
           >
             {deleting ? 'Menghapus...' : `Hapus ${selectedIds.length} Project`}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function CreateProjectDialog({
-  workspaceId,
-  onCreated,
-}: {
-  workspaceId: string;
-  onCreated: () => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  function reset() {
-    setName('');
-    setError(null);
-  }
-
-  async function handleCreate() {
-    setError(null);
-    setCreating(true);
-    try {
-      await createProject(workspaceId, name.trim());
-      setOpen(false);
-      reset();
-      onCreated();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Gagal membuat project');
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        if (!next) reset();
-      }}
-    >
-      <DialogTrigger asChild>
-        <Button size="sm">+ Project</Button>
-      </DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>New Project</DialogTitle>
-        </DialogHeader>
-        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Nama project" />
-        {error && <p className="font-body text-xs text-destructive">{error}</p>}
-        <DialogFooter>
-          <Button disabled={creating || !name.trim()} onClick={handleCreate}>
-            {creating ? 'Membuat...' : 'Buat Project'}
           </Button>
         </DialogFooter>
       </DialogContent>

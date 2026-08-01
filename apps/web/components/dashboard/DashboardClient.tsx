@@ -43,6 +43,7 @@ import { ProcessingQueue } from './ProcessingQueue';
 import { QuickActions } from './QuickActions';
 import { RecentProjectsGrid } from './RecentProjectsGrid';
 import { SearchBar } from './SearchBar';
+import { UploadVideoQuickAction } from './UploadVideoQuickAction';
 
 // GET /videos is now cursor-paginated (see PaginatedVideos in
 // packages/shared) - this page only ever polls page 1 (the videos a user is
@@ -494,7 +495,7 @@ export function DashboardClient({
 
         <div className="mt-6 space-y-6">
           <SearchBar />
-          <QuickActions />
+          <QuickActions videos={videos} />
           {children}
           <ProcessingQueue videos={videos} />
           {videos.length > 0 && (
@@ -529,9 +530,12 @@ export function DashboardClient({
             <p className="mt-1 max-w-sm font-body text-sm text-muted-foreground">
               Upload rekaman pertama kamu dan lihat klip siap-viral pertama muncul di sini.
             </p>
-            <Button size="lg" className="mt-6" asChild>
-              <Link href="/upload">Upload Video Sekarang</Link>
-            </Button>
+            <UploadVideoQuickAction
+              workspaceId={activeWorkspaceId}
+              label="Upload Video Sekarang"
+              size="lg"
+              className="mt-6"
+            />
           </div>
         ) : (
           <ul className="mt-6 space-y-4">
