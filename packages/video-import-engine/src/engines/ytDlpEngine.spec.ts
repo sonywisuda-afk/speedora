@@ -218,6 +218,25 @@ describe('YtDlpEngine.download', () => {
     await expect(promise).rejects.toMatchObject({ category: 'unavailable', retryable: false });
   });
 
+  it('categorizes a non-zero exit with empty stderr as internal and retryable (a crashed process, not an extractor failure)', async () => {
+    // Real production case: yt-dlp.exe exited 3221225794 (0xC0000409,
+    // STATUS_STACK_BUFFER_OVERRUN) with nothing on stderr, correlated with a
+    // Windows Defender scan running at the same time - a transient crash,
+    // not a site/extractor problem, so it must be retried rather than
+    // permanently failing the import (see categorizeExitFailure's comment).
+    const { deps, getLastChild } = createHarness();
+    const promise = YtDlpEngine.download({ url: 'https://youtu.be/abc' }, deps);
+    await flushMicrotasks();
+    const child = getLastChild();
+    child.emit('close', 3221225794);
+
+    await expect(promise).rejects.toMatchObject({
+      category: 'internal',
+      exitCode: 3221225794,
+      retryable: true,
+    });
+  });
+
   it('categorizes a spawn-level error (e.g. missing binary) as internal and non-retryable', async () => {
     const { deps, getLastChild } = createHarness();
     const promise = YtDlpEngine.download({ url: 'https://youtu.be/abc' }, deps);

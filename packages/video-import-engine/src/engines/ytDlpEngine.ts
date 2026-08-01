@@ -61,6 +61,16 @@ function truncate(text: string, maxLength = 500): string {
 // unrecognized, which is treated as non-retryable (a format/site-extraction
 // issue a retry won't fix).
 function categorizeExitFailure(stderr: string): ImportFailureCategory {
+  // A real yt-dlp failure - private/unavailable/rate-limited/a genuine
+  // extractor bug - always prints something to stderr explaining what
+  // happened. A non-zero exit with EMPTY stderr means the process never got
+  // that far: it was killed/crashed before it could report anything (seen in
+  // production as exit code 3221225794 / 0xC0000409, STATUS_STACK_BUFFER_
+  // OVERRUN, correlated with a Windows Defender scan running concurrently -
+  // a transient environmental crash, not a site/extractor problem). Without
+  // this check it fell through to 'extractor' (non-retryable), so a
+  // one-off AV hiccup permanently failed the import with no automatic retry.
+  if (stderr.trim().length === 0) return 'internal';
   if (/private video/i.test(stderr)) return 'private';
   // Confirmed against a real yt-dlp run (a nonexistent video id): the actual
   // message is "Video unavailable" - no "is" between the two words. The
