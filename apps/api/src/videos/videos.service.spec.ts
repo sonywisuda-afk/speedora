@@ -759,9 +759,33 @@ describe('VideosService', () => {
               title: { contains: 'zoo', mode: 'insensitive' },
               createdAt: {
                 gte: new Date('2026-01-01T00:00:00.000Z'),
-                lte: new Date('2026-02-01T00:00:00.000Z'),
+                // PR #37 review fix - dateTo is shifted to the exclusive
+                // start of the NEXT day (see endOfDayExclusive), compared
+                // with `lt` not `lte`, so the entire selected end day is
+                // actually included.
+                lt: new Date('2026-02-02T00:00:00.000Z'),
               },
             },
+          }),
+        );
+      });
+
+      // PR #37 review fix regression test - dateTo previously compared with
+      // `lte` against midnight of the selected day, excluding everything
+      // created later that same day. This pins the corrected behavior.
+      it('dateTo includes the entire selected day, not just its first instant', async () => {
+        prisma.video.findMany.mockResolvedValue([]);
+
+        await service.findHistory('user-1', {
+          limit: 20,
+          dateTo: new Date('2026-02-01T00:00:00.000Z'),
+        });
+
+        expect(prisma.video.findMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            where: expect.objectContaining({
+              createdAt: { lt: new Date('2026-02-02T00:00:00.000Z') },
+            }),
           }),
         );
       });

@@ -13,7 +13,7 @@ const owner = {
 
 function renderFilters(
   value: VideoHistoryFiltersValue,
-  overrides: { owners?: typeof owner[]; isPersonal?: boolean } = {},
+  overrides: { owners?: (typeof owner)[]; isPersonal?: boolean } = {},
 ) {
   const onChange = jest.fn();
   render(

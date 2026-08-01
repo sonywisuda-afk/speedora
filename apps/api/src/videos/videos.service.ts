@@ -124,6 +124,18 @@ const HISTORY_STATUS_FILTER_MAP: Record<'COMPLETED' | 'RUNNING' | 'FAILED', Vide
   ],
 };
 
+// PR #37 review fix - `dateTo` arrives as a calendar date at UTC midnight
+// (parseDate('2026-02-01') -> 2026-02-01T00:00:00.000Z). Comparing
+// createdAt <= that instant excluded almost the entire selected day (only
+// videos created in its very first millisecond matched). The fix: compare
+// against the START OF THE NEXT DAY with `<` instead, so "through Feb 1"
+// really includes all of Feb 1.
+function endOfDayExclusive(date: Date): Date {
+  const next = new Date(date);
+  next.setUTCDate(next.getUTCDate() + 1);
+  return next;
+}
+
 // Watermark roadmap (P3c) - same defaults as ClipsService's own
 // DEFAULT_WATERMARK_* constants, duplicated here rather than exported/
 // shared - same "each render-enqueue site inlines its own resolution"
@@ -601,6 +613,9 @@ export class VideosService {
     }
 
     const statusList = status ? HISTORY_STATUS_FILTER_MAP[status] : undefined;
+    // Computed once here (not duplicated per branch) - see
+    // endOfDayExclusive's comment for why this isn't just `dateTo` as-is.
+    const dateToExclusive = dateTo ? endOfDayExclusive(dateTo) : undefined;
 
     if (sortBy === 'newest' || sortBy === 'oldest') {
       return this.findHistoryByDate(targetWorkspaceId, {
@@ -610,7 +625,7 @@ export class VideosService {
         statusList,
         search,
         dateFrom,
-        dateTo,
+        dateToExclusive,
         sortBy,
       });
     }
@@ -622,7 +637,7 @@ export class VideosService {
       statusList,
       search,
       dateFrom,
-      dateTo,
+      dateToExclusive,
       sortBy,
     });
   }
@@ -636,7 +651,7 @@ export class VideosService {
       statusList,
       search,
       dateFrom,
-      dateTo,
+      dateToExclusive,
       sortBy,
     }: {
       cursor?: string;
@@ -645,7 +660,9 @@ export class VideosService {
       statusList?: VideoStatus[];
       search?: string;
       dateFrom?: Date;
-      dateTo?: Date;
+      // Already the start of the day AFTER the user's selected end date
+      // (see endOfDayExclusive) - compared with `lt`, not `lte`.
+      dateToExclusive?: Date;
       sortBy: 'newest' | 'oldest';
     },
   ) {
@@ -655,11 +672,11 @@ export class VideosService {
         ...(ownerId ? { ownerId } : {}),
         ...(statusList ? { status: { in: statusList } } : {}),
         ...(search ? { title: { contains: search, mode: 'insensitive' as const } } : {}),
-        ...(dateFrom || dateTo
+        ...(dateFrom || dateToExclusive
           ? {
               createdAt: {
                 ...(dateFrom ? { gte: dateFrom } : {}),
-                ...(dateTo ? { lte: dateTo } : {}),
+                ...(dateToExclusive ? { lt: dateToExclusive } : {}),
               },
             }
           : {}),
@@ -747,7 +764,7 @@ export class VideosService {
       statusList,
       search,
       dateFrom,
-      dateTo,
+      dateToExclusive,
       sortBy,
     }: {
       page: number;
@@ -756,7 +773,9 @@ export class VideosService {
       statusList?: VideoStatus[];
       search?: string;
       dateFrom?: Date;
-      dateTo?: Date;
+      // Already the start of the day AFTER the user's selected end date
+      // (see endOfDayExclusive) - compared with `<`, not `<=`.
+      dateToExclusive?: Date;
       sortBy: 'processingTime' | 'topScore';
     },
   ) {
@@ -768,7 +787,7 @@ export class VideosService {
       ${statusList ? Prisma.sql`AND v.status::text IN (${Prisma.join(statusList)})` : Prisma.empty}
       ${search ? Prisma.sql`AND v.title ILIKE ${`%${search}%`}` : Prisma.empty}
       ${dateFrom ? Prisma.sql`AND v."createdAt" >= ${dateFrom}` : Prisma.empty}
-      ${dateTo ? Prisma.sql`AND v."createdAt" <= ${dateTo}` : Prisma.empty}
+      ${dateToExclusive ? Prisma.sql`AND v."createdAt" < ${dateToExclusive}` : Prisma.empty}
     `;
 
     const orderFragment =

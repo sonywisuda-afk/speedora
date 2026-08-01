@@ -31,7 +31,12 @@ export interface VideoHistoryFiltersProps {
 // <input type="date"> for the range (DateRangeFilter.tsx is a fixed
 // last-N-days bucket toggle for Analytics, not an arbitrary from/to range,
 // so this is a sibling, not a reuse).
-export function VideoHistoryFilters({ value, onChange, owners, isPersonal }: VideoHistoryFiltersProps) {
+export function VideoHistoryFilters({
+  value,
+  onChange,
+  owners,
+  isPersonal,
+}: VideoHistoryFiltersProps) {
   // Local echo so typing feels instant - only the debounced value is
   // reported up, same 300ms debounce convention as ClipLibraryFilters.tsx.
   const [searchInput, setSearchInput] = useState(value.search ?? '');

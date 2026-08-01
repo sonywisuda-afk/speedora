@@ -31,7 +31,10 @@ export function VideoHistoryRow({ video }: { video: VideoHistoryRowDto }) {
           </div>
         )}
         <div className="min-w-0">
-          <Link href={href} className="truncate font-body text-sm font-medium text-foreground hover:underline">
+          <Link
+            href={href}
+            className="truncate font-body text-sm font-medium text-foreground hover:underline"
+          >
             {video.title ?? 'Video Tanpa Judul'}
           </Link>
           <div className="mt-1 flex flex-wrap items-center gap-2">
@@ -44,9 +47,7 @@ export function VideoHistoryRow({ video }: { video: VideoHistoryRowDto }) {
             >
               {formatRelativeTime(video.createdAt)}
             </span>
-            <span className="font-mono text-xs text-muted-foreground">
-              {video.clipCount} klip
-            </span>
+            <span className="font-mono text-xs text-muted-foreground">{video.clipCount} klip</span>
           </div>
         </div>
       </div>

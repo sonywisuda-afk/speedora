@@ -156,6 +156,13 @@ export default function VideoHistoryPage() {
               </p>
             )}
 
+            {/* PR #37 review fix - the first fetch previously rendered
+                nothing (neither this nor the empty-state message below is
+                shown while isLoading), a blank gap with no feedback. */}
+            {!error && isLoading && (
+              <p className="mt-8 font-body text-sm text-muted-foreground">Memuat...</p>
+            )}
+
             {!error && !isLoading && rows.length === 0 && (
               <p className="mt-8 font-body text-sm text-muted-foreground">
                 Tidak ada video yang cocok dengan filter ini.
