@@ -64,7 +64,7 @@ pattern itself and its "add a new module" checklist.
 |---|---|
 | [`docs/architecture.md`](docs/architecture.md) | Full pipeline, state machine, job design, storage, auth, the JSON-contract pattern, AI signal flow |
 | [`docs/data-ownership.md`](docs/data-ownership.md) | Entity relationship map (`User`/`Workspace`/`WorkspaceMembership`/`SocialAccount`/`Campaign`/`PublishRecord`/both snapshot models) — the two coexisting scoping models (direct ownership vs. workspace membership) and why both exist |
-| [`docs/coding-standards.md`](docs/coding-standards.md) | Conventions: module checklist, extraction discipline, "scale honesty", data-shape conventions, the recurring TS2742 pitfall |
+| [`docs/coding-standards.md`](docs/coding-standards.md) | Conventions: module checklist, extraction discipline, "scale honesty", data-shape conventions, the recurring TS2742 pitfall, enum mapping rules (Contract Governance) |
 | [`docs/backend.md`](docs/backend.md) | `apps/api` — auth, endpoints, Publish Center (YouTube/TikTok/Instagram), payments |
 | [`docs/analytics-architecture.md`](docs/analytics-architecture.md) | Flow-level view of Sprint 6A-6K: Publish → Snapshot → Aggregation → Visualization → Insight → Prediction — how a clip's real performance becomes a dashboard number, a narrative, and a projection |
 | [`docs/conversion-architecture.md`](docs/conversion-architecture.md) | Sprint 6K's Tracked Link → Redirect → Bot Filter → Dedup → Click Event → Conversion Count → Dashboard flow — and why "conversion" here means click count, not a purchase/signup event |

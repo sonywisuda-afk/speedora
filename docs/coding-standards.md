@@ -101,6 +101,55 @@ already-`Json?` column** (e.g. adding `eyeContactRate` to the existing `faceLand
 do *not* trigger this — only a brand-new Json *column* does. Run `apps/api`'s `nest build`
 (declaration emit), not just `tsc --noEmit`, to catch this — a plain typecheck can miss it.
 
+## Enum mapping rules (Contract Governance)
+
+Every enum shared across a Prisma ↔ `packages/shared` ↔ frontend boundary follows the same
+"Mirrors X" convention: Prisma generates one enum, `packages/shared` declares a second, nominally
+distinct TS enum with identical string members (never imports Prisma's directly — `apps/web` has
+no dependency on `@speedora/database`/`@speedora/contracts`). This split is deliberate, but it is
+also exactly the shape of the bug that crashed `ActivityTimeline` on `WORKSPACE_DELETED`
+(`47a3b97`) and that the 2026-08-01 Contract Governance audit (Sprint 1-3) found live instances of
+in `AuditAction` (4 missing members) and `FaceReviewPanel.tsx`'s emotion labels (wrong taxonomy).
+The rules below are what closes that bug class for good — not a one-off fix, a standing convention:
+
+1. **Never cast across the boundary with `as unknown as` or `as never`.** Both are the same escape
+   hatch spelled differently — a value of type `never`/`unknown` is assignable to anything, so
+   either bypasses all type checking at exactly the point where a real mismatch would need to be
+   caught. Write an explicit mapper instead (see `dashboard.service.ts`'s `mapActivityEventType` as
+   the reference implementation, or `notifications-v2.service.ts`'s cluster of `mapNotification*`
+   functions for the multi-enum version): a `switch` over the Prisma-typed input with **no
+   `default` case**, each branch returning the matching `packages/shared` member, ending in
+   `default: return assertNever(value)`. Adding a new `schema.prisma` member then fails
+   `nest build`/`tsc --noEmit` at the mapper's own `assertNever` call — before it ever reaches a
+   consumer — instead of surfacing as a runtime `undefined`.
+2. **Every enum-keyed display registry (icon/label/color/tone/badge) is `Record<Enum, ...>`, never
+   `Record<string, ...>` or `Partial<Record<Enum, ...>>`.** A plain `Record<string, ...>` compiles
+   even when new members are missing; a `Partial` compiles even when *no* members are covered.
+   Neither forces the compiler to reject an incomplete registry the way a full `Record<Enum, ...>`
+   does. If the closed type lives in a package `apps/web` can't depend on (`@speedora/contracts`,
+   or an internal `apps/api` type like `AuthMethod`), mirror it as a local string-literal union in
+   the same file rather than loosening the Record — see `lib/clip-library.ts`'s `FacialEmotion` or
+   `app/accounts/page.tsx`'s `AuthMethod`.
+3. **Treat every value read off an API response as untrusted, even though its DTO type claims
+   otherwise.** A `NotificationDto['type']` typed as `NotificationType` is still just a `string` on
+   the wire — a live frontend/backend version skew (the API ships a new enum member before this
+   frontend bundle rebuilds) can put a value through that TypeScript's static type never accounted
+   for. Every consumer of a `Record<Enum, ...>` fed by API data needs a paired runtime-safe getter
+   (`isKnownX(value): value is Enum` + `getX(value)` that checks membership, falls back to a
+   default, and `console.warn`s) rather than indexing the Record directly — see
+   `lib/notification-definitions.ts`'s `isKnownNotificationType`/`getNotificationIcon`/
+   `getNotificationLabel` or `lib/activity-events.ts`'s `isKnownActivityEventType`. This matters
+   most where the lookup result is rendered as a JSX component (`const Icon = MAP[x]; return
+   <Icon />`) — an `undefined` there throws "Element type is invalid," not a blank label. A
+   registry driven by the frontend's own enum iteration (`Object.values(SomeEnum).map(...)`, as
+   `NotificationFilterBar.tsx`/`NotificationPreferencesTab.tsx` do) never needs this — the risk is
+   specific to indexing with a value that *came from* an API response.
+4. **Compile-time exhaustiveness and the runtime getter are both required, neither replaces the
+   other.** The mapper/`Record<Enum, ...>` pair (rules 1-2) is what makes the *next* enum addition
+   fail loudly at build time; the runtime getter (rule 3) is what keeps a live deploy from crashing
+   during the window where an already-built frontend is still serving traffic against a newer
+   backend. Skipping either one reopens exactly the gap this section exists to close.
+
 ## `apps/web` exhaustive-map gotcha
 
 Components with a `Record<keyof SomeSharedType, ...>` map (e.g. `TimelineEditor.tsx`'s and

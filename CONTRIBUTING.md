@@ -37,3 +37,22 @@ Format any changed files with `pnpm format` — CI (once set up) will reject unf
 - Describe what changed and why, and link any related issue/context.
 - Include a short test plan (what you ran, what you verified manually).
 - Prefer small, reviewable PRs over large multi-feature ones.
+
+### If this PR touches a `schema.prisma` enum (or any `packages/shared` enum)
+
+See `docs/coding-standards.md`'s "Enum mapping rules" for the full rationale — this checklist is
+the short version to run through before requesting review:
+
+- [ ] `packages/shared`'s mirrored enum updated with the same new/changed member(s)
+- [ ] Every `as unknown as` / `as never` mapper at the Prisma ↔ shared boundary updated (its own
+      `assertNever` should already have failed `tsc --noEmit` if you missed one — don't silence
+      that error with a cast)
+- [ ] Every `Record<Enum, ...>` icon/label/color/tone/badge registry has a matching entry (the
+      compiler should already have failed the build if you missed one — don't switch it to
+      `Record<string, ...>` or `Partial<...>` to make the error go away)
+- [ ] A registry fed by API data (not the frontend's own `Object.values(Enum)` iteration) has a
+      runtime-safe getter (`isKnownX`/`getX`) covering the new member, not a direct index
+- [ ] `pnpm typecheck` passes across `apps/api`, `apps/worker`, and `apps/web`
+- [ ] `pnpm lint` and `pnpm build` pass
+- [ ] A test proves the new member's mapping (round-trip through the mapper) and, if a runtime
+      getter changed, that an unrecognized value still falls back safely instead of throwing
