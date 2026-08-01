@@ -8,5 +8,8 @@ import { ExportService } from './export.service';
   imports: [QueueModule, WorkspaceModule],
   controllers: [ExportController],
   providers: [ExportService],
+  // Phase E (Dashboard & Recent Activity) - DashboardModule reuses toDto()/
+  // mapExportType() rather than duplicating the ExportJob -> DTO mapping.
+  exports: [ExportService],
 })
 export class ExportModule {}

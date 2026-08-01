@@ -1,3 +1,5 @@
+import type { ExportJobDto, ExportType } from './export';
+
 // Sprint 1-2 (Dashboard Redesign, Product Experience track). Mirrors
 // ActivityEventType in packages/database's Prisma schema - the Dashboard's
 // user-facing Activity Timeline, distinct from VideoStatusEvent (an
@@ -44,6 +46,37 @@ export interface DashboardStatsDto {
   // month - reuses the existing premium-transcription credit system rather
   // than a new generic quota concept (explicit product decision).
   premiumCreditsThisMonth: number;
+}
+
+// Phase E (Dashboard & Recent Activity) - fed by GET /dashboard/exports, a
+// dashboard-facing rollup over ExportJob distinct from ExportService.listRecent
+// (which is scoped to one videoId/type for the per-video Export Center tabs).
+// All-time counts, same convention as DashboardStatsDto.totalVideos/totalClips
+// above - not windowed.
+export interface DashboardExportsDto {
+  // Newest 10, any video/type - reuses ExportJobDto as-is (same shape GET
+  // /export already returns), no separate dashboard-only DTO for the rows
+  // themselves.
+  recentExports: ExportJobDto[];
+  totalExports: number;
+  // "Queue status" - jobs enqueued but not yet picked up by a worker.
+  pendingCount: number;
+  // "Running jobs" - jobs a worker is actively rendering right now.
+  processingCount: number;
+  failedCount: number;
+  // Denominator context for successRate below.
+  readyCount: number;
+  // readyCount / (readyCount + failedCount) - null when neither has ever
+  // happened yet ("no data," not "0%"), same convention as
+  // DashboardStatsDto.avgProcessingTimeSeconds above.
+  successRate: number | null;
+  // Most recent READY job's updatedAt - "Last download" relabeled honestly
+  // as "last export became ready," since no click-through download event is
+  // recorded anywhere in this codebase (GET /export/:id/download is a plain
+  // stream, not tracked).
+  lastReadyAt: string | null;
+  // Every ExportType member present, 0 where the user has never used one.
+  exportsByType: Record<ExportType, number>;
 }
 
 // PendingInviteRole/PendingInviteDto moved to ./workspace as part of

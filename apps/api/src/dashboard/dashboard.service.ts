@@ -1,16 +1,20 @@
 import { Injectable } from '@nestjs/common';
 import {
   ActivityEventType as PrismaActivityEventType,
+  ExportJobStatus,
   PremiumCreditStatus,
   VideoStatus,
 } from '@speedora/database';
 import {
   ActivityEventType,
+  ExportType,
   type ActivityEventDto,
   type DashboardActivityDto,
+  type DashboardExportsDto,
   type DashboardStatsDto,
 } from '@speedora/shared';
 import { AnalyticsService } from '../analytics/analytics.service';
+import { ExportService, mapExportType } from '../export/export.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildDashboardReportCsv } from './dashboard-export.util';
 
@@ -60,6 +64,7 @@ export class DashboardService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly analytics: AnalyticsService,
+    private readonly exportService: ExportService,
   ) {}
 
   // Statistics Row. Every query below is scoped to `ownerId: userId` (or
@@ -147,6 +152,70 @@ export class DashboardService {
         metadata: (event.metadata as unknown as Record<string, unknown> | null) ?? null,
         createdAt: event.createdAt.toISOString(),
       })),
+    };
+  }
+
+  // Phase E (Dashboard & Recent Activity) - Export Center visibility.
+  // Deliberately a fresh set of `prisma.exportJob` queries, not a call into
+  // ExportService.listRecent() (that method requires a videoId/type filter -
+  // see its own comment - this is the account-wide rollup those per-video
+  // Export Center tabs don't need). All-time (not windowed), same convention
+  // as getStats() above.
+  async getExports(userId: string): Promise<DashboardExportsDto> {
+    const [recentJobs, statusCounts, typeCounts, lastReady] = await Promise.all([
+      this.prisma.exportJob.findMany({
+        where: { userId },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+      }),
+      this.prisma.exportJob.groupBy({
+        by: ['status'],
+        where: { userId },
+        _count: { _all: true },
+      }),
+      this.prisma.exportJob.groupBy({
+        by: ['type'],
+        where: { userId },
+        _count: { _all: true },
+      }),
+      this.prisma.exportJob.findFirst({
+        where: { userId, status: ExportJobStatus.READY },
+        orderBy: { updatedAt: 'desc' },
+        select: { updatedAt: true },
+      }),
+    ]);
+
+    let pendingCount = 0;
+    let processingCount = 0;
+    let readyCount = 0;
+    let failedCount = 0;
+    for (const row of statusCounts) {
+      if (row.status === ExportJobStatus.PENDING) pendingCount = row._count._all;
+      else if (row.status === ExportJobStatus.PROCESSING) processingCount = row._count._all;
+      else if (row.status === ExportJobStatus.READY) readyCount = row._count._all;
+      else if (row.status === ExportJobStatus.FAILED) failedCount = row._count._all;
+    }
+    const totalExports = pendingCount + processingCount + readyCount + failedCount;
+
+    const exportsByType = Object.fromEntries(
+      Object.values(ExportType).map((type) => [type, 0]),
+    ) as Record<ExportType, number>;
+    for (const row of typeCounts) {
+      exportsByType[mapExportType(row.type)] = row._count._all;
+    }
+
+    const terminalCount = readyCount + failedCount;
+
+    return {
+      recentExports: recentJobs.map((job) => this.exportService.toDto(job)),
+      totalExports,
+      pendingCount,
+      processingCount,
+      failedCount,
+      readyCount,
+      successRate: terminalCount > 0 ? readyCount / terminalCount : null,
+      lastReadyAt: lastReady?.updatedAt.toISOString() ?? null,
+      exportsByType,
     };
   }
 
