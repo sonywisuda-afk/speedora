@@ -11,6 +11,7 @@ import { ApprovalPanel } from '../../../../components/editor/ApprovalPanel';
 import { CommentsPanel } from '../../../../components/editor/CommentsPanel';
 import { VersionHistoryPanel } from '../../../../components/editor/VersionHistoryPanel';
 import { VideoAnalysisDashboard } from '../../../../components/editor/VideoAnalysisDashboard';
+import { GenerateMoreClipsDialog } from '../../../../components/videos/GenerateMoreClipsDialog';
 import { getVideo, getVideoTranscript } from '../../../../lib/api';
 import { useTimelineStore } from '../../../../lib/timelineStore';
 import { useAuth } from '../../../../lib/useAuth';
@@ -105,6 +106,7 @@ export default function EditVideoPage({ params }: { params: { id: string } }) {
                   <Button variant="outline" asChild>
                     <Link href={`/videos/${params.id}/review`}>Review Mode</Link>
                   </Button>
+                  <GenerateMoreClipsDialog videoId={params.id} />
                   <ExportCenterDialog videoId={params.id} />
                 </div>
                 <VideoAnalysisDashboard />

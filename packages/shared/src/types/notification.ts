@@ -33,6 +33,12 @@ export enum NotificationType {
   // Transfer Ownership roadmap - fires to the new owner once
   // WorkspaceService.transferOwnership completes.
   WORKSPACE_OWNERSHIP_TRANSFERRED = 'WORKSPACE_OWNERSHIP_TRANSFERRED',
+  // Generate More Clips roadmap (Phase C) - fires from
+  // generate-more-clips.worker.ts when it finds zero usable new candidates.
+  // Unlike PIPELINE_PROGRESS below, this is a real single-shot notification
+  // (not a thread-status concept), so it belongs in the full V1 enum with a
+  // normal icon/label/severity, not the V2-only widened union.
+  GENERATE_MORE_NO_CANDIDATES = 'GENERATE_MORE_NO_CANDIDATES',
 }
 
 // Mirrors NotificationChannel in packages/database's Prisma schema, same
@@ -82,6 +88,13 @@ export const NOTIFICATION_SEVERITY: Record<NotificationType, NotificationSeverit
   [NotificationType.APPROVAL]: 'success',
   [NotificationType.MEMBER_INVITATION_ACCEPTED]: 'success',
   [NotificationType.WORKSPACE_OWNERSHIP_TRANSFERRED]: 'success',
+  // Generate More Clips roadmap (Phase C) - neither success (nothing new
+  // was produced) nor an error (the job itself succeeded) - closest to a
+  // neutral/informational tone, and this type's own severity set has no
+  // dedicated 'info' value, so 'warning' is used the same way this codebase
+  // already treats STORAGE_WARNING/CREDIT_WARNING: worth the user's
+  // attention, not a failure.
+  [NotificationType.GENERATE_MORE_NO_CANDIDATES]: 'warning',
 };
 
 export interface NotificationDto {

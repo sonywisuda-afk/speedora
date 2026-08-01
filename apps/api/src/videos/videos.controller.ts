@@ -26,6 +26,7 @@ import type { SafeUser } from '../auth/auth.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { withUtf8Bom } from '../common/csv.util';
 import { toProcessingOptions } from '../processing-presets/dto/processing-options.dto';
+import { GenerateMoreDto } from './dto/generate-more.dto';
 import { ImportYoutubeDto } from './dto/import-youtube.dto';
 import { MergeTranscriptSegmentsDto } from './dto/merge-transcript-segments.dto';
 import { MoveVideoDto } from './dto/move-video.dto';
@@ -327,6 +328,18 @@ export class VideosController {
   @HttpCode(200)
   retry(@CurrentUser() user: SafeUser, @Param('id') id: string) {
     return this.videosService.retry(id, user.id);
+  }
+
+  // Generate More Clips roadmap (Phase C) - see VideosService.generateMore
+  // for the RENDERED/not-mid-render validation this endpoint relies on.
+  @Post(':id/generate-more')
+  @HttpCode(200)
+  generateMore(
+    @CurrentUser() user: SafeUser,
+    @Param('id') id: string,
+    @Body() dto: GenerateMoreDto,
+  ) {
+    return this.videosService.generateMore(id, user.id, dto);
   }
 
   // Quality Validation roadmap (Fase 0 design, Phase 1) - submits Processing

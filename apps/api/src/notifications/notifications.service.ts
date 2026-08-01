@@ -77,6 +77,8 @@ export function mapNotificationType(type: PrismaNotificationType): NotificationT
       return NotificationType.SYNC_FAILURE_WARNING;
     case 'WORKSPACE_OWNERSHIP_TRANSFERRED':
       return NotificationType.WORKSPACE_OWNERSHIP_TRANSFERRED;
+    case 'GENERATE_MORE_NO_CANDIDATES':
+      return NotificationType.GENERATE_MORE_NO_CANDIDATES;
     case 'PIPELINE_PROGRESS':
       throw new Error(
         'PIPELINE_PROGRESS is a V2-only notification type and cannot reach a V1 NotificationDto',

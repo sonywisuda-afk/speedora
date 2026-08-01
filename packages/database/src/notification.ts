@@ -64,6 +64,10 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   // lifetime - a static per-type category (recordThreadNotification's
   // fallback when no override is given) can't express that.
   PIPELINE_PROGRESS: NotificationCategory.AI_PROCESSING,
+  // Generate More Clips roadmap (Phase C) - same category as CLIP_READY,
+  // since this is a Generate More Clips outcome too (just "found nothing
+  // new"), not a rendering or error event.
+  GENERATE_MORE_NO_CANDIDATES: NotificationCategory.CLIP_GENERATION,
 };
 
 // Default priority per type - overridable per-call (params.priority) for
@@ -88,6 +92,10 @@ export const NOTIFICATION_TYPE_PRIORITY: Record<NotificationType, NotificationPr
   // (SUCCESS)/RENDER_FAILED (ERROR) instead of this type - see
   // derivePipelineThreadPresentation().
   PIPELINE_PROGRESS: NotificationPriority.INFO,
+  // Generate More Clips roadmap (Phase C) - neither an error (the job
+  // succeeded) nor a success (nothing new was produced) - informational,
+  // same tone as PIPELINE_PROGRESS.
+  GENERATE_MORE_NO_CANDIDATES: NotificationPriority.INFO,
 };
 
 // Notification Center v2 Phase 5 (Preferences & Delivery) - the simplified

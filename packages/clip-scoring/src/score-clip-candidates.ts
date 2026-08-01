@@ -227,6 +227,10 @@ export async function scoreClipCandidates(
   const maxClipSeconds = input.maxClipSeconds ?? MAX_CLIP_SECONDS;
   const minConfidence = input.minConfidence;
   const preferredIntents = input.preferredIntents ?? [];
+  // Generate More Clips roadmap (Phase C) - see ClipScoringInput's own
+  // comment: a prompt hint only, never a code-enforced filter here. Every
+  // existing caller that omits this keeps this module's exact prior prompt.
+  const excludeRanges = input.excludeRanges ?? [];
 
   const videoStart = Math.min(...segments.map((segment) => segment.start));
   const videoEnd = Math.max(...segments.map((segment) => segment.end));
@@ -242,6 +246,19 @@ export async function scoreClipCandidates(
   // source physically can't provide.
   const effectiveMinSeconds = Math.min(minClipSeconds, span);
   const promptMinSeconds = Math.max(1, Math.round(effectiveMinSeconds));
+
+  // Generate More Clips roadmap (Phase C) - names already-used ranges so the
+  // model naturally avoids them. The caller-side filterOverlappingCandidates
+  // below is the authoritative guard; this is just a better first attempt.
+  const excludeRangesText =
+    excludeRanges.length > 0
+      ? '\n\nThe following time ranges already have a clip and MUST be avoided entirely - do ' +
+        'not pick a moment that overlaps any of them: ' +
+        excludeRanges
+          .map((range) => `${range.start.toFixed(1)}-${range.end.toFixed(1)}`)
+          .join(', ') +
+        '.'
+      : '';
 
   const completion = await deps.openai.chat.completions.create({
     model: 'gpt-4o-mini',
@@ -293,7 +310,8 @@ export async function scoreClipCandidates(
           'part 2", "comment below", "link in bio"), quote/paraphrase it here; otherwise an ' +
           'empty string.\n\n' +
           'Write hookText, hashtags, reason, topics, and keywords all in the same language as ' +
-          'the transcript.',
+          'the transcript.' +
+          excludeRangesText,
       },
       {
         role: 'user',
@@ -400,4 +418,28 @@ export async function scoreClipCandidates(
   }));
 
   return clipScoringOutputSchema.parse({ candidates });
+}
+
+// Generate More Clips roadmap (Phase C) - the authoritative overlap guard
+// (scoreClipCandidates' own excludeRanges is a prompt hint only, see its
+// comment above). Pure/synchronous, no LLM/DB access, so it's trivially
+// unit-testable in isolation. Rejects a candidate that intersects ANY given
+// range at all - no overlap tolerance/ratio, matching this codebase's
+// explicit "hindari overlap besar" + "hindari timestamp yang sama"
+// requirement with the simplest correct rule rather than a tunable
+// threshold. Two ranges [a,b) and [c,d) intersect iff a < d && c < b -
+// touching endpoints (b === c) do NOT count as overlap.
+export function filterOverlappingCandidates<T extends { startTime: number; endTime: number }>(
+  candidates: T[],
+  excludeRanges: { start: number; end: number }[],
+): T[] {
+  if (excludeRanges.length === 0) {
+    return candidates;
+  }
+  return candidates.filter(
+    (candidate) =>
+      !excludeRanges.some(
+        (range) => candidate.startTime < range.end && range.start < candidate.endTime,
+      ),
+  );
 }

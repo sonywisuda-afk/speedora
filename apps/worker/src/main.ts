@@ -50,6 +50,7 @@ async function main() {
   const { createProbeVideoWorker } = await import('./workers/probe-video.worker');
   const { createTranscribeWorker } = await import('./workers/transcribe.worker');
   const { createDetectClipsWorker } = await import('./workers/detect-clips.worker');
+  const { createGenerateMoreClipsWorker } = await import('./workers/generate-more-clips.worker');
   const { createRenderClipWorker } = await import('./workers/render-clip.worker');
   const { createPublishClipWorker } = await import('./workers/publish-clip.worker');
   const {
@@ -95,6 +96,7 @@ async function main() {
     createProbeVideoWorker(),
     createTranscribeWorker(),
     createDetectClipsWorker(),
+    createGenerateMoreClipsWorker(),
     createRenderClipWorker(),
     createPublishClipWorker(),
     createSchedulePublishClipWorker(),

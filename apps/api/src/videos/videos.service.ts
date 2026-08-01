@@ -22,6 +22,7 @@ import {
   TranscriptionProvider,
   type BrandKitFields,
   type DetectClipsJobData,
+  type GenerateMoreClipsJobData,
   type ImportYoutubeJobData,
   type IntroType,
   type ProbeVideoJobData,
@@ -194,6 +195,8 @@ export class VideosService {
     @InjectQueue(QueueName.RENDER_CLIP) private readonly renderClipQueue: Queue<RenderClipJobData>,
     @InjectQueue(QueueName.TRANSLATE_TRANSCRIPT)
     private readonly translateTranscriptQueue: Queue<TranslateTranscriptJobData>,
+    @InjectQueue(QueueName.GENERATE_MORE_CLIPS)
+    private readonly generateMoreClipsQueue: Queue<GenerateMoreClipsJobData>,
   ) {}
 
   // Explicit Promise<Video> return type (rather than inferred) - Video now
@@ -1117,6 +1120,55 @@ export class VideosService {
         ),
       );
     }
+
+    return this.findOne(id, requesterId);
+  }
+
+  // Generate More Clips roadmap (Phase C) - synchronous validation (cheap DB
+  // reads only, same "validate here, only the LLM call and render are
+  // async" posture as startProcessing/retry above), then enqueue
+  // GENERATE_MORE_CLIPS. Never enqueues DETECT_CLIPS/RENDER_CLIP directly -
+  // this pipeline stays entirely inside apps/worker, same boundary every
+  // other stage already respects.
+  async generateMore(
+    id: string,
+    requesterId: string,
+    params: {
+      requestedCount: number;
+      minClipDurationSeconds?: number;
+      maxClipDurationSeconds?: number;
+      minConfidence?: number;
+      avoidOverlap: boolean;
+    },
+  ) {
+    const video = await this.prisma.video.findUnique({
+      where: { id },
+      select: { id: true, workspaceId: true, status: true },
+    });
+    if (!video) {
+      throw new NotFoundException(`Video ${id} not found`);
+    }
+    await this.workspaceAccess.assertMinRole(requesterId, video.workspaceId, WorkspaceRole.EDITOR);
+    if (video.status !== VideoStatus.RENDERED) {
+      throw new BadRequestException('Video belum selesai diproses');
+    }
+    // Same signal VideosService.retry already uses to infer "a render is
+    // still in flight" - catches both "still doing its first render" (should
+    // be unreachable given the RENDERED check above, but defensive) and "a
+    // previous Generate More request is still in flight" (no separate
+    // tracking row exists for that - see the Phase C plan's own reasoning).
+    const inFlightClip = await this.prisma.clip.findFirst({
+      where: { videoId: id, outputUrl: null },
+      select: { id: true },
+    });
+    if (inFlightClip) {
+      throw new BadRequestException('Video sedang diproses');
+    }
+
+    await this.generateMoreClipsQueue.add(QueueName.GENERATE_MORE_CLIPS, {
+      videoId: id,
+      ...params,
+    });
 
     return this.findOne(id, requesterId);
   }

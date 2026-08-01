@@ -20,6 +20,9 @@ describe('VideosService', () => {
       update: jest.Mock;
       delete: jest.Mock;
     };
+    // Generate More Clips roadmap (Phase C) - generateMore()'s "video not
+    // currently mid-render" concurrency guard.
+    clip: { findFirst: jest.Mock };
     videoStatusEvent: { create: jest.Mock; findMany: jest.Mock };
     activityEvent: { create: jest.Mock };
     notification: { create: jest.Mock };
@@ -57,6 +60,7 @@ describe('VideosService', () => {
   let detectClipsQueue: { add: jest.Mock };
   let renderClipQueue: { add: jest.Mock };
   let translateTranscriptQueue: { add: jest.Mock };
+  let generateMoreClipsQueue: { add: jest.Mock };
 
   beforeEach(() => {
     prisma = {
@@ -67,6 +71,10 @@ describe('VideosService', () => {
         update: jest.fn().mockResolvedValue({}),
         delete: jest.fn().mockResolvedValue({}),
       },
+      // Generate More Clips roadmap (Phase C) - defaults to "no clip
+      // currently mid-render"; individual tests override to exercise the
+      // concurrency-guard rejection path.
+      clip: { findFirst: jest.fn().mockResolvedValue(null) },
       // Dashboard Improvement Sprint Phase B ("View All" video processing
       // history) - findHistory's processingTime/topScore sort branch.
       $queryRaw: jest.fn(),
@@ -133,6 +141,7 @@ describe('VideosService', () => {
     detectClipsQueue = { add: jest.fn() };
     renderClipQueue = { add: jest.fn() };
     translateTranscriptQueue = { add: jest.fn() };
+    generateMoreClipsQueue = { add: jest.fn() };
     service = new VideosService(
       prisma as unknown as PrismaService,
       storage as unknown as StorageService,
@@ -146,6 +155,7 @@ describe('VideosService', () => {
       detectClipsQueue as unknown as Queue,
       renderClipQueue as unknown as Queue,
       translateTranscriptQueue as unknown as Queue,
+      generateMoreClipsQueue as unknown as Queue,
     );
   });
 
@@ -1977,6 +1987,84 @@ describe('VideosService', () => {
       expect(transcribeQueue.add).not.toHaveBeenCalled();
       expect(detectClipsQueue.add).not.toHaveBeenCalled();
       expect(renderClipQueue.add).not.toHaveBeenCalled();
+    });
+  });
+
+  // Generate More Clips roadmap (Phase C).
+  describe('generateMore', () => {
+    const renderedVideo = {
+      id: 'video-1',
+      ownerId: 'user-1',
+      workspaceId: 'workspace-1',
+      status: VideoStatus.RENDERED,
+      clips: [],
+    };
+
+    it('throws NotFoundException when the video does not exist', async () => {
+      prisma.video.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.generateMore('missing', 'user-1', { requestedCount: 2, avoidOverlap: true }),
+      ).rejects.toThrow(NotFoundException);
+      expect(generateMoreClipsQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('throws NotFoundException when the requester has no workspace access', async () => {
+      prisma.video.findUnique.mockResolvedValue(renderedVideo);
+      workspaceAccess.assertMinRole.mockRejectedValue(new NotFoundException());
+
+      await expect(
+        service.generateMore('video-1', 'user-1', { requestedCount: 2, avoidOverlap: true }),
+      ).rejects.toThrow(NotFoundException);
+      expect(generateMoreClipsQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException when the video is not RENDERED', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        ...renderedVideo,
+        status: VideoStatus.CLIPS_DETECTED,
+      });
+
+      await expect(
+        service.generateMore('video-1', 'user-1', { requestedCount: 2, avoidOverlap: true }),
+      ).rejects.toThrow(BadRequestException);
+      expect(generateMoreClipsQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException when a clip is still mid-render (outputUrl null)', async () => {
+      prisma.video.findUnique.mockResolvedValue(renderedVideo);
+      prisma.clip.findFirst.mockResolvedValue({ id: 'clip-in-flight' });
+
+      await expect(
+        service.generateMore('video-1', 'user-1', { requestedCount: 2, avoidOverlap: true }),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.clip.findFirst).toHaveBeenCalledWith({
+        where: { videoId: 'video-1', outputUrl: null },
+        select: { id: true },
+      });
+      expect(generateMoreClipsQueue.add).not.toHaveBeenCalled();
+    });
+
+    it('enqueues generate-more-clips with the request params when the video is RENDERED and idle', async () => {
+      prisma.video.findUnique.mockResolvedValue(renderedVideo);
+      prisma.clip.findFirst.mockResolvedValue(null);
+
+      await service.generateMore('video-1', 'user-1', {
+        requestedCount: 3,
+        minClipDurationSeconds: 15,
+        maxClipDurationSeconds: 90,
+        minConfidence: 60,
+        avoidOverlap: false,
+      });
+
+      expect(generateMoreClipsQueue.add).toHaveBeenCalledWith(QueueName.GENERATE_MORE_CLIPS, {
+        videoId: 'video-1',
+        requestedCount: 3,
+        minClipDurationSeconds: 15,
+        maxClipDurationSeconds: 90,
+        minConfidence: 60,
+        avoidOverlap: false,
+      });
     });
   });
 

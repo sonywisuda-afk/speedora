@@ -65,6 +65,12 @@ const generatePlatformCopyQueue = BullModule.registerQueue({
 const translateTranscriptQueue = BullModule.registerQueue({
   name: QueueName.TRANSLATE_TRANSCRIPT,
 });
+// Generate More Clips roadmap (Phase C) - apps/api is sole producer (POST
+// /videos/:id/generate-more), apps/worker's generate-more-clips.worker.ts
+// the sole consumer - same shape as exportGenerateQueue above.
+const generateMoreClipsQueue = BullModule.registerQueue({
+  name: QueueName.GENERATE_MORE_CLIPS,
+});
 
 @Module({
   imports: [
@@ -87,6 +93,7 @@ const translateTranscriptQueue = BullModule.registerQueue({
     notificationDeliveryQueue,
     generatePlatformCopyQueue,
     translateTranscriptQueue,
+    generateMoreClipsQueue,
   ],
   providers: [NotificationDeliveryProducer],
   exports: [
@@ -102,6 +109,7 @@ const translateTranscriptQueue = BullModule.registerQueue({
     notificationDeliveryQueue,
     generatePlatformCopyQueue,
     translateTranscriptQueue,
+    generateMoreClipsQueue,
     NotificationDeliveryProducer,
   ],
 })

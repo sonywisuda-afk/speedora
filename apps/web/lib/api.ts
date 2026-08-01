@@ -712,6 +712,30 @@ export async function retryVideo(id: string): Promise<VideoWithClipsDto> {
   return parseJsonOrThrow<VideoWithClipsDto>(res);
 }
 
+// Generate More Clips roadmap (Phase C) - see VideosService.generateMore for
+// the RENDERED/not-mid-render validation this call relies on. The returned
+// VideoWithClipsDto reflects the video at request time (new clips haven't
+// rendered yet) - same "immediately return findOne()'s shape" convention as
+// startProcessing/retryVideo above; the caller is responsible for polling to
+// see new clips actually appear.
+export async function generateMoreClips(
+  id: string,
+  params: {
+    requestedCount: number;
+    minClipDurationSeconds?: number;
+    maxClipDurationSeconds?: number;
+    minConfidence?: number;
+    avoidOverlap: boolean;
+  },
+): Promise<VideoWithClipsDto> {
+  const res = await apiFetch(`/videos/${id}/generate-more`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  return parseJsonOrThrow<VideoWithClipsDto>(res);
+}
+
 // Dashboard Improvement Sprint Phase A - attaches an already-uploaded/
 // imported video to a project right after the fact, reusing Sprint 5A's
 // existing PATCH /videos/:id/move rather than threading projectId through

@@ -72,6 +72,18 @@ export enum QueueName {
   // translations[languageCode]" as done, same "poll the resource itself"
   // convention as IMPORT_YOUTUBE.
   TRANSLATE_TRANSCRIPT = 'translate-transcript',
+  // Generate More Clips roadmap (Phase C) - enqueued by
+  // VideosService.generateMore (apps/api) only after synchronously
+  // validating the video is RENDERED and not already mid-render; never
+  // self-chained by any other queue. Deliberately NOT the same queue as
+  // DETECT_CLIPS - that worker's idempotency guard (skip unless
+  // Video.status === TRANSCRIBED) exists specifically to stop a duplicate
+  // LLM call on a BullMQ stalled-job re-run, and reusing it for a video
+  // that's already RENDERED would either silently no-op or require
+  // weakening that guard for an unrelated purpose. On success, self-chains
+  // one RENDER_CLIP per new candidate only - same "one job per candidate,
+  // independent failure domains" shape as DETECT_CLIPS's own self-chain.
+  GENERATE_MORE_CLIPS = 'generate-more-clips',
 }
 
 // videoId is created (status IMPORTING, placeholder sourceUrl) by
@@ -289,4 +301,27 @@ export interface GeneratePlatformCopyJobData {
 export interface TranslateTranscriptJobData {
   videoId: string;
   languageCode: string;
+}
+
+// Generate More Clips roadmap (Phase C) - id-plus-params, not id-only: unlike
+// ExportGenerateJobData/GeneratePlatformCopyJobData (which point at an
+// already-created tracking row), there's no new tracking row for this
+// request (see the roadmap's own "no new table" decision) - the request's
+// own parameters have nowhere else to live, so they travel on the job data.
+// The worker still re-fetches TranscriptSegment/Clip fresh rather than
+// trusting any snapshot of them, same as every other job in this pipeline.
+export interface GenerateMoreClipsJobData {
+  videoId: string;
+  requestedCount: number;
+  minClipDurationSeconds?: number;
+  maxClipDurationSeconds?: number;
+  // "Prioritas kualitas" dialog field - reuses ClipScoringInput's existing
+  // minConfidence, not a new scoring concept.
+  minConfidence?: number;
+  avoidOverlap: boolean;
+}
+
+export interface GenerateMoreClipsJobResult {
+  videoId: string;
+  candidateCount: number;
 }

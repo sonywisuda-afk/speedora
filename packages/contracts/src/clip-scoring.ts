@@ -38,6 +38,16 @@ export const clipScoringInputSchema = z.object({
   // listed can still survive if there's room. Optional/omitted (or empty)
   // means "no preference," same current behavior.
   preferredIntents: z.array(z.string()).optional(),
+  // Generate More Clips roadmap (Phase C) - time ranges (in the same
+  // seconds-from-video-start units as segments) the caller already has a
+  // clip for, so the LLM is told to pick elsewhere. This is a PROMPT HINT
+  // ONLY - the module does not filter candidates against it (see
+  // filterOverlappingCandidates, the caller-side authoritative check) and
+  // it never affects the module's own duration/confidence/maxCandidates
+  // filtering or its whole-video fallback. Optional/omitted (or empty)
+  // means "no exclusions," same current behavior for every existing caller
+  // (detect-clips.worker.ts never passes this).
+  excludeRanges: z.array(z.object({ start: z.number(), end: z.number() })).optional(),
 });
 
 // Mirrors packages/shared's ClipScores shape (Fase 8 - Content

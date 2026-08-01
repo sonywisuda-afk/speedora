@@ -1483,6 +1483,15 @@ enum NotificationType {
   // WorkspaceService.transferOwnership completes, same "positive
   // collaboration event" tone as MEMBER_INVITATION_ACCEPTED.
   WORKSPACE_OWNERSHIP_TRANSFERRED
+  // Generate More Clips roadmap (Phase C) - fires from
+  // generate-more-clips.worker.ts when scoreClipCandidates (after overlap
+  // filtering) returns zero usable new candidates. The only outcome of that
+  // job with no other observable signal: new clips rendering already
+  // surfaces via the existing CLIP_READY per clip, and a hard failure
+  // already surfaces via RENDER_FAILED - this is neither, it's "the job
+  // succeeded but found nothing new to add," which needs its own type so
+  // the message doesn't read as an error.
+  GENERATE_MORE_NO_CANDIDATES
 }
 
 // Only IN_APP for Sprint 4A. Milestone 04d wired SLACK/DISCORD/WEBHOOK, 04e

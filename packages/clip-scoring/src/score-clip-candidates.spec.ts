@@ -1,6 +1,6 @@
 import type { ClipScoringSegment } from '@speedora/contracts';
 import type OpenAI from 'openai';
-import { scoreClipCandidates } from './score-clip-candidates';
+import { filterOverlappingCandidates, scoreClipCandidates } from './score-clip-candidates';
 
 // Pure fixture-based tests - no DB/queue/Sentry mocking at all, since the
 // module never touches any of that (see root ARCHITECTURE.md). Only the LLM
@@ -384,5 +384,90 @@ describe('scoreClipCandidates', () => {
       expect(result.candidates).toHaveLength(1);
       expect(result.candidates[0].hookText).toBe('low-score-preferred-intent');
     });
+  });
+
+  // Generate More Clips roadmap (Phase C) - excludeRanges is a prompt hint
+  // only (see filterOverlappingCandidates below for the authoritative,
+  // code-enforced check); this just confirms the hint reaches the prompt.
+  describe('excludeRanges', () => {
+    it('does not mention exclusions in the prompt when excludeRanges is omitted or empty', async () => {
+      const segments: ClipScoringSegment[] = [{ start: 0, end: 60, text: 'video' }];
+      const openai = fakeOpenAI([
+        rawCandidate({ startTime: 0, endTime: 30, viralityScore: 90, hookText: 'a' }),
+      ]);
+
+      await scoreClipCandidates({ segments, excludeRanges: [] }, { openai });
+
+      const call = (openai.chat.completions.create as jest.Mock).mock.calls[0][0];
+      const systemMessage = call.messages.find((m: { role: string }) => m.role === 'system');
+      expect(systemMessage.content).not.toContain('MUST be avoided');
+    });
+
+    it('tells the model which time ranges to avoid when excludeRanges is provided', async () => {
+      const segments: ClipScoringSegment[] = [{ start: 0, end: 60, text: 'video' }];
+      const openai = fakeOpenAI([
+        rawCandidate({ startTime: 30, endTime: 60, viralityScore: 90, hookText: 'a' }),
+      ]);
+
+      await scoreClipCandidates({ segments, excludeRanges: [{ start: 0, end: 20 }] }, { openai });
+
+      const call = (openai.chat.completions.create as jest.Mock).mock.calls[0][0];
+      const systemMessage = call.messages.find((m: { role: string }) => m.role === 'system');
+      expect(systemMessage.content).toContain('MUST be avoided');
+      expect(systemMessage.content).toContain('0.0-20.0');
+    });
+  });
+});
+
+describe('filterOverlappingCandidates', () => {
+  function candidate(startTime: number, endTime: number) {
+    return { startTime, endTime };
+  }
+
+  it('returns every candidate unchanged when excludeRanges is empty', () => {
+    const candidates = [candidate(0, 10), candidate(20, 30)];
+
+    expect(filterOverlappingCandidates(candidates, [])).toEqual(candidates);
+  });
+
+  it('drops a candidate that exactly matches an excluded range', () => {
+    const candidates = [candidate(10, 20)];
+
+    expect(filterOverlappingCandidates(candidates, [{ start: 10, end: 20 }])).toEqual([]);
+  });
+
+  it('drops a candidate that partially overlaps an excluded range', () => {
+    const candidates = [candidate(15, 25)];
+
+    expect(filterOverlappingCandidates(candidates, [{ start: 10, end: 20 }])).toEqual([]);
+  });
+
+  it('drops a candidate fully contained inside an excluded range, and one that fully contains it', () => {
+    const contained = candidate(12, 18);
+    const containing = candidate(5, 25);
+
+    expect(filterOverlappingCandidates([contained], [{ start: 10, end: 20 }])).toEqual([]);
+    expect(filterOverlappingCandidates([containing], [{ start: 10, end: 20 }])).toEqual([]);
+  });
+
+  it('keeps a candidate that only touches an excluded range at the boundary (no overlap)', () => {
+    const candidates = [candidate(20, 30)];
+
+    expect(filterOverlappingCandidates(candidates, [{ start: 10, end: 20 }])).toEqual(candidates);
+  });
+
+  it('keeps a candidate clear of every excluded range and drops only the overlapping one', () => {
+    const clear = candidate(30, 40);
+    const overlapping = candidate(5, 15);
+
+    const result = filterOverlappingCandidates(
+      [clear, overlapping],
+      [
+        { start: 0, end: 10 },
+        { start: 50, end: 60 },
+      ],
+    );
+
+    expect(result).toEqual([clear]);
   });
 });

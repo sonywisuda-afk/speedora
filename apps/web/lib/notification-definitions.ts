@@ -8,6 +8,7 @@ import {
   Film,
   HardDrive,
   MessageSquare,
+  SearchX,
   ShieldCheck,
   UploadCloud,
   UserPlus,
@@ -39,6 +40,9 @@ export const NOTIFICATION_ICONS: Record<NotificationType, typeof Bell> = {
   [NotificationType.APPROVAL]: ShieldCheck,
   [NotificationType.MEMBER_INVITATION_ACCEPTED]: UserPlus,
   [NotificationType.WORKSPACE_OWNERSHIP_TRANSFERRED]: Crown,
+  // Generate More Clips roadmap (Phase C) - "search that found nothing",
+  // distinct from Film (CLIP_READY) so it never reads as "a clip is ready".
+  [NotificationType.GENERATE_MORE_NO_CANDIDATES]: SearchX,
 };
 
 // Same 'good' | 'neutral' | 'bad' tone vocabulary as lib/export.ts's
@@ -83,6 +87,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   [NotificationType.APPROVAL]: 'Keputusan review',
   [NotificationType.MEMBER_INVITATION_ACCEPTED]: 'Undangan diterima',
   [NotificationType.WORKSPACE_OWNERSHIP_TRANSFERRED]: 'Kepemilikan workspace ditransfer',
+  [NotificationType.GENERATE_MORE_NO_CANDIDATES]: 'Tidak ada klip tambahan ditemukan',
 };
 
 const DEFAULT_ICON = Bell;
