@@ -49,7 +49,9 @@ describe('QualityValidation', () => {
       />,
     );
 
-    expect(screen.getByText('2 hal perlu diperhatikan - tidak menghalangi proses.')).toBeInTheDocument();
+    expect(
+      screen.getByText('2 hal perlu diperhatikan - tidak menghalangi proses.'),
+    ).toBeInTheDocument();
     expect(screen.getByText('Resolusi rendah (640x360px).')).toBeInTheDocument();
     expect(screen.getByText('Audio mono (bukan stereo).')).toBeInTheDocument();
   });

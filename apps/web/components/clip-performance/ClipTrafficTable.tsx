@@ -68,9 +68,7 @@ export function ClipTrafficTable({ traffic, workspaceId }: ClipTrafficTableProps
             return (
               <tr key={entry.publishRecordId} className="border-b border-border/50">
                 <td className="p-2 text-foreground">{PLATFORM_LABELS[entry.platform]}</td>
-                <td className="p-2 text-muted-foreground">
-                  {getPublishStatusLabel(entry.status)}
-                </td>
+                <td className="p-2 text-muted-foreground">{getPublishStatusLabel(entry.status)}</td>
                 <td className="p-2 text-muted-foreground">
                   {entry.scheduledAt ? formatPublishDate(entry.scheduledAt) : '—'}
                 </td>

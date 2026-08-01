@@ -29,12 +29,22 @@ export function UploadVideoQuickAction({
 
   return (
     <>
-      <Button size={size} className={className} disabled={!workspaceId} onClick={() => setOpen(true)}>
+      <Button
+        size={size}
+        className={className}
+        disabled={!workspaceId}
+        onClick={() => setOpen(true)}
+      >
         {showIcon && <UploadCloud className="mr-2 h-4 w-4" aria-hidden="true" />}
         {label}
       </Button>
       {workspaceId && (
-        <ProjectPickerDialog workspaceId={workspaceId} mode="file" open={open} onOpenChange={setOpen} />
+        <ProjectPickerDialog
+          workspaceId={workspaceId}
+          mode="file"
+          open={open}
+          onOpenChange={setOpen}
+        />
       )}
     </>
   );
