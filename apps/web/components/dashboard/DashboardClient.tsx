@@ -59,6 +59,23 @@ const PUBLISH_STATUS_LABELS: Record<PublishStatus, string> = {
   [PublishStatus.FAILED]: 'Publish gagal',
 };
 
+// Contract Governance audit Sprint 3 (Runtime Safety, 2026-08-01) - same
+// convention as lib/scheduling.ts's own getPublishStatusLabel (a separate
+// copy, kept in Indonesian to match the rest of this dashboard - see that
+// file's own comment on why). Falls back to the raw value plus a
+// console.warn instead of silently rendering nothing for a live
+// frontend/backend version skew.
+function getPublishStatusLabel(status: string): string {
+  if (status in PUBLISH_STATUS_LABELS) {
+    return PUBLISH_STATUS_LABELS[status as PublishStatus];
+  }
+  console.warn(
+    `[DashboardClient] unknown PublishStatus "${status}" - falling back to the raw value. ` +
+      'This means the API sent a status this frontend build does not recognize yet.',
+  );
+  return status;
+}
+
 function publishedLabel(record: PublishRecord): string {
   if (record.platform === 'TIKTOK') {
     return 'Terkirim ke TikTok — buka app TikTok untuk selesaikan posting';
@@ -1086,7 +1103,7 @@ export function DashboardClient({
                                             <span>
                                               {record.status === PublishStatus.PUBLISHED
                                                 ? publishedLabel(record)
-                                                : PUBLISH_STATUS_LABELS[record.status]}
+                                                : getPublishStatusLabel(record.status)}
                                               {record.status === PublishStatus.FAILED &&
                                               record.errorMessage
                                                 ? ` - ${record.errorMessage}`

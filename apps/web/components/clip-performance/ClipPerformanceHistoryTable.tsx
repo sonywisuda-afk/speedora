@@ -4,7 +4,7 @@ import type { ClipPerformancePlatformSeries, SocialPlatform } from '@speedora/sh
 import { getMetricCapability, type MetricKey } from '@speedora/analytics-report';
 import { PLATFORM_LABELS } from '@/lib/analytics';
 import { formatPublishDate } from '@/lib/performance';
-import { PUBLISH_STATUS_LABELS } from '@/lib/scheduling';
+import { getPublishStatusLabel } from '@/lib/scheduling';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { UnavailableMetric } from '@/components/analytics/UnavailableMetric';
 
@@ -44,7 +44,7 @@ export function ClipPerformanceHistoryTable({ performance }: ClipPerformanceHist
             <CardTitle className="flex items-center justify-between text-base">
               <span>{PLATFORM_LABELS[series.platform]}</span>
               <span className="font-mono text-xs font-normal normal-case text-muted-foreground">
-                {PUBLISH_STATUS_LABELS[series.status]}
+                {getPublishStatusLabel(series.status)}
                 {series.publishedAt ? ` · ${formatPublishDate(series.publishedAt)}` : ''}
               </span>
             </CardTitle>

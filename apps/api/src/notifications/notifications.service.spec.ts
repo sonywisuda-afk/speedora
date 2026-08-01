@@ -1,7 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { NotificationType } from '@speedora/shared';
 import type { PrismaService } from '../prisma/prisma.service';
-import { NotificationsService } from './notifications.service';
+import { mapNotificationType, NotificationsService } from './notifications.service';
 
 describe('NotificationsService', () => {
   let service: NotificationsService;
@@ -485,5 +485,44 @@ describe('NotificationsService', () => {
       } as never);
       expect(read.readAt).toBe(readAt.toISOString());
     });
+  });
+});
+
+// Contract Governance audit (2026-08-01) - proves mapNotificationType (the
+// replacement for the old `as unknown as` cast) round-trips every real
+// Prisma NotificationType. If a future schema.prisma addition isn't wired
+// into mapNotificationType, the build fails before this test can even run
+// (assertNever) - this test guards the mapping's runtime correctness, not
+// its exhaustiveness, which is a compile-time guarantee.
+describe('mapNotificationType', () => {
+  it('maps every known V1 Prisma NotificationType to its shared counterpart', () => {
+    const rawTypes = [
+      'UPLOAD_COMPLETE',
+      'CLIP_READY',
+      'EXPORT_READY',
+      'RENDER_FAILED',
+      'STORAGE_WARNING',
+      'CREDIT_WARNING',
+      'COMMENT',
+      'MENTION',
+      'REVIEW_REQUEST',
+      'APPROVAL',
+      'MEMBER_INVITATION_ACCEPTED',
+      'SYNC_FAILURE_WARNING',
+      'WORKSPACE_OWNERSHIP_TRANSFERRED',
+    ] as const;
+    for (const raw of rawTypes) {
+      expect(mapNotificationType(raw)).toBe(NotificationType[raw]);
+    }
+  });
+
+  it('throws for PIPELINE_PROGRESS - a real Prisma value that is deliberately V2-only', () => {
+    expect(() => mapNotificationType('PIPELINE_PROGRESS')).toThrow(/V2-only/);
+  });
+
+  it('throws on an unrecognized value instead of silently passing it through', () => {
+    expect(() => mapNotificationType('SOMETHING_NEW' as never)).toThrow(
+      /Unhandled NotificationType/,
+    );
   });
 });

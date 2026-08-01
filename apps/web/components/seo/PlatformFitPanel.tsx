@@ -1,11 +1,17 @@
 'use client';
 
 import useSWR from 'swr';
+import type { ClipScoreDimension } from '@speedora/shared';
 import { getClipPlatformFit } from '@/lib/api';
 import { platformIcon, platformLabel } from '@/lib/platform-metadata';
 import { bestTimeLabel } from '@/lib/platform-fit';
 
-const DIMENSION_LABELS: Record<string, string> = {
+// Record<ClipScoreDimension, string> instead of Record<string, string> so
+// the compiler rejects a build that adds a new ClipScores key without a
+// matching label here (same dimensions as TimelineEditor.tsx/
+// VideoAnalysisDashboard.tsx's own SCORE_LABELS, kept as a separate copy -
+// same "not the 3rd duplication this project extracts at" convention).
+const DIMENSION_LABELS: Record<ClipScoreDimension, string> = {
   hookStrength: 'Hook',
   educationalValue: 'Educational',
   practicalValue: 'Practical',
@@ -70,7 +76,7 @@ export function PlatformFitPanel({ clipId }: { clipId: string }) {
               </span>
             </div>
             <p className="pl-6 font-mono text-[10px] text-muted-foreground">
-              {entry.topDimensions.map((d) => DIMENSION_LABELS[d] ?? d).join(', ')}
+              {entry.topDimensions.map((d) => DIMENSION_LABELS[d]).join(', ')}
               {time && ` · best: ${time}`}
             </p>
           </div>

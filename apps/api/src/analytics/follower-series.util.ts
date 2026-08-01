@@ -1,5 +1,6 @@
 import type { SocialPlatform } from '@speedora/database';
-import type { FollowersDto, SocialPlatform as SharedSocialPlatform } from '@speedora/shared';
+import type { FollowersDto } from '@speedora/shared';
+import { mapSocialPlatform } from '../social/publish-record.util';
 
 // Stabilization Pass (API Contract Audit) - extracted from AnalyticsService
 // and WorkspaceAnalyticsService, which had this duplicated verbatim. Shared
@@ -18,7 +19,7 @@ export function toFollowerAccountSeries(account: {
   }));
   return {
     socialAccountId: account.id,
-    platform: account.platform as unknown as SharedSocialPlatform,
+    platform: mapSocialPlatform(account.platform),
     displayName: account.displayName,
     latestFollowerCount: history.length > 0 ? history[history.length - 1].followerCount : null,
     history,

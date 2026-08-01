@@ -24,7 +24,7 @@ import {
 } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { formatRelativeTime } from '@/lib/dashboard';
-import { NOTIFICATION_ICONS, notificationTone } from '@/lib/notification-definitions';
+import { getNotificationIcon, notificationTone } from '@/lib/notification-definitions';
 import { toast } from '@/lib/toast-store';
 import { useNotificationStream } from '@/lib/useNotificationStream';
 import { NotificationPreferencesTab } from './NotificationPreferencesTab';
@@ -186,7 +186,7 @@ export function NotificationBell() {
             ) : (
               <div className="divide-y divide-border">
                 {notifications.map((notification) => {
-                  const Icon = NOTIFICATION_ICONS[notification.type];
+                  const Icon = getNotificationIcon(notification.type);
                   return (
                     <div
                       key={notification.id}

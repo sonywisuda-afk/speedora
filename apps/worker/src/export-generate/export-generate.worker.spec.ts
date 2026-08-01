@@ -122,7 +122,8 @@ jest.mock('@speedora/storage', () => ({
   getObjectStream: (...args: unknown[]) => getObjectStreamMock(...args),
 }));
 
-import { createExportGenerateWorker } from './export-generate.worker';
+import { createExportGenerateWorker, mapExportType } from './export-generate.worker';
+import { ExportType } from '@speedora/shared';
 
 function getProcessor() {
   createExportGenerateWorker();
@@ -397,5 +398,25 @@ describe('export-generate worker', () => {
       where: { id: 'job-1' },
       data: { status: 'FAILED', failReason: 'render exploded' },
     });
+  });
+});
+
+// Contract Governance audit (2026-08-01) - proves mapExportType (the
+// replacement for the old `as unknown as` cast) round-trips every real
+// Prisma ExportType. If a future schema.prisma addition isn't wired into
+// this mapper, the build fails before this test can even run (assertNever)
+// - this test guards the mapping's runtime correctness, not its
+// exhaustiveness, which is a compile-time guarantee.
+describe('mapExportType', () => {
+  it('maps every known Prisma ExportType to its shared counterpart', () => {
+    expect(mapExportType('PDF')).toBe(ExportType.PDF);
+    expect(mapExportType('EXCEL')).toBe(ExportType.EXCEL);
+    expect(mapExportType('HIGHLIGHT_REPORT')).toBe(ExportType.HIGHLIGHT_REPORT);
+    expect(mapExportType('BRAND_REPORT')).toBe(ExportType.BRAND_REPORT);
+    expect(mapExportType('ANALYTICS_REPORT')).toBe(ExportType.ANALYTICS_REPORT);
+  });
+
+  it('throws on an unrecognized value instead of silently passing it through', () => {
+    expect(() => mapExportType('SOMETHING_NEW' as never)).toThrow(/Unhandled ExportType/);
   });
 });

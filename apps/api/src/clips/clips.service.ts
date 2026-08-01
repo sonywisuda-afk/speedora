@@ -2,6 +2,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import {
   PublishStatus,
+  type ClipPlatformCopyStatus as PrismaClipPlatformCopyStatus,
   recordAuditLog,
   WorkspaceRole,
   type CaptionStyle,
@@ -42,7 +43,7 @@ import type { ClipPlatformCopy } from '@speedora/database';
 import { CampaignsService } from '../campaigns/campaigns.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { RecurringSchedulesService } from '../recurring-schedules/recurring-schedules.service';
-import { toSharedPublishRecord } from '../social/publish-record.util';
+import { mapSocialPlatform, toSharedPublishRecord } from '../social/publish-record.util';
 import { SocialAccountsService } from '../social/social.service';
 import { StorageService } from '../storage/storage.service';
 import { WorkspaceAccessService } from '../workspace/workspace-access.service';
@@ -106,7 +107,7 @@ function toVersionDto(version: ClipVersion & { createdBy: { email: string } }): 
     thumbnailUrl: version.thumbnailUrl
       ? `/clips/${version.clipId}/versions/${version.id}/thumbnail`
       : null,
-    captionStyle: version.captionStyle as unknown as ClipVersionDto['captionStyle'],
+    captionStyle: toSharedCaptionStyle(version.captionStyle),
     hookText: version.hookText,
     hashtags: version.hashtags,
     viralityScore: version.viralityScore,
@@ -168,16 +169,41 @@ const BRAND_KIT_SELECT = {
   brandOutroImageDurationSeconds: true,
 } as const;
 
+function assertNeverClipPlatformCopyStatus(value: never): never {
+  throw new Error(`Unhandled ClipPlatformCopyStatus: ${JSON.stringify(value)}`);
+}
+
+// Prisma's ClipPlatformCopyStatus and packages/shared's are nominally
+// distinct TS enum types even though they share the same runtime string
+// values (same "Mirrors X" convention used throughout this project). The
+// switch has no `default` case, so a new schema.prisma member fails to
+// compile here until a matching case (and packages/shared member) is added -
+// same Contract Synchronization pattern as dashboard.service.ts's
+// mapActivityEventType, replacing what used to be a blind `as unknown as`
+// cast.
+export function mapClipPlatformCopyStatus(
+  status: PrismaClipPlatformCopyStatus,
+): SharedClipPlatformCopyStatus {
+  switch (status) {
+    case 'PENDING':
+      return SharedClipPlatformCopyStatus.PENDING;
+    case 'PROCESSING':
+      return SharedClipPlatformCopyStatus.PROCESSING;
+    case 'READY':
+      return SharedClipPlatformCopyStatus.READY;
+    case 'FAILED':
+      return SharedClipPlatformCopyStatus.FAILED;
+    default:
+      return assertNeverClipPlatformCopyStatus(status);
+  }
+}
+
 function toSharedPlatformCopy(row: ClipPlatformCopy): ClipPlatformCopyDto {
   return {
     id: row.id,
     clipId: row.clipId,
-    // Prisma's own SocialPlatform enum and @speedora/shared's are nominally
-    // distinct TS enum types even though they share the same runtime string
-    // values (same "narrow via a cast at the one call site that needs it"
-    // convention used across this codebase, e.g. ExportService.toDto).
-    platform: row.platform as unknown as SocialPlatform,
-    status: row.status as unknown as SharedClipPlatformCopyStatus,
+    platform: mapSocialPlatform(row.platform),
+    status: mapClipPlatformCopyStatus(row.status),
     caption: row.caption,
     hashtags: row.hashtags,
     description: row.description,

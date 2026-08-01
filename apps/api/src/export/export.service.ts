@@ -1,8 +1,15 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { ExportJobStatus, WorkspaceRole, type ExportJob } from '@speedora/database';
+import {
+  ExportJobStatus,
+  WorkspaceRole,
+  type ExportJob,
+  type ExportType as PrismaExportType,
+  type ExportJobStatus as PrismaExportJobStatus,
+} from '@speedora/database';
 import {
   ExportType,
+  ExportJobStatus as SharedExportJobStatus,
   QueueName,
   type ExportGenerateJobData,
   type ExportJobDto,
@@ -11,6 +18,50 @@ import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceAccessService } from '../workspace/workspace-access.service';
 import type { CreateExportDto } from './dto/create-export.dto';
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled enum value: ${JSON.stringify(value)}`);
+}
+
+// Prisma's ExportType and packages/shared's are nominally distinct TS enum
+// types even though they share the same runtime string values (same
+// "Mirrors X" convention used throughout this project). The switch has no
+// `default` case, so a new schema.prisma member fails to compile here until
+// a matching case is added - same Contract Synchronization pattern as
+// dashboard.service.ts's mapActivityEventType, replacing what used to be a
+// blind `as unknown as` cast.
+export function mapExportType(type: PrismaExportType): ExportType {
+  switch (type) {
+    case 'PDF':
+      return ExportType.PDF;
+    case 'EXCEL':
+      return ExportType.EXCEL;
+    case 'HIGHLIGHT_REPORT':
+      return ExportType.HIGHLIGHT_REPORT;
+    case 'BRAND_REPORT':
+      return ExportType.BRAND_REPORT;
+    case 'ANALYTICS_REPORT':
+      return ExportType.ANALYTICS_REPORT;
+    default:
+      return assertNever(type);
+  }
+}
+
+// Same convention as mapExportType above, for ExportJobStatus.
+export function mapExportJobStatus(status: PrismaExportJobStatus): SharedExportJobStatus {
+  switch (status) {
+    case 'PENDING':
+      return SharedExportJobStatus.PENDING;
+    case 'PROCESSING':
+      return SharedExportJobStatus.PROCESSING;
+    case 'READY':
+      return SharedExportJobStatus.READY;
+    case 'FAILED':
+      return SharedExportJobStatus.FAILED;
+    default:
+      return assertNever(status);
+  }
+}
 
 @Injectable()
 export class ExportService {
@@ -111,8 +162,8 @@ export class ExportService {
     return {
       id: job.id,
       videoId: job.videoId,
-      type: job.type as unknown as ExportJobDto['type'],
-      status: job.status as unknown as ExportJobDto['status'],
+      type: mapExportType(job.type),
+      status: mapExportJobStatus(job.status),
       resultUrl:
         job.status === ExportJobStatus.READY && job.resultUrl ? `/export/${job.id}/download` : null,
       failReason: job.failReason,

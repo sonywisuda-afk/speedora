@@ -35,6 +35,7 @@ import {
   migrateProcessingOptions,
   PUBLISH_RETRY_OPTIONS,
   QueueName,
+  SocialPlatform,
   type ProcessingOptions,
   type RenderClipJobData,
   type RenderClipJobResult,
@@ -181,6 +182,44 @@ const MAX_PLATFORM_COPY_GENERATIONS_PER_DAY = 5;
 // 24h/5-per-platform rate cap - and the same "create the row synchronously,
 // then enqueue" shape. Never fails the render job itself: best-effort, same
 // "optional signal" posture as ranking/cover-thumbnail-promotion below.
+function assertNeverSocialPlatform(value: never): never {
+  throw new Error(`Unhandled SocialPlatform: ${JSON.stringify(value)}`);
+}
+
+// packages/shared's SocialPlatform and Prisma's are nominally distinct TS
+// enum types even though they share the same runtime string values (same
+// "Mirrors X" convention used throughout this project). The switch has no
+// `default` case, so a new packages/shared member fails to compile here
+// until a matching case is added - same Contract Synchronization pattern as
+// apps/api's dashboard.service.ts (mapActivityEventType), replacing what
+// used to be a blind `as unknown as` cast. Duplicated from apps/api's own
+// mapSharedSocialPlatformToPrisma (social/publish-record.util.ts) rather
+// than imported - apps/worker has no HTTP server and never imports from
+// apps/api, same app-boundary convention as every other cross-app pairing
+// in this codebase.
+export function mapSharedSocialPlatformToPrisma(platform: SocialPlatform): PrismaSocialPlatform {
+  switch (platform) {
+    case SocialPlatform.YOUTUBE:
+      return 'YOUTUBE';
+    case SocialPlatform.TIKTOK:
+      return 'TIKTOK';
+    case SocialPlatform.INSTAGRAM:
+      return 'INSTAGRAM';
+    case SocialPlatform.FACEBOOK:
+      return 'FACEBOOK';
+    case SocialPlatform.THREADS:
+      return 'THREADS';
+    case SocialPlatform.LINKEDIN:
+      return 'LINKEDIN';
+    case SocialPlatform.PINTEREST:
+      return 'PINTEREST';
+    case SocialPlatform.X:
+      return 'X';
+    default:
+      return assertNeverSocialPlatform(platform);
+  }
+}
+
 async function triggerAutoPlatformCopy(
   clipId: string,
   hookText: string | null,
@@ -190,11 +229,12 @@ async function triggerAutoPlatformCopy(
 
   for (const platform of processingOptions.seo.platforms) {
     try {
+      const prismaPlatform = mapSharedSocialPlatformToPrisma(platform);
       const since = new Date(Date.now() - PLATFORM_COPY_RATE_LIMIT_WINDOW_MS);
       const recentCount = await prisma.clipPlatformCopy.count({
         where: {
           clipId,
-          platform: platform as unknown as PrismaSocialPlatform,
+          platform: prismaPlatform,
           createdAt: { gte: since },
         },
       });
@@ -207,7 +247,7 @@ async function triggerAutoPlatformCopy(
       }
 
       const row = await prisma.clipPlatformCopy.create({
-        data: { clipId, platform: platform as unknown as PrismaSocialPlatform },
+        data: { clipId, platform: prismaPlatform },
       });
       await generatePlatformCopyQueue.add(QueueName.GENERATE_PLATFORM_COPY, {
         clipPlatformCopyId: row.id,

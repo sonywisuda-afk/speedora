@@ -6,10 +6,10 @@ import { buildVideoReportData } from '@speedora/report-builder';
 import type { AnalyticsReportData, VideoReportData } from '@speedora/contracts';
 import {
   exportFileInfo,
+  ExportType as SharedExportType,
   QueueName,
   type ExportGenerateJobData,
   type ExportGenerateJobResult,
-  type ExportType as SharedExportType,
 } from '@speedora/shared';
 import { getObjectStream, uploadObject } from '@speedora/storage';
 import { renderToBuffer } from '@react-pdf/renderer';
@@ -28,6 +28,37 @@ import { buildVideoReportDocument } from './pdf/video-report-document';
 import { buildVideoReportWorkbook } from './xlsx/video-report-workbook';
 
 const logger = forStage('export-generate');
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled ExportType: ${JSON.stringify(value)}`);
+}
+
+// Prisma's ExportType and packages/shared's are nominally distinct TS enum
+// types even though they share the same runtime string values (same
+// "Mirrors X" convention used throughout this project). The switch has no
+// `default` case, so a new schema.prisma member fails to compile here until
+// a matching case is added - same Contract Synchronization pattern as
+// apps/api's dashboard.service.ts (mapActivityEventType), replacing what
+// used to be a blind `as unknown as` cast. Duplicated from apps/api's own
+// mapExportType (export.service.ts) rather than imported - apps/worker has
+// no HTTP server and never imports from apps/api, same app-boundary
+// convention as every other cross-app pairing in this codebase.
+export function mapExportType(type: ExportType): SharedExportType {
+  switch (type) {
+    case 'PDF':
+      return SharedExportType.PDF;
+    case 'EXCEL':
+      return SharedExportType.EXCEL;
+    case 'HIGHLIGHT_REPORT':
+      return SharedExportType.HIGHLIGHT_REPORT;
+    case 'BRAND_REPORT':
+      return SharedExportType.BRAND_REPORT;
+    case 'ANALYTICS_REPORT':
+      return SharedExportType.ANALYTICS_REPORT;
+    default:
+      return assertNever(type);
+  }
+}
 
 // Brand Kit roadmap (P3a) - PNG/JPEG only (the two formats @react-pdf/
 // renderer's Image component actually supports - WebP/GIF/SVG logos still
@@ -172,13 +203,7 @@ export function createExportGenerateWorker(): Worker<
           notificationBody = `Laporan export untuk video "${video.title}" sudah siap diunduh.`;
         }
 
-        // Prisma's own ExportType enum and @speedora/shared's are nominally
-        // distinct TS enum types even though they share the same runtime
-        // string values (same "narrow via a cast at the one call site that
-        // needs it" convention used in apps/api's export.controller.ts).
-        const { extension, contentType } = exportFileInfo(
-          exportJob.type as unknown as SharedExportType,
-        );
+        const { extension, contentType } = exportFileInfo(mapExportType(exportJob.type));
         const resultUrl = `exports/${exportJobId}.${extension}`;
         await uploadObject(resultUrl, buffer, contentType);
 

@@ -8,7 +8,6 @@ import type {
   AudioFeatures,
   CameraMotionFeatures,
   CameraMotionSample,
-  CaptionStyle,
   ClipScores,
   CompositionFeatures,
   DiarizationFeatures,
@@ -44,14 +43,13 @@ import type {
   SpeakerTimelineEntry,
   SpeakerTimelineFeatures,
   ThumbnailContribution,
-  TranscriptionProvider,
   TranscriptSegment,
   TranscriptWord,
   ValidationReport,
   VoiceActivityFeatures,
   VoiceActivitySegment,
 } from '@speedora/shared';
-import { migrateProcessingOptions } from '@speedora/shared';
+import { CaptionStyle, migrateProcessingOptions, TranscriptionProvider } from '@speedora/shared';
 
 // Prisma types a Json column as the opaque JsonValue union - this narrows it
 // back to the shape transcribe.worker.ts actually writes there. Used
@@ -76,14 +74,29 @@ export function toSharedTranscriptSegment(segment: TranscriptSegmentRow): Transc
   };
 }
 
+function assertNever(value: never): never {
+  throw new Error(`Unhandled enum value: ${JSON.stringify(value)}`);
+}
+
 // Prisma's generated CaptionStyle enum and packages/shared's are two
 // separately-declared TS enums with identical string members (see
 // CLAUDE.md's "Mirrors X" convention, also used for VideoStatus) - which
 // makes them structurally identical at runtime but nominally distinct
-// types, so passing one where the other is expected needs this explicit
-// (safe) cast rather than a silent compile error.
+// types. The switch has no `default` case, so a new schema.prisma member
+// fails to compile here until a matching case is added - same Contract
+// Synchronization pattern as dashboard.service.ts's mapActivityEventType,
+// replacing what used to be a blind `as unknown as` cast.
 export function toSharedCaptionStyle(style: PrismaCaptionStyle): CaptionStyle {
-  return style as unknown as CaptionStyle;
+  switch (style) {
+    case 'DEFAULT':
+      return CaptionStyle.DEFAULT;
+    case 'KARAOKE':
+      return CaptionStyle.KARAOKE;
+    case 'BOLD_HIGHLIGHT':
+      return CaptionStyle.BOLD_HIGHLIGHT;
+    default:
+      return assertNever(style);
+  }
 }
 
 // Same enum-mirroring situation as toSharedCaptionStyle above, for
@@ -93,7 +106,14 @@ export function toSharedCaptionStyle(style: PrismaCaptionStyle): CaptionStyle {
 export function toSharedTranscriptionProvider(
   provider: PrismaTranscriptionProvider,
 ): TranscriptionProvider {
-  return provider as unknown as TranscriptionProvider;
+  switch (provider) {
+    case 'GROQ':
+      return TranscriptionProvider.GROQ;
+    case 'OPENAI':
+      return TranscriptionProvider.OPENAI;
+    default:
+      return assertNever(provider);
+  }
 }
 
 // Same "Json column is opaque" situation as toSharedTranscriptSegment above,

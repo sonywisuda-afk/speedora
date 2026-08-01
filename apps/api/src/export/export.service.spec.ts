@@ -1,9 +1,9 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { ExportType } from '@speedora/shared';
+import { ExportJobStatus, ExportType } from '@speedora/shared';
 import type { Queue } from 'bullmq';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { WorkspaceAccessService } from '../workspace/workspace-access.service';
-import { ExportService } from './export.service';
+import { ExportService, mapExportJobStatus, mapExportType } from './export.service';
 
 describe('ExportService', () => {
   let service: ExportService;
@@ -274,5 +274,38 @@ describe('ExportService', () => {
 
       expect(dto.resultUrl).toBeNull();
     });
+  });
+});
+
+// Contract Governance audit (2026-08-01) - proves mapExportType/
+// mapExportJobStatus (the replacement for the old `as unknown as` casts)
+// round-trip every real Prisma enum member. If a future schema.prisma
+// addition isn't wired into these mappers, the build fails before this test
+// can even run (assertNever) - this test guards the mapping's runtime
+// correctness, not its exhaustiveness, which is a compile-time guarantee.
+describe('mapExportType', () => {
+  it('maps every known Prisma ExportType to its shared counterpart', () => {
+    expect(mapExportType('PDF')).toBe(ExportType.PDF);
+    expect(mapExportType('EXCEL')).toBe(ExportType.EXCEL);
+    expect(mapExportType('HIGHLIGHT_REPORT')).toBe(ExportType.HIGHLIGHT_REPORT);
+    expect(mapExportType('BRAND_REPORT')).toBe(ExportType.BRAND_REPORT);
+    expect(mapExportType('ANALYTICS_REPORT')).toBe(ExportType.ANALYTICS_REPORT);
+  });
+
+  it('throws on an unrecognized value instead of silently passing it through', () => {
+    expect(() => mapExportType('SOMETHING_NEW' as never)).toThrow(/Unhandled enum value/);
+  });
+});
+
+describe('mapExportJobStatus', () => {
+  it('maps every known Prisma ExportJobStatus to its shared counterpart', () => {
+    expect(mapExportJobStatus('PENDING')).toBe(ExportJobStatus.PENDING);
+    expect(mapExportJobStatus('PROCESSING')).toBe(ExportJobStatus.PROCESSING);
+    expect(mapExportJobStatus('READY')).toBe(ExportJobStatus.READY);
+    expect(mapExportJobStatus('FAILED')).toBe(ExportJobStatus.FAILED);
+  });
+
+  it('throws on an unrecognized value instead of silently passing it through', () => {
+    expect(() => mapExportJobStatus('SOMETHING_NEW' as never)).toThrow(/Unhandled enum value/);
   });
 });

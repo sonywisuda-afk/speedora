@@ -51,8 +51,19 @@ const TONE_BY_SEVERITY: Record<NotificationSeverity, NotificationTone> = {
   error: 'bad',
 };
 
-export function notificationTone(type: NotificationType): NotificationTone {
-  return TONE_BY_SEVERITY[NOTIFICATION_SEVERITY[type]];
+// Contract Governance audit Sprint 3 (Runtime Safety, 2026-08-01) - every
+// enum-keyed lookup below now takes a plain `string`, not the narrow
+// NotificationType, and is honest that a value read off the wire (a live
+// frontend/backend version skew - the API starts sending a new
+// NotificationType mid-deploy, before this bundle is rebuilt) might not
+// actually be a member of it, despite what NotificationDto['type'] claims
+// at compile time. Each one degrades to a safe default and logs a warning
+// instead of ever indexing a Record with a key it doesn't have - the same
+// crash class the ActivityEventType/WORKSPACE_DELETED incident (see
+// activity-events.ts's isKnownActivityEventType) already fixed for
+// Activity, just not yet closed here.
+export function isKnownNotificationType(type: string): type is NotificationType {
+  return (Object.values(NotificationType) as string[]).includes(type);
 }
 
 // Sprint 4B - row labels for NotificationPreferencesTab's settings grid.
@@ -73,3 +84,33 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   [NotificationType.MEMBER_INVITATION_ACCEPTED]: 'Undangan diterima',
   [NotificationType.WORKSPACE_OWNERSHIP_TRANSFERRED]: 'Kepemilikan workspace ditransfer',
 };
+
+const DEFAULT_ICON = Bell;
+const DEFAULT_LABEL = 'Notifikasi tidak dikenal';
+const DEFAULT_TONE: NotificationTone = 'neutral';
+
+function warnUnknownType(type: string): void {
+  console.warn(
+    `[notification-definitions] unknown NotificationType "${type}" - falling back to a default. ` +
+      'This means the API sent a type this frontend build does not recognize yet (a live ' +
+      'frontend/backend version skew), not a real runtime error.',
+  );
+}
+
+export function getNotificationIcon(type: string): typeof Bell {
+  if (isKnownNotificationType(type)) return NOTIFICATION_ICONS[type];
+  warnUnknownType(type);
+  return DEFAULT_ICON;
+}
+
+export function getNotificationLabel(type: string): string {
+  if (isKnownNotificationType(type)) return NOTIFICATION_TYPE_LABELS[type];
+  warnUnknownType(type);
+  return DEFAULT_LABEL;
+}
+
+export function notificationTone(type: string): NotificationTone {
+  if (isKnownNotificationType(type)) return TONE_BY_SEVERITY[NOTIFICATION_SEVERITY[type]];
+  warnUnknownType(type);
+  return DEFAULT_TONE;
+}

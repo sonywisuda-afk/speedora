@@ -9,7 +9,13 @@ import type { MailService } from '../mail/mail.service';
 import type { NotificationDeliveryProducer } from '../queue/notification-delivery.producer';
 import type { NotificationPublisherService } from '../redis-pubsub/notification-publisher.service';
 import type { WorkspaceAccessService } from './workspace-access.service';
-import { WorkspaceService } from './workspace.service';
+import {
+  mapAuditAction,
+  mapPendingInviteStatus,
+  mapWorkspaceRole,
+  WorkspaceService,
+} from './workspace.service';
+import { AuditAction, PendingInviteStatus, WorkspaceRole } from '@speedora/shared';
 
 describe('WorkspaceService', () => {
   let service: WorkspaceService;
@@ -766,5 +772,75 @@ describe('WorkspaceService', () => {
       expect(result.entries[0].campaignId).toBeNull();
       expect(result.entries[0].campaignName).toBeNull();
     });
+  });
+});
+
+// Contract Governance audit (2026-08-01) - proves mapWorkspaceRole/
+// mapPendingInviteStatus/mapAuditAction (the replacement for the old
+// `as unknown as` casts) round-trip every real Prisma enum member. If a
+// future schema.prisma addition isn't wired into these mappers, the build
+// fails before this test can even run (assertNever) - this test guards the
+// mapping's runtime correctness, not its exhaustiveness, which is a
+// compile-time guarantee.
+describe('mapWorkspaceRole', () => {
+  it('maps every known Prisma WorkspaceRole to its shared counterpart', () => {
+    expect(mapWorkspaceRole('OWNER')).toBe(WorkspaceRole.OWNER);
+    expect(mapWorkspaceRole('ADMIN')).toBe(WorkspaceRole.ADMIN);
+    expect(mapWorkspaceRole('EDITOR')).toBe(WorkspaceRole.EDITOR);
+    expect(mapWorkspaceRole('REVIEWER')).toBe(WorkspaceRole.REVIEWER);
+    expect(mapWorkspaceRole('VIEWER')).toBe(WorkspaceRole.VIEWER);
+  });
+
+  it('throws on an unrecognized value instead of silently passing it through', () => {
+    expect(() => mapWorkspaceRole('SOMETHING_NEW' as never)).toThrow(/Unhandled enum value/);
+  });
+});
+
+describe('mapPendingInviteStatus', () => {
+  it('maps every known Prisma PendingInviteStatus to its shared counterpart', () => {
+    expect(mapPendingInviteStatus('PENDING')).toBe(PendingInviteStatus.PENDING);
+    expect(mapPendingInviteStatus('ACCEPTED')).toBe(PendingInviteStatus.ACCEPTED);
+    expect(mapPendingInviteStatus('REVOKED')).toBe(PendingInviteStatus.REVOKED);
+  });
+
+  it('throws on an unrecognized value instead of silently passing it through', () => {
+    expect(() => mapPendingInviteStatus('SOMETHING_NEW' as never)).toThrow(/Unhandled enum value/);
+  });
+});
+
+describe('mapAuditAction', () => {
+  it('maps every known Prisma AuditAction to its shared counterpart, including the 4 the audit found missing from packages/shared', () => {
+    const rawActions = [
+      'MEMBER_ROLE_CHANGED',
+      'MEMBER_REMOVED',
+      'INVITE_CREATED',
+      'INVITE_ACCEPTED',
+      'PROJECT_CREATED',
+      'PROJECT_DELETED',
+      'PROJECT_ARCHIVED',
+      'PROJECT_UNARCHIVED',
+      'PROJECT_MOVED',
+      'WORKSPACE_OWNERSHIP_TRANSFERRED',
+      'FOLDER_CREATED',
+      'FOLDER_DELETED',
+      'VIDEO_MOVED',
+      'VIDEO_DELETED',
+      'CLIP_DELETED',
+      'SHARE_LINK_CREATED',
+      'SHARE_LINK_REVOKED',
+      'APPROVAL_DECIDED',
+      'CAMPAIGN_CREATED',
+      'CAMPAIGN_CANCELLED',
+      'RECURRING_SCHEDULE_CREATED',
+      'RECURRING_SCHEDULE_DELETED',
+      'WORKSPACE_LEFT',
+    ] as const;
+    for (const raw of rawActions) {
+      expect(mapAuditAction(raw)).toBe(AuditAction[raw]);
+    }
+  });
+
+  it('throws on an unrecognized value instead of silently passing it through', () => {
+    expect(() => mapAuditAction('SOMETHING_NEW' as never)).toThrow(/Unhandled enum value/);
   });
 });

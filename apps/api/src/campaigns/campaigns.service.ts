@@ -12,7 +12,6 @@ import type {
   CampaignDetailDto,
   CampaignDto,
   CampaignProgress,
-  SocialPlatform as SharedSocialPlatform,
   TrendGranularity,
 } from '@speedora/shared';
 import { CampaignStatus } from '@speedora/shared';
@@ -23,7 +22,7 @@ import {
   periodsForGranularity,
   type CampaignAnalyticsRecord,
 } from '@speedora/analytics-report';
-import { toSharedPublishRecord } from '../social/publish-record.util';
+import { mapSocialPlatform, toSharedPublishRecord } from '../social/publish-record.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceAccessService } from '../workspace/workspace-access.service';
 import { computeCampaignStatus } from './campaign-status.util';
@@ -210,7 +209,7 @@ export class CampaignsService {
     const enrichedRecords = publishedJobs.map((job) => {
       const snapshot = job.statsSnapshots[0];
       return {
-        platform: job.socialAccount.platform as unknown as SharedSocialPlatform,
+        platform: mapSocialPlatform(job.socialAccount.platform),
         publishedAt: job.publishedAt,
         viewCount: snapshot?.viewCount ?? null,
         likeCount: snapshot?.likeCount ?? null,

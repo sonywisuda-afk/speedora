@@ -17,7 +17,12 @@ import { ExportService } from './export.service';
 // stays consistent with how every other "integration" concern in this
 // codebase is actually tested (see docs/testing.md's module/adapter split).
 describe('Export module integration (Controller + Service via real DI)', () => {
-  const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const, emailVerified: true };
+  const user = {
+    id: 'user-1',
+    email: 'a@example.com',
+    role: 'CREATOR' as const,
+    emailVerified: true,
+  };
 
   let controller: ExportController;
   let prisma: {

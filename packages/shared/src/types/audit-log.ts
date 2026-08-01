@@ -19,6 +19,16 @@ export enum AuditAction {
   SHARE_LINK_CREATED = 'SHARE_LINK_CREATED',
   SHARE_LINK_REVOKED = 'SHARE_LINK_REVOKED',
   APPROVAL_DECIDED = 'APPROVAL_DECIDED',
+  // Publishing Expansion Phase 6 (Scheduling) - Contract Governance audit
+  // (2026-08-01) found these 4 were already being written by
+  // CampaignsService/RecurringSchedulesService but were missing here,
+  // exactly the ActivityEventType/WORKSPACE_DELETED contract-drift bug
+  // class - see workspace.service.ts's mapAuditAction for the compile-time
+  // guard that now prevents this from recurring silently.
+  CAMPAIGN_CREATED = 'CAMPAIGN_CREATED',
+  CAMPAIGN_CANCELLED = 'CAMPAIGN_CANCELLED',
+  RECURRING_SCHEDULE_CREATED = 'RECURRING_SCHEDULE_CREATED',
+  RECURRING_SCHEDULE_DELETED = 'RECURRING_SCHEDULE_DELETED',
   // Workspace Lifecycle Management roadmap. No WORKSPACE_DELETED here - see
   // the Prisma schema's AuditAction comment for why that event is recorded
   // elsewhere (ActivityEvent, not AuditLogEntry) instead of this one.

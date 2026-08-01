@@ -30,7 +30,7 @@ import {
   updateWorkspace,
   updateWorkspaceMemberRole,
 } from '@/lib/api';
-import { ACTION_LABELS } from '@/lib/audit-log-labels';
+import { getAuditActionLabel } from '@/lib/audit-log-labels';
 import { formatRelativeTime } from '@/lib/dashboard';
 import { toast } from '@/lib/toast-store';
 import { useAuth } from '@/lib/useAuth';
@@ -441,7 +441,7 @@ function AuditLogTab({ workspaceId }: { workspaceId: string }) {
           <div key={entry.id} className="rounded-md border border-border bg-muted p-3 font-body text-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-medium text-foreground">
-                {ACTION_LABELS[entry.action] ?? entry.action}
+                {getAuditActionLabel(entry.action)}
               </span>
               <span className="font-mono text-xs text-muted-foreground">
                 {formatRelativeTime(entry.createdAt)}

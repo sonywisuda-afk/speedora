@@ -4,7 +4,7 @@ import type { ClipTrafficEntry, TrackedLinkDto } from '@speedora/shared';
 import { useState } from 'react';
 import { PLATFORM_LABELS } from '@/lib/analytics';
 import { formatPublishDate } from '@/lib/performance';
-import { PUBLISH_STATUS_LABELS } from '@/lib/scheduling';
+import { getPublishStatusLabel } from '@/lib/scheduling';
 import { TrackedLinkCreator } from '@/components/analytics/TrackedLinkCreator';
 
 export interface ClipTrafficTableProps {
@@ -68,7 +68,9 @@ export function ClipTrafficTable({ traffic, workspaceId }: ClipTrafficTableProps
             return (
               <tr key={entry.publishRecordId} className="border-b border-border/50">
                 <td className="p-2 text-foreground">{PLATFORM_LABELS[entry.platform]}</td>
-                <td className="p-2 text-muted-foreground">{PUBLISH_STATUS_LABELS[entry.status]}</td>
+                <td className="p-2 text-muted-foreground">
+                  {getPublishStatusLabel(entry.status)}
+                </td>
                 <td className="p-2 text-muted-foreground">
                   {entry.scheduledAt ? formatPublishDate(entry.scheduledAt) : '—'}
                 </td>

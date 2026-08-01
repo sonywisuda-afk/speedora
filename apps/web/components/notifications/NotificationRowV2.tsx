@@ -9,9 +9,9 @@ import { Button } from '@/components/ui/button';
 import { archiveNotificationsV2, retryVideo } from '@/lib/api';
 import { formatRelativeTime } from '@/lib/dashboard';
 import {
-  PRIORITY_DEFINITIONS,
-  THREAD_STATUS_DEFINITIONS,
   getNotificationIconV2,
+  getPriorityDefinition,
+  getThreadStatusDefinition,
 } from '@/lib/notification-definitions-v2';
 import { cn } from '@/lib/utils';
 
@@ -62,7 +62,7 @@ export function NotificationRowV2({
   const [busy, setBusy] = useState(false);
 
   const Icon = getNotificationIconV2(notification.type);
-  const priority = PRIORITY_DEFINITIONS[notification.priority];
+  const priority = getPriorityDefinition(notification.priority);
   const PriorityIcon = priority.icon;
   const isUnread = !notification.readAt;
 
@@ -161,7 +161,7 @@ export function NotificationRowV2({
 
           {notification.thread &&
             (() => {
-              const threadDef = THREAD_STATUS_DEFINITIONS[notification.thread.status];
+              const threadDef = getThreadStatusDefinition(notification.thread.status);
               const ThreadIcon = threadDef.icon;
               return (
                 <Badge variant={threadDef.badgeVariant} className="gap-1">

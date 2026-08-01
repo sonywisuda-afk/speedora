@@ -16,7 +16,7 @@ import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreateExportDto } from './dto/create-export.dto';
-import { ExportService } from './export.service';
+import { ExportService, mapExportType } from './export.service';
 
 // Sprint 03c/03d (Export Center roadmap) - async, video-scoped formats
 // (PDF/EXCEL/HIGHLIGHT_REPORT/BRAND_REPORT, all joined the ExportType enum
@@ -72,11 +72,7 @@ export class ExportController {
   async download(@CurrentUser() user: SafeUser, @Param('id') id: string, @Res() res: Response) {
     const job = await this.exportService.findReadyOrThrow(id, user.id);
     const stream = await getObjectStream(job.resultUrl as string);
-    // Prisma's own ExportType enum and @speedora/shared's are nominally
-    // distinct TS enum types even though they share the same runtime string
-    // values (same "narrow via a cast at the one call site that needs it"
-    // convention as ExportService.toDto()).
-    const { extension, contentType } = exportFileInfo(job.type as unknown as ExportType);
+    const { extension, contentType } = exportFileInfo(mapExportType(job.type));
     const filename = job.videoId
       ? `video-${job.videoId}-report.${extension}`
       : `analytics-report-${job.id}.${extension}`;

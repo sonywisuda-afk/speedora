@@ -1,14 +1,11 @@
 import type { Prisma } from '@speedora/database';
-import type {
-  ClipPerformanceDto,
-  PublishStatus as SharedPublishStatus,
-  SocialPlatform as SharedSocialPlatform,
-} from '@speedora/shared';
+import type { ClipPerformanceDto } from '@speedora/shared';
 import {
   generateClipNarrative,
   predictEngagement,
   type PredictionPair,
 } from '@speedora/analytics-report';
+import { mapPublishStatus, mapSocialPlatform } from '../social/publish-record.util';
 import {
   toSharedHighlightBreakdown,
   toSharedHighlightExplainability,
@@ -85,8 +82,8 @@ export function toClipPerformanceDto(
 ): ClipPerformanceDto {
   const performance: ClipPerformanceDto['performance'] = clip.publishRecords.map((record) => ({
     publishRecordId: record.id,
-    platform: record.socialAccount.platform as unknown as SharedSocialPlatform,
-    status: record.status as unknown as SharedPublishStatus,
+    platform: mapSocialPlatform(record.socialAccount.platform),
+    status: mapPublishStatus(record.status),
     publishedAt: record.publishedAt?.toISOString() ?? null,
     history: record.statsSnapshots.map((snapshot) => ({
       capturedAt: snapshot.capturedAt.toISOString(),
@@ -101,8 +98,8 @@ export function toClipPerformanceDto(
 
   const traffic: ClipPerformanceDto['traffic'] = clip.publishRecords.map((record) => ({
     publishRecordId: record.id,
-    platform: record.socialAccount.platform as unknown as SharedSocialPlatform,
-    status: record.status as unknown as SharedPublishStatus,
+    platform: mapSocialPlatform(record.socialAccount.platform),
+    status: mapPublishStatus(record.status),
     scheduledAt: record.scheduledAt?.toISOString() ?? null,
     publishedAt: record.publishedAt?.toISOString() ?? null,
     campaign: record.campaign ? { id: record.campaign.id, name: record.campaign.name } : null,

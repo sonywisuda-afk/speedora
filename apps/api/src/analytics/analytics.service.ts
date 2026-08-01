@@ -1,17 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { PublishStatus, SocialPlatform, type VideoStatus } from '@speedora/database';
-import type {
-  AnalyticsHeatmapDto,
-  AnalyticsOverviewDto,
-  AnalyticsPerformanceClipsDto,
-  AnalyticsPerformanceDto,
-  AnalyticsPerformanceVideosDto,
-  FollowersDto,
-  SocialPlatform as SharedSocialPlatform,
-  TopClipRow,
-  TopVideoRow,
-  TrendGranularity,
+import {
   VideoStatus as SharedVideoStatus,
+  type AnalyticsHeatmapDto,
+  type AnalyticsOverviewDto,
+  type AnalyticsPerformanceClipsDto,
+  type AnalyticsPerformanceDto,
+  type AnalyticsPerformanceVideosDto,
+  type FollowersDto,
+  type TopClipRow,
+  type TopVideoRow,
+  type TrendGranularity,
 } from '@speedora/shared';
 import {
   bucketByPublishDate,
@@ -35,9 +34,42 @@ import {
   toSharedHighlightExplainability,
 } from '../videos/transcript-segment.util';
 import { PrismaService } from '../prisma/prisma.service';
+import { mapSocialPlatform } from '../social/publish-record.util';
 import { toFollowerAccountSeries } from './follower-series.util';
 
 const UPLOAD_TREND_DAYS = 30;
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled VideoStatus: ${JSON.stringify(value)}`);
+}
+
+// Prisma's VideoStatus and packages/shared's are nominally distinct TS enum
+// types even though they share the same runtime string values (same
+// "Mirrors X" convention used throughout this project). The switch has no
+// `default` case, so a new schema.prisma member fails to compile here until
+// a matching case is added - same Contract Synchronization pattern as
+// dashboard.service.ts's mapActivityEventType, replacing what used to be a
+// blind `as unknown as` cast.
+export function mapVideoStatus(status: VideoStatus): SharedVideoStatus {
+  switch (status) {
+    case 'IMPORTING':
+      return SharedVideoStatus.IMPORTING;
+    case 'UPLOADED':
+      return SharedVideoStatus.UPLOADED;
+    case 'PENDING_SETTINGS':
+      return SharedVideoStatus.PENDING_SETTINGS;
+    case 'TRANSCRIBED':
+      return SharedVideoStatus.TRANSCRIBED;
+    case 'CLIPS_DETECTED':
+      return SharedVideoStatus.CLIPS_DETECTED;
+    case 'RENDERED':
+      return SharedVideoStatus.RENDERED;
+    case 'FAILED':
+      return SharedVideoStatus.FAILED;
+    default:
+      return assertNever(status);
+  }
+}
 // All 8 supported platforms, matching parsePlatform()'s own
 // Object.values(SocialPlatform) convention in the controller - was
 // previously hardcoded to only YOUTUBE/TIKTOK/INSTAGRAM, which silently
@@ -148,11 +180,11 @@ export class AnalyticsService {
       // (identical string values) - same cast toSharedCaptionStyle() etc.
       // already use in transcript-segment.util.ts for this exact situation.
       platformBreakdown: Array.from(platformCounts.entries()).map(([platform, publishedCount]) => ({
-        platform: platform as unknown as SharedSocialPlatform,
+        platform: mapSocialPlatform(platform),
         publishedCount,
       })),
       processingStatus: Array.from(processingStatusCounts.entries()).map(([status, count]) => ({
-        status: status as unknown as SharedVideoStatus,
+        status: mapVideoStatus(status),
         count,
       })),
       uploadTrend: bucketUploadsByDay(
@@ -291,7 +323,7 @@ export class AnalyticsService {
         .map((r) => r.clip.highlightScore)
         .filter((v): v is number => v !== null);
       return {
-        platform: platform as unknown as SharedSocialPlatform,
+        platform: mapSocialPlatform(platform),
         averageEngagementScore: average(engagementScores),
         averageHighlightScore: average(highlightScores),
         publishCount: current.length,
@@ -377,7 +409,7 @@ export class AnalyticsService {
       // Never the raw storage key - same treatment as ClipsService.toDto()'s
       // own thumbnailUrl (Product Experience roadmap).
       thumbnailUrl: r.clip.thumbnailUrl ? `/clips/${r.clip.id}/thumbnail` : null,
-      platform: r.socialAccount.platform as unknown as SharedSocialPlatform,
+      platform: mapSocialPlatform(r.socialAccount.platform),
       highlightScore: r.clip.highlightScore,
       engagementScore: r.statsSnapshots[0]?.engagementScore ?? null,
       viewCount: r.statsSnapshots[0]?.viewCount ?? null,

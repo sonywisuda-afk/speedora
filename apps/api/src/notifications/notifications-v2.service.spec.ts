@@ -1,6 +1,22 @@
 import { NotFoundException } from '@nestjs/common';
+import {
+  NotificationCategoryV2,
+  NotificationChannel,
+  NotificationPriorityV2,
+  NotificationThreadStatusV2,
+  NotificationType,
+} from '@speedora/shared';
 import type { PrismaService } from '../prisma/prisma.service';
-import { NotificationsV2Service } from './notifications-v2.service';
+import {
+  mapNotificationCategoryToV2,
+  mapNotificationCategoryV2ToPrisma,
+  mapNotificationChannelToV2,
+  mapNotificationPriorityToV2,
+  mapNotificationPriorityV2ToPrisma,
+  mapNotificationThreadStatusToV2,
+  mapNotificationTypeToV2,
+  NotificationsV2Service,
+} from './notifications-v2.service';
 
 describe('NotificationsV2Service', () => {
   let service: NotificationsV2Service;
@@ -512,5 +528,122 @@ describe('NotificationsV2Service', () => {
         });
       });
     });
+  });
+});
+
+// Contract Governance audit (2026-08-01) - proves the V2 mappers (the
+// replacement for a cluster of blind `as never` casts - a different
+// spelling of the same `as unknown as` escape hatch, since a `never`-typed
+// value is assignable to anything) round-trip every real Prisma enum
+// member. If a future schema.prisma addition isn't wired into these
+// mappers, the build fails before this test can even run (assertNever) -
+// this test guards the mapping's runtime correctness, not its
+// exhaustiveness, which is a compile-time guarantee.
+describe('mapNotificationCategoryToV2 / mapNotificationCategoryV2ToPrisma', () => {
+  it('round-trips every known category in both directions', () => {
+    const rawCategories = [
+      'UPLOAD',
+      'AI_PROCESSING',
+      'CLIP_GENERATION',
+      'RENDERING',
+      'PUBLISHING',
+      'ANALYTICS',
+      'BILLING',
+      'WORKSPACE',
+      'SYSTEM',
+      'ERRORS',
+    ] as const;
+    for (const raw of rawCategories) {
+      expect(mapNotificationCategoryToV2(raw)).toBe(NotificationCategoryV2[raw]);
+      expect(mapNotificationCategoryV2ToPrisma(NotificationCategoryV2[raw])).toBe(raw);
+    }
+  });
+
+  it('throws on an unrecognized value instead of silently passing it through', () => {
+    expect(() => mapNotificationCategoryToV2('SOMETHING_NEW' as never)).toThrow(
+      /Unhandled enum value/,
+    );
+    expect(() => mapNotificationCategoryV2ToPrisma('SOMETHING_NEW' as never)).toThrow(
+      /Unhandled enum value/,
+    );
+  });
+});
+
+describe('mapNotificationPriorityToV2 / mapNotificationPriorityV2ToPrisma', () => {
+  it('round-trips every known priority in both directions', () => {
+    const rawPriorities = ['INFO', 'SUCCESS', 'WARNING', 'ERROR', 'CRITICAL'] as const;
+    for (const raw of rawPriorities) {
+      expect(mapNotificationPriorityToV2(raw)).toBe(NotificationPriorityV2[raw]);
+      expect(mapNotificationPriorityV2ToPrisma(NotificationPriorityV2[raw])).toBe(raw);
+    }
+  });
+
+  it('throws on an unrecognized value instead of silently passing it through', () => {
+    expect(() => mapNotificationPriorityToV2('SOMETHING_NEW' as never)).toThrow(
+      /Unhandled enum value/,
+    );
+    expect(() => mapNotificationPriorityV2ToPrisma('SOMETHING_NEW' as never)).toThrow(
+      /Unhandled enum value/,
+    );
+  });
+});
+
+describe('mapNotificationThreadStatusToV2', () => {
+  it('maps every known Prisma NotificationThreadStatus to its V2 counterpart', () => {
+    expect(mapNotificationThreadStatusToV2('IN_PROGRESS')).toBe(
+      NotificationThreadStatusV2.IN_PROGRESS,
+    );
+    expect(mapNotificationThreadStatusToV2('COMPLETED')).toBe(NotificationThreadStatusV2.COMPLETED);
+    expect(mapNotificationThreadStatusToV2('FAILED')).toBe(NotificationThreadStatusV2.FAILED);
+  });
+
+  it('throws on an unrecognized value instead of silently passing it through', () => {
+    expect(() => mapNotificationThreadStatusToV2('SOMETHING_NEW' as never)).toThrow(
+      /Unhandled enum value/,
+    );
+  });
+});
+
+describe('mapNotificationChannelToV2', () => {
+  it('maps every known Prisma NotificationChannel to its V2 counterpart', () => {
+    expect(mapNotificationChannelToV2('IN_APP')).toBe(NotificationChannel.IN_APP);
+    expect(mapNotificationChannelToV2('SLACK')).toBe(NotificationChannel.SLACK);
+    expect(mapNotificationChannelToV2('DISCORD')).toBe(NotificationChannel.DISCORD);
+    expect(mapNotificationChannelToV2('WEBHOOK')).toBe(NotificationChannel.WEBHOOK);
+    expect(mapNotificationChannelToV2('TELEGRAM')).toBe(NotificationChannel.TELEGRAM);
+    expect(mapNotificationChannelToV2('EMAIL')).toBe('EMAIL');
+    expect(mapNotificationChannelToV2('PUSH')).toBe('PUSH');
+    expect(mapNotificationChannelToV2('DESKTOP')).toBe('DESKTOP');
+  });
+});
+
+describe('mapNotificationTypeToV2', () => {
+  it('maps every known V1 Prisma NotificationType to its V2 counterpart', () => {
+    const rawTypes = [
+      'UPLOAD_COMPLETE',
+      'CLIP_READY',
+      'EXPORT_READY',
+      'RENDER_FAILED',
+      'STORAGE_WARNING',
+      'CREDIT_WARNING',
+      'COMMENT',
+      'MENTION',
+      'REVIEW_REQUEST',
+      'APPROVAL',
+      'MEMBER_INVITATION_ACCEPTED',
+      'SYNC_FAILURE_WARNING',
+      'WORKSPACE_OWNERSHIP_TRANSFERRED',
+    ] as const;
+    for (const raw of rawTypes) {
+      expect(mapNotificationTypeToV2(raw)).toBe(NotificationType[raw]);
+    }
+  });
+
+  it('maps PIPELINE_PROGRESS through as a plain string, unlike V1 which rejects it', () => {
+    expect(mapNotificationTypeToV2('PIPELINE_PROGRESS')).toBe('PIPELINE_PROGRESS');
+  });
+
+  it('throws on an unrecognized value instead of silently passing it through', () => {
+    expect(() => mapNotificationTypeToV2('SOMETHING_NEW' as never)).toThrow(/Unhandled enum value/);
   });
 });

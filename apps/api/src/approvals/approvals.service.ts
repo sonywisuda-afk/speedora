@@ -1,6 +1,10 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { ApprovalStatus, WorkspaceRole, type Approval, type Video } from '@speedora/database';
-import type { ApprovalDto, ApprovalListDto } from '@speedora/shared';
+import {
+  ApprovalStatus as SharedApprovalStatus,
+  type ApprovalDto,
+  type ApprovalListDto,
+} from '@speedora/shared';
 import { NotificationDeliveryProducer } from '../queue/notification-delivery.producer';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationPublisherService } from '../redis-pubsub/notification-publisher.service';
@@ -30,12 +34,38 @@ type ApprovalWithRelations = Approval & {
   }[];
 };
 
+function assertNever(value: never): never {
+  throw new Error(`Unhandled ApprovalStatus: ${JSON.stringify(value)}`);
+}
+
+// Prisma's ApprovalStatus and packages/shared's are nominally distinct TS
+// enum types even though they share the same runtime string values (same
+// "Mirrors X" convention used throughout this project). The switch has no
+// `default` case, so a new schema.prisma member fails to compile here until
+// a matching case (and packages/shared member) is added - same Contract
+// Synchronization pattern as dashboard.service.ts's mapActivityEventType,
+// replacing what used to be a blind `as unknown as` cast.
+export function mapApprovalStatus(status: ApprovalStatus): SharedApprovalStatus {
+  switch (status) {
+    case 'PENDING':
+      return SharedApprovalStatus.PENDING;
+    case 'APPROVED':
+      return SharedApprovalStatus.APPROVED;
+    case 'REJECTED':
+      return SharedApprovalStatus.REJECTED;
+    case 'NEEDS_REVISION':
+      return SharedApprovalStatus.NEEDS_REVISION;
+    default:
+      return assertNever(status);
+  }
+}
+
 function toDto(approval: ApprovalWithRelations): ApprovalDto {
   return {
     id: approval.id,
     videoId: approval.videoId,
     clipId: approval.clipId,
-    status: approval.status as unknown as ApprovalDto['status'],
+    status: mapApprovalStatus(approval.status),
     requestedById: approval.requestedById,
     requestedByEmail: approval.requestedBy.email,
     reviewerId: approval.reviewerId,
@@ -46,7 +76,7 @@ function toDto(approval: ApprovalWithRelations): ApprovalDto {
     updatedAt: approval.updatedAt.toISOString(),
     events: approval.events.map((e) => ({
       id: e.id,
-      status: e.status as unknown as ApprovalDto['status'],
+      status: mapApprovalStatus(e.status),
       actorEmail: e.actor.email,
       note: e.note,
       createdAt: e.createdAt.toISOString(),

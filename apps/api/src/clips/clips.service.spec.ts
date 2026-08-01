@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { CaptionStyle } from '@speedora/database';
-import { QueueName } from '@speedora/shared';
+import { ClipPlatformCopyStatus, QueueName } from '@speedora/shared';
 import type { Queue } from 'bullmq';
 import type { CampaignsService } from '../campaigns/campaigns.service';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -8,7 +8,7 @@ import type { RecurringSchedulesService } from '../recurring-schedules/recurring
 import type { SocialAccountsService } from '../social/social.service';
 import type { StorageService } from '../storage/storage.service';
 import type { WorkspaceAccessService } from '../workspace/workspace-access.service';
-import { ClipsService } from './clips.service';
+import { ClipsService, mapClipPlatformCopyStatus } from './clips.service';
 
 const PUBLISH_RECORDS_INCLUDE = {
   include: { publishRecords: { include: { socialAccount: true } } },
@@ -2310,5 +2310,26 @@ describe('ClipsService', () => {
       ).rejects.toThrow(NotFoundException);
       expect(prisma.$queryRaw).not.toHaveBeenCalled();
     });
+  });
+});
+
+// Contract Governance audit (2026-08-01) - proves mapClipPlatformCopyStatus
+// (the replacement for the old `as unknown as` cast) round-trips every real
+// Prisma ClipPlatformCopyStatus. If a future schema.prisma addition isn't
+// wired into this mapper, the build fails before this test can even run
+// (assertNever) - this test guards the mapping's runtime correctness, not
+// its exhaustiveness, which is a compile-time guarantee.
+describe('mapClipPlatformCopyStatus', () => {
+  it('maps every known Prisma ClipPlatformCopyStatus to its shared counterpart', () => {
+    expect(mapClipPlatformCopyStatus('PENDING')).toBe(ClipPlatformCopyStatus.PENDING);
+    expect(mapClipPlatformCopyStatus('PROCESSING')).toBe(ClipPlatformCopyStatus.PROCESSING);
+    expect(mapClipPlatformCopyStatus('READY')).toBe(ClipPlatformCopyStatus.READY);
+    expect(mapClipPlatformCopyStatus('FAILED')).toBe(ClipPlatformCopyStatus.FAILED);
+  });
+
+  it('throws on an unrecognized value instead of silently passing it through', () => {
+    expect(() => mapClipPlatformCopyStatus('SOMETHING_NEW' as never)).toThrow(
+      /Unhandled ClipPlatformCopyStatus/,
+    );
   });
 });

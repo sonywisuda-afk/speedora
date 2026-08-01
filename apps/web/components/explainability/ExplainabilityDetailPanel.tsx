@@ -1,13 +1,17 @@
 'use client';
 
-import type { ClipEngineExplainability } from '@speedora/shared';
+import type { ClipEngineExplainability, FusionEngineVersion } from '@speedora/shared';
 import { ScoreGauge } from '@/components/ScoreGauge';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatConfidence, predictionBadge, sortTopFactors } from '@/lib/explainability';
 import { SignalBreakdownChart } from './SignalBreakdownChart';
 
-const ENGINE_LABELS: Record<string, string> = {
+// Record<FusionEngineVersion, string> instead of Record<string, string> so
+// the compiler rejects a build that adds a real v3 output (see that type's
+// own comment - `results` is an array specifically to allow this) without a
+// matching label here.
+const ENGINE_LABELS: Record<FusionEngineVersion, string> = {
   v2: 'Fusion Engine v2',
   v3: 'Fusion Engine v3',
 };
@@ -56,7 +60,7 @@ export function ExplainabilityDetailPanel({
           <Card key={result.engine}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="text-base">
-                {ENGINE_LABELS[result.engine] ?? result.engine}
+                {ENGINE_LABELS[result.engine]}
               </CardTitle>
               <Badge variant="outline" className={TONE_CLASSES[badge.tone]}>
                 {badge.label}

@@ -15,8 +15,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { getNotificationThreadDetail, retryVideo } from '@/lib/api';
 import { formatRelativeTime } from '@/lib/dashboard';
 import {
-  THREAD_STATUS_DEFINITIONS,
-  TIMELINE_STAGE_STATUS_DEFINITIONS,
+  getThreadStatusDefinition,
+  getTimelineStageStatusDefinition,
 } from '@/lib/notification-definitions-v2';
 import { cn } from '@/lib/utils';
 
@@ -70,7 +70,7 @@ export function NotificationThreadPanel({
               <div className="flex items-center gap-2">
                 <DialogTitle>{data.thread.title}</DialogTitle>
                 {(() => {
-                  const def = THREAD_STATUS_DEFINITIONS[data.thread.status];
+                  const def = getThreadStatusDefinition(data.thread.status);
                   const Icon = def.icon;
                   return (
                     <Badge variant={def.badgeVariant} className="gap-1">
@@ -91,7 +91,7 @@ export function NotificationThreadPanel({
             {data.timeline && (
               <ol className="space-y-3" aria-label="Timeline pemrosesan">
                 {data.timeline.stages.map((stage) => {
-                  const def = TIMELINE_STAGE_STATUS_DEFINITIONS[stage.status];
+                  const def = getTimelineStageStatusDefinition(stage.status);
                   const StageIcon = def.icon;
                   return (
                     <li key={stage.stage} className="flex gap-3">

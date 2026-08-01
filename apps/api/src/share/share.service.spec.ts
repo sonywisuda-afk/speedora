@@ -1,7 +1,8 @@
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { ShareRole } from '@speedora/shared';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { WorkspaceAccessService } from '../workspace/workspace-access.service';
-import { ShareService } from './share.service';
+import { mapShareRole, ShareService } from './share.service';
 
 describe('ShareService', () => {
   let service: ShareService;
@@ -242,5 +243,22 @@ describe('ShareService', () => {
         NotFoundException,
       );
     });
+  });
+});
+
+// Contract Governance audit (2026-08-01) - proves mapShareRole (the
+// replacement for the old `as unknown as` cast) round-trips every real
+// Prisma ShareRole. If a future schema.prisma addition isn't wired into
+// mapShareRole, the build fails before this test can even run (assertNever)
+// - this test guards the mapping's runtime correctness, not its
+// exhaustiveness, which is a compile-time guarantee.
+describe('mapShareRole', () => {
+  it('maps every known Prisma ShareRole to its shared counterpart', () => {
+    expect(mapShareRole('VIEWER')).toBe(ShareRole.VIEWER);
+    expect(mapShareRole('REVIEWER')).toBe(ShareRole.REVIEWER);
+  });
+
+  it('throws on an unrecognized value instead of silently passing it through', () => {
+    expect(() => mapShareRole('SOMETHING_NEW' as never)).toThrow(/Unhandled ShareRole/);
   });
 });

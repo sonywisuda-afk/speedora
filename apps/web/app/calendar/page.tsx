@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { getWorkspaceCalendar } from '@/lib/api';
 import { buildMonthGrid, dateKey, groupEntriesByDate, parseDateKey } from '@/lib/calendar';
 import { platformIcon, platformLabel } from '@/lib/platform-metadata';
-import { PUBLISH_STATUS_LABELS } from '@/lib/scheduling';
+import { getPublishStatusLabel } from '@/lib/scheduling';
 import { useAuth } from '@/lib/useAuth';
 import { cn } from '@/lib/utils';
 import { useWorkspaceStore } from '@/lib/workspaceStore';
@@ -20,12 +20,17 @@ const DAY_HEADERS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 // Dot color per PublishStatus - published/failed get a clear success/error
 // tint, everything still in flight (SCHEDULED/QUEUED/PUBLISHING) stays
 // neutral since none of them is actionably different from a calendar
-// glance.
-const STATUS_TONE: Partial<Record<PublishStatus, string>> = {
+// glance. A full Record (not Partial) so a new PublishStatus member forces
+// a real decision here at compile time instead of silently inheriting the
+// neutral default.
+const DEFAULT_TONE = 'bg-muted-foreground';
+const STATUS_TONE: Record<PublishStatus, string> = {
+  [PublishStatus.SCHEDULED]: DEFAULT_TONE,
+  [PublishStatus.QUEUED]: DEFAULT_TONE,
+  [PublishStatus.PUBLISHING]: DEFAULT_TONE,
   [PublishStatus.PUBLISHED]: 'bg-success',
   [PublishStatus.FAILED]: 'bg-destructive',
 };
-const DEFAULT_TONE = 'bg-muted-foreground';
 
 // Publishing Expansion Phase 6D (Calendar view) - a read-only rollup of the
 // workspace's PublishRecords (GET /workspaces/:id/calendar). No
@@ -202,7 +207,7 @@ export default function CalendarPage() {
                                     key={entry.id}
                                     className={cn(
                                       'flex h-4 w-4 items-center justify-center rounded-full',
-                                      STATUS_TONE[entry.status] ?? DEFAULT_TONE,
+                                      STATUS_TONE[entry.status],
                                     )}
                                   >
                                     <Icon className="h-2.5 w-2.5 text-white" aria-hidden="true" />
@@ -264,7 +269,7 @@ export default function CalendarPage() {
                             </div>
                           </div>
                           <Badge variant="outline" className="shrink-0">
-                            {PUBLISH_STATUS_LABELS[entry.status]}
+                            {getPublishStatusLabel(entry.status)}
                           </Badge>
                         </div>
                       );

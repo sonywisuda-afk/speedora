@@ -4,7 +4,6 @@ import type {
   AnalyticsHeatmapDto,
   FollowersDto,
   LeaderboardMetric,
-  SocialPlatform as SharedSocialPlatform,
   WorkspaceLeaderboardDto,
   WorkspacePredictionModelDto,
 } from '@speedora/shared';
@@ -18,6 +17,7 @@ import {
 } from '@speedora/analytics-report';
 import { MIN_SAMPLES_FOR_CORRELATION, pearsonCorrelation } from '@speedora/dataset-quality';
 import { toFollowerAccountSeries } from '../analytics/follower-series.util';
+import { mapSocialPlatform } from '../social/publish-record.util';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceAccessService } from '../workspace/workspace-access.service';
 
@@ -86,7 +86,7 @@ export class WorkspaceAnalyticsService {
       return {
         publishRecordId: record.id,
         videoLabel: this.videoLabel(record.clip.hookText, record.clip.videoId),
-        platform: record.socialAccount.platform as unknown as SharedSocialPlatform,
+        platform: mapSocialPlatform(record.socialAccount.platform),
         ownerId: record.clip.video.ownerId,
         ownerEmail: record.clip.video.owner.email,
         campaignId: record.campaignId,

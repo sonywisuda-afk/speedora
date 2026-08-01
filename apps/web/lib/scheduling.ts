@@ -40,3 +40,21 @@ export const PUBLISH_STATUS_LABELS: Record<PublishStatus, string> = {
   [PublishStatus.PUBLISHED]: 'Published',
   [PublishStatus.FAILED]: 'Failed',
 };
+
+// Contract Governance audit Sprint 3 (Runtime Safety, 2026-08-01) -
+// PUBLISH_STATUS_LABELS is compile-time exhaustive today, but every
+// consumer here reads `status` straight off a PublishRecord-derived DTO
+// (backend data), not this frontend's own enum iteration - a live
+// frontend/backend version skew (a new PublishStatus shipped in the API
+// before this bundle is rebuilt) would otherwise silently render nothing.
+// Falls back to the raw value plus a console.warn.
+export function getPublishStatusLabel(status: string): string {
+  if (status in PUBLISH_STATUS_LABELS) {
+    return PUBLISH_STATUS_LABELS[status as PublishStatus];
+  }
+  console.warn(
+    `[scheduling] unknown PublishStatus "${status}" - falling back to the raw value. ` +
+      'This means the API sent a status this frontend build does not recognize yet.',
+  );
+  return status;
+}

@@ -7,23 +7,133 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { PendingInviteStatus, WorkspaceRole } from '@speedora/database';
+import {
+  PendingInviteStatus,
+  WorkspaceRole,
+  type AuditAction as PrismaAuditAction,
+} from '@speedora/database';
 import { recordActivityEvent, recordAuditLog, recordNotification } from '@speedora/database';
-import type {
-  AuditLogEntryDto,
-  AuditLogListDto,
-  CalendarDto,
-  CalendarEntryDto,
-  PendingInviteDto,
-  WorkspaceDetailDto,
-  WorkspaceDto,
-  WorkspaceMemberDto,
+import {
+  AuditAction as SharedAuditAction,
+  WorkspaceRole as SharedWorkspaceRole,
+  PendingInviteStatus as SharedPendingInviteStatus,
+  type AuditLogEntryDto,
+  type AuditLogListDto,
+  type CalendarDto,
+  type CalendarEntryDto,
+  type PendingInviteDto,
+  type WorkspaceDetailDto,
+  type WorkspaceDto,
+  type WorkspaceMemberDto,
 } from '@speedora/shared';
 import { MailService } from '../mail/mail.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationDeliveryProducer } from '../queue/notification-delivery.producer';
 import { NotificationPublisherService } from '../redis-pubsub/notification-publisher.service';
+import { mapPublishStatus, mapSocialPlatform } from '../social/publish-record.util';
 import { WorkspaceAccessService } from './workspace-access.service';
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled enum value: ${JSON.stringify(value)}`);
+}
+
+// Prisma's WorkspaceRole and packages/shared's are nominally distinct TS
+// enum types even though they share the same runtime string values (same
+// "Mirrors X" convention used throughout this project). The switch has no
+// `default` case, so a new schema.prisma member fails to compile here until
+// a matching case is added - same Contract Synchronization pattern as
+// dashboard.service.ts's mapActivityEventType, replacing what used to be a
+// blind `as unknown as` cast.
+export function mapWorkspaceRole(role: WorkspaceRole): SharedWorkspaceRole {
+  switch (role) {
+    case 'OWNER':
+      return SharedWorkspaceRole.OWNER;
+    case 'ADMIN':
+      return SharedWorkspaceRole.ADMIN;
+    case 'EDITOR':
+      return SharedWorkspaceRole.EDITOR;
+    case 'REVIEWER':
+      return SharedWorkspaceRole.REVIEWER;
+    case 'VIEWER':
+      return SharedWorkspaceRole.VIEWER;
+    default:
+      return assertNever(role);
+  }
+}
+
+// Same convention as mapWorkspaceRole above, for PendingInviteStatus.
+export function mapPendingInviteStatus(status: PendingInviteStatus): SharedPendingInviteStatus {
+  switch (status) {
+    case 'PENDING':
+      return SharedPendingInviteStatus.PENDING;
+    case 'ACCEPTED':
+      return SharedPendingInviteStatus.ACCEPTED;
+    case 'REVOKED':
+      return SharedPendingInviteStatus.REVOKED;
+    default:
+      return assertNever(status);
+  }
+}
+
+// Same convention as mapWorkspaceRole above, for AuditAction. This mapper is
+// what caught packages/shared's AuditAction enum silently missing
+// CAMPAIGN_CREATED/CAMPAIGN_CANCELLED/RECURRING_SCHEDULE_CREATED/
+// RECURRING_SCHEDULE_DELETED (Contract Governance audit, 2026-08-01) - all 4
+// were already being written by CampaignsService/RecurringSchedulesService,
+// exactly the ActivityEventType/WORKSPACE_DELETED bug class, just not yet
+// caught because nothing exhaustively checked this boundary before.
+export function mapAuditAction(action: PrismaAuditAction): SharedAuditAction {
+  switch (action) {
+    case 'MEMBER_ROLE_CHANGED':
+      return SharedAuditAction.MEMBER_ROLE_CHANGED;
+    case 'MEMBER_REMOVED':
+      return SharedAuditAction.MEMBER_REMOVED;
+    case 'INVITE_CREATED':
+      return SharedAuditAction.INVITE_CREATED;
+    case 'INVITE_ACCEPTED':
+      return SharedAuditAction.INVITE_ACCEPTED;
+    case 'PROJECT_CREATED':
+      return SharedAuditAction.PROJECT_CREATED;
+    case 'PROJECT_DELETED':
+      return SharedAuditAction.PROJECT_DELETED;
+    case 'PROJECT_ARCHIVED':
+      return SharedAuditAction.PROJECT_ARCHIVED;
+    case 'PROJECT_UNARCHIVED':
+      return SharedAuditAction.PROJECT_UNARCHIVED;
+    case 'PROJECT_MOVED':
+      return SharedAuditAction.PROJECT_MOVED;
+    case 'WORKSPACE_OWNERSHIP_TRANSFERRED':
+      return SharedAuditAction.WORKSPACE_OWNERSHIP_TRANSFERRED;
+    case 'FOLDER_CREATED':
+      return SharedAuditAction.FOLDER_CREATED;
+    case 'FOLDER_DELETED':
+      return SharedAuditAction.FOLDER_DELETED;
+    case 'VIDEO_MOVED':
+      return SharedAuditAction.VIDEO_MOVED;
+    case 'VIDEO_DELETED':
+      return SharedAuditAction.VIDEO_DELETED;
+    case 'CLIP_DELETED':
+      return SharedAuditAction.CLIP_DELETED;
+    case 'SHARE_LINK_CREATED':
+      return SharedAuditAction.SHARE_LINK_CREATED;
+    case 'SHARE_LINK_REVOKED':
+      return SharedAuditAction.SHARE_LINK_REVOKED;
+    case 'APPROVAL_DECIDED':
+      return SharedAuditAction.APPROVAL_DECIDED;
+    case 'CAMPAIGN_CREATED':
+      return SharedAuditAction.CAMPAIGN_CREATED;
+    case 'CAMPAIGN_CANCELLED':
+      return SharedAuditAction.CAMPAIGN_CANCELLED;
+    case 'RECURRING_SCHEDULE_CREATED':
+      return SharedAuditAction.RECURRING_SCHEDULE_CREATED;
+    case 'RECURRING_SCHEDULE_DELETED':
+      return SharedAuditAction.RECURRING_SCHEDULE_DELETED;
+    case 'WORKSPACE_LEFT':
+      return SharedAuditAction.WORKSPACE_LEFT;
+    default:
+      return assertNever(action);
+  }
+}
 
 const INVITE_TOKEN_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days, same order of
 // magnitude as password-reset's 1 hour is deliberately longer - an invite
@@ -58,11 +168,7 @@ export class WorkspaceService {
       isPersonal: workspace.isPersonal,
       // Always non-null here - every caller of this method has already
       // passed an assertMinRole/membership check for this workspaceId.
-      // Prisma's own WorkspaceRole and @speedora/shared's are nominally
-      // distinct TS types even though they share the same runtime string
-      // values - same "cast at the one call site that needs it" convention
-      // as ExportService.toDto().
-      role: role as unknown as WorkspaceDto['role'],
+      role: mapWorkspaceRole(role as WorkspaceRole),
       memberCount,
       createdAt: workspace.createdAt.toISOString(),
     };
@@ -80,8 +186,8 @@ export class WorkspaceService {
       id: invite.id,
       workspaceId: invite.workspaceId,
       email: invite.email,
-      role: invite.role as unknown as PendingInviteDto['role'],
-      status: invite.status as unknown as PendingInviteDto['status'],
+      role: mapWorkspaceRole(invite.role),
+      status: mapPendingInviteStatus(invite.status),
       createdAt: invite.createdAt.toISOString(),
     };
   }
@@ -101,7 +207,7 @@ export class WorkspaceService {
       id: workspace.id,
       name: workspace.name,
       isPersonal: workspace.isPersonal,
-      role: WorkspaceRole.OWNER as unknown as WorkspaceDto['role'],
+      role: mapWorkspaceRole(WorkspaceRole.OWNER),
       memberCount: 1,
       createdAt: workspace.createdAt.toISOString(),
     };
@@ -121,7 +227,7 @@ export class WorkspaceService {
         id: m.workspace.id,
         name: m.workspace.name,
         isPersonal: m.workspace.isPersonal,
-        role: m.role as unknown as WorkspaceDto['role'],
+        role: mapWorkspaceRole(m.role),
         memberCount: await this.prisma.workspaceMembership.count({
           where: { workspaceId: m.workspaceId },
         }),
@@ -144,7 +250,7 @@ export class WorkspaceService {
     const members: WorkspaceMemberDto[] = memberships.map((m) => ({
       userId: m.userId,
       email: m.user.email,
-      role: m.role as unknown as WorkspaceMemberDto['role'],
+      role: mapWorkspaceRole(m.role),
       createdAt: m.createdAt.toISOString(),
     }));
 
@@ -510,9 +616,7 @@ export class WorkspaceService {
       // memberCount includes the owner themselves - >1 means someone else
       // is still a member.
       if (memberCount > 1) {
-        throw new ConflictException(
-          'This workspace still has other members. Remove them first.',
-        );
+        throw new ConflictException('This workspace still has other members. Remove them first.');
       }
       if (projectCount > 0) {
         throw new ConflictException(
@@ -613,7 +717,7 @@ export class WorkspaceService {
     return {
       entries: page.map((e): AuditLogEntryDto => ({
         id: e.id,
-        action: e.action as unknown as AuditLogEntryDto['action'],
+        action: mapAuditAction(e.action),
         actorEmail: e.actor.email,
         targetType: e.targetType,
         targetId: e.targetId,
@@ -668,12 +772,8 @@ export class WorkspaceService {
           id: record.id,
           clipId: record.clipId,
           clipHookText: record.clip.hookText,
-          // Prisma's own SocialPlatform/PublishStatus enums and
-          // @speedora/shared's are nominally distinct TS types even though
-          // they share the same runtime string values - same "cast at the
-          // one call site that needs it" convention as toDto() above.
-          platform: record.socialAccount.platform as unknown as CalendarEntryDto['platform'],
-          status: record.status as unknown as CalendarEntryDto['status'],
+          platform: mapSocialPlatform(record.socialAccount.platform),
+          status: mapPublishStatus(record.status),
           date: date.toISOString(),
           campaignId: record.campaign?.id ?? null,
           campaignName: record.campaign?.name ?? null,

@@ -4,14 +4,26 @@ import {
   NotificationCategory,
   NotificationChannel,
   type Notification,
+  type NotificationCategory as PrismaNotificationCategory,
+  type NotificationChannel as PrismaNotificationChannel,
+  type NotificationPriority as PrismaNotificationPriority,
+  type NotificationThreadStatus as PrismaNotificationThreadStatus,
+  type NotificationType as PrismaNotificationType,
 } from '@speedora/database';
 import {
   NotificationActionType,
+  NotificationCategoryV2,
+  NotificationChannel as SharedNotificationChannel,
+  NotificationPriorityV2,
+  NotificationThreadStatusV2,
+  NotificationType as SharedNotificationType,
   PreferenceCategoryGroupV2,
   type NotificationChannelPreferenceV2Dto,
+  type NotificationChannelV2,
   type NotificationInAppPreferenceV2Dto,
   type NotificationPreferencesV2Dto,
   type NotificationThreadDetailDto,
+  type NotificationTypeV2,
   type NotificationV2BulkActionResult,
   type NotificationV2Dto,
   type NotificationV2ListDto,
@@ -24,6 +36,209 @@ import { PrismaService } from '../prisma/prisma.service';
 const MIN_LIMIT = 1;
 const MAX_LIMIT = 50;
 const DEFAULT_LIMIT = 20;
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled enum value: ${JSON.stringify(value)}`);
+}
+
+// Prisma's NotificationCategory and packages/shared's V2 NotificationCategoryV2
+// have identical members (unlike NotificationType, no V2-only extra value) -
+// nominally distinct TS enum types even so. Replaces what used to be a blind
+// `as never` cast (a different spelling of the same escape hatch as
+// `as unknown as` - both bypass all type checking, `as never` because a
+// value of type `never` is assignable to anything). Same Contract
+// Synchronization pattern as dashboard.service.ts's mapActivityEventType.
+export function mapNotificationCategoryToV2(
+  category: PrismaNotificationCategory,
+): NotificationCategoryV2 {
+  switch (category) {
+    case 'UPLOAD':
+      return NotificationCategoryV2.UPLOAD;
+    case 'AI_PROCESSING':
+      return NotificationCategoryV2.AI_PROCESSING;
+    case 'CLIP_GENERATION':
+      return NotificationCategoryV2.CLIP_GENERATION;
+    case 'RENDERING':
+      return NotificationCategoryV2.RENDERING;
+    case 'PUBLISHING':
+      return NotificationCategoryV2.PUBLISHING;
+    case 'ANALYTICS':
+      return NotificationCategoryV2.ANALYTICS;
+    case 'BILLING':
+      return NotificationCategoryV2.BILLING;
+    case 'WORKSPACE':
+      return NotificationCategoryV2.WORKSPACE;
+    case 'SYSTEM':
+      return NotificationCategoryV2.SYSTEM;
+    case 'ERRORS':
+      return NotificationCategoryV2.ERRORS;
+    default:
+      return assertNever(category);
+  }
+}
+
+// Reverse of mapNotificationCategoryToV2 - for narrowing a client-supplied
+// (V2-typed) filter value back into a Prisma `where` clause.
+export function mapNotificationCategoryV2ToPrisma(
+  category: NotificationCategoryV2,
+): PrismaNotificationCategory {
+  switch (category) {
+    case NotificationCategoryV2.UPLOAD:
+      return 'UPLOAD';
+    case NotificationCategoryV2.AI_PROCESSING:
+      return 'AI_PROCESSING';
+    case NotificationCategoryV2.CLIP_GENERATION:
+      return 'CLIP_GENERATION';
+    case NotificationCategoryV2.RENDERING:
+      return 'RENDERING';
+    case NotificationCategoryV2.PUBLISHING:
+      return 'PUBLISHING';
+    case NotificationCategoryV2.ANALYTICS:
+      return 'ANALYTICS';
+    case NotificationCategoryV2.BILLING:
+      return 'BILLING';
+    case NotificationCategoryV2.WORKSPACE:
+      return 'WORKSPACE';
+    case NotificationCategoryV2.SYSTEM:
+      return 'SYSTEM';
+    case NotificationCategoryV2.ERRORS:
+      return 'ERRORS';
+    default:
+      return assertNever(category);
+  }
+}
+
+// Same convention as mapNotificationCategoryToV2, for NotificationPriority
+// (also a 1:1 member match with its V2 counterpart).
+export function mapNotificationPriorityToV2(
+  priority: PrismaNotificationPriority,
+): NotificationPriorityV2 {
+  switch (priority) {
+    case 'INFO':
+      return NotificationPriorityV2.INFO;
+    case 'SUCCESS':
+      return NotificationPriorityV2.SUCCESS;
+    case 'WARNING':
+      return NotificationPriorityV2.WARNING;
+    case 'ERROR':
+      return NotificationPriorityV2.ERROR;
+    case 'CRITICAL':
+      return NotificationPriorityV2.CRITICAL;
+    default:
+      return assertNever(priority);
+  }
+}
+
+// Reverse of mapNotificationPriorityToV2.
+export function mapNotificationPriorityV2ToPrisma(
+  priority: NotificationPriorityV2,
+): PrismaNotificationPriority {
+  switch (priority) {
+    case NotificationPriorityV2.INFO:
+      return 'INFO';
+    case NotificationPriorityV2.SUCCESS:
+      return 'SUCCESS';
+    case NotificationPriorityV2.WARNING:
+      return 'WARNING';
+    case NotificationPriorityV2.ERROR:
+      return 'ERROR';
+    case NotificationPriorityV2.CRITICAL:
+      return 'CRITICAL';
+    default:
+      return assertNever(priority);
+  }
+}
+
+// Same convention as mapNotificationCategoryToV2, for NotificationThreadStatus
+// (also a 1:1 member match with its V2 counterpart).
+export function mapNotificationThreadStatusToV2(
+  status: PrismaNotificationThreadStatus,
+): NotificationThreadStatusV2 {
+  switch (status) {
+    case 'IN_PROGRESS':
+      return NotificationThreadStatusV2.IN_PROGRESS;
+    case 'COMPLETED':
+      return NotificationThreadStatusV2.COMPLETED;
+    case 'FAILED':
+      return NotificationThreadStatusV2.FAILED;
+    default:
+      return assertNever(status);
+  }
+}
+
+// Prisma's NotificationChannel (8 members) widens into NotificationChannelV2
+// (packages/shared's own 5-member NotificationChannel enum, PLUS the 3
+// schema-only EMAIL/PUSH/DESKTOP string literals - see that type's own
+// comment in notification.ts). No assertNever here: this mapper is
+// deliberately total over all 8 Prisma members, so a literal switch instead
+// of assertNever would be redundant - if schema.prisma ever adds a 9th
+// channel, this switch's own missing-case compile error (not a thrown
+// assertNever) is what catches it, same TS2366 guarantee described in the
+// Contract Governance audit report.
+export function mapNotificationChannelToV2(
+  channel: PrismaNotificationChannel,
+): NotificationChannelV2 {
+  switch (channel) {
+    case 'IN_APP':
+      return SharedNotificationChannel.IN_APP;
+    case 'SLACK':
+      return SharedNotificationChannel.SLACK;
+    case 'DISCORD':
+      return SharedNotificationChannel.DISCORD;
+    case 'WEBHOOK':
+      return SharedNotificationChannel.WEBHOOK;
+    case 'TELEGRAM':
+      return SharedNotificationChannel.TELEGRAM;
+    case 'EMAIL':
+      return 'EMAIL';
+    case 'PUSH':
+      return 'PUSH';
+    case 'DESKTOP':
+      return 'DESKTOP';
+  }
+}
+
+// Prisma's NotificationType (14 members, includes PIPELINE_PROGRESS) widens
+// into NotificationTypeV2 (packages/shared's own 13-member NotificationType
+// enum PLUS the 'PIPELINE_PROGRESS' string literal - see that type's own
+// comment in notification.ts). Unlike V1's NotificationsService.
+// mapNotificationType (which throws on PIPELINE_PROGRESS, a value V1 can
+// never actually receive), V2 is the one surface PIPELINE_PROGRESS is
+// supposed to reach - so it maps through here instead of being rejected.
+export function mapNotificationTypeToV2(type: PrismaNotificationType): NotificationTypeV2 {
+  switch (type) {
+    case 'UPLOAD_COMPLETE':
+      return SharedNotificationType.UPLOAD_COMPLETE;
+    case 'CLIP_READY':
+      return SharedNotificationType.CLIP_READY;
+    case 'EXPORT_READY':
+      return SharedNotificationType.EXPORT_READY;
+    case 'RENDER_FAILED':
+      return SharedNotificationType.RENDER_FAILED;
+    case 'STORAGE_WARNING':
+      return SharedNotificationType.STORAGE_WARNING;
+    case 'CREDIT_WARNING':
+      return SharedNotificationType.CREDIT_WARNING;
+    case 'COMMENT':
+      return SharedNotificationType.COMMENT;
+    case 'MENTION':
+      return SharedNotificationType.MENTION;
+    case 'REVIEW_REQUEST':
+      return SharedNotificationType.REVIEW_REQUEST;
+    case 'APPROVAL':
+      return SharedNotificationType.APPROVAL;
+    case 'MEMBER_INVITATION_ACCEPTED':
+      return SharedNotificationType.MEMBER_INVITATION_ACCEPTED;
+    case 'SYNC_FAILURE_WARNING':
+      return SharedNotificationType.SYNC_FAILURE_WARNING;
+    case 'WORKSPACE_OWNERSHIP_TRANSFERRED':
+      return SharedNotificationType.WORKSPACE_OWNERSHIP_TRANSFERRED;
+    case 'PIPELINE_PROGRESS':
+      return 'PIPELINE_PROGRESS';
+    default:
+      return assertNever(type);
+  }
+}
 
 // Notification Center v2 Phase 5 - the simplified preferences UI's group ->
 // real-category mapping (see PreferenceCategoryGroupV2's own comment in
@@ -100,8 +315,8 @@ export class NotificationsV2Service {
         userId,
         ...(state === 'archived' ? { archivedAt: { not: null } } : { archivedAt: null }),
         ...(state === 'unread' ? { readAt: null } : {}),
-        ...(query.category ? { category: query.category as never } : {}),
-        ...(query.priority ? { priority: query.priority as never } : {}),
+        ...(query.category ? { category: mapNotificationCategoryV2ToPrisma(query.category) } : {}),
+        ...(query.priority ? { priority: mapNotificationPriorityV2ToPrisma(query.priority) } : {}),
         ...(trimmedQuery
           ? {
               OR: [
@@ -166,13 +381,13 @@ export class NotificationsV2Service {
         id: thread.id,
         videoId: thread.videoId,
         title: thread.title,
-        status: thread.status as never,
+        status: mapNotificationThreadStatusToV2(thread.status),
         lastActivityAt: thread.lastActivityAt.toISOString(),
         archivedAt: thread.archivedAt ? thread.archivedAt.toISOString() : null,
         createdAt: thread.createdAt.toISOString(),
       },
       notification: representative ? this.toV2Dto(representative) : null,
-      timeline: timeline as never,
+      timeline,
     };
   }
 
@@ -252,14 +467,14 @@ export class NotificationsV2Service {
         const configured =
           channel === NotificationChannel.TELEGRAM ? (row?.chatId ?? null) != null : row != null;
         return {
-          channel: channel as never,
+          channel: mapNotificationChannelToV2(channel),
           enabled: row?.enabled ?? false,
           configured,
           comingSoon: false,
         };
       }),
       ...COMING_SOON_CHANNELS.map((channel) => ({
-        channel: channel as never,
+        channel: mapNotificationChannelToV2(channel),
         enabled: false,
         configured: false,
         comingSoon: true,
@@ -325,7 +540,12 @@ export class NotificationsV2Service {
       data: { enabled },
     });
     const configured = channel === NotificationChannel.TELEGRAM ? updated.chatId != null : true;
-    return { channel: channel as never, enabled: updated.enabled, configured, comingSoon: false };
+    return {
+      channel: mapNotificationChannelToV2(channel),
+      enabled: updated.enabled,
+      configured,
+      comingSoon: false,
+    };
   }
 
   // Server-computed navigation target - null when there's genuinely nowhere
@@ -383,15 +603,15 @@ export class NotificationsV2Service {
 
   private toV2Dto(
     notification: Notification & {
-      thread?: { id: string; status: string; lastActivityAt: Date } | null;
+      thread?: { id: string; status: PrismaNotificationThreadStatus; lastActivityAt: Date } | null;
       group?: { id: string; occurrenceCount: number; lastOccurredAt: Date } | null;
     },
   ): NotificationV2Dto {
     return {
       id: notification.id,
-      type: notification.type as never,
-      category: notification.category as never,
-      priority: notification.priority as never,
+      type: mapNotificationTypeToV2(notification.type),
+      category: mapNotificationCategoryToV2(notification.category),
+      priority: mapNotificationPriorityToV2(notification.priority),
       title: notification.title,
       body: notification.body,
       videoId: notification.videoId,
@@ -404,7 +624,7 @@ export class NotificationsV2Service {
       thread: notification.thread
         ? {
             id: notification.thread.id,
-            status: notification.thread.status as never,
+            status: mapNotificationThreadStatusToV2(notification.thread.status),
             lastActivityAt: notification.thread.lastActivityAt.toISOString(),
           }
         : null,

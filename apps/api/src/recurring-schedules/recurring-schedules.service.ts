@@ -8,6 +8,7 @@ import {
 import type { RecurringScheduleDto } from '@speedora/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { SocialAccountsService } from '../social/social.service';
+import { mapSharedSocialPlatformToPrisma, mapSocialPlatform } from '../social/publish-record.util';
 import { WorkspaceAccessService } from '../workspace/workspace-access.service';
 import type { CreateRecurringScheduleDto } from './dto/create-recurring-schedule.dto';
 import type { UpdateRecurringScheduleDto } from './dto/update-recurring-schedule.dto';
@@ -18,7 +19,7 @@ function toDto(schedule: RecurringSchedule): RecurringScheduleDto {
     id: schedule.id,
     workspaceId: schedule.workspaceId,
     name: schedule.name,
-    platform: schedule.platform as unknown as RecurringScheduleDto['platform'],
+    platform: mapSocialPlatform(schedule.platform),
     socialAccountId: schedule.socialAccountId,
     timezone: schedule.timezone,
     daysOfWeek: schedule.daysOfWeek,
@@ -64,7 +65,8 @@ export class RecurringSchedulesService {
     // uses for a one-off publish (see CLAUDE.md's Publish Center section on
     // SocialAccount being userId-scoped, not workspace-scoped).
     const account = await this.socialAccounts.findOwnedOrThrow(dto.socialAccountId, userId);
-    if (account.platform !== (dto.platform as unknown as typeof account.platform)) {
+    const platform = mapSharedSocialPlatformToPrisma(dto.platform);
+    if (account.platform !== platform) {
       throw new BadRequestException(
         `Social account ${dto.socialAccountId} is a ${account.platform} account, not ${dto.platform}`,
       );
@@ -74,7 +76,7 @@ export class RecurringSchedulesService {
       data: {
         workspaceId,
         name: dto.name,
-        platform: dto.platform as unknown as typeof account.platform,
+        platform,
         socialAccountId: dto.socialAccountId,
         timezone: dto.timezone,
         daysOfWeek: dto.daysOfWeek,

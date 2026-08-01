@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Nav } from '@/components/Nav';
 import { formatRelativeTime } from '@/lib/dashboard';
 import { getWorkspace, listWorkspaceAuditLog } from '@/lib/api';
-import { ACTION_LABELS } from '@/lib/audit-log-labels';
+import { getAuditActionLabel } from '@/lib/audit-log-labels';
 import { useAuth } from '@/lib/useAuth';
 
 const DEFAULT_LIMIT = 30;
@@ -108,7 +108,7 @@ export default function AuditLogPage({ params }: { params: { id: string } }) {
                     >
                       <div className="flex flex-wrap items-center justify-between gap-2">
                         <span className="font-medium text-foreground">
-                          {ACTION_LABELS[entry.action] ?? entry.action}
+                          {getAuditActionLabel(entry.action)}
                         </span>
                         <span className="font-mono text-xs text-muted-foreground">
                           {formatRelativeTime(entry.createdAt)}

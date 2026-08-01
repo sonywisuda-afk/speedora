@@ -31,6 +31,24 @@ export const OCR_CATEGORY_LABELS: Record<OcrTextCategory, string> = {
   name: 'Name',
 };
 
+// Contract Governance audit Sprint 3 (Runtime Safety, 2026-08-01) -
+// selectedTrack.category is read straight off a detection result (backend
+// data, typed OcrTextCategory but not guaranteed to actually be one of the
+// 6 known values on a live frontend/backend version skew), unlike
+// OCR_TEXT_CATEGORIES.map's own iteration above which is always safe by
+// construction. Falls back to the raw value (still legible to a reviewer)
+// plus a console.warn, instead of silently rendering nothing.
+export function getOcrCategoryLabel(category: string): string {
+  if (category in OCR_CATEGORY_LABELS) {
+    return OCR_CATEGORY_LABELS[category as OcrTextCategory];
+  }
+  console.warn(
+    `[ocrReview] unknown OcrTextCategory "${category}" - falling back to the raw value. ` +
+      'This means the API sent a category this frontend build does not recognize yet.',
+  );
+  return category;
+}
+
 // One entry per REVIEWED track, keyed by "<clipId>:<trackId>" so review
 // progress survives switching between a video's clips without needing a
 // nested-by-clip structure. Absence of a key means "not yet reviewed" -

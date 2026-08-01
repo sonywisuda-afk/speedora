@@ -47,17 +47,32 @@ import { useAuth } from '../../lib/useAuth';
 // against an accidental single click wiping everything.
 const DELETE_CONFIRM_WORD = 'HAPUS';
 
-// Tahap 3.5 (Passkey UX & Observability) - Session.createdVia's own values
-// (AuthMethod in apps/api), shown as a small badge per row in "Perangkat
-// Aktif". Missing/unknown key (including null, from a pre-existing session)
-// deliberately renders nothing rather than a fallback label - there's
-// nothing wrong with an old session, no need to call it out.
-const AUTH_METHOD_LABELS: Record<string, string> = {
+// Tahap 3.5 (Passkey UX & Observability) - Session.createdVia's own values.
+// Mirrors apps/api's AuthMethod (apps/web has no dependency on apps/api -
+// they only communicate over HTTP per CLAUDE.md's architecture, so this is
+// a plain local type, not an import), shown as a small badge per row in
+// "Perangkat Aktif". Record<AuthMethod, string> instead of Record<string,
+// string> so the compiler rejects a build that adds a new auth method
+// without a label here; authMethodLabel() below is the separate
+// runtime-only safety net for session.createdVia (persisted as a loose
+// `string | null`, not a real enum column, since a pre-existing session
+// predates a given AuthMethod addition) - missing/unknown/null deliberately
+// renders nothing rather than a fallback label, there's nothing wrong with
+// an old session, no need to call it out.
+type AuthMethod = 'password' | 'google' | 'github' | 'passkey';
+
+const AUTH_METHOD_LABELS: Record<AuthMethod, string> = {
   password: 'Kata Sandi',
   google: 'Google',
   github: 'GitHub',
   passkey: 'Passkey',
 };
+
+function authMethodLabel(createdVia: string | null): string | null {
+  return createdVia && createdVia in AUTH_METHOD_LABELS
+    ? AUTH_METHOD_LABELS[createdVia as AuthMethod]
+    : null;
+}
 
 export default function AccountsPage() {
   const { user, setUser, checkingAuth, logout } = useAuth();
@@ -699,9 +714,9 @@ export default function AccountsPage() {
                               Perangkat ini
                             </span>
                           )}
-                          {AUTH_METHOD_LABELS[session.createdVia ?? ''] && (
+                          {authMethodLabel(session.createdVia) && (
                             <span className="rounded-full bg-accent px-2 py-0.5 text-xs font-medium text-accent-foreground">
-                              {AUTH_METHOD_LABELS[session.createdVia ?? '']}
+                              {authMethodLabel(session.createdVia)}
                             </span>
                           )}
                         </p>

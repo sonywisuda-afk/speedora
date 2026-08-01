@@ -8,7 +8,12 @@ import { NotificationsV2Service } from './notifications-v2.service';
 // NotificationsV2Controller and REAL NotificationsV2Service together through
 // actual NestJS DI, only mocking Prisma at the injection boundary.
 describe('Notifications v2 module integration (Controller + Service via real DI)', () => {
-  const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const, emailVerified: true };
+  const user = {
+    id: 'user-1',
+    email: 'a@example.com',
+    role: 'CREATOR' as const,
+    emailVerified: true,
+  };
 
   let controller: NotificationsV2Controller;
   let prisma: {

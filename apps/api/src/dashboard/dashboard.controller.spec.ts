@@ -5,7 +5,12 @@ import { DashboardController } from './dashboard.controller';
 describe('DashboardController', () => {
   let controller: DashboardController;
   let dashboardService: { getStats: jest.Mock; getActivity: jest.Mock; exportCsv: jest.Mock };
-  const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const, emailVerified: true };
+  const user = {
+    id: 'user-1',
+    email: 'a@example.com',
+    role: 'CREATOR' as const,
+    emailVerified: true,
+  };
 
   beforeEach(() => {
     dashboardService = {

@@ -29,9 +29,10 @@ import {
   type YouTubeChannel,
   type YouTubeTokens,
 } from '@speedora/social';
-import type { SocialAccount, SocialPlatform as SharedSocialPlatform } from '@speedora/shared';
+import type { SocialAccount } from '@speedora/shared';
 import { logger } from '../logger';
 import { PrismaService } from '../prisma/prisma.service';
+import { mapSocialPlatform } from './publish-record.util';
 
 @Injectable()
 export class SocialAccountsService {
@@ -431,12 +432,7 @@ export class SocialAccountsService {
 function toDto(account: SocialAccountRow): SocialAccount {
   return {
     id: account.id,
-    // Prisma's generated SocialPlatform and packages/shared's are two
-    // separately-declared TS enums with identical string members (same
-    // "Mirrors X" convention as CaptionStyle/VideoStatus) - nominally
-    // distinct types even though they're structurally identical at
-    // runtime, hence the explicit cast rather than a silent compile error.
-    platform: account.platform as unknown as SharedSocialPlatform,
+    platform: mapSocialPlatform(account.platform),
     displayName: account.displayName,
     tokenExpiresAt: account.tokenExpiresAt.toISOString(),
     createdAt: account.createdAt.toISOString(),

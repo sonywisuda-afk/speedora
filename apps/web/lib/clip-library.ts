@@ -1,13 +1,28 @@
 // AI Clip Library roadmap (P1) - the emotion filter reads
 // Clip.facialFeatures.dominantEmotion, which is the FER+ 7-class taxonomy
 // (angry/disgust/fear/happy/neutral/sad/surprise, verified against real dev
-// data and apps/worker/scripts/detect_facial_emotion.py's own FACIAL_EMOTIONS
-// comment) - NOT the same short-code taxonomy TranscriptReviewPanel.tsx/
-// FaceReviewPanel.tsx's own (inconsistent, 4-vs-7-key) EMOTION_LABELS maps
-// use for the unrelated vocal-emotion field. This is the one canonical label
-// map for this taxonomy; those two panels are left untouched (a separate,
-// pre-existing inconsistency, out of scope here).
-export const EMOTION_LABELS: Record<string, string> = {
+// data and @speedora/contracts' FACIAL_EMOTIONS) - NOT the same short-code
+// taxonomy (VOCAL_EMOTIONS: neu/hap/ang/sad) TranscriptReviewPanel.tsx's own
+// EMOTION_LABELS map uses for the unrelated vocal-emotion field, which is
+// genuinely a different, smaller taxonomy (not a bug there). This is the one
+// canonical label map for the facial-emotion taxonomy - Contract Governance
+// audit (2026-08-01) found FaceReviewPanel.tsx had its own SECOND, WRONG
+// copy using the short vocal-emotion codes for this long-form field (every
+// lookup silently missed, always falling back to the raw English word); it
+// now imports this map instead of maintaining a drifted duplicate.
+//
+// Mirrors @speedora/contracts' FacialEmotion (apps/web has no dependency on
+// @speedora/contracts - that package is apps/api/apps/worker-only per
+// CLAUDE.md's architecture, so this is a plain local type, not an import) -
+// same "Mirrors X" convention used for every other cross-package enum in
+// this codebase. Record<FacialEmotion, string> instead of Record<string,
+// string> so the compiler itself rejects a build that adds a new emotion
+// class here without a matching Indonesian label - this is what would have
+// caught the FaceReviewPanel.tsx drift above at compile time instead of
+// leaving it to silently degrade to raw English at runtime.
+type FacialEmotion = 'angry' | 'disgust' | 'fear' | 'happy' | 'neutral' | 'sad' | 'surprise';
+
+export const EMOTION_LABELS: Record<FacialEmotion, string> = {
   angry: 'Marah',
   disgust: 'Jijik',
   fear: 'Takut',

@@ -1,9 +1,10 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { ApprovalStatus } from '@speedora/shared';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { NotificationDeliveryProducer } from '../queue/notification-delivery.producer';
 import type { NotificationPublisherService } from '../redis-pubsub/notification-publisher.service';
 import type { WorkspaceAccessService } from '../workspace/workspace-access.service';
-import { ApprovalsService } from './approvals.service';
+import { ApprovalsService, mapApprovalStatus } from './approvals.service';
 
 const BASE_APPROVAL = {
   id: 'approval-1',
@@ -280,5 +281,24 @@ describe('ApprovalsService', () => {
       expect(result.approvals).toHaveLength(1);
       expect(result.approvals[0].requestedByEmail).toBe('requester-1@example.com');
     });
+  });
+});
+
+// Contract Governance audit (2026-08-01) - proves mapApprovalStatus (the
+// replacement for the old `as unknown as` cast) round-trips every real
+// Prisma ApprovalStatus. If a future schema.prisma addition isn't wired
+// into mapApprovalStatus, the build fails before this test can even run
+// (assertNever) - this test guards the mapping's runtime correctness, not
+// its exhaustiveness, which is a compile-time guarantee.
+describe('mapApprovalStatus', () => {
+  it('maps every known Prisma ApprovalStatus to its shared counterpart', () => {
+    expect(mapApprovalStatus('PENDING')).toBe(ApprovalStatus.PENDING);
+    expect(mapApprovalStatus('APPROVED')).toBe(ApprovalStatus.APPROVED);
+    expect(mapApprovalStatus('REJECTED')).toBe(ApprovalStatus.REJECTED);
+    expect(mapApprovalStatus('NEEDS_REVISION')).toBe(ApprovalStatus.NEEDS_REVISION);
+  });
+
+  it('throws on an unrecognized value instead of silently passing it through', () => {
+    expect(() => mapApprovalStatus('SOMETHING_NEW' as never)).toThrow(/Unhandled ApprovalStatus/);
   });
 });

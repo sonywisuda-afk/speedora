@@ -1,4 +1,5 @@
 import { CaptionStyle, Prisma, VideoStatus } from '@speedora/database';
+import { SocialPlatform } from '@speedora/shared';
 import type { ClipScores, TranscriptSegment } from '@speedora/shared';
 import { Worker } from 'bullmq';
 
@@ -284,7 +285,7 @@ import { gestureIntelligenceDeps } from '../gestureIntelligenceDeps';
 import { objectIntelligenceDeps } from '../objectIntelligenceDeps';
 import { ocrIntelligenceDeps } from '../ocrIntelligenceDeps';
 import { sceneIntelligenceDeps } from '../sceneIntelligenceDeps';
-import { createRenderClipWorker } from './render-clip.worker';
+import { createRenderClipWorker, mapSharedSocialPlatformToPrisma } from './render-clip.worker';
 
 interface RenderClipJobData {
   clipId: string;
@@ -3543,5 +3544,31 @@ describe('render-clip worker', () => {
     expect(captureExceptionMock).toHaveBeenCalledWith(error, {
       tags: { videoId: 'video-1', clipId: 'clip-1' },
     });
+  });
+});
+
+// Contract Governance audit (2026-08-01) - proves
+// mapSharedSocialPlatformToPrisma (the replacement for the old
+// `as unknown as` cast) round-trips every real packages/shared
+// SocialPlatform member. If a future packages/shared addition isn't wired
+// into this mapper, the build fails before this test can even run
+// (assertNever) - this test guards the mapping's runtime correctness, not
+// its exhaustiveness, which is a compile-time guarantee.
+describe('mapSharedSocialPlatformToPrisma', () => {
+  it('maps every known shared SocialPlatform to its Prisma counterpart', () => {
+    expect(mapSharedSocialPlatformToPrisma(SocialPlatform.YOUTUBE)).toBe('YOUTUBE');
+    expect(mapSharedSocialPlatformToPrisma(SocialPlatform.TIKTOK)).toBe('TIKTOK');
+    expect(mapSharedSocialPlatformToPrisma(SocialPlatform.INSTAGRAM)).toBe('INSTAGRAM');
+    expect(mapSharedSocialPlatformToPrisma(SocialPlatform.FACEBOOK)).toBe('FACEBOOK');
+    expect(mapSharedSocialPlatformToPrisma(SocialPlatform.THREADS)).toBe('THREADS');
+    expect(mapSharedSocialPlatformToPrisma(SocialPlatform.LINKEDIN)).toBe('LINKEDIN');
+    expect(mapSharedSocialPlatformToPrisma(SocialPlatform.PINTEREST)).toBe('PINTEREST');
+    expect(mapSharedSocialPlatformToPrisma(SocialPlatform.X)).toBe('X');
+  });
+
+  it('throws on an unrecognized value instead of silently passing it through', () => {
+    expect(() => mapSharedSocialPlatformToPrisma('SOMETHING_NEW' as never)).toThrow(
+      /Unhandled SocialPlatform/,
+    );
   });
 });

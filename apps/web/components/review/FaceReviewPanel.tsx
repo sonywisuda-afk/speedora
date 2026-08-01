@@ -1,17 +1,18 @@
 'use client';
 
 import type { Clip } from '@speedora/shared';
+import { EMOTION_LABELS } from '@/lib/clip-library';
 import { useTimelineStore } from '@/lib/timelineStore';
 
-const EMOTION_LABELS: Record<string, string> = {
-  neu: 'Netral',
-  hap: 'Senang',
-  ang: 'Marah',
-  sad: 'Sedih',
-  sur: 'Terkejut',
-  fea: 'Takut',
-  dis: 'Jijik',
-};
+// Runtime-only safety net (same convention as apps/web/lib/activity-events.ts's
+// isKnownActivityEventType) for a live pipeline/frontend version skew - the
+// detected emotion comes from Clip.facialEmotions (loosely typed `string |
+// null` at the DTO boundary, not the real FacialEmotion union), so an
+// unrecognized value degrades to the raw value instead of crashing the
+// Record<FacialEmotion, string> lookup.
+function emotionLabel(emotion: string): string {
+  return emotion in EMOTION_LABELS ? EMOTION_LABELS[emotion as keyof typeof EMOTION_LABELS] : emotion;
+}
 
 function dominantEmotions(samples: Clip['facialEmotions']): string {
   if (!samples || samples.length === 0) return 'Tidak ada data wajah';
@@ -24,7 +25,7 @@ function dominantEmotions(samples: Clip['facialEmotions']): string {
   const sorted = Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
   return sorted
     .slice(0, 3)
-    .map(([emotion, count]) => `${EMOTION_LABELS[emotion] ?? emotion} (${count})`)
+    .map(([emotion, count]) => `${emotionLabel(emotion)} (${count})`)
     .join(', ');
 }
 

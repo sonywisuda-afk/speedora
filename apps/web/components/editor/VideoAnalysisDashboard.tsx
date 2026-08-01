@@ -22,7 +22,16 @@ const SCORE_LABELS: Record<keyof ClipScores, string> = {
   ctaStrength: 'CTA Strength',
 };
 
-const INTENT_LABELS: Record<string, string> = {
+// Mirrors @speedora/contracts' CLIP_INTENTS (packages/shared's own
+// ProcessingOptions.highlightFocus.intents deliberately keeps this as a
+// plain string[] rather than importing that type, to avoid packages/shared
+// depending on packages/contracts - see that field's own comment; apps/web
+// mirrors the same "shape, not import" convention one layer further out).
+// Record<ClipIntent, string> instead of Record<string, string> so the
+// compiler rejects a build that adds a new intent without a label here.
+type ClipIntent = 'educate' | 'entertain' | 'persuade' | 'inspire' | 'story' | 'other';
+
+const INTENT_LABELS: Record<ClipIntent, string> = {
   educate: 'Edukasi',
   entertain: 'Hiburan',
   persuade: 'Persuasi',
@@ -30,6 +39,14 @@ const INTENT_LABELS: Record<string, string> = {
   story: 'Cerita',
   other: 'Lainnya',
 };
+
+// Runtime-only safety net (same convention as FaceReviewPanel.tsx's
+// emotionLabel) - `intent` is loosely typed `string | null` at the DTO
+// boundary (Clip.intent), so an unrecognized value degrades to the raw
+// value instead of crashing the Record<ClipIntent, string> lookup.
+function intentLabel(intent: string): string {
+  return intent in INTENT_LABELS ? INTENT_LABELS[intent as ClipIntent] : intent;
+}
 
 // A clip in this range hits the length short-form platforms typically
 // report the best completion rates for - narrower than the hard 20-90s
@@ -226,7 +243,7 @@ export function VideoAnalysisDashboard() {
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {intentCounts.map(([intent, count]) => (
                     <Badge key={intent} variant="muted">
-                      {INTENT_LABELS[intent] ?? intent}
+                      {intentLabel(intent)}
                       {count > 1 ? ` ×${count}` : ''}
                     </Badge>
                   ))}

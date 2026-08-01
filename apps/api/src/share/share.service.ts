@@ -1,22 +1,50 @@
 import * as crypto from 'crypto';
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
-import { recordAuditLog, WorkspaceRole, type ShareLink } from '@speedora/database';
-import type {
-  ShareLinkCreatedDto,
-  ShareLinkDto,
-  SharedClipDto,
-  SharedVideoDto,
+import {
+  recordAuditLog,
+  WorkspaceRole,
+  type ShareLink,
+  type ShareRole as PrismaShareRole,
+} from '@speedora/database';
+import {
+  ShareRole as SharedShareRole,
+  type ShareLinkCreatedDto,
+  type ShareLinkDto,
+  type SharedClipDto,
+  type SharedVideoDto,
 } from '@speedora/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkspaceAccessService } from '../workspace/workspace-access.service';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
+function assertNever(value: never): never {
+  throw new Error(`Unhandled ShareRole: ${JSON.stringify(value)}`);
+}
+
+// Prisma's ShareRole and packages/shared's are nominally distinct TS enum
+// types even though they share the same runtime string values (same
+// "Mirrors X" convention used throughout this project). The switch has no
+// `default` case, so a new schema.prisma member fails to compile here until
+// a matching case is added - same Contract Synchronization pattern as
+// dashboard.service.ts's mapActivityEventType, replacing what used to be a
+// blind `as unknown as` cast.
+export function mapShareRole(role: PrismaShareRole): SharedShareRole {
+  switch (role) {
+    case 'VIEWER':
+      return SharedShareRole.VIEWER;
+    case 'REVIEWER':
+      return SharedShareRole.REVIEWER;
+    default:
+      return assertNever(role);
+  }
+}
+
 function toDto(link: ShareLink): ShareLinkDto {
   return {
     id: link.id,
     videoId: link.videoId,
-    role: link.role as unknown as ShareLinkDto['role'],
+    role: mapShareRole(link.role),
     expiresAt: link.expiresAt?.toISOString() ?? null,
     revoked: link.revokedAt !== null,
     createdAt: link.createdAt.toISOString(),
@@ -149,7 +177,7 @@ export class ShareService {
     }));
 
     return {
-      role: link.role as unknown as SharedVideoDto['role'],
+      role: mapShareRole(link.role),
       video: {
         title: video.title,
         durationSeconds: video.durationSeconds,

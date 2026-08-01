@@ -1,6 +1,7 @@
 import { PublishStatus, SocialPlatform, VideoStatus } from '@speedora/database';
+import { VideoStatus as SharedVideoStatus } from '@speedora/shared';
 import type { PrismaService } from '../prisma/prisma.service';
-import { AnalyticsService } from './analytics.service';
+import { AnalyticsService, mapVideoStatus } from './analytics.service';
 
 describe('AnalyticsService', () => {
   let service: AnalyticsService;
@@ -516,5 +517,27 @@ describe('AnalyticsService', () => {
       expect(result.dropOff.available).toBe(false);
       expect(result.replay.available).toBe(false);
     });
+  });
+});
+
+// Contract Governance audit (2026-08-01) - proves mapVideoStatus (the
+// replacement for the old `as unknown as` cast) round-trips every real
+// Prisma VideoStatus. If a future schema.prisma addition isn't wired into
+// mapVideoStatus, the build fails before this test can even run
+// (assertNever) - this test guards the mapping's runtime correctness, not
+// its exhaustiveness, which is a compile-time guarantee.
+describe('mapVideoStatus', () => {
+  it('maps every known Prisma VideoStatus to its shared counterpart', () => {
+    expect(mapVideoStatus(VideoStatus.IMPORTING)).toBe(SharedVideoStatus.IMPORTING);
+    expect(mapVideoStatus(VideoStatus.UPLOADED)).toBe(SharedVideoStatus.UPLOADED);
+    expect(mapVideoStatus(VideoStatus.PENDING_SETTINGS)).toBe(SharedVideoStatus.PENDING_SETTINGS);
+    expect(mapVideoStatus(VideoStatus.TRANSCRIBED)).toBe(SharedVideoStatus.TRANSCRIBED);
+    expect(mapVideoStatus(VideoStatus.CLIPS_DETECTED)).toBe(SharedVideoStatus.CLIPS_DETECTED);
+    expect(mapVideoStatus(VideoStatus.RENDERED)).toBe(SharedVideoStatus.RENDERED);
+    expect(mapVideoStatus(VideoStatus.FAILED)).toBe(SharedVideoStatus.FAILED);
+  });
+
+  it('throws on an unrecognized value instead of silently passing it through', () => {
+    expect(() => mapVideoStatus('SOMETHING_NEW' as never)).toThrow(/Unhandled VideoStatus/);
   });
 });

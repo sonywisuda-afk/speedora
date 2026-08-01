@@ -140,3 +140,55 @@ export function getNotificationIconV2(type: NotificationTypeV2): typeof Bell {
   }
   return Loader2;
 }
+
+// Contract Governance audit Sprint 3 (Runtime Safety, 2026-08-01) - unlike
+// getNotificationIconV2 above (which widens a documented, expected extra
+// value), notification.priority/thread.status/stage.status are read
+// straight off GET /notifications/v2/* responses (NotificationRowV2,
+// NotificationThreadPanel) with no defensive check before indexing
+// PRIORITY_DEFINITIONS/THREAD_STATUS_DEFINITIONS/
+// TIMELINE_STAGE_STATUS_DEFINITIONS - the same undefined-then-crash shape
+// as the ActivityEventType/WORKSPACE_DELETED incident, just not yet
+// triggered because these enums haven't drifted yet. These getters close
+// that gap: a value this frontend build doesn't recognize (a live
+// frontend/backend version skew) degrades to a generic "unknown" definition
+// and a console.warn, instead of `.icon`/`.label` throwing on `undefined`.
+const UNKNOWN_DEFINITION: PriorityDefinition & ThreadStatusDefinition = {
+  label: 'Tidak diketahui',
+  icon: Bell,
+  badgeVariant: 'info',
+};
+
+function warnUnknownValue(kind: string, value: string): void {
+  console.warn(
+    `[notification-definitions-v2] unknown ${kind} "${value}" - falling back to a default. ` +
+      'This means the API sent a value this frontend build does not recognize yet (a live ' +
+      'frontend/backend version skew), not a real runtime error.',
+  );
+}
+
+export function getPriorityDefinition(priority: string): PriorityDefinition {
+  if (priority in PRIORITY_DEFINITIONS) {
+    return PRIORITY_DEFINITIONS[priority as NotificationPriorityV2];
+  }
+  warnUnknownValue('NotificationPriorityV2', priority);
+  return UNKNOWN_DEFINITION;
+}
+
+export function getThreadStatusDefinition(status: string): ThreadStatusDefinition {
+  if (status in THREAD_STATUS_DEFINITIONS) {
+    return THREAD_STATUS_DEFINITIONS[status as NotificationThreadStatusV2];
+  }
+  warnUnknownValue('NotificationThreadStatusV2', status);
+  return UNKNOWN_DEFINITION;
+}
+
+export function getTimelineStageStatusDefinition(
+  status: string,
+): (typeof TIMELINE_STAGE_STATUS_DEFINITIONS)[TimelineStageStatus] {
+  if (status in TIMELINE_STAGE_STATUS_DEFINITIONS) {
+    return TIMELINE_STAGE_STATUS_DEFINITIONS[status as TimelineStageStatus];
+  }
+  warnUnknownValue('TimelineStageStatus', status);
+  return UNKNOWN_DEFINITION;
+}

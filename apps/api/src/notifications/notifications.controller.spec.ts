@@ -21,7 +21,12 @@ describe('NotificationsController', () => {
     upsertTelegramWebhook: jest.Mock;
   };
   let subject: Subject<NotificationPublishEvent>;
-  const user = { id: 'user-1', email: 'a@example.com', role: 'CREATOR' as const, emailVerified: true };
+  const user = {
+    id: 'user-1',
+    email: 'a@example.com',
+    role: 'CREATOR' as const,
+    emailVerified: true,
+  };
 
   beforeEach(() => {
     notificationsService = {

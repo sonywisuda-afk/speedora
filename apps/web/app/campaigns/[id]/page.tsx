@@ -14,7 +14,7 @@ import { platformIcon, platformLabel } from '@/lib/platform-metadata';
 import {
   CAMPAIGN_STATUS_LABELS,
   campaignStatusBadgeVariant,
-  PUBLISH_STATUS_LABELS,
+  getPublishStatusLabel,
 } from '@/lib/scheduling';
 import { useAuth } from '@/lib/useAuth';
 
@@ -181,7 +181,7 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
                                       : ''}
                                 </span>
                                 <Badge variant="outline">
-                                  {PUBLISH_STATUS_LABELS[record.status]}
+                                  {getPublishStatusLabel(record.status)}
                                 </Badge>
                               </div>
                             </li>

@@ -11,6 +11,7 @@ import { videoSourceUrl } from '@/lib/api';
 import {
   buildExportPayload,
   downloadJson,
+  getOcrCategoryLabel,
   loadReviewState,
   OCR_CATEGORY_LABELS,
   OCR_TEXT_CATEGORIES,
@@ -402,7 +403,7 @@ export function OcrReviewer({ videoId, clips }: OcrReviewerProps) {
                 Predicted
               </p>
               <p className="mt-1 font-body text-sm text-foreground">
-                {OCR_CATEGORY_LABELS[selectedTrack.category]} (
+                {getOcrCategoryLabel(selectedTrack.category)} (
                 {selectedTrack.categoryConfidence.toFixed(2)})
               </p>
 

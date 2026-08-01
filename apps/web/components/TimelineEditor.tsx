@@ -53,10 +53,15 @@ const SCORE_LABELS: Record<keyof ClipScores, string> = {
   ctaStrength: 'CTA Strength',
 };
 
-// Matches detect-clips.worker.ts's INTENTS - a plain lookup with an 'other'
-// fallback for any value this frontend doesn't recognize yet, rather than
-// crashing on an unfamiliar intent string.
-const INTENT_LABELS: Record<string, string> = {
+// Matches detect-clips.worker.ts's INTENTS (@speedora/contracts' own
+// CLIP_INTENTS). Record<ClipIntent, string> instead of Record<string,
+// string> so the compiler rejects a build that adds a new intent without a
+// label here; intentLabel() below is the separate runtime-only safety net
+// for an unfamiliar intent string (loosely typed at the DTO boundary),
+// rather than crashing on it.
+type ClipIntent = 'educate' | 'entertain' | 'persuade' | 'inspire' | 'story' | 'other';
+
+const INTENT_LABELS: Record<ClipIntent, string> = {
   educate: 'Edukasi',
   entertain: 'Hiburan',
   persuade: 'Persuasi',
@@ -64,6 +69,14 @@ const INTENT_LABELS: Record<string, string> = {
   story: 'Cerita',
   other: 'Lainnya',
 };
+
+// Runtime-only safety net (same convention as FaceReviewPanel.tsx's
+// emotionLabel) - `intent` is loosely typed `string | null` at the DTO
+// boundary (Clip.intent), so an unrecognized value degrades to the raw
+// value instead of crashing the Record<ClipIntent, string> lookup.
+function intentLabel(intent: string): string {
+  return intent in INTENT_LABELS ? INTENT_LABELS[intent as ClipIntent] : intent;
+}
 
 // Fase 12 (Speaker Diarization) - a small fixed palette, independent of the
 // design system's semantic tokens on purpose: these 5 hex values are a
@@ -125,17 +138,29 @@ function previewFontCss(fontFamily: string | null | undefined): string {
 }
 
 // Fase 13 (Vocal Emotion Detection) - superb/wav2vec2-base-superb-er's raw
-// IEMOCAP labels ("neu"/"hap"/"ang"/"sad"), translated to a single emoji for
-// a compact, at-a-glance tag in the transcript strip below. An unfamiliar
-// label (a future model swap, or just anything this map doesn't cover) is
-// omitted entirely rather than showing a placeholder - same "don't fabricate
-// what isn't there" spirit as the rest of this app's optional-signal fields.
-const EMOTION_EMOJI: Record<string, string> = {
+// IEMOCAP labels, @speedora/contracts' own VOCAL_EMOTIONS (apps/web has no
+// dependency on @speedora/contracts, so this is a plain local mirror type,
+// not an import - same convention as clip-library.ts's FacialEmotion),
+// translated to a single emoji for a compact, at-a-glance tag in the
+// transcript strip below. Record<VocalEmotion, string> instead of
+// Record<string, string> so the compiler rejects a build that adds a new
+// vocal-emotion class without an emoji here. emotionEmoji() below preserves
+// the original behavior for an unfamiliar label (a future model swap, or
+// anything this map doesn't cover): omitted entirely rather than showing a
+// placeholder, same "don't fabricate what isn't there" spirit as the rest
+// of this app's optional-signal fields.
+type VocalEmotion = 'neu' | 'hap' | 'ang' | 'sad';
+
+const EMOTION_EMOJI: Record<VocalEmotion, string> = {
   neu: '😐',
   hap: '😊',
   ang: '😠',
   sad: '😢',
 };
+
+function emotionEmoji(emotion: string): string | undefined {
+  return emotion in EMOTION_EMOJI ? EMOTION_EMOJI[emotion as VocalEmotion] : undefined;
+}
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -564,7 +589,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
                 // never ran, failed, or found nothing) - falls back to the
                 // original single-color look, same as before Fase 12.
                 const colorClass = seg.speaker ? speakerColorClass(seg.speaker) : 'text-primary';
-                const emoji = seg.emotion ? EMOTION_EMOJI[seg.emotion] : undefined;
+                const emoji = seg.emotion ? emotionEmoji(seg.emotion) : undefined;
                 const titleParts = [seg.speaker, seg.text].filter(Boolean);
                 return (
                   <div
@@ -824,7 +849,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
                 <div className="mt-3 flex flex-wrap gap-1.5">
                   {selectedClip.intent ? (
                     <Badge variant="muted">
-                      {INTENT_LABELS[selectedClip.intent] ?? selectedClip.intent}
+                      {intentLabel(selectedClip.intent)}
                     </Badge>
                   ) : null}
                   {selectedClip.topics.map((topic) => (

@@ -23,6 +23,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { toSharedCaptionStyle } from '../../videos/transcript-segment.util';
 
 const CLIP_COUNT_VALUES = [1, 2, 3, 5, 10, 20, 'unlimited'] as const;
 const EXPORT_QUALITY_PRESETS = ['maximum_quality', 'balanced', 'small_size'] as const;
@@ -275,13 +276,7 @@ export function toProcessingOptions(dto: ProcessingOptionsDto): ProcessingOption
       maxClipDurationSeconds: dto.clipGeneration?.maxClipDurationSeconds ?? null,
     },
     subtitle: {
-      // @speedora/database's CaptionStyle (Prisma-generated) and
-      // @speedora/shared's own CaptionStyle are two nominally distinct TS
-      // enums with identical runtime string values (same "cast, not direct
-      // assignment" convention subtitle-presets.service.ts's toDto() already
-      // uses for this exact pair).
-      captionStyle: dto.subtitle
-        .captionStyle as unknown as ProcessingOptions['subtitle']['captionStyle'],
+      captionStyle: toSharedCaptionStyle(dto.subtitle.captionStyle),
       speakerColorCaptions: dto.subtitle.speakerColorCaptions,
       fontFamily: (dto.subtitle.fontFamily ?? null) as ProcessingOptions['subtitle']['fontFamily'],
     },

@@ -1,5 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { encryptWebhookUrl, getTelegramBotInfo, type Notification } from '@speedora/database';
+import {
+  encryptWebhookUrl,
+  getTelegramBotInfo,
+  type Notification,
+  type NotificationType as PrismaNotificationType,
+} from '@speedora/database';
 import {
   NotificationChannel,
   NotificationType,
@@ -24,6 +29,62 @@ const WEBHOOK_CHANNELS = [
   NotificationChannel.WEBHOOK,
   NotificationChannel.TELEGRAM,
 ];
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled NotificationType: ${JSON.stringify(value)}`);
+}
+
+// Prisma's NotificationType and packages/shared's V1 NotificationType are
+// nominally distinct TS enum types even though they share the same runtime
+// string values (same "Mirrors X" convention used throughout this project).
+// The switch has no `default` case, so a new schema.prisma member fails to
+// compile here until a matching case is added - same Contract
+// Synchronization pattern as dashboard.service.ts's mapActivityEventType,
+// replacing what used to be a blind `as unknown as` cast.
+//
+// PIPELINE_PROGRESS gets its own explicit case rather than falling into the
+// assertNever default: it's a real, expected Prisma value, not an unhandled
+// future addition - packages/shared's V1 NotificationType enum deliberately
+// excludes it (see NotificationTypeV2's own comment in notification.ts).
+// NotificationsService.list()'s threadId: null / groupId: null guard means a
+// PIPELINE_PROGRESS row can never reach this V1 mapper in practice; throwing
+// here guards that invariant instead of silently mis-mapping it.
+export function mapNotificationType(type: PrismaNotificationType): NotificationType {
+  switch (type) {
+    case 'UPLOAD_COMPLETE':
+      return NotificationType.UPLOAD_COMPLETE;
+    case 'CLIP_READY':
+      return NotificationType.CLIP_READY;
+    case 'EXPORT_READY':
+      return NotificationType.EXPORT_READY;
+    case 'RENDER_FAILED':
+      return NotificationType.RENDER_FAILED;
+    case 'STORAGE_WARNING':
+      return NotificationType.STORAGE_WARNING;
+    case 'CREDIT_WARNING':
+      return NotificationType.CREDIT_WARNING;
+    case 'COMMENT':
+      return NotificationType.COMMENT;
+    case 'MENTION':
+      return NotificationType.MENTION;
+    case 'REVIEW_REQUEST':
+      return NotificationType.REVIEW_REQUEST;
+    case 'APPROVAL':
+      return NotificationType.APPROVAL;
+    case 'MEMBER_INVITATION_ACCEPTED':
+      return NotificationType.MEMBER_INVITATION_ACCEPTED;
+    case 'SYNC_FAILURE_WARNING':
+      return NotificationType.SYNC_FAILURE_WARNING;
+    case 'WORKSPACE_OWNERSHIP_TRANSFERRED':
+      return NotificationType.WORKSPACE_OWNERSHIP_TRANSFERRED;
+    case 'PIPELINE_PROGRESS':
+      throw new Error(
+        'PIPELINE_PROGRESS is a V2-only notification type and cannot reach a V1 NotificationDto',
+      );
+    default:
+      return assertNever(type);
+  }
+}
 
 // Notification Center Sprint 4A - shaped like ExportService: ownership via a
 // plain userId filter for lists (a video/notification list that isn't the
@@ -166,7 +227,7 @@ export class NotificationsService {
     });
 
     return {
-      type: row.type as unknown as NotificationType,
+      type: mapNotificationType(row.type),
       enabled: row.enabled,
       toast: channel === NotificationChannel.IN_APP ? (config?.toast ?? true) : true,
     };
@@ -286,7 +347,7 @@ export class NotificationsService {
   toDto(notification: Notification): NotificationDto {
     return {
       id: notification.id,
-      type: notification.type as unknown as NotificationDto['type'],
+      type: mapNotificationType(notification.type),
       title: notification.title,
       body: notification.body,
       videoId: notification.videoId,
