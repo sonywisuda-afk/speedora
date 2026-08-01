@@ -1699,6 +1699,23 @@ describe('VideosService', () => {
       await expect(service.retry('video-1', 'user-1')).rejects.toThrow(BadRequestException);
     });
 
+    // Phase C backlog fix - a RENDERED video is only retryable when a later
+    // "Generate More Clips" top-up left an unrendered clip behind (see
+    // render-clip.worker.ts's catch block, which deliberately leaves the
+    // video RENDERED in that case rather than flipping it to FAILED). A
+    // RENDERED video with nothing actually broken must still be rejected.
+    it('throws BadRequestException when the video is RENDERED but every clip already has output', async () => {
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        status: VideoStatus.RENDERED,
+        clips: [{ id: 'clip-1', outputUrl: 'renders/clip-1.mp4' }],
+        transcriptSegments: [],
+      });
+
+      await expect(service.retry('video-1', 'user-1')).rejects.toThrow(BadRequestException);
+    });
+
     it('re-enqueues import-youtube (forwarding the stored provider) when the import never finished downloading', async () => {
       prisma.video.findUnique.mockResolvedValue({
         id: 'video-1',
@@ -1874,6 +1891,60 @@ describe('VideosService', () => {
       });
       expect(transcribeQueue.add).not.toHaveBeenCalled();
       expect(detectClipsQueue.add).not.toHaveBeenCalled();
+    });
+
+    // Phase C backlog fix - the RENDERED-with-unrendered-top-up-clip case.
+    // Same expected behavior as the FAILED case above (temporarily back to
+    // CLIPS_DETECTED, re-enqueue only the unrendered clip) - proves the
+    // broadened top-level gate falls through the earlier branches unchanged
+    // and reaches the exact same final branch, not a special-cased path.
+    it('re-enqueues render-clip for a RENDERED video with an unrendered top-up clip (Generate More Clips top-up failure)', async () => {
+      const segments = [{ start: 0, end: 5, text: 'inside' }];
+      prisma.video.findUnique.mockResolvedValue({
+        id: 'video-1',
+        ownerId: 'user-1',
+        sourceUrl: 'videos/abc.mp4',
+        status: VideoStatus.RENDERED,
+        durationSeconds: 30,
+        width: 1920,
+        transcriptSegments: segments,
+        clips: [
+          {
+            id: 'clip-1',
+            startTime: 0,
+            endTime: 5,
+            outputUrl: 'renders/clip-1.mp4',
+            captionStyle: 'DEFAULT',
+            keywords: [],
+            publishRecords: [],
+          },
+          {
+            id: 'clip-2',
+            startTime: 0,
+            endTime: 5,
+            outputUrl: null,
+            captionStyle: 'DEFAULT',
+            keywords: ['top-up'],
+            publishRecords: [],
+          },
+        ],
+      });
+
+      await service.retry('video-1', 'user-1');
+
+      expect(prisma.video.update).toHaveBeenCalledWith({
+        where: { id: 'video-1' },
+        data: { status: VideoStatus.CLIPS_DETECTED },
+      });
+      expect(renderClipQueue.add).toHaveBeenCalledTimes(1);
+      expect(renderClipQueue.add).toHaveBeenCalledWith(
+        QueueName.RENDER_CLIP,
+        expect.objectContaining({ clipId: 'clip-2', keywords: ['top-up'] }),
+      );
+      expect(transcribeQueue.add).not.toHaveBeenCalled();
+      expect(detectClipsQueue.add).not.toHaveBeenCalled();
+      expect(importYoutubeQueue.add).not.toHaveBeenCalled();
+      expect(probeVideoQueue.add).not.toHaveBeenCalled();
     });
 
     it("resolves the owner's Brand Kit font when a clip has applyBrandKit on and no override", async () => {

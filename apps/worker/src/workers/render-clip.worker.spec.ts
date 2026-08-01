@@ -182,6 +182,11 @@ const clipUpdateMock = jest.fn();
 const clipFindManyMock = jest.fn();
 const clipFindUniqueMock = jest.fn();
 const videoUpdateMock = jest.fn();
+// Phase C backlog fix - the catch block's fresh re-fetch of Video.status,
+// used to decide whether a render failure should flip the whole video to
+// FAILED or (for a later "Generate More Clips" top-up render on an
+// already-RENDERED video) just fire a standalone notification instead.
+const videoFindUniqueMock = jest.fn();
 const videoStatusEventCreateMock = jest.fn();
 const activityEventCreateMock = jest.fn();
 const notificationCreateMock = jest.fn();
@@ -239,7 +244,10 @@ jest.mock('../prisma', () => ({
       findMany: (...args: unknown[]) => clipFindManyMock(...args),
       findUnique: (...args: unknown[]) => clipFindUniqueMock(...args),
     },
-    video: { update: (...args: unknown[]) => videoUpdateMock(...args) },
+    video: {
+      update: (...args: unknown[]) => videoUpdateMock(...args),
+      findUnique: (...args: unknown[]) => videoFindUniqueMock(...args),
+    },
     // Fase 3 (DB+JSON-contract roadmap) - updateVideoStatus() writes here
     // too, atomically alongside video.update() via $transaction.
     videoStatusEvent: { create: (...args: unknown[]) => videoStatusEventCreateMock(...args) },
@@ -565,6 +573,15 @@ describe('render-clip worker', () => {
       video: { ownerId: 'user-1', title: 'My Video' },
     });
     videoUpdateMock.mockResolvedValue({});
+    // Not RENDERED by default, matching a first-generation render still in
+    // progress - the existing "marks the video FAILED" test below relies on
+    // this default to keep exercising the original (non-top-up) failure path
+    // unchanged. Dedicated tests further down override this to RENDERED.
+    videoFindUniqueMock.mockResolvedValue({
+      status: VideoStatus.CLIPS_DETECTED,
+      ownerId: 'user-1',
+      title: 'My Video',
+    });
     videoStatusEventCreateMock.mockResolvedValue({});
     activityEventCreateMock.mockResolvedValue({});
     notificationCreateMock.mockResolvedValue({ id: 'notif-1' });
@@ -3531,6 +3548,48 @@ describe('render-clip worker', () => {
     expect(publishNotificationMock).toHaveBeenCalledWith(
       expect.objectContaining({ notificationId: 'notif-1', type: 'RENDER_FAILED' }),
     );
+  });
+
+  // Phase C backlog fix - a "Generate More Clips" top-up render failing on a
+  // video that already reached RENDERED once must not regress the whole
+  // video back to FAILED (that would incorrectly reopen the already-closed
+  // Smart Timeline thread and misclassify a done video in History/export).
+  it('does not mark an already-RENDERED video FAILED when a later top-up clip fails - fires a standalone RENDER_FAILED notification instead', async () => {
+    videoFindUniqueMock.mockResolvedValue({
+      status: VideoStatus.RENDERED,
+      ownerId: 'user-1',
+      title: 'My Video',
+    });
+    renderClipMock.mockRejectedValue(new Error('ffmpeg exploded'));
+
+    const processor = getProcessor();
+
+    await expect(processor({ data: baseJobData })).rejects.toThrow('ffmpeg exploded');
+
+    // No Video.status write and no VideoStatusEvent audit row - this video's
+    // own state didn't actually change.
+    expect(videoUpdateMock).not.toHaveBeenCalled();
+    expect(videoStatusEventCreateMock).not.toHaveBeenCalled();
+    expect(notificationCreateMock).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        userId: 'user-1',
+        type: 'RENDER_FAILED',
+        category: 'ERRORS',
+        priority: 'ERROR',
+        title: 'Klip tambahan gagal dibuat',
+        body: 'Satu klip tambahan dari video "My Video" gagal diproses. Silakan coba lagi.',
+        videoId: 'video-1',
+        clipId: 'clip-1',
+      }),
+    });
+    expect(publishNotificationMock).toHaveBeenCalledWith(
+      expect.objectContaining({ notificationId: 'notif-1', type: 'RENDER_FAILED' }),
+    );
+    // Scratch files are still cleaned up on this path, same as the regular
+    // FAILED path above (exact count not asserted here - that's already
+    // covered by the FAILED-path test above; this just proves cleanup still
+    // runs, not skipped by the new branch).
+    expect(cleanupTempFileMock).toHaveBeenCalled();
   });
 
   it('reports the failure to Sentry tagged with videoId and clipId only (no transcript content)', async () => {

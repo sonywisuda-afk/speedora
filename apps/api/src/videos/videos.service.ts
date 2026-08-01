@@ -926,7 +926,17 @@ export class VideosService {
       throw new NotFoundException(`Video ${id} not found`);
     }
     await this.workspaceAccess.assertMinRole(requesterId, video.workspaceId, WorkspaceRole.EDITOR);
-    if (video.status !== VideoStatus.FAILED) {
+    // A later "Generate More Clips" top-up render can fail without ever
+    // flipping Video.status to FAILED (see render-clip.worker.ts's catch
+    // block - it deliberately leaves an already-RENDERED video RENDERED so
+    // History/export keep classifying it as done). That means the usual
+    // FAILED gate below would never let this case be retried, even though
+    // there's a real unrendered clip sitting there. Recognize it via the same
+    // signal the final branch already uses (an unrendered clip), not a new
+    // status value.
+    const hasUnrenderedClip = video.clips.some((clip) => !clip.outputUrl);
+    const isRetryableTopUp = video.status === VideoStatus.RENDERED && hasUnrenderedClip;
+    if (video.status !== VideoStatus.FAILED && !isRetryableTopUp) {
       throw new BadRequestException('Only a failed video can be retried');
     }
 

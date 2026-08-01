@@ -1405,13 +1405,59 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             logger.error('clip failed', { clipId, videoId }, error);
             // Tags only - never the transcript text or the source video itself.
             Sentry.captureException(error, { tags: { videoId, clipId } });
-            await updateVideoStatus(
-              prisma,
-              videoId,
-              VideoStatus.FAILED,
-              { errorMessage: error instanceof Error ? error.message : String(error) },
-              { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
-            );
+            const errorMessage = error instanceof Error ? error.message : String(error);
+
+            // A later "Generate More Clips" top-up render can fail on a video
+            // that already reached RENDERED once (Phase C backlog item) -
+            // that's one clip's own problem, not a regression of the whole
+            // video, so it must not stomp Video.status back to FAILED. Doing
+            // so would incorrectly reopen/re-terminate the already-closed
+            // Smart Timeline thread (updateVideoStatus always calls
+            // derivePipelineThreadPresentation, which has no "still fine,
+            // just one extra clip failed" case) and would misclassify the
+            // video in History/export, both of which read RENDERED as "done".
+            // Re-fetched fresh here (not existingClip.video, fetched before
+            // the potentially long FFmpeg render above and missing `status`
+            // entirely) so this reflects the video's real current state.
+            const currentVideo = await prisma.video.findUnique({
+              where: { id: videoId },
+              select: { status: true, ownerId: true, title: true },
+            });
+            if (currentVideo?.status === VideoStatus.RENDERED) {
+              // Reuses RENDER_FAILED so the existing generic NotificationBell
+              // action derivation (deriveActions in notifications-v2.service.ts)
+              // attaches the same "Coba Lagi" retry button, wired to the same
+              // POST /videos/:id/retry - no frontend change needed.
+              await recordNotification(
+                prisma,
+                {
+                  userId: currentVideo.ownerId,
+                  type: 'RENDER_FAILED',
+                  title: 'Klip tambahan gagal dibuat',
+                  body: currentVideo.title
+                    ? `Satu klip tambahan dari video "${currentVideo.title}" gagal diproses. Silakan coba lagi.`
+                    : 'Satu klip tambahan gagal diproses. Silakan coba lagi.',
+                  videoId,
+                  clipId,
+                  metadata: { errorMessage },
+                },
+                { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
+              ).catch((notifyError) => {
+                logger.warn(
+                  'failed to record top-up RENDER_FAILED notification',
+                  { clipId, videoId },
+                  notifyError,
+                );
+              });
+            } else {
+              await updateVideoStatus(
+                prisma,
+                videoId,
+                VideoStatus.FAILED,
+                { errorMessage },
+                { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
+              );
+            }
             throw error;
           } finally {
             if (sourcePath) await cleanupTempFile(sourcePath);
