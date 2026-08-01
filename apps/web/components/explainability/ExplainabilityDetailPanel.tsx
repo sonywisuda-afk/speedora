@@ -59,9 +59,7 @@ export function ExplainabilityDetailPanel({
         return (
           <Card key={result.engine}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
-              <CardTitle className="text-base">
-                {ENGINE_LABELS[result.engine]}
-              </CardTitle>
+              <CardTitle className="text-base">{ENGINE_LABELS[result.engine]}</CardTitle>
               <Badge variant="outline" className={TONE_CLASSES[badge.tone]}>
                 {badge.label}
               </Badge>

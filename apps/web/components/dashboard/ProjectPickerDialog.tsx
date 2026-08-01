@@ -37,9 +37,8 @@ export function ProjectPickerDialog({
   // Same SWR key QuickActions itself uses for its own project list (see
   // QuickActions.tsx) - deliberately shared so opening this dialog doesn't
   // trigger a second, duplicate fetch.
-  const { data, isLoading } = useSWR(
-    open ? ['workspace-projects', workspaceId] : null,
-    () => listProjects(workspaceId, false),
+  const { data, isLoading } = useSWR(open ? ['workspace-projects', workspaceId] : null, () =>
+    listProjects(workspaceId, false),
   );
   const projects = data?.projects ?? [];
 

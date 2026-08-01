@@ -61,10 +61,11 @@ export default function WorkspaceSettingsPage({ params }: { params: { id: string
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
   const setActiveWorkspaceId = useWorkspaceStore((s) => s.setActiveWorkspaceId);
 
-  const { data: workspace, error, mutate } = useSWR(
-    user ? ['workspace-settings', params.id] : null,
-    () => getWorkspace(params.id),
-  );
+  const {
+    data: workspace,
+    error,
+    mutate,
+  } = useSWR(user ? ['workspace-settings', params.id] : null, () => getWorkspace(params.id));
 
   const isAdmin = workspace ? workspace.role === 'OWNER' || workspace.role === 'ADMIN' : false;
   const isOwner = workspace ? workspace.role === 'OWNER' : false;
@@ -312,7 +313,9 @@ function MembersTab({
                 </select>
                 {isOwner && (
                   <button
-                    onClick={() => setTransferTarget({ userId: member.userId, email: member.email })}
+                    onClick={() =>
+                      setTransferTarget({ userId: member.userId, email: member.email })
+                    }
                     className="font-body text-xs text-muted-foreground hover:text-foreground hover:underline"
                   >
                     Jadikan Owner
@@ -335,8 +338,8 @@ function MembersTab({
       {transferTarget && (
         <div className="rounded-md border border-border bg-muted p-3 font-body text-sm">
           <p className="text-foreground">
-            Jadikan <span className="font-medium">{transferTarget.email}</span> owner workspace
-            ini? Kamu akan turun jadi Admin.
+            Jadikan <span className="font-medium">{transferTarget.email}</span> owner workspace ini?
+            Kamu akan turun jadi Admin.
           </p>
           {transferError && <p className="mt-1.5 text-xs text-destructive">{transferError}</p>}
           <div className="mt-2 flex justify-end gap-2">
@@ -438,7 +441,10 @@ function AuditLogTab({ workspaceId }: { workspaceId: string }) {
         <p className="font-body text-sm text-muted-foreground">Belum ada aktivitas.</p>
       ) : (
         entries.map((entry) => (
-          <div key={entry.id} className="rounded-md border border-border bg-muted p-3 font-body text-sm">
+          <div
+            key={entry.id}
+            className="rounded-md border border-border bg-muted p-3 font-body text-sm"
+          >
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="font-medium text-foreground">
                 {getAuditActionLabel(entry.action)}
@@ -655,9 +661,9 @@ function DeleteWorkspaceDialog({
         </DialogHeader>
         <p className="font-body text-sm text-muted-foreground">
           Hapus <span className="font-medium text-foreground">&quot;{workspace.name}&quot;</span>{' '}
-          secara permanen? Tindakan ini tidak bisa dibatalkan. Workspace ini tidak akan dihapus
-          jika masih berisi project, video, campaign, recurring schedule, tracked link, atau
-          anggota lain.
+          secara permanen? Tindakan ini tidak bisa dibatalkan. Workspace ini tidak akan dihapus jika
+          masih berisi project, video, campaign, recurring schedule, tracked link, atau anggota
+          lain.
         </p>
         {error && <p className="font-body text-xs text-destructive">{error}</p>}
         <DialogFooter>

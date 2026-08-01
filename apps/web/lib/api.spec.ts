@@ -34,15 +34,15 @@ describe('parseJsonOrThrow', () => {
   });
 
   it('still passes through a plain string message unchanged', async () => {
-    await expect(parseJsonOrThrow(jsonResponse(404, { message: 'Project not found' }))).rejects.toThrow(
-      'Project not found',
-    );
+    await expect(
+      parseJsonOrThrow(jsonResponse(404, { message: 'Project not found' })),
+    ).rejects.toThrow('Project not found');
   });
 
   it('falls back to a generic message when `message` is neither a string nor an array', async () => {
-    await expect(parseJsonOrThrow(jsonResponse(500, { message: { unexpected: true } }))).rejects.toThrow(
-      'Request failed',
-    );
+    await expect(
+      parseJsonOrThrow(jsonResponse(500, { message: { unexpected: true } })),
+    ).rejects.toThrow('Request failed');
   });
 
   it('still throws ElevationRequiredError with a joined message', async () => {
@@ -54,6 +54,8 @@ describe('parseJsonOrThrow', () => {
   });
 
   it('resolves with the parsed body on a successful response', async () => {
-    await expect(parseJsonOrThrow(jsonResponse(200, { id: 'abc' }))).resolves.toEqual({ id: 'abc' });
+    await expect(parseJsonOrThrow(jsonResponse(200, { id: 'abc' }))).resolves.toEqual({
+      id: 'abc',
+    });
   });
 });

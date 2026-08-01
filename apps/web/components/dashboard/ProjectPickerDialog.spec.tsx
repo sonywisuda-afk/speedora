@@ -61,9 +61,7 @@ describe('ProjectPickerDialog', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Buat Project' }));
 
-    await waitFor(() =>
-      expect(mockPush).toHaveBeenCalledWith('/upload?projectId=proj-new'),
-    );
+    await waitFor(() => expect(mockPush).toHaveBeenCalledWith('/upload?projectId=proj-new'));
   });
 
   it('lists existing projects and continues to upload with the selected one', async () => {
