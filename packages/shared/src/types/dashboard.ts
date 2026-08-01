@@ -7,6 +7,9 @@ export enum ActivityEventType {
   CLIP_GENERATED = 'CLIP_GENERATED',
   CLIP_EXPORTED = 'CLIP_EXPORTED',
   MEMBER_INVITED = 'MEMBER_INVITED',
+  // Workspace Lifecycle Management roadmap - see WORKSPACE_DELETED's own
+  // comment in schema.prisma for why this is recorded userId-scoped here.
+  WORKSPACE_DELETED = 'WORKSPACE_DELETED',
 }
 
 export interface ActivityEventDto {

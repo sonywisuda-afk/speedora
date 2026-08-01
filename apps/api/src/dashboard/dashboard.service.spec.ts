@@ -147,6 +147,38 @@ describe('DashboardService', () => {
 
       expect(result.events[0].metadata).toBeNull();
     });
+
+    // Contract Synchronization fix - proves mapActivityEventType (the
+    // replacement for the old `as unknown as` cast) round-trips every real
+    // Prisma ActivityEventType, including WORKSPACE_DELETED (the value that
+    // originally shipped without a matching packages/shared entry and
+    // crashed ActivityTimeline). If a future schema.prisma addition isn't
+    // wired into mapActivityEventType, the build fails before this test can
+    // even run (assertNever) - this test guards the mapping's runtime
+    // correctness, not its exhaustiveness, which is a compile-time guarantee.
+    it('maps every known Prisma ActivityEventType to its shared DTO counterpart', async () => {
+      const rawTypes = [
+        'VIDEO_UPLOADED',
+        'CLIP_GENERATED',
+        'CLIP_EXPORTED',
+        'MEMBER_INVITED',
+        'WORKSPACE_DELETED',
+      ];
+      prisma.activityEvent.findMany.mockResolvedValue(
+        rawTypes.map((type, i) => ({
+          id: `event-${i}`,
+          type,
+          videoId: null,
+          clipId: null,
+          metadata: null,
+          createdAt: new Date('2026-01-01T00:00:00Z'),
+        })),
+      );
+
+      const result = await service.getActivity('user-1', 20);
+
+      expect(result.events.map((e) => e.type)).toEqual(rawTypes);
+    });
   });
 
   describe('exportCsv', () => {

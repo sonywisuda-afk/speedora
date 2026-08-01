@@ -1,6 +1,15 @@
 import { Injectable } from '@nestjs/common';
-import { PremiumCreditStatus, VideoStatus } from '@speedora/database';
-import type { ActivityEventDto, DashboardActivityDto, DashboardStatsDto } from '@speedora/shared';
+import {
+  ActivityEventType as PrismaActivityEventType,
+  PremiumCreditStatus,
+  VideoStatus,
+} from '@speedora/database';
+import {
+  ActivityEventType,
+  type ActivityEventDto,
+  type DashboardActivityDto,
+  type DashboardStatsDto,
+} from '@speedora/shared';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { buildDashboardReportCsv } from './dashboard-export.util';
@@ -8,6 +17,37 @@ import { buildDashboardReportCsv } from './dashboard-export.util';
 function average(values: number[]): number | null {
   if (values.length === 0) return null;
   return values.reduce((sum, v) => sum + v, 0) / values.length;
+}
+
+function assertNever(value: never): never {
+  throw new Error(`Unhandled ActivityEventType: ${JSON.stringify(value)}`);
+}
+
+// Prisma's ActivityEventType (packages/database, generated from
+// schema.prisma) and packages/shared's ActivityEventType are nominally
+// distinct types with identical runtime string values - this function is the
+// one place that bridges them, replacing what used to be a blind
+// `as unknown as` cast. The switch has no `default` case: adding a new
+// member to schema.prisma's enum widens the parameter type here, and the
+// assertNever call fails to compile until a matching case (and, by
+// necessity, a matching packages/shared ActivityEventType member) is added -
+// this is what makes the next ActivityEventType addition fail at compile
+// time in apps/api itself, not just silently pass through to the frontend.
+function mapActivityEventType(type: PrismaActivityEventType): ActivityEventType {
+  switch (type) {
+    case 'VIDEO_UPLOADED':
+      return ActivityEventType.VIDEO_UPLOADED;
+    case 'CLIP_GENERATED':
+      return ActivityEventType.CLIP_GENERATED;
+    case 'CLIP_EXPORTED':
+      return ActivityEventType.CLIP_EXPORTED;
+    case 'MEMBER_INVITED':
+      return ActivityEventType.MEMBER_INVITED;
+    case 'WORKSPACE_DELETED':
+      return ActivityEventType.WORKSPACE_DELETED;
+    default:
+      return assertNever(type);
+  }
 }
 
 function startOfMonth(): Date {
@@ -101,10 +141,7 @@ export class DashboardService {
     return {
       events: events.map((event): ActivityEventDto => ({
         id: event.id,
-        // Prisma's ActivityEventType mirrors packages/shared's own
-        // (identical string values) - same cast convention as
-        // analytics.service.ts's platform/status fields.
-        type: event.type as unknown as ActivityEventDto['type'],
+        type: mapActivityEventType(event.type),
         videoId: event.videoId,
         clipId: event.clipId,
         metadata: (event.metadata as unknown as Record<string, unknown> | null) ?? null,
