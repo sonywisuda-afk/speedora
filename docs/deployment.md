@@ -50,3 +50,59 @@ Check this explicitly before/after a deploy, it will not surface as a boot error
 See `docker.md` for the full MinIO story. The only thing that differs between dev and prod is the
 `STORAGE_*` env values — `packages/storage`'s client code is fully generic over any S3-compatible
 endpoint and needs zero changes either way.
+
+## Hybrid Oracle Cloud Free deployment (Fase 1-2)
+
+An audit of this stack's actual resource footprint (docker-compose.prod.yml's own comments,
+`subprocessLimiter.ts`, the FFmpeg/MediaPipe pipeline in `apps/worker`) found that only one
+service — `worker` — is genuinely CPU/memory-heavy; `web`, `api`, `postgres`, and `redis` are
+light, mostly I/O-bound processes. That split is exactly what Oracle Cloud's Always Free tier (4
+OCPU / 24 GB Ampere A1, splittable across up to 4 instances) is a good fit for: run `web`+`api`
+(+`postgres`+`redis`) on one free instance and `worker` on a second, instead of paying for a
+single larger box sized for `worker`'s peak.
+
+`docker-compose.oracle-web-api.yml` and `docker-compose.oracle-worker.yml` are
+`docker-compose.prod.yml` split along exactly that line — same services, same images, same env
+layering (`.env` + `.env.production`), nothing rewritten. `docker-compose.prod.yml` itself is
+untouched and remains the single-host reference stack.
+
+### Prerequisites (do these before bringing either stack up)
+
+1. **Real passwords.** `POSTGRES_PASSWORD`/`REDIS_PASSWORD` default to a committed placeholder
+   (`viralclip`) — harmless in `docker-compose.prod.yml`, where neither port ever leaves the
+   compose network, but `docker-compose.oracle-web-api.yml` publishes both ports to the host so a
+   second instance can reach them. Set real values for both in `.env` first.
+2. **Network isolation, not just passwords.** Put both Oracle instances in the same VCN and use
+   the web-api instance's *private* IP as `ORACLE_WEB_API_HOST` below — never a public IP/DNS name
+   if it can be avoided. Then restrict the web-api instance's Security List (or an OS-level
+   firewall) so inbound Postgres (5432) and Redis (6379) are only reachable from the worker
+   instance's IP, not the whole internet. Compose's `ports:` mapping only controls
+   container-to-host binding; it has no opinion on host-to-internet exposure — that's this step,
+   done in the Oracle Cloud console, not in this repo.
+
+### Bringing it up
+
+```bash
+# On the web-api instance:
+docker compose -f docker-compose.oracle-web-api.yml up --build
+
+# On the worker instance (ORACLE_WEB_API_HOST is required - the compose file
+# fails loudly at parse time if it's unset):
+ORACLE_WEB_API_HOST=<web-api instance's private IP> \
+  docker compose -f docker-compose.oracle-worker.yml up --build
+```
+
+### Selective queue startup (`WORKER_QUEUES`)
+
+`apps/worker/src/main.ts` starts all 16 BullMQ queues in one process by default — identical
+behavior to `docker-compose.prod.yml` today. Setting `WORKER_QUEUES` (comma-separated
+`QueueName` values, e.g. `WORKER_QUEUES=render-clip,detect-clips,probe-video`) restricts a given
+worker process to only that subset; `apps/worker/src/env.ts`'s `validateEnv()` rejects an unknown
+queue name at boot with a clear error rather than silently starting zero workers for it (see
+`workerQueueSelection.ts`). `docker-compose.oracle-worker.yml` leaves it unset — Fase 2 moves the
+whole worker process to its own host as one unit, it does not split `render-clip` out yet.
+
+This exists ahead of need: it's the mechanism a future Fase 3 (GPU worker) reuses to run only
+`render-clip-gpu` on a GPU-backed host once that queue exists, without touching this file's
+CPU-only worker at all. See the infrastructure audit artifact referenced in project history for
+the full hybrid/GPU-routing design this prepares for.

@@ -1,0 +1,53 @@
+# Oracle Cloud Free hybrid deployment (Fase 1-2) - the "heavy" half of the
+# split: apps/worker alone, meant to run on its own Oracle Free Ampere A1
+# instance, separate from web/api/Postgres/Redis (docker-compose.
+# oracle-web-api.yml) - see docs/deployment.md's hybrid section for why (the
+# worker container is the only one in this whole stack with a real,
+# documented OOM incident behind its memory limit - see docker-compose.
+# prod.yml's own comment on the `worker` service - and has no CPU limit
+# anywhere prior to this file).
+#
+# There is no local postgres/redis here - this instance reaches the
+# web-api instance's Postgres/Redis over the network. Requires:
+#   1. ORACLE_WEB_API_HOST set to that instance's address - its *private* IP
+#      if both instances are in the same Oracle VCN (recommended), never a
+#      public IP/DNS name if that can be avoided.
+#   2. The web-api instance's Security List/firewall allowing inbound
+#      Postgres (5432) and Redis (6379) from this instance's IP specifically
+#      - see docker-compose.oracle-web-api.yml's own top comment.
+#   3. POSTGRES_PASSWORD/REDIS_PASSWORD matching whatever was set when
+#      docker-compose.oracle-web-api.yml was brought up.
+#
+#   ORACLE_WEB_API_HOST=10.0.0.5 docker compose -f docker-compose.oracle-worker.yml up --build
+#
+# WORKER_QUEUES is deliberately left unset here (every queue, identical to
+# docker-compose.prod.yml's single-process worker) - Fase 2 moves the whole
+# worker process to its own host as one unit; it does NOT yet split
+# render-clip onto a separate GPU host. That split (Fase 3) reuses this same
+# image and env var on a third, GPU-backed compose file - see
+# workerQueueSelection.ts and docs/deployment.md.
+name: speedora-oracle-worker
+
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+      - .env.production
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@${ORACLE_WEB_API_HOST:?Set ORACLE_WEB_API_HOST to the web-api instance's private IP/hostname before running this file}:5432/${POSTGRES_DB:-viralclip}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-viralclip}@${ORACLE_WEB_API_HOST:?Set ORACLE_WEB_API_HOST to the web-api instance's private IP/hostname before running this file}:6379
+      WORKER_QUEUES: ${WORKER_QUEUES:-}
+      # Same as docker-compose.prod.yml's worker service - the image already
+      # has a real ffmpeg/ffprobe/yt-dlp on PATH (see apps/worker/Dockerfile).
+      FFMPEG_PATH: ffmpeg
+      FFPROBE_PATH: ffprobe
+      YTDLP_PATH: yt-dlp
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+          cpus: '2.0'
