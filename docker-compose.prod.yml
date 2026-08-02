@@ -53,7 +53,8 @@ services:
     # made Redis reachable from a second host over the network instead of
     # only from containers on this same compose network - auth is what
     # makes that exposure safe. See docs/deployment.md's hybrid section.
-    command: ['redis-server', '--appendonly', 'yes', '--requirepass', '${REDIS_PASSWORD:-viralclip}']
+    command:
+      ['redis-server', '--appendonly', 'yes', '--requirepass', '${REDIS_PASSWORD:-viralclip}']
     volumes:
       - redis-data:/data
     healthcheck:

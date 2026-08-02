@@ -49,7 +49,10 @@ describe('validateEnv', () => {
 
   it('throws naming the bad value(s) when WORKER_QUEUES has an unknown queue name', () => {
     expect(() =>
-      validateEnv({ ...VALID_ENV, WORKER_QUEUES: 'render-clip,not-a-real-queue' } as NodeJS.ProcessEnv),
+      validateEnv({
+        ...VALID_ENV,
+        WORKER_QUEUES: 'render-clip,not-a-real-queue',
+      } as NodeJS.ProcessEnv),
     ).toThrow(/not-a-real-queue/);
   });
 });

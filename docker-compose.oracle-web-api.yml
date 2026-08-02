@@ -55,7 +55,8 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ['redis-server', '--appendonly', 'yes', '--requirepass', '${REDIS_PASSWORD:-viralclip}']
+    command:
+      ['redis-server', '--appendonly', 'yes', '--requirepass', '${REDIS_PASSWORD:-viralclip}']
     ports:
       - '${REDIS_PORT:-6379}:6379'
     volumes:

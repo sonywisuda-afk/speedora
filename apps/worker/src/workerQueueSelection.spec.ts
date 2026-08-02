@@ -1,5 +1,9 @@
 import { QueueName } from '@speedora/shared';
-import { InvalidWorkerQueuesError, isQueueEnabled, parseWorkerQueues } from './workerQueueSelection';
+import {
+  InvalidWorkerQueuesError,
+  isQueueEnabled,
+  parseWorkerQueues,
+} from './workerQueueSelection';
 
 describe('parseWorkerQueues', () => {
   it('returns null when unset (every queue runs, pre-Fase-2 behavior)', () => {
