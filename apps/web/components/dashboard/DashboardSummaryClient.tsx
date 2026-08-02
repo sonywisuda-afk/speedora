@@ -1,6 +1,10 @@
 'use client';
 
-import type { DashboardActivityDto, DashboardExportsDto, DashboardStatsDto } from '@speedora/shared';
+import type {
+  DashboardActivityDto,
+  DashboardExportsDto,
+  DashboardStatsDto,
+} from '@speedora/shared';
 import useSWR from 'swr';
 import { getDashboardActivity, getDashboardExports, getDashboardStats } from '@/lib/api';
 import { ActivityTimeline } from './ActivityTimeline';

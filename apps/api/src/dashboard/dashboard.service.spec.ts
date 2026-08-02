@@ -245,9 +245,7 @@ describe('DashboardService', () => {
 
     it('reports successRate/lastReadyAt as null when no job has ever reached a terminal status', async () => {
       prisma.exportJob.findMany.mockResolvedValue([]);
-      prisma.exportJob.groupBy.mockResolvedValueOnce([
-        { status: 'PENDING', _count: { _all: 1 } },
-      ]);
+      prisma.exportJob.groupBy.mockResolvedValueOnce([{ status: 'PENDING', _count: { _all: 1 } }]);
       prisma.exportJob.groupBy.mockResolvedValueOnce([]);
       prisma.exportJob.findFirst.mockResolvedValue(null);
 

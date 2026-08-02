@@ -17,6 +17,10 @@ export async function DashboardSummary() {
   ]);
 
   return (
-    <DashboardSummaryClient initialStats={stats} initialActivity={activity} initialExports={exports} />
+    <DashboardSummaryClient
+      initialStats={stats}
+      initialActivity={activity}
+      initialExports={exports}
+    />
   );
 }

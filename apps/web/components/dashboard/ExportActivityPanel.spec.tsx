@@ -1,7 +1,12 @@
 /** @jest-environment jsdom */
 import '@testing-library/jest-dom';
 import { render, screen } from '@testing-library/react';
-import { ExportJobStatus, ExportType, type DashboardExportsDto, type ExportJobDto } from '@speedora/shared';
+import {
+  ExportJobStatus,
+  ExportType,
+  type DashboardExportsDto,
+  type ExportJobDto,
+} from '@speedora/shared';
 import { ExportActivityPanel } from './ExportActivityPanel';
 
 function job(overrides: Partial<ExportJobDto> = {}): ExportJobDto {
