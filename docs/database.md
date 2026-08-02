@@ -47,6 +47,16 @@ for client-usage conventions.
   view/like/comment counts an actual history — `PublishRecord`'s own columns remain a mutable
   "latest snapshot" and are untouched by this addition. Also carries `shareCount`,
   `watchTimeSeconds` (Instagram only today), and a heuristic `engagementScore`.
+- **`QueueSnapshot`**, **`WorkerHeartbeatSnapshot`** — append-only, one row per queue/live worker
+  heartbeat every 5 minutes, written by `apps/worker/src/workers/metrics-snapshot.worker.ts`
+  (Production Metrics Collection, see `deployment.md`'s "Production Metrics Collection" section).
+  Same shape as `PublishRecordStatsSnapshot` above (a `capturedAt`-indexed history sitting
+  alongside live state that's queried elsewhere — `GET /queues`/`GET /workers/health` — rather than
+  duplicating it). `QueueSnapshot.queueName` is a plain `String`, not a Prisma enum mirroring
+  `packages/shared`'s `QueueName` — see the model's own schema comment for why that's a deliberate,
+  scale-appropriate choice here rather than the usual Contract Governance "mirror it" rule (see
+  `coding-standards.md`). Retention/pruning is explicitly not implemented yet — both tables grow
+  unbounded until a pruning job exists.
 
 ## `Clip`'s AI Intelligence columns
 

@@ -23,3 +23,31 @@ export interface WorkerHeartbeatPayload {
   queues: QueueName[];
   startedAt: string;
 }
+
+// PR #45 (Production Metrics Collection) - a second consumer,
+// apps/worker/src/workers/metrics-snapshot.worker.ts, needs to parse raw
+// heartbeat values too (not just apps/api's GET /workers/health), so this
+// moved here alongside the format it parses rather than staying a private
+// helper of apps/api/src/monitoring/worker-heartbeat-reader.ts. Returns
+// null for a missing/malformed value rather than throwing - a heartbeat key
+// can expire between a Redis KEYS scan and the GET on that same key (both
+// TTL-based), and every caller of this function treats that as "skip this
+// one entry", not a fatal error.
+export function parseHeartbeatPayload(raw: string | null): WorkerHeartbeatPayload | null {
+  if (!raw) return null;
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      typeof (parsed as Partial<WorkerHeartbeatPayload>).workerId === 'string' &&
+      Array.isArray((parsed as Partial<WorkerHeartbeatPayload>).queues) &&
+      typeof (parsed as Partial<WorkerHeartbeatPayload>).startedAt === 'string'
+    ) {
+      return parsed as WorkerHeartbeatPayload;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}

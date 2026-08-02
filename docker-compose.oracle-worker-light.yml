@@ -37,7 +37,7 @@ services:
       # an operator wanting a different split should edit it here (visible,
       # versioned, matches what GET /workers/health then reports) rather
       # than silently diverging from what the filename claims to run.
-      WORKER_QUEUES: import-youtube,probe-video,transcribe,publish-clip,schedule-publish-clip,sync-publish-stats,sync-follower-count,export-generate,alert-engine,notification-delivery,telegram-chat-discovery,generate-platform-copy,translate-transcript
+      WORKER_QUEUES: import-youtube,probe-video,transcribe,publish-clip,schedule-publish-clip,sync-publish-stats,sync-follower-count,export-generate,alert-engine,notification-delivery,telegram-chat-discovery,generate-platform-copy,translate-transcript,metrics-snapshot
       FFMPEG_PATH: ffmpeg
       FFPROBE_PATH: ffprobe
       YTDLP_PATH: yt-dlp

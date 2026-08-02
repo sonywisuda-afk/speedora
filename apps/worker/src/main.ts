@@ -42,6 +42,7 @@ async function main() {
   const {
     alertEngineQueue,
     detectClipsQueue,
+    metricsSnapshotQueue,
     notificationDeliveryQueue,
     probeVideoQueue,
     publishClipQueue,
@@ -82,6 +83,8 @@ async function main() {
     createTelegramChatDiscoveryWorker,
     scheduleRepeatingTrigger: scheduleTelegramChatDiscoveryTrigger,
   } = await import('./workers/telegram-chat-discovery.worker');
+  const { createMetricsSnapshotWorker, scheduleRepeatingTrigger: scheduleMetricsSnapshotTrigger } =
+    await import('./workers/metrics-snapshot.worker');
   const { closeNotificationPublisher } = await import('./notificationPublisher');
   const { prisma } = await import('./prisma');
   const { forStage } = await import('./logger');
@@ -110,6 +113,7 @@ async function main() {
   if (enabled(QueueName.SYNC_FOLLOWER_COUNT)) await scheduleSyncFollowerCountTrigger();
   if (enabled(QueueName.ALERT_ENGINE)) await scheduleAlertEngineTrigger();
   if (enabled(QueueName.TELEGRAM_CHAT_DISCOVERY)) await scheduleTelegramChatDiscoveryTrigger();
+  if (enabled(QueueName.METRICS_SNAPSHOT)) await scheduleMetricsSnapshotTrigger();
 
   const workerCandidates = [
     enabled(QueueName.IMPORT_YOUTUBE) && createImportYoutubeWorker(),
@@ -128,6 +132,7 @@ async function main() {
     enabled(QueueName.ALERT_ENGINE) && createAlertEngineWorker(),
     enabled(QueueName.NOTIFICATION_DELIVERY) && createNotificationDeliveryWorker(),
     enabled(QueueName.TELEGRAM_CHAT_DISCOVERY) && createTelegramChatDiscoveryWorker(),
+    enabled(QueueName.METRICS_SNAPSHOT) && createMetricsSnapshotWorker(),
   ];
   const workers = workerCandidates.filter(
     (worker): worker is Exclude<typeof worker, false> => worker !== false,
@@ -205,6 +210,7 @@ async function main() {
         alertEngineQueue.close(),
         notificationDeliveryQueue.close(),
         telegramChatDiscoveryQueue.close(),
+        metricsSnapshotQueue.close(),
       ]);
       // Milestone 04c - the shared publish-only Redis connection, closed
       // after every worker is done touching it (each worker's own

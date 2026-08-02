@@ -84,6 +84,15 @@ export enum QueueName {
   // one RENDER_CLIP per new candidate only - same "one job per candidate,
   // independent failure domains" shape as DETECT_CLIPS's own self-chain.
   GENERATE_MORE_CLIPS = 'generate-more-clips',
+  // PR #45 (Production Metrics Collection, post-Oracle-hybrid-Fase-3
+  // roadmap) - a repeatable trigger (no per-firing payload), same shape as
+  // ALERT_ENGINE/SYNC_FOLLOWER_COUNT above, that periodically snapshots
+  // every queue's counts/metrics and every live worker heartbeat into
+  // Postgres (QueueSnapshot/WorkerHeartbeatSnapshot); see
+  // apps/worker/src/workers/metrics-snapshot.worker.ts. Deliberately
+  // read-only data collection - no analysis, alerting, or scaling
+  // decisions happen here (see that file's own comment).
+  METRICS_SNAPSHOT = 'metrics-snapshot',
 }
 
 // videoId is created (status IMPORTING, placeholder sourceUrl) by

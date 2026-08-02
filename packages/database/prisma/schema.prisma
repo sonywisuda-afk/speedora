@@ -1988,6 +1988,78 @@ model AlertState {
   updatedAt   DateTime @updatedAt
 }
 
+// PR #45 (Production Metrics Collection, post-Oracle-hybrid-Fase-3 roadmap)
+// - a periodic, append-only snapshot of one BullMQ queue's state, written
+// by apps/worker's metrics-snapshot.worker.ts every
+// METRICS_SNAPSHOT_INTERVAL_MS (default 5 min). Same "latest-state update
+// stays elsewhere, history is purely additive" split
+// PublishRecordStatsSnapshot/SocialAccountFollowerSnapshot already
+// established - there is no "live" QueueSnapshot row to ever update.
+//
+// Data collection only, deliberately - no analysis, alerting, dashboard,
+// or scaling decision reads this table yet (see the roadmap: PR #44
+// shipped the live-state dashboard reading GET /queues directly, a later
+// PR reads this table's history to evaluate whether autoscaling is
+// actually warranted). Retention/pruning is an explicit, deliberately
+// open question - not solved here, see docs/database.md.
+//
+// queueName is a plain String, not a Prisma enum mirroring
+// packages/shared's QueueName - deliberately, not an oversight. BullMQ
+// queue names are themselves plain strings at runtime (QueueName's enum
+// members ARE those strings), this table is an internal operational
+// record rather than a user-facing enum surfaced across dozens of UI
+// components the way NotificationType/ActivityEventType are (see
+// coding-standards.md's Contract Governance section), and a wrong/stale
+// tag here degrades one analytics row, not a crashing UI component - the
+// mapper-boilerplate cost of a second mirrored enum isn't proportionate
+// here the way it is for those.
+model QueueSnapshot {
+  id         String   @id @default(cuid())
+  queueName  String
+  capturedAt DateTime @default(now())
+
+  waiting       Int
+  active        Int
+  completed     Int
+  failed        Int
+  delayed       Int
+  paused        Int
+  likelyStalled Int
+
+  // Sampled over a bounded recent window at capture time (same
+  // "no data yet" vs. "zero" nullability, and the same sampling approach,
+  // as GET /queues - see @speedora/shared's queue-metrics.ts), not a
+  // full-population aggregate since BullMQ doesn't expose these as O(1)
+  // aggregates the way the counts above are.
+  failureRate         Float?
+  avgProcessingTimeMs Int?
+  avgQueueWaitMs      Int?
+  retriedJobs         Int
+
+  @@index([queueName, capturedAt])
+}
+
+// Periodic capture of one worker PROCESS's live heartbeat
+// (apps/worker/src/workerHeartbeat.ts) - the history GET /workers/health
+// (apps/api, PR #42) only ever shows the current instant of. `queues` is a
+// plain string array (Postgres native array via Prisma's String[]) - same
+// "not a Prisma enum" reasoning as QueueSnapshot.queueName above, applied
+// per-element. A worker that's gone (heartbeat key expired/deleted) simply
+// stops appearing in new snapshots - there is no "offline" row, same
+// absence-is-the-signal convention GET /workers/health itself uses.
+model WorkerHeartbeatSnapshot {
+  id                  String   @id @default(cuid())
+  workerId            String
+  queues              String[]
+  jobsActive          Int
+  jobsWaiting         Int
+  workerStartedAt     DateTime
+  heartbeatTtlSeconds Int
+  capturedAt          DateTime @default(now())
+
+  @@index([workerId, capturedAt])
+}
+
 // Sprint 5A (Collaboration Foundation) - the single permission-rank enum
 // for everything workspace-scoped (membership, PendingInvite, and every
 // future Collaboration feature - Comments/Approval/Review Mode all gate on

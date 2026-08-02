@@ -1,4 +1,13 @@
 import type { QueueName, WorkerHealthEntry, WorkerHeartbeatPayload } from '@speedora/shared';
+// PR #45 (Production Metrics Collection) - apps/worker/src/workers/
+// metrics-snapshot.worker.ts needs to parse raw heartbeat values too now,
+// not just this endpoint, so the parser itself moved to @speedora/shared
+// (worker-heartbeat.ts) alongside the key format/payload shape it already
+// lived next to. Re-exported here (not just imported-and-used) so this
+// module's existing public surface (`import { parseHeartbeatPayload } from
+// './worker-heartbeat-reader'`, used by monitoring.controller.ts) doesn't
+// need to change at every call site.
+export { parseHeartbeatPayload } from '@speedora/shared';
 
 // WorkerHealthEntry is defined in @speedora/shared (queue-monitoring.ts),
 // not here - PR #44 (Queue & Worker Observability Dashboard) needs
@@ -6,31 +15,6 @@ import type { QueueName, WorkerHealthEntry, WorkerHeartbeatPayload } from '@spee
 // out of this file to avoid two independently-maintained copies of the
 // same response shape (same reasoning worker-heartbeat.ts's own comment
 // gives for the heartbeat key/payload format living in @speedora/shared).
-
-// Parses one raw Redis GET result into a WorkerHeartbeatPayload, or null if
-// it's missing/malformed. A heartbeat key can expire between
-// MonitoringController.workersHealth()'s KEYS scan and its GET on that same
-// key (a real, if narrow, race - TTL-based keys, see workerHeartbeat.ts) -
-// this endpoint skips that one entry rather than 500ing the whole response
-// over it.
-export function parseHeartbeatPayload(raw: string | null): WorkerHeartbeatPayload | null {
-  if (!raw) return null;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      typeof (parsed as Partial<WorkerHeartbeatPayload>).workerId === 'string' &&
-      Array.isArray((parsed as Partial<WorkerHeartbeatPayload>).queues) &&
-      typeof (parsed as Partial<WorkerHeartbeatPayload>).startedAt === 'string'
-    ) {
-      return parsed as WorkerHeartbeatPayload;
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
 
 // Pure - turns one heartbeat's payload + its Redis TTL + this queue's
 // current active/waiting job counts into the shape GET /workers/health
