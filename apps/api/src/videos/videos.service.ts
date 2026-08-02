@@ -16,11 +16,15 @@ import {
 import { buildClipMetadataReport, buildVideoReportData } from '@speedora/report-builder';
 import type { ClipMetadataOutput, TimelineEvent, VideoReportData } from '@speedora/contracts';
 import {
+  DETECT_CLIPS_RETRY_OPTIONS,
   filterSegmentsForClip,
+  GENERATE_MORE_CLIPS_RETRY_OPTIONS,
   IMPORT_YOUTUBE_RETRY_OPTIONS,
   mergeBrandKitFields,
   PROBE_VIDEO_RETRY_OPTIONS,
   QueueName,
+  RENDER_CLIP_RETRY_OPTIONS,
+  TRANSCRIBE_RETRY_OPTIONS,
   TranscriptionProvider,
   type BrandKitFields,
   type DetectClipsJobData,
@@ -900,11 +904,15 @@ export class VideosService {
         enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
       },
     );
-    await this.transcribeQueue.add(QueueName.TRANSCRIBE, {
-      videoId: id,
-      sourceUrl: video.sourceUrl,
-      provider: toSharedTranscriptionProvider(video.transcriptionProvider),
-    });
+    await this.transcribeQueue.add(
+      QueueName.TRANSCRIBE,
+      {
+        videoId: id,
+        sourceUrl: video.sourceUrl,
+        provider: toSharedTranscriptionProvider(video.transcriptionProvider),
+      },
+      TRANSCRIBE_RETRY_OPTIONS,
+    );
 
     return this.findOne(id, requesterId);
   }
@@ -1011,11 +1019,15 @@ export class VideosService {
           enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
         },
       );
-      await this.transcribeQueue.add(QueueName.TRANSCRIBE, {
-        videoId: id,
-        sourceUrl: video.sourceUrl,
-        provider: toSharedTranscriptionProvider(video.transcriptionProvider),
-      });
+      await this.transcribeQueue.add(
+        QueueName.TRANSCRIBE,
+        {
+          videoId: id,
+          sourceUrl: video.sourceUrl,
+          provider: toSharedTranscriptionProvider(video.transcriptionProvider),
+        },
+        TRANSCRIBE_RETRY_OPTIONS,
+      );
     } else if (video.clips.length === 0) {
       await updateVideoStatus(
         this.prisma,
@@ -1027,10 +1039,11 @@ export class VideosService {
           enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
         },
       );
-      await this.detectClipsQueue.add(QueueName.DETECT_CLIPS, {
-        videoId: id,
-        segments: video.transcriptSegments.map(toSharedTranscriptSegment),
-      });
+      await this.detectClipsQueue.add(
+        QueueName.DETECT_CLIPS,
+        { videoId: id, segments: video.transcriptSegments.map(toSharedTranscriptSegment) },
+        DETECT_CLIPS_RETRY_OPTIONS,
+      );
     } else {
       const unrendered = video.clips.filter((clip) => !clip.outputUrl);
 
@@ -1118,28 +1131,32 @@ export class VideosService {
           : null;
       await Promise.all(
         unrendered.map((clip) =>
-          this.renderClipQueue.add(QueueName.RENDER_CLIP, {
-            clipId: clip.id,
-            videoId: id,
-            sourceUrl: video.sourceUrl,
-            startTime: clip.startTime,
-            endTime: clip.endTime,
-            transcript: filterSegmentsForClip(
-              video.transcriptSegments.map(toSharedTranscriptSegment),
-              clip.startTime,
-              clip.endTime,
-            ),
-            captionStyle: toSharedCaptionStyle(clip.captionStyle),
-            speakerColorCaptions: clip.speakerColorCaptions,
-            captionLanguage: clip.captionLanguage,
-            fontFamily:
-              clip.fontFamily ?? (clip.applyBrandKit ? (brandKit?.brandFontFamily ?? null) : null),
-            watermark: clip.watermarkEnabled ? resolvedWatermark : null,
-            intro: clip.introEnabled ? resolvedIntro : null,
-            outro: clip.outroEnabled ? resolvedOutro : null,
-            keywords: clip.keywords,
-            scores: toSharedClipScores(clip.scores),
-          }),
+          this.renderClipQueue.add(
+            QueueName.RENDER_CLIP,
+            {
+              clipId: clip.id,
+              videoId: id,
+              sourceUrl: video.sourceUrl,
+              startTime: clip.startTime,
+              endTime: clip.endTime,
+              transcript: filterSegmentsForClip(
+                video.transcriptSegments.map(toSharedTranscriptSegment),
+                clip.startTime,
+                clip.endTime,
+              ),
+              captionStyle: toSharedCaptionStyle(clip.captionStyle),
+              speakerColorCaptions: clip.speakerColorCaptions,
+              captionLanguage: clip.captionLanguage,
+              fontFamily:
+                clip.fontFamily ?? (clip.applyBrandKit ? (brandKit?.brandFontFamily ?? null) : null),
+              watermark: clip.watermarkEnabled ? resolvedWatermark : null,
+              intro: clip.introEnabled ? resolvedIntro : null,
+              outro: clip.outroEnabled ? resolvedOutro : null,
+              keywords: clip.keywords,
+              scores: toSharedClipScores(clip.scores),
+            },
+            RENDER_CLIP_RETRY_OPTIONS,
+          ),
         ),
       );
     }
@@ -1188,10 +1205,11 @@ export class VideosService {
       throw new BadRequestException('Video sedang diproses');
     }
 
-    await this.generateMoreClipsQueue.add(QueueName.GENERATE_MORE_CLIPS, {
-      videoId: id,
-      ...params,
-    });
+    await this.generateMoreClipsQueue.add(
+      QueueName.GENERATE_MORE_CLIPS,
+      { videoId: id, ...params },
+      GENERATE_MORE_CLIPS_RETRY_OPTIONS,
+    );
 
     return this.findOne(id, requesterId);
   }

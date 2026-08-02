@@ -1,6 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { CaptionStyle } from '@speedora/database';
-import { ClipPlatformCopyStatus, QueueName } from '@speedora/shared';
+import { ClipPlatformCopyStatus, QueueName, RENDER_CLIP_RETRY_OPTIONS } from '@speedora/shared';
 import type { Queue } from 'bullmq';
 import type { CampaignsService } from '../campaigns/campaigns.service';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -1166,28 +1166,32 @@ describe('ClipsService', () => {
         data: { outputUrl: null },
         ...PUBLISH_RECORDS_INCLUDE,
       });
-      expect(renderClipQueue.add).toHaveBeenCalledWith(QueueName.RENDER_CLIP, {
-        clipId: 'clip-1',
-        videoId: 'video-1',
-        sourceUrl: 'videos/abc.mp4',
-        startTime: 10,
-        endTime: 20,
-        transcript: [
-          {
-            start: 12,
-            end: 18,
-            text: 'inside',
-            words: [{ word: 'inside', start: 12, end: 12.5 }],
-          },
-        ],
-        captionStyle: CaptionStyle.KARAOKE,
-        fontFamily: null,
-        watermark: null,
-        intro: null,
-        outro: null,
-        keywords: [],
-        scores: null,
-      });
+      expect(renderClipQueue.add).toHaveBeenCalledWith(
+        QueueName.RENDER_CLIP,
+        {
+          clipId: 'clip-1',
+          videoId: 'video-1',
+          sourceUrl: 'videos/abc.mp4',
+          startTime: 10,
+          endTime: 20,
+          transcript: [
+            {
+              start: 12,
+              end: 18,
+              text: 'inside',
+              words: [{ word: 'inside', start: 12, end: 12.5 }],
+            },
+          ],
+          captionStyle: CaptionStyle.KARAOKE,
+          fontFamily: null,
+          watermark: null,
+          intro: null,
+          outro: null,
+          keywords: [],
+          scores: null,
+        },
+        RENDER_CLIP_RETRY_OPTIONS,
+      );
       expect(result).toEqual({
         id: 'clip-1',
         videoId: 'video-1',
@@ -1280,6 +1284,7 @@ describe('ClipsService', () => {
       expect(renderClipQueue.add).toHaveBeenCalledWith(
         QueueName.RENDER_CLIP,
         expect.objectContaining({ fontFamily: 'Montserrat' }),
+        RENDER_CLIP_RETRY_OPTIONS,
       );
     });
 
@@ -1304,6 +1309,7 @@ describe('ClipsService', () => {
       expect(renderClipQueue.add).toHaveBeenCalledWith(
         QueueName.RENDER_CLIP,
         expect.objectContaining({ fontFamily: 'Roboto' }),
+        RENDER_CLIP_RETRY_OPTIONS,
       );
     });
 
@@ -1319,6 +1325,7 @@ describe('ClipsService', () => {
       expect(renderClipQueue.add).toHaveBeenCalledWith(
         QueueName.RENDER_CLIP,
         expect.objectContaining({ watermark: null }),
+        RENDER_CLIP_RETRY_OPTIONS,
       );
     });
 
@@ -1347,6 +1354,7 @@ describe('ClipsService', () => {
             position: 'BOTTOM_RIGHT',
           },
         }),
+        RENDER_CLIP_RETRY_OPTIONS,
       );
     });
 
@@ -1375,6 +1383,7 @@ describe('ClipsService', () => {
             position: 'TOP_LEFT',
           },
         }),
+        RENDER_CLIP_RETRY_OPTIONS,
       );
     });
 
@@ -1395,6 +1404,7 @@ describe('ClipsService', () => {
       expect(renderClipQueue.add).toHaveBeenCalledWith(
         QueueName.RENDER_CLIP,
         expect.objectContaining({ watermark: null }),
+        RENDER_CLIP_RETRY_OPTIONS,
       );
     });
 
@@ -1409,6 +1419,7 @@ describe('ClipsService', () => {
       expect(renderClipQueue.add).toHaveBeenCalledWith(
         QueueName.RENDER_CLIP,
         expect.objectContaining({ intro: null }),
+        RENDER_CLIP_RETRY_OPTIONS,
       );
     });
 
@@ -1429,6 +1440,7 @@ describe('ClipsService', () => {
         expect.objectContaining({
           intro: { key: 'intros/abc.mp4', type: 'video', imageDurationSeconds: null },
         }),
+        RENDER_CLIP_RETRY_OPTIONS,
       );
     });
 
@@ -1449,6 +1461,7 @@ describe('ClipsService', () => {
         expect.objectContaining({
           intro: { key: 'intros/abc.png', type: 'image', imageDurationSeconds: 5 },
         }),
+        RENDER_CLIP_RETRY_OPTIONS,
       );
     });
 
@@ -1467,6 +1480,7 @@ describe('ClipsService', () => {
       expect(renderClipQueue.add).toHaveBeenCalledWith(
         QueueName.RENDER_CLIP,
         expect.objectContaining({ intro: null }),
+        RENDER_CLIP_RETRY_OPTIONS,
       );
     });
 
@@ -1481,6 +1495,7 @@ describe('ClipsService', () => {
       expect(renderClipQueue.add).toHaveBeenCalledWith(
         QueueName.RENDER_CLIP,
         expect.objectContaining({ outro: null }),
+        RENDER_CLIP_RETRY_OPTIONS,
       );
     });
 
@@ -1501,6 +1516,7 @@ describe('ClipsService', () => {
         expect.objectContaining({
           outro: { key: 'outros/abc.mp4', type: 'video', imageDurationSeconds: null },
         }),
+        RENDER_CLIP_RETRY_OPTIONS,
       );
     });
 
@@ -1521,6 +1537,7 @@ describe('ClipsService', () => {
         expect.objectContaining({
           outro: { key: 'outros/abc.png', type: 'image', imageDurationSeconds: 4 },
         }),
+        RENDER_CLIP_RETRY_OPTIONS,
       );
     });
 
@@ -1539,6 +1556,7 @@ describe('ClipsService', () => {
       expect(renderClipQueue.add).toHaveBeenCalledWith(
         QueueName.RENDER_CLIP,
         expect.objectContaining({ outro: null }),
+        RENDER_CLIP_RETRY_OPTIONS,
       );
     });
 
@@ -1567,6 +1585,7 @@ describe('ClipsService', () => {
         expect(renderClipQueue.add).toHaveBeenCalledWith(
           QueueName.RENDER_CLIP,
           expect.objectContaining({ fontFamily: 'Oswald' }),
+          RENDER_CLIP_RETRY_OPTIONS,
         );
       });
 
@@ -1590,6 +1609,7 @@ describe('ClipsService', () => {
         expect(renderClipQueue.add).toHaveBeenCalledWith(
           QueueName.RENDER_CLIP,
           expect.objectContaining({ fontFamily: 'Roboto' }),
+          RENDER_CLIP_RETRY_OPTIONS,
         );
       });
 
@@ -1612,6 +1632,7 @@ describe('ClipsService', () => {
         expect(renderClipQueue.add).toHaveBeenCalledWith(
           QueueName.RENDER_CLIP,
           expect.objectContaining({ fontFamily: 'Roboto' }),
+          RENDER_CLIP_RETRY_OPTIONS,
         );
       });
     });

@@ -151,6 +151,63 @@ export const PROBE_VIDEO_RETRY_OPTIONS = {
   backoff: { type: 'exponential' as const, delay: 30_000 },
 };
 
+// Reliability hardening pass - TRANSCRIBE's own job-level retry layer, same
+// gap/fix shape as PROBE_VIDEO_RETRY_OPTIONS above (this queue's 2 enqueue
+// sites, VideosService.startProcessing/retry, both passed no options -
+// BullMQ default attempts: 0). This job runs several ffmpeg subprocess
+// calls (thumbnail/storyboard/animated/hover-preview extraction) plus the
+// Whisper API upload, so it carries the same local-subprocess-crash risk
+// class as PROBE_VIDEO, hence the same 30s base delay (not
+// IMPORT_YOUTUBE_RETRY_OPTIONS's 60s, which is sized for a crashed/
+// restarted worker or platform rate-limiting, not applicable here). The one
+// deterministic failure this worker already throws (a missing
+// OPENAI_API_KEY when premium transcription is requested) is thrown as
+// UnrecoverableError directly by transcribe.worker.ts and skips these
+// attempts entirely, same coordination as PROBE_VIDEO_RETRY_OPTIONS.
+export const TRANSCRIBE_RETRY_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 30_000 },
+};
+
+// Reliability hardening pass - RENDER_CLIP's own job-level retry layer, same
+// gap/fix shape as PROBE_VIDEO_RETRY_OPTIONS above. This queue invokes
+// ffmpeg directly (the main crop/caption/B-roll encode, plus up to 3 more
+// passes for Smart Trim/intro/outro) - the exact same local-subprocess-
+// crash risk class PROBE_VIDEO_RETRY_OPTIONS exists for, hence the same
+// profile. render-clip.worker.ts has no deterministic (UnrecoverableError)
+// failure mode today - every error defaults retryable, same "unknown error
+// defaults retryable" convention import-youtube.worker.ts already uses.
+export const RENDER_CLIP_RETRY_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 30_000 },
+};
+
+// Reliability hardening pass - DETECT_CLIPS's own job-level retry layer,
+// same gap/fix shape as PROBE_VIDEO_RETRY_OPTIONS above. This queue's risk
+// is a single LLM network call (packages/clip-scoring), not a local
+// subprocess crash - the same transient-failure shape PUBLISH_RETRY_OPTIONS
+// already covers for social-platform API calls, hence the matching 30s
+// profile rather than IMPORT_YOUTUBE_RETRY_OPTIONS's longer 60s.
+export const DETECT_CLIPS_RETRY_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 30_000 },
+};
+
+// Reliability hardening pass - GENERATE_MORE_CLIPS's own job-level retry
+// layer. Same single-LLM-call risk class as DETECT_CLIPS_RETRY_OPTIONS
+// (reuses its profile), but unlike EXPORT_GENERATE/GENERATE_PLATFORM_COPY/
+// TRANSLATE_TRANSCRIPT's deliberate "no retry, user re-triggers via a new
+// POST" convention, this worker never writes a visible FAILED status on
+// error at all (a failed top-up must not regress Video.status - see
+// generate-more-clips.worker.ts's own comment) - so without an automatic
+// retry, a transient failure here is invisible to the user entirely, not
+// just requiring a manual re-trigger. Automatic retry is the better default
+// given that visibility gap.
+export const GENERATE_MORE_CLIPS_RETRY_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 30_000 },
+};
+
 // Quality Validation roadmap (Fase 0 design, Phase 1) - videoId is created
 // (status UPLOADED, sourceUrl already a real object-storage key) by
 // VideosService.upload()/importFromYoutube() before this is enqueued, same

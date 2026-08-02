@@ -3,7 +3,13 @@ import { SocialPlatform } from '@speedora/shared';
 import type { ClipScores, TranscriptSegment } from '@speedora/shared';
 import { Worker } from 'bullmq';
 
-jest.mock('bullmq', () => ({ Worker: jest.fn() }));
+// UnrecoverableError is left real (via requireActual) - only Worker itself
+// is mocked, same "mock the seam, leave real classes/pure functions real"
+// convention as probe-video.worker.spec.ts/import-youtube.worker.spec.ts.
+jest.mock('bullmq', () => ({
+  ...jest.requireActual('bullmq'),
+  Worker: jest.fn(),
+}));
 jest.mock('../redis', () => ({ createRedisConnection: jest.fn() }));
 
 // Pre-Processing Settings roadmap (Phase 3) - render-clip.worker.ts is now
@@ -526,11 +532,27 @@ const FULL_LLM_SCORES: ClipScores = {
   ctaStrength: 80,
 };
 
+type FakeJob = {
+  data: RenderClipJobData;
+  attemptsMade: number;
+  opts: { attempts?: number };
+};
+
 function getProcessor() {
   createRenderClipWorker();
-  return (Worker as unknown as jest.Mock).mock.calls[0][1] as (job: {
-    data: RenderClipJobData;
-  }) => Promise<unknown>;
+  return (Worker as unknown as jest.Mock).mock.calls[0][1] as (job: FakeJob) => Promise<unknown>;
+}
+
+// Every existing (pre-retry-framework) test exercises a single-attempt job
+// (attemptsMade: 0, opts.attempts: 1) - the new retry tests below override
+// these explicitly, same convention as
+// probe-video.worker.spec.ts/import-youtube.worker.spec.ts's own fakeJob
+// helper.
+function fakeJob(
+  data: FakeJob['data'],
+  overrides: Partial<Pick<FakeJob, 'attemptsMade' | 'opts'>> = {},
+): FakeJob {
+  return { data, attemptsMade: 0, opts: { attempts: 1 }, ...overrides };
 }
 
 const baseJobData: RenderClipJobData = {
@@ -638,7 +660,7 @@ describe('render-clip worker', () => {
     ]);
 
     const processor = getProcessor();
-    await processor({ data: baseJobData });
+    await processor(fakeJob(baseJobData));
 
     expect(renderClipMock).toHaveBeenCalledWith(
       expect.objectContaining({ quality: { preset: 'slow', crf: 18 } }),
@@ -651,7 +673,7 @@ describe('render-clip worker', () => {
     ]);
 
     const processor = getProcessor();
-    await processor({ data: baseJobData });
+    await processor(fakeJob(baseJobData));
 
     expect(renderClipMock).toHaveBeenCalledWith(expect.objectContaining({ quality: null }));
   });
@@ -677,7 +699,7 @@ describe('render-clip worker', () => {
     ]);
 
     const processor = getProcessor();
-    await processor({ data: baseJobData });
+    await processor(fakeJob(baseJobData));
 
     expect(detectSceneCutsMock).not.toHaveBeenCalled();
     expect(analyzeMotionEnergyMock).not.toHaveBeenCalled();
@@ -690,7 +712,7 @@ describe('render-clip worker', () => {
     ]);
 
     const processor = getProcessor();
-    await processor({ data: baseJobData });
+    await processor(fakeJob(baseJobData));
 
     expect(detectSceneCutsMock).toHaveBeenCalled();
     expect(analyzeMotionEnergyMock).toHaveBeenCalled();
@@ -717,7 +739,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(clipPlatformCopyCreateMock).toHaveBeenCalledWith({
         data: { clipId: 'clip-1', platform: 'TIKTOK' },
@@ -746,7 +768,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(clipPlatformCopyCreateMock).not.toHaveBeenCalled();
       expect(generatePlatformCopyQueueAddMock).not.toHaveBeenCalled();
@@ -770,7 +792,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      const result = (await processor({ data: baseJobData })) as { clipId: string };
+      const result = (await processor(fakeJob(baseJobData))) as { clipId: string };
 
       expect(clipPlatformCopyCreateMock).not.toHaveBeenCalled();
       expect(result.clipId).toBe('clip-1');
@@ -795,7 +817,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      const result = (await processor({ data: baseJobData })) as { clipId: string };
+      const result = (await processor(fakeJob(baseJobData))) as { clipId: string };
 
       expect(clipPlatformCopyCreateMock).not.toHaveBeenCalled();
       expect(generatePlatformCopyQueueAddMock).not.toHaveBeenCalled();
@@ -821,7 +843,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      const result = (await processor({ data: baseJobData })) as { clipId: string };
+      const result = (await processor(fakeJob(baseJobData))) as { clipId: string };
 
       expect(result.clipId).toBe('clip-1');
     });
@@ -848,7 +870,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(publishRecordCreateMock).toHaveBeenCalledWith({
         data: {
@@ -885,7 +907,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(publishRecordCreateMock).toHaveBeenCalledWith({
         data: {
@@ -918,7 +940,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(publishRecordCreateMock).toHaveBeenCalledWith({
         data: {
@@ -946,7 +968,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(publishRecordCreateMock).not.toHaveBeenCalled();
     });
@@ -970,7 +992,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      const result = (await processor({ data: baseJobData })) as { clipId: string };
+      const result = (await processor(fakeJob(baseJobData))) as { clipId: string };
 
       expect(publishRecordCreateMock).not.toHaveBeenCalled();
       expect(result.clipId).toBe('clip-1');
@@ -996,7 +1018,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      const result = (await processor({ data: baseJobData })) as { clipId: string };
+      const result = (await processor(fakeJob(baseJobData))) as { clipId: string };
 
       expect(result.clipId).toBe('clip-1');
     });
@@ -1032,7 +1054,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(clipUpdateMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1061,7 +1083,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(clipUpdateMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1090,7 +1112,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(clipUpdateMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1114,7 +1136,7 @@ describe('render-clip worker', () => {
     ]);
 
     const processor = getProcessor();
-    const result = await processor({ data: baseJobData });
+    const result = await processor(fakeJob(baseJobData));
 
     expect(reserveScratchPathMock).toHaveBeenCalledWith('source', '.mp4');
     expect(reserveScratchPathMock).toHaveBeenCalledWith('captions', '.ass');
@@ -1241,7 +1263,7 @@ describe('render-clip worker', () => {
     clipFindUniqueMock.mockResolvedValue(null);
 
     const processor = getProcessor();
-    const result = await processor({ data: baseJobData });
+    const result = await processor(fakeJob(baseJobData));
 
     expect(result).toEqual({ clipId: 'clip-1', outputUrl: '' });
     // No source download, no rendering, no writes - the job is a pure no-op
@@ -1257,7 +1279,7 @@ describe('render-clip worker', () => {
     clipFindUniqueMock.mockResolvedValue({ outputUrl: 'renders/clip-1.mp4' });
 
     const processor = getProcessor();
-    const result = await processor({ data: baseJobData });
+    const result = await processor(fakeJob(baseJobData));
 
     expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
     expect(getObjectStreamMock).not.toHaveBeenCalled();
@@ -1284,7 +1306,7 @@ describe('render-clip worker', () => {
     );
 
     const processor = getProcessor();
-    const result = await processor({ data: baseJobData });
+    const result = await processor(fakeJob(baseJobData));
 
     expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
     // No video-status transition from this losing execution - the winning
@@ -1315,7 +1337,7 @@ describe('render-clip worker', () => {
     uploadObjectMock.mockResolvedValue(`"${EMPTY_MD5}"`);
 
     const processor = getProcessor();
-    const result = await processor({ data: baseJobData });
+    const result = await processor(fakeJob(baseJobData));
 
     expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
     expect(captureExceptionMock).not.toHaveBeenCalled();
@@ -1326,7 +1348,7 @@ describe('render-clip worker', () => {
 
     const processor = getProcessor();
 
-    await expect(processor({ data: baseJobData })).rejects.toThrow(/failed checksum verification/);
+    await expect(processor(fakeJob(baseJobData))).rejects.toThrow(/failed checksum verification/);
 
     // The corrupted upload must never be reflected in the clip/video state -
     // this is a hard failure, not a benign race like the P2025 case above.
@@ -1344,7 +1366,7 @@ describe('render-clip worker', () => {
     uploadObjectMock.mockResolvedValue(undefined);
 
     const processor = getProcessor();
-    const result = await processor({ data: baseJobData });
+    const result = await processor(fakeJob(baseJobData));
 
     expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
   });
@@ -1355,7 +1377,7 @@ describe('render-clip worker', () => {
     ]);
 
     const processor = getProcessor();
-    await processor({ data: { ...baseJobData, captionStyle: CaptionStyle.KARAOKE } });
+    await processor(fakeJob({ ...baseJobData, captionStyle: CaptionStyle.KARAOKE }));
 
     expect(buildAssMock).toHaveBeenCalledWith(
       expect.objectContaining({ style: CaptionStyle.KARAOKE }),
@@ -1369,7 +1391,7 @@ describe('render-clip worker', () => {
     ]);
 
     const processor = getProcessor();
-    await processor({ data: baseJobData });
+    await processor(fakeJob(baseJobData));
 
     expect(videoUpdateMock).not.toHaveBeenCalled();
   });
@@ -1380,7 +1402,7 @@ describe('render-clip worker', () => {
     ]);
 
     const processor = getProcessor();
-    await processor({ data: baseJobData });
+    await processor(fakeJob(baseJobData));
 
     expect(reserveScratchPathMock).not.toHaveBeenCalledWith('captions', '.ass');
     expect(writeFileMock).not.toHaveBeenCalled();
@@ -1397,8 +1419,8 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({
-        data: {
+      await processor(
+        fakeJob({
           ...baseJobData,
           // Words run edge-to-edge and end right at the clip's own boundary
           // (endTime=10.6) - no gap between them and no trailing silence
@@ -1416,8 +1438,8 @@ describe('render-clip worker', () => {
               ],
             },
           ],
-        },
-      });
+        }),
+      );
 
       expect(trimCutRangesMock).not.toHaveBeenCalled();
       expect(uploadObjectMock).toHaveBeenCalledWith(
@@ -1435,8 +1457,8 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({
-        data: {
+      await processor(
+        fakeJob({
           ...baseJobData,
           startTime: 10,
           endTime: 20,
@@ -1455,8 +1477,8 @@ describe('render-clip worker', () => {
               ],
             },
           ],
-        },
-      });
+        }),
+      );
 
       expect(trimCutRangesMock).toHaveBeenCalledTimes(1);
       const [inputArg, outputArg, cuts] = trimCutRangesMock.mock.calls[0];
@@ -1477,8 +1499,8 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({
-        data: {
+      await processor(
+        fakeJob({
           ...baseJobData,
           // Short clip whose words run edge-to-edge with no gaps and end
           // right at the clip's own boundary (endTime=10.95) - isolates
@@ -1498,8 +1520,8 @@ describe('render-clip worker', () => {
               ],
             },
           ],
-        },
-      });
+        }),
+      );
 
       expect(trimCutRangesMock).toHaveBeenCalledTimes(1);
       const [, , cuts] = trimCutRangesMock.mock.calls[0];
@@ -1516,7 +1538,7 @@ describe('render-clip worker', () => {
       extractBlurPlaceholderMock.mockRejectedValue(new Error('not the focus of this test'));
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       // baseJobData is startTime: 10, endTime: 20 - midpoint of the clip's
       // own duration is 5s into the rendered (already-trimmed-to-clip-length)
@@ -1546,7 +1568,7 @@ describe('render-clip worker', () => {
       extractThumbnailMock.mockRejectedValue(new Error('ffmpeg exited with code 1'));
 
       const processor = getProcessor();
-      const result = await processor({ data: baseJobData });
+      const result = await processor(fakeJob(baseJobData));
 
       expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
       expect(uploadObjectMock).not.toHaveBeenCalledWith(
@@ -1570,7 +1592,7 @@ describe('render-clip worker', () => {
       readFileMock.mockResolvedValue(Buffer.from('tiny-webp-bytes'));
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(extractBlurPlaceholderMock).toHaveBeenCalledWith(
         expect.stringContaining('output'),
@@ -1595,7 +1617,7 @@ describe('render-clip worker', () => {
       extractBlurPlaceholderMock.mockRejectedValue(new Error('ffmpeg exited with code 1'));
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(clipUpdateMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1618,7 +1640,7 @@ describe('render-clip worker', () => {
       extractThumbnailMock.mockResolvedValue(undefined);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       // baseJobData is startTime: 10, endTime: 20 - a 10s clip, so fractions
       // [0.1, 0.3, 0.5, 0.7, 0.9] land at [1, 3, 5, 7, 9]s into the rendered
@@ -1664,7 +1686,7 @@ describe('render-clip worker', () => {
       });
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(clipUpdateMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -1689,7 +1711,7 @@ describe('render-clip worker', () => {
       extractAnimatedPreviewMock.mockResolvedValue(undefined);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       // baseJobData is startTime: 10, endTime: 20 - midpoint is 5s into the
       // rendered (already-trimmed-to-clip-length) output.
@@ -1720,7 +1742,7 @@ describe('render-clip worker', () => {
       extractAnimatedPreviewMock.mockRejectedValue(new Error('ffmpeg exited with code 1'));
 
       const processor = getProcessor();
-      const result = await processor({ data: baseJobData });
+      const result = await processor(fakeJob(baseJobData));
 
       expect(uploadObjectMock).not.toHaveBeenCalledWith(
         'animated-thumbnails/clip-1.webp',
@@ -1744,7 +1766,7 @@ describe('render-clip worker', () => {
       extractAnimatedPreviewMock.mockResolvedValue(undefined);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       // baseJobData is startTime: 10, endTime: 20 - midpoint is 5s into the
       // rendered (already-trimmed-to-clip-length) output.
@@ -1773,7 +1795,7 @@ describe('render-clip worker', () => {
       extractAnimatedPreviewMock.mockRejectedValue(new Error('ffmpeg exited with code 1'));
 
       const processor = getProcessor();
-      const result = await processor({ data: baseJobData });
+      const result = await processor(fakeJob(baseJobData));
 
       expect(uploadObjectMock).not.toHaveBeenCalledWith(
         'hover-previews/clip-1.webp',
@@ -1797,7 +1819,7 @@ describe('render-clip worker', () => {
       buildCropPathMock.mockReturnValue(null);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(getVideoDimensionsMock).toHaveBeenCalledWith(expect.stringContaining('source'));
       expect(detectFacesMock).toHaveBeenCalledWith(
@@ -1832,7 +1854,7 @@ describe('render-clip worker', () => {
       buildCropPathMock.mockReturnValue(cropPath);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(reserveScratchPathMock).toHaveBeenCalledWith('reframe-cmds', '.txt');
       expect(buildSendCmdScriptMock).toHaveBeenCalledWith(cropPath, 'crop@reframe');
@@ -1865,7 +1887,7 @@ describe('render-clip worker', () => {
       detectFacesMock.mockRejectedValue(new Error('python3 not found'));
 
       const processor = getProcessor();
-      const result = await processor({ data: baseJobData });
+      const result = await processor(fakeJob(baseJobData));
 
       expect(renderClipMock).toHaveBeenCalledWith(
         expect.objectContaining({ reframe: expect.objectContaining({ sendCmdPath: null }) }),
@@ -1895,7 +1917,7 @@ describe('render-clip worker', () => {
       searchAssetsMock.mockResolvedValue(sunsetAsset);
 
       const processor = getProcessor();
-      await processor({ data: { ...baseJobData, keywords: ['sunset'] } });
+      await processor(fakeJob({ ...baseJobData, keywords: ['sunset'] }));
 
       expect(searchAssetsMock).toHaveBeenCalledWith('sunset');
       expect(downloadStockAssetMock).toHaveBeenCalledWith(
@@ -1944,7 +1966,7 @@ describe('render-clip worker', () => {
       searchAssetsMock.mockResolvedValue({ ...sunsetAsset, sourceName: 'unsplash', type: 'image' });
 
       const processor = getProcessor();
-      await processor({ data: { ...baseJobData, keywords: ['sunset'] } });
+      await processor(fakeJob({ ...baseJobData, keywords: ['sunset'] }));
 
       expect(reserveScratchPathMock).toHaveBeenCalledWith('broll-raw', '.jpg');
       expect(trimAndFadeInBRollMock).toHaveBeenCalledWith(
@@ -1966,7 +1988,7 @@ describe('render-clip worker', () => {
       searchAssetsMock.mockResolvedValue(null);
 
       const processor = getProcessor();
-      await processor({ data: { ...baseJobData, keywords: ['sunset'] } });
+      await processor(fakeJob({ ...baseJobData, keywords: ['sunset'] }));
 
       expect(downloadStockAssetMock).not.toHaveBeenCalled();
       expect(renderClipMock).toHaveBeenCalledWith(expect.objectContaining({ broll: [] }));
@@ -1981,7 +2003,7 @@ describe('render-clip worker', () => {
       downloadStockAssetMock.mockRejectedValue(new Error('network error'));
 
       const processor = getProcessor();
-      const result = await processor({ data: { ...baseJobData, keywords: ['sunset'] } });
+      const result = await processor(fakeJob({ ...baseJobData, keywords: ['sunset'] }));
 
       expect(renderClipMock).toHaveBeenCalledWith(expect.objectContaining({ broll: [] }));
       expect(videoUpdateMock).not.toHaveBeenCalledWith(
@@ -1999,7 +2021,7 @@ describe('render-clip worker', () => {
       detectSceneCutsMock.mockResolvedValue({ cuts: [1.5, 4.2] });
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(detectSceneCutsMock).toHaveBeenCalledWith(
         { videoPath: expect.stringContaining('source'), startTime: 10, endTime: 20 },
@@ -2144,7 +2166,7 @@ describe('render-clip worker', () => {
       detectSceneCutsMock.mockRejectedValue(new Error('ffmpeg not found'));
 
       const processor = getProcessor();
-      const result = await processor({ data: baseJobData });
+      const result = await processor(fakeJob(baseJobData));
 
       expect(clipUpdateMock).toHaveBeenCalledWith({
         where: { id: 'clip-1', outputUrl: null },
@@ -2221,7 +2243,7 @@ describe('render-clip worker', () => {
       });
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(classifySceneCutTypesMock).toHaveBeenCalledWith(
         {
@@ -2259,7 +2281,7 @@ describe('render-clip worker', () => {
       classifySceneCutTypesMock.mockRejectedValue(new Error('ffmpeg not found'));
 
       const processor = getProcessor();
-      const result = await processor({ data: baseJobData });
+      const result = await processor(fakeJob(baseJobData));
 
       expect(clipUpdateMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2294,7 +2316,7 @@ describe('render-clip worker', () => {
       });
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(analyzeMotionEnergyMock).toHaveBeenCalledWith(
         { videoPath: expect.stringContaining('source'), startTime: 10, endTime: 20 },
@@ -2332,7 +2354,7 @@ describe('render-clip worker', () => {
       analyzeMotionEnergyMock.mockRejectedValue(new Error('ffmpeg not found'));
 
       const processor = getProcessor();
-      const result = await processor({ data: baseJobData });
+      const result = await processor(fakeJob(baseJobData));
 
       expect(clipUpdateMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2363,7 +2385,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(detectCameraMotionMock).toHaveBeenCalledWith(
         { sourcePath: expect.stringContaining('source'), startTime: 10, endTime: 20 },
@@ -2403,7 +2425,7 @@ describe('render-clip worker', () => {
       detectCameraMotionMock.mockRejectedValue(new Error('python3 not found'));
 
       const processor = getProcessor();
-      const result = await processor({ data: baseJobData });
+      const result = await processor(fakeJob(baseJobData));
 
       expect(clipUpdateMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2431,7 +2453,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(detectFacialEmotionMock).toHaveBeenCalledWith(
         { sourcePath: expect.stringContaining('source'), startTime: 10, endTime: 20 },
@@ -2576,7 +2598,7 @@ describe('render-clip worker', () => {
       detectFacialEmotionMock.mockRejectedValue(new Error('python3 not found'));
 
       const processor = getProcessor();
-      const result = await processor({ data: baseJobData });
+      const result = await processor(fakeJob(baseJobData));
 
       expect(clipUpdateMock).toHaveBeenCalledWith({
         where: { id: 'clip-1', outputUrl: null },
@@ -2649,7 +2671,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(detectGesturesMock).toHaveBeenCalledWith(
         { sourcePath: expect.stringContaining('source'), startTime: 10, endTime: 20 },
@@ -2689,7 +2711,7 @@ describe('render-clip worker', () => {
       detectGesturesMock.mockRejectedValue(new Error('python3 not found'));
 
       const processor = getProcessor();
-      const result = await processor({ data: baseJobData });
+      const result = await processor(fakeJob(baseJobData));
 
       expect(clipUpdateMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2748,7 +2770,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(detectFaceLandmarksMock).toHaveBeenCalledWith(
         { sourcePath: expect.stringContaining('source'), startTime: 10, endTime: 20 },
@@ -2845,7 +2867,7 @@ describe('render-clip worker', () => {
       detectFaceLandmarksMock.mockRejectedValue(new Error('python3 not found'));
 
       const processor = getProcessor();
-      const result = await processor({ data: baseJobData });
+      const result = await processor(fakeJob(baseJobData));
 
       expect(clipUpdateMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2882,7 +2904,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(detectOcrTextMock).toHaveBeenCalledWith(
         { sourcePath: expect.stringContaining('source'), startTime: 10, endTime: 20 },
@@ -2915,7 +2937,7 @@ describe('render-clip worker', () => {
       detectOcrTextMock.mockRejectedValue(new Error('tesseract not found'));
 
       const processor = getProcessor();
-      const result = await processor({ data: baseJobData });
+      const result = await processor(fakeJob(baseJobData));
 
       expect(clipUpdateMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2954,7 +2976,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(clipUpdateMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -3014,7 +3036,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(detectObjectsMock).toHaveBeenCalledWith(
         { sourcePath: expect.stringContaining('source'), startTime: 10, endTime: 20 },
@@ -3089,7 +3111,7 @@ describe('render-clip worker', () => {
       detectObjectsMock.mockRejectedValue(new Error('python3 not found'));
 
       const processor = getProcessor();
-      const result = await processor({ data: baseJobData });
+      const result = await processor(fakeJob(baseJobData));
 
       expect(clipUpdateMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -3141,7 +3163,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       const [{ data }] = clipUpdateMock.mock.calls[0];
       const composition = data.compositionFeatures;
@@ -3197,7 +3219,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       const [{ data }] = clipUpdateMock.mock.calls[0];
       // Dead-center tracked person -> the same centeringScore=1 the face-
@@ -3224,7 +3246,7 @@ describe('render-clip worker', () => {
         ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(clipUpdateMock).toHaveBeenCalledWith({
         where: { id: 'clip-2' },
@@ -3244,7 +3266,7 @@ describe('render-clip worker', () => {
         .mockRejectedValueOnce(new Error('db unavailable'));
 
       const processor = getProcessor();
-      const result = await processor({ data: baseJobData });
+      const result = await processor(fakeJob(baseJobData));
 
       expect(videoUpdateMock).toHaveBeenCalledWith({
         where: { id: 'video-1' },
@@ -3264,7 +3286,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(notificationThreadCreateMock).toHaveBeenCalledWith({
         data: expect.objectContaining({
@@ -3298,7 +3320,7 @@ describe('render-clip worker', () => {
         .mockResolvedValueOnce([{ id: 'clip-1', highlightScore: 50 }]);
 
       const processor = getProcessor();
-      await processor({ data: baseJobData });
+      await processor(fakeJob(baseJobData));
 
       expect(notificationThreadCreateMock).toHaveBeenCalledWith({
         data: expect.objectContaining({ key: 'PIPELINE:video-1', status: 'COMPLETED' }),
@@ -3320,8 +3342,8 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({
-        data: {
+      await processor(
+        fakeJob({
           ...baseJobData,
           transcript: [
             {
@@ -3341,8 +3363,8 @@ describe('render-clip worker', () => {
               speakingRateWordsPerSecond: 3,
             },
           ],
-        },
-      });
+        }),
+      );
 
       expect(clipUpdateMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -3368,8 +3390,8 @@ describe('render-clip worker', () => {
       detectFacialEmotionMock.mockResolvedValue([{ t: 0, emotion: 'happy', score: 0.9 }]);
 
       const processor = getProcessor();
-      await processor({
-        data: {
+      await processor(
+        fakeJob({
           ...baseJobData,
           transcript: [
             {
@@ -3389,8 +3411,8 @@ describe('render-clip worker', () => {
               speakingRateWordsPerSecond: 3,
             },
           ],
-        },
-      });
+        }),
+      );
 
       expect(clipUpdateMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -3499,7 +3521,7 @@ describe('render-clip worker', () => {
       ]);
 
       const processor = getProcessor();
-      await processor({ data: { ...baseJobData, scores: FULL_LLM_SCORES } });
+      await processor(fakeJob({ ...baseJobData, scores: FULL_LLM_SCORES }));
 
       const call = clipUpdateMock.mock.calls.find(([args]) => args.data.llmFeatures !== undefined);
       expect(call).toBeDefined();
@@ -3529,7 +3551,7 @@ describe('render-clip worker', () => {
 
     const processor = getProcessor();
 
-    await expect(processor({ data: baseJobData })).rejects.toThrow('ffmpeg exploded');
+    await expect(processor(fakeJob(baseJobData))).rejects.toThrow('ffmpeg exploded');
 
     expect(videoUpdateMock).toHaveBeenCalledWith({
       where: { id: 'video-1' },
@@ -3564,7 +3586,7 @@ describe('render-clip worker', () => {
 
     const processor = getProcessor();
 
-    await expect(processor({ data: baseJobData })).rejects.toThrow('ffmpeg exploded');
+    await expect(processor(fakeJob(baseJobData))).rejects.toThrow('ffmpeg exploded');
 
     // No Video.status write and no VideoStatusEvent audit row - this video's
     // own state didn't actually change.
@@ -3598,10 +3620,76 @@ describe('render-clip worker', () => {
 
     const processor = getProcessor();
 
-    await expect(processor({ data: baseJobData })).rejects.toThrow('ffmpeg exploded');
+    await expect(processor(fakeJob(baseJobData))).rejects.toThrow('ffmpeg exploded');
 
     expect(captureExceptionMock).toHaveBeenCalledWith(error, {
       tags: { videoId: 'video-1', clipId: 'clip-1' },
+    });
+  });
+
+  describe('retry framework (RENDER_CLIP_RETRY_OPTIONS)', () => {
+    it('does not mark the video FAILED on a non-final attempt (common branch)', async () => {
+      renderClipMock.mockRejectedValue(new Error('ffmpeg exploded'));
+
+      const processor = getProcessor();
+      await expect(
+        processor(fakeJob(baseJobData, { attemptsMade: 0, opts: { attempts: 3 } })),
+      ).rejects.toThrow('ffmpeg exploded');
+
+      // Video.status stays whatever it already was (no FAILED write) so the
+      // idempotency guard above lets BullMQ's next attempt actually
+      // re-render instead of skipping it.
+      expect(videoUpdateMock).not.toHaveBeenCalled();
+      expect(publishNotificationMock).not.toHaveBeenCalled();
+    });
+
+    it('marks the video FAILED once the common branch reaches its final attempt', async () => {
+      renderClipMock.mockRejectedValue(new Error('ffmpeg exploded'));
+
+      const processor = getProcessor();
+      await expect(
+        processor(fakeJob(baseJobData, { attemptsMade: 2, opts: { attempts: 3 } })),
+      ).rejects.toThrow('ffmpeg exploded');
+
+      expect(videoUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'video-1' },
+        data: { status: VideoStatus.FAILED },
+      });
+    });
+
+    it('does not fire the top-up RENDER_FAILED notification on a non-final attempt', async () => {
+      videoFindUniqueMock.mockResolvedValue({
+        status: VideoStatus.RENDERED,
+        ownerId: 'user-1',
+        title: 'My Video',
+      });
+      renderClipMock.mockRejectedValue(new Error('ffmpeg exploded'));
+
+      const processor = getProcessor();
+      await expect(
+        processor(fakeJob(baseJobData, { attemptsMade: 0, opts: { attempts: 3 } })),
+      ).rejects.toThrow('ffmpeg exploded');
+
+      expect(notificationCreateMock).not.toHaveBeenCalled();
+      expect(publishNotificationMock).not.toHaveBeenCalled();
+    });
+
+    it('fires the top-up RENDER_FAILED notification once it reaches its final attempt', async () => {
+      videoFindUniqueMock.mockResolvedValue({
+        status: VideoStatus.RENDERED,
+        ownerId: 'user-1',
+        title: 'My Video',
+      });
+      renderClipMock.mockRejectedValue(new Error('ffmpeg exploded'));
+
+      const processor = getProcessor();
+      await expect(
+        processor(fakeJob(baseJobData, { attemptsMade: 2, opts: { attempts: 3 } })),
+      ).rejects.toThrow('ffmpeg exploded');
+
+      expect(notificationCreateMock).toHaveBeenCalledWith({
+        data: expect.objectContaining({ type: 'RENDER_FAILED' }),
+      });
     });
   });
 });

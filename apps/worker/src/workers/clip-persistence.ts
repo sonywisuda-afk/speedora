@@ -5,6 +5,7 @@ import {
   filterSegmentsForClip,
   mergeBrandKitFields,
   QueueName,
+  RENDER_CLIP_RETRY_OPTIONS,
   templateToBrandKitFields,
   type BrandKitFields,
   type ClipCandidate,
@@ -256,41 +257,45 @@ export async function enqueueRendersForCandidates(
       : null;
   await Promise.all(
     candidates.map((candidate, index) =>
-      renderClipQueue.add(QueueName.RENDER_CLIP, {
-        clipId: candidate.id,
-        videoId: candidate.videoId,
-        sourceUrl: video.sourceUrl,
-        startTime: candidate.startTime,
-        endTime: candidate.endTime,
-        transcript: candidate.transcript,
-        // Newly-created clips always start at the schema default
-        // (CaptionStyle.DEFAULT) - picking a non-default preset is a
-        // manual PATCH /clips/:id + re-render, same flow as a manual
-        // trim (see ClipsService.update/.render).
-        captionStyle: clips[index].captionStyle,
-        speakerColorCaptions: clips[index].speakerColorCaptions,
-        captionLanguage: clips[index].captionLanguage,
-        // Subtitle Presets roadmap (P3b) - clips[index].fontFamily
-        // is always null for a brand-new clip (schema default),
-        // so this is Brand-Kit-driven in practice here - written
-        // the same precedence-checking way as
-        // ClipsService.resolveFontFamily/VideosService.retry for
-        // consistency, not because it currently branches.
-        fontFamily:
-          clips[index].fontFamily ?? (clips[index].applyBrandKit ? brandKit.brandFontFamily : null),
-        // Watermark roadmap (P3c) - clips[index].watermarkEnabled
-        // is always true for a brand-new clip, same "always true,
-        // written for precedence consistency anyway" reasoning as
-        // fontFamily's own comment above.
-        watermark: clips[index].watermarkEnabled ? ownerWatermark : null,
-        // Intro roadmap (P3d) - same "always true for a
-        // brand-new clip, Brand-Kit-driven in practice" reasoning
-        // as watermark above.
-        intro: clips[index].introEnabled ? ownerIntro : null,
-        outro: clips[index].outroEnabled ? ownerOutro : null,
-        keywords: candidate.keywords,
-        scores: candidate.scores,
-      }),
+      renderClipQueue.add(
+        QueueName.RENDER_CLIP,
+        {
+          clipId: candidate.id,
+          videoId: candidate.videoId,
+          sourceUrl: video.sourceUrl,
+          startTime: candidate.startTime,
+          endTime: candidate.endTime,
+          transcript: candidate.transcript,
+          // Newly-created clips always start at the schema default
+          // (CaptionStyle.DEFAULT) - picking a non-default preset is a
+          // manual PATCH /clips/:id + re-render, same flow as a manual
+          // trim (see ClipsService.update/.render).
+          captionStyle: clips[index].captionStyle,
+          speakerColorCaptions: clips[index].speakerColorCaptions,
+          captionLanguage: clips[index].captionLanguage,
+          // Subtitle Presets roadmap (P3b) - clips[index].fontFamily
+          // is always null for a brand-new clip (schema default),
+          // so this is Brand-Kit-driven in practice here - written
+          // the same precedence-checking way as
+          // ClipsService.resolveFontFamily/VideosService.retry for
+          // consistency, not because it currently branches.
+          fontFamily:
+            clips[index].fontFamily ?? (clips[index].applyBrandKit ? brandKit.brandFontFamily : null),
+          // Watermark roadmap (P3c) - clips[index].watermarkEnabled
+          // is always true for a brand-new clip, same "always true,
+          // written for precedence consistency anyway" reasoning as
+          // fontFamily's own comment above.
+          watermark: clips[index].watermarkEnabled ? ownerWatermark : null,
+          // Intro roadmap (P3d) - same "always true for a
+          // brand-new clip, Brand-Kit-driven in practice" reasoning
+          // as watermark above.
+          intro: clips[index].introEnabled ? ownerIntro : null,
+          outro: clips[index].outroEnabled ? ownerOutro : null,
+          keywords: candidate.keywords,
+          scores: candidate.scores,
+        },
+        RENDER_CLIP_RETRY_OPTIONS,
+      ),
     ),
   );
 }

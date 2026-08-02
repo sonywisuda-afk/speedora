@@ -1,8 +1,14 @@
 import { Prisma, VideoStatus } from '@speedora/database';
-import { QueueName, TranscriptionProvider } from '@speedora/shared';
+import { DETECT_CLIPS_RETRY_OPTIONS, QueueName, TranscriptionProvider } from '@speedora/shared';
 import { Worker } from 'bullmq';
 
-jest.mock('bullmq', () => ({ Worker: jest.fn() }));
+// UnrecoverableError is left real (via requireActual) - only Worker itself
+// is mocked, same "mock the seam, leave real classes/pure functions real"
+// convention as probe-video.worker.spec.ts/import-youtube.worker.spec.ts.
+jest.mock('bullmq', () => ({
+  ...jest.requireActual('bullmq'),
+  Worker: jest.fn(),
+}));
 jest.mock('../redis', () => ({ createRedisConnection: jest.fn() }));
 
 const captureExceptionMock = jest.fn();
@@ -156,11 +162,27 @@ import {
   planTranscriptionChunks,
 } from './transcribe.worker';
 
+type FakeJob = {
+  data: { videoId: string; sourceUrl: string; provider: TranscriptionProvider };
+  attemptsMade: number;
+  opts: { attempts?: number };
+};
+
 function getProcessor() {
   createTranscribeWorker();
-  return (Worker as unknown as jest.Mock).mock.calls[0][1] as (job: {
-    data: { videoId: string; sourceUrl: string; provider: TranscriptionProvider };
-  }) => Promise<unknown>;
+  return (Worker as unknown as jest.Mock).mock.calls[0][1] as (job: FakeJob) => Promise<unknown>;
+}
+
+// Every existing (pre-retry-framework) test exercises a single-attempt job
+// (attemptsMade: 0, opts.attempts: 1) - the new retry/UnrecoverableError
+// tests below override these explicitly, same convention as
+// probe-video.worker.spec.ts/import-youtube.worker.spec.ts's own fakeJob
+// helper.
+function fakeJob(
+  data: FakeJob['data'],
+  overrides: Partial<Pick<FakeJob, 'attemptsMade' | 'opts'>> = {},
+): FakeJob {
+  return { data, attemptsMade: 0, opts: { attempts: 1 }, ...overrides };
 }
 
 describe('transcribe worker', () => {
@@ -212,13 +234,13 @@ describe('transcribe worker', () => {
     });
 
     const processor = getProcessor();
-    const result = await processor({
-      data: {
+    const result = await processor(
+      fakeJob({
         videoId: 'video-1',
         sourceUrl: 'videos/abc.mp4',
         provider: TranscriptionProvider.GROQ,
-      },
-    });
+      }),
+    );
 
     // Source is downloaded to scratch, then audio is extracted from it -
     // the video itself is never sent to Whisper (25 MB limit). A short video
@@ -285,10 +307,11 @@ describe('transcribe worker', () => {
         diarizationFeatures: Prisma.JsonNull,
       },
     });
-    expect(detectClipsQueueAdd).toHaveBeenCalledWith(QueueName.DETECT_CLIPS, {
-      videoId: 'video-1',
-      segments,
-    });
+    expect(detectClipsQueueAdd).toHaveBeenCalledWith(
+      QueueName.DETECT_CLIPS,
+      { videoId: 'video-1', segments },
+      DETECT_CLIPS_RETRY_OPTIONS,
+    );
     expect(result).toEqual({ videoId: 'video-1', segments });
   });
 
@@ -300,13 +323,13 @@ describe('transcribe worker', () => {
     });
 
     const processor = getProcessor();
-    await processor({
-      data: {
+    await processor(
+      fakeJob({
         videoId: 'video-1',
         sourceUrl: 'videos/abc.mp4',
         provider: TranscriptionProvider.GROQ,
-      },
-    });
+      }),
+    );
 
     expect(extractThumbnailMock).toHaveBeenCalledWith(
       '/scratch/transcribe-src-0.mp4',
@@ -330,13 +353,13 @@ describe('transcribe worker', () => {
     readFileMock.mockResolvedValue(Buffer.from('tiny-webp-bytes'));
 
     const processor = getProcessor();
-    await processor({
-      data: {
+    await processor(
+      fakeJob({
         videoId: 'video-1',
         sourceUrl: 'videos/abc.mp4',
         provider: TranscriptionProvider.GROQ,
-      },
-    });
+      }),
+    );
 
     expect(extractBlurPlaceholderMock).toHaveBeenCalledWith(
       '/scratch/transcribe-src-0.mp4',
@@ -363,13 +386,13 @@ describe('transcribe worker', () => {
     extractBlurPlaceholderMock.mockRejectedValueOnce(new Error('ffmpeg exited with code 1'));
 
     const processor = getProcessor();
-    await processor({
-      data: {
+    await processor(
+      fakeJob({
         videoId: 'video-1',
         sourceUrl: 'videos/abc.mp4',
         provider: TranscriptionProvider.GROQ,
-      },
-    });
+      }),
+    );
 
     expect(videoUpdateMock).toHaveBeenCalledWith({
       where: { id: 'video-1' },
@@ -387,13 +410,13 @@ describe('transcribe worker', () => {
       getMediaDurationSecondsMock.mockResolvedValue(100);
 
       const processor = getProcessor();
-      await processor({
-        data: {
+      await processor(
+        fakeJob({
           videoId: 'video-1',
           sourceUrl: 'videos/abc.mp4',
           provider: TranscriptionProvider.GROQ,
-        },
-      });
+        }),
+      );
 
       expect(extractThumbnailMock).toHaveBeenCalledWith(
         '/scratch/transcribe-src-0.mp4',
@@ -445,13 +468,13 @@ describe('transcribe worker', () => {
       });
 
       const processor = getProcessor();
-      await processor({
-        data: {
+      await processor(
+        fakeJob({
           videoId: 'video-1',
           sourceUrl: 'videos/abc.mp4',
           provider: TranscriptionProvider.GROQ,
-        },
-      });
+        }),
+      );
 
       expect(videoUpdateMock).toHaveBeenCalledWith({
         where: { id: 'video-1' },
@@ -477,13 +500,13 @@ describe('transcribe worker', () => {
       getMediaDurationSecondsMock.mockResolvedValue(100);
 
       const processor = getProcessor();
-      await processor({
-        data: {
+      await processor(
+        fakeJob({
           videoId: 'video-1',
           sourceUrl: 'videos/abc.mp4',
           provider: TranscriptionProvider.GROQ,
-        },
-      });
+        }),
+      );
 
       expect(extractAnimatedPreviewMock).toHaveBeenCalledWith(
         '/scratch/transcribe-src-0.mp4',
@@ -513,13 +536,13 @@ describe('transcribe worker', () => {
       extractAnimatedPreviewMock.mockRejectedValueOnce(new Error('ffmpeg exited with code 1'));
 
       const processor = getProcessor();
-      await processor({
-        data: {
+      await processor(
+        fakeJob({
           videoId: 'video-1',
           sourceUrl: 'videos/abc.mp4',
           provider: TranscriptionProvider.GROQ,
-        },
-      });
+        }),
+      );
 
       expect(uploadObjectMock).not.toHaveBeenCalledWith(
         'animated-thumbnails/video-1.webp',
@@ -550,13 +573,13 @@ describe('transcribe worker', () => {
       getMediaDurationSecondsMock.mockResolvedValue(100);
 
       const processor = getProcessor();
-      await processor({
-        data: {
+      await processor(
+        fakeJob({
           videoId: 'video-1',
           sourceUrl: 'videos/abc.mp4',
           provider: TranscriptionProvider.GROQ,
-        },
-      });
+        }),
+      );
 
       expect(extractAnimatedPreviewMock).toHaveBeenCalledWith(
         '/scratch/transcribe-src-0.mp4',
@@ -593,13 +616,13 @@ describe('transcribe worker', () => {
       });
 
       const processor = getProcessor();
-      await processor({
-        data: {
+      await processor(
+        fakeJob({
           videoId: 'video-1',
           sourceUrl: 'videos/abc.mp4',
           provider: TranscriptionProvider.GROQ,
-        },
-      });
+        }),
+      );
 
       expect(uploadObjectMock).not.toHaveBeenCalledWith(
         'hover-previews/video-1.webp',
@@ -629,13 +652,13 @@ describe('transcribe worker', () => {
     extractThumbnailMock.mockRejectedValueOnce(new Error('ffmpeg exited with code 1'));
 
     const processor = getProcessor();
-    const result = await processor({
-      data: {
+    const result = await processor(
+      fakeJob({
         videoId: 'video-1',
         sourceUrl: 'videos/abc.mp4',
         provider: TranscriptionProvider.GROQ,
-      },
-    });
+      }),
+    );
 
     expect(result).toEqual({
       videoId: 'video-1',
@@ -684,13 +707,13 @@ describe('transcribe worker', () => {
     });
 
     const processor = getProcessor();
-    await processor({
-      data: {
+    await processor(
+      fakeJob({
         videoId: 'video-1',
         sourceUrl: 'videos/abc.mp4',
         provider: TranscriptionProvider.GROQ,
-      },
-    });
+      }),
+    );
 
     // Reset to 0 before any work starts (so a retry never shows a stale
     // value from a previous failed attempt), 5 once the source is
@@ -719,13 +742,13 @@ describe('transcribe worker', () => {
       .mockResolvedValueOnce({ segments: [{ start: 0, end: 2, text: 'c' }], words: [] });
 
     const processor = getProcessor();
-    await processor({
-      data: {
+    await processor(
+      fakeJob({
         videoId: 'video-1',
         sourceUrl: 'videos/long.mp4',
         provider: TranscriptionProvider.GROQ,
-      },
-    });
+      }),
+    );
 
     // 3 chunks: 10 + round((i/3) * 80) for i in 1..3 -> 37, 63, 90.
     expect(videoUpdateMock).toHaveBeenCalledWith({
@@ -759,13 +782,13 @@ describe('transcribe worker', () => {
     });
 
     const processor = getProcessor();
-    await processor({
-      data: {
+    await processor(
+      fakeJob({
         videoId: 'video-1',
         sourceUrl: 'videos/abc.mp4',
         provider: TranscriptionProvider.GROQ,
-      },
-    });
+      }),
+    );
 
     expect(transcriptSegmentCreateManyMock).toHaveBeenCalledWith({
       data: [
@@ -799,13 +822,13 @@ describe('transcribe worker', () => {
     const processor = getProcessor();
 
     await expect(
-      processor({
-        data: {
+      processor(
+        fakeJob({
           videoId: 'video-1',
           sourceUrl: 'videos/abc.mp4',
           provider: TranscriptionProvider.GROQ,
-        },
-      }),
+        }),
+      ),
     ).rejects.toThrow('whisper is down');
 
     expect(videoUpdateMock).toHaveBeenCalledWith({
@@ -830,13 +853,13 @@ describe('transcribe worker', () => {
     const processor = getProcessor();
 
     await expect(
-      processor({
-        data: {
+      processor(
+        fakeJob({
           videoId: 'video-1',
           sourceUrl: 'videos/abc.mp4',
           provider: TranscriptionProvider.GROQ,
-        },
-      }),
+        }),
+      ),
     ).rejects.toThrow('whisper is down');
 
     expect(captureExceptionMock).toHaveBeenCalledWith(error, { tags: { videoId: 'video-1' } });
@@ -895,13 +918,13 @@ describe('transcribe worker', () => {
       });
 
     const processor = getProcessor();
-    await processor({
-      data: {
+    await processor(
+      fakeJob({
         videoId: 'video-1',
         sourceUrl: 'videos/long.mp4',
         provider: TranscriptionProvider.GROQ,
-      },
-    });
+      }),
+    );
 
     // One extraction per chunk, each widened by CHUNK_OVERLAP_SECONDS (15s)
     // on both sides and clamped to [0, 7000] - the first chunk has no
@@ -995,13 +1018,13 @@ describe('transcribe worker', () => {
     });
 
     const processor = getProcessor();
-    await processor({
-      data: {
+    await processor(
+      fakeJob({
         videoId: 'video-1',
         sourceUrl: 'videos/abc.mp4',
         provider: TranscriptionProvider.OPENAI,
-      },
-    });
+      }),
+    );
 
     expect(openaiTranscriptionsCreateMock).toHaveBeenCalledWith({
       file: { readStreamFor: '/scratch/transcribe-audio-10.mp3' },
@@ -1034,13 +1057,13 @@ describe('transcribe worker', () => {
     const processor = getProcessor();
 
     await expect(
-      processor({
-        data: {
+      processor(
+        fakeJob({
           videoId: 'video-1',
           sourceUrl: 'videos/abc.mp4',
           provider: TranscriptionProvider.OPENAI,
-        },
-      }),
+        }),
+      ),
     ).rejects.toThrow(
       'OPENAI_API_KEY is not configured - premium (OpenAI Whisper) transcription is unavailable',
     );
@@ -1053,17 +1076,92 @@ describe('transcribe worker', () => {
     });
   });
 
+  describe('retry framework (TRANSCRIBE_RETRY_OPTIONS)', () => {
+    it('does not mark the video FAILED on a non-final attempt of a transient (retryable) error', async () => {
+      groqTranscriptionsCreateMock.mockRejectedValue(new Error('spawn ffmpeg ENOENT'));
+
+      const processor = getProcessor();
+      await expect(
+        processor(
+          fakeJob(
+            {
+              videoId: 'video-1',
+              sourceUrl: 'videos/abc.mp4',
+              provider: TranscriptionProvider.GROQ,
+            },
+            { attemptsMade: 0, opts: { attempts: 3 } },
+          ),
+        ),
+      ).rejects.toThrow('spawn ffmpeg ENOENT');
+
+      // Video.status stays UPLOADED (no FAILED write) so the idempotency
+      // guard above lets BullMQ's next attempt actually re-transcribe
+      // instead of skipping it - progress-tracking updates (e.g.
+      // transcribeProgress) unrelated to status are unaffected.
+      expect(videoUpdateMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: VideoStatus.FAILED }) }),
+      );
+    });
+
+    it('marks the video FAILED once a transient (retryable) error reaches its final attempt', async () => {
+      groqTranscriptionsCreateMock.mockRejectedValue(new Error('spawn ffmpeg ENOENT'));
+
+      const processor = getProcessor();
+      await expect(
+        processor(
+          fakeJob(
+            {
+              videoId: 'video-1',
+              sourceUrl: 'videos/abc.mp4',
+              provider: TranscriptionProvider.GROQ,
+            },
+            { attemptsMade: 2, opts: { attempts: 3 } },
+          ),
+        ),
+      ).rejects.toThrow('spawn ffmpeg ENOENT');
+
+      expect(videoUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'video-1' },
+        data: { status: VideoStatus.FAILED },
+      });
+    });
+
+    it('marks a missing OPENAI_API_KEY FAILED immediately as an UnrecoverableError, even with attempts remaining', async () => {
+      const { UnrecoverableError } = jest.requireActual('bullmq');
+      delete process.env.OPENAI_API_KEY;
+      getObjectStreamMock.mockResolvedValue({});
+
+      const processor = getProcessor();
+      const caught: unknown = await processor(
+        fakeJob(
+          {
+            videoId: 'video-1',
+            sourceUrl: 'videos/abc.mp4',
+            provider: TranscriptionProvider.OPENAI,
+          },
+          { attemptsMade: 0, opts: { attempts: 3 } },
+        ),
+      ).catch((error: unknown) => error);
+
+      expect(caught).toBeInstanceOf(UnrecoverableError);
+      expect(videoUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'video-1' },
+        data: { status: VideoStatus.FAILED },
+      });
+    });
+  });
+
   it('skips an orphaned job for a video that was deleted while queued, without doing any work', async () => {
     videoFindUniqueMock.mockResolvedValue(null);
 
     const processor = getProcessor();
-    const result = await processor({
-      data: {
+    const result = await processor(
+      fakeJob({
         videoId: 'video-1',
         sourceUrl: 'videos/abc.mp4',
         provider: TranscriptionProvider.GROQ,
-      },
-    });
+      }),
+    );
 
     expect(result).toEqual({ videoId: 'video-1', segments: [] });
     // No Whisper call, no download, no progress/status writes, no
@@ -1078,13 +1176,13 @@ describe('transcribe worker', () => {
     videoFindUniqueMock.mockResolvedValue({ status: VideoStatus.TRANSCRIBED });
 
     const processor = getProcessor();
-    const result = await processor({
-      data: {
+    const result = await processor(
+      fakeJob({
         videoId: 'video-1',
         sourceUrl: 'videos/abc.mp4',
         provider: TranscriptionProvider.GROQ,
-      },
-    });
+      }),
+    );
 
     expect(result).toEqual({ videoId: 'video-1', segments: [] });
     expect(getObjectStreamMock).not.toHaveBeenCalled();
@@ -1114,13 +1212,13 @@ describe('transcribe worker', () => {
       assignSpeakerLabelsMock.mockReturnValue(['Speaker A', 'Speaker B']);
 
       const processor = getProcessor();
-      await processor({
-        data: {
+      await processor(
+        fakeJob({
           videoId: 'video-1',
           sourceUrl: 'videos/abc.mp4',
           provider: TranscriptionProvider.GROQ,
-        },
-      });
+        }),
+      );
 
       expect(diarizeSpeakersMock).toHaveBeenCalledWith('/scratch/diarize-audio-11.mp3');
       expect(assignSpeakerLabelsMock).toHaveBeenCalledWith(
@@ -1163,13 +1261,13 @@ describe('transcribe worker', () => {
       diarizeSpeakersMock.mockRejectedValue(new Error('HUGGINGFACE_TOKEN is not set'));
 
       const processor = getProcessor();
-      const result = await processor({
-        data: {
+      const result = await processor(
+        fakeJob({
           videoId: 'video-1',
           sourceUrl: 'videos/abc.mp4',
           provider: TranscriptionProvider.GROQ,
-        },
-      });
+        }),
+      );
 
       // assignSpeakerLabels still runs (with turns=[]) - the mock's default
       // return ([]) means every segment's speaker stays undefined, same as
@@ -1209,13 +1307,13 @@ describe('transcribe worker', () => {
       detectVocalEmotionsMock.mockResolvedValue([{ emotion: 'hap', score: 0.83 }, null]);
 
       const processor = getProcessor();
-      await processor({
-        data: {
+      await processor(
+        fakeJob({
           videoId: 'video-1',
           sourceUrl: 'videos/abc.mp4',
           provider: TranscriptionProvider.GROQ,
-        },
-      });
+        }),
+      );
 
       // Same diarize-audio-2.mp3 file diarization itself uses - no second
       // full-track extraction for emotion detection.
@@ -1256,13 +1354,13 @@ describe('transcribe worker', () => {
       detectVocalEmotionsMock.mockRejectedValue(new Error('model download failed'));
 
       const processor = getProcessor();
-      const result = await processor({
-        data: {
+      const result = await processor(
+        fakeJob({
           videoId: 'video-1',
           sourceUrl: 'videos/abc.mp4',
           provider: TranscriptionProvider.GROQ,
-        },
-      });
+        }),
+      );
 
       expect(videoUpdateMock).not.toHaveBeenCalledWith(
         expect.objectContaining({ data: { status: VideoStatus.FAILED } }),
@@ -1303,13 +1401,13 @@ describe('transcribe worker', () => {
       });
 
       const processor = getProcessor();
-      await processor({
-        data: {
+      await processor(
+        fakeJob({
           videoId: 'video-1',
           sourceUrl: 'videos/abc.mp4',
           provider: TranscriptionProvider.GROQ,
-        },
-      });
+        }),
+      );
 
       // Same diarize-audio-2.mp3 file diarization/emotion detection already
       // use - no third full-track extraction just for loudness.
@@ -1340,13 +1438,13 @@ describe('transcribe worker', () => {
       analyzeAudioLoudnessMock.mockRejectedValue(new Error('ffmpeg not found'));
 
       const processor = getProcessor();
-      const result = await processor({
-        data: {
+      const result = await processor(
+        fakeJob({
           videoId: 'video-1',
           sourceUrl: 'videos/abc.mp4',
           provider: TranscriptionProvider.GROQ,
-        },
-      });
+        }),
+      );
 
       expect(videoUpdateMock).not.toHaveBeenCalledWith(
         expect.objectContaining({ data: { status: VideoStatus.FAILED } }),

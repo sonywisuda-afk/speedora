@@ -10,7 +10,7 @@ import {
   type ProcessingOptions,
   type TranscriptSegment,
 } from '@speedora/shared';
-import { Worker, type Job } from 'bullmq';
+import { UnrecoverableError, Worker, type Job } from 'bullmq';
 import { createCandidateClips, enqueueRendersForCandidates } from './clip-persistence';
 import { withJobTimeout } from '../jobTimeout';
 import { forStage } from '../logger';
@@ -157,16 +157,41 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
 
             return { videoId, candidates };
           } catch (error) {
-            logger.error('video failed', { videoId }, error);
+            // Reliability hardening pass, same coordination as
+            // probe-video.worker.ts/transcribe.worker.ts/render-clip.worker.ts:
+            // no UnrecoverableError is thrown in this file today (the LLM
+            // call and JSON parsing happen inside @speedora/clip-scoring,
+            // out of this worker's own visibility, and zero candidates is
+            // already a valid non-error outcome, not a failure path) -
+            // every failure here defaults retryable, gated on whether this
+            // is genuinely the last BullMQ attempt.
+            const isRetryable = !(error instanceof UnrecoverableError);
+            const attemptNumber = job.attemptsMade + 1;
+            const maxAttempts = job.opts.attempts ?? 1;
+            const isFinalAttempt = !isRetryable || attemptNumber >= maxAttempts;
+
+            logger.error(
+              'video failed',
+              { videoId, attempt: attemptNumber, maxAttempts, willRetry: !isFinalAttempt },
+              error,
+            );
             // Tags only - never the transcript text or OPENAI_API_KEY.
             Sentry.captureException(error, { tags: { videoId } });
-            await updateVideoStatus(
-              prisma,
-              videoId,
-              VideoStatus.FAILED,
-              { errorMessage: error instanceof Error ? error.message : String(error) },
-              { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
-            );
+
+            // Only write the terminal FAILED status once this is genuinely
+            // the last attempt - leaving Video.status at TRANSCRIBED on a
+            // non-final attempt is what lets the idempotency guard above
+            // pass on BullMQ's next attempt instead of skipping it as
+            // "already past TRANSCRIBED".
+            if (isFinalAttempt) {
+              await updateVideoStatus(
+                prisma,
+                videoId,
+                VideoStatus.FAILED,
+                { errorMessage: error instanceof Error ? error.message : String(error) },
+                { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
+              );
+            }
             throw error;
           }
         },

@@ -1,8 +1,14 @@
 import { VideoStatus } from '@speedora/database';
-import { QueueName, type TranscriptSegment } from '@speedora/shared';
+import { QueueName, RENDER_CLIP_RETRY_OPTIONS, type TranscriptSegment } from '@speedora/shared';
 import { Worker } from 'bullmq';
 
-jest.mock('bullmq', () => ({ Worker: jest.fn() }));
+// UnrecoverableError is left real (via requireActual) - only Worker itself
+// is mocked, same "mock the seam, leave real classes/pure functions real"
+// convention as probe-video.worker.spec.ts/import-youtube.worker.spec.ts.
+jest.mock('bullmq', () => ({
+  ...jest.requireActual('bullmq'),
+  Worker: jest.fn(),
+}));
 jest.mock('../redis', () => ({ createRedisConnection: jest.fn() }));
 jest.mock('../openai', () => ({ openai: {} }));
 
@@ -102,11 +108,27 @@ jest.mock('../notificationPublisher', () => ({
 
 import { createDetectClipsWorker } from './detect-clips.worker';
 
+type FakeJob = {
+  data: { videoId: string; segments: TranscriptSegment[] };
+  attemptsMade: number;
+  opts: { attempts?: number };
+};
+
 function getProcessor() {
   createDetectClipsWorker();
-  return (Worker as unknown as jest.Mock).mock.calls[0][1] as (job: {
-    data: { videoId: string; segments: TranscriptSegment[] };
-  }) => Promise<unknown>;
+  return (Worker as unknown as jest.Mock).mock.calls[0][1] as (job: FakeJob) => Promise<unknown>;
+}
+
+// Every existing (pre-retry-framework) test exercises a single-attempt job
+// (attemptsMade: 0, opts.attempts: 1) - the new retry tests below override
+// these explicitly, same convention as
+// probe-video.worker.spec.ts/import-youtube.worker.spec.ts's own fakeJob
+// helper.
+function fakeJob(
+  data: FakeJob['data'],
+  overrides: Partial<Pick<FakeJob, 'attemptsMade' | 'opts'>> = {},
+): FakeJob {
+  return { data, attemptsMade: 0, opts: { attempts: 1 }, ...overrides };
 }
 
 const FULL_SCORES = {
@@ -173,7 +195,7 @@ describe('detect-clips worker (adapter)', () => {
     ];
 
     const processor = getProcessor();
-    await processor({ data: { videoId: 'video-1', segments } });
+    await processor(fakeJob({ videoId: 'video-1', segments }));
 
     expect(scoreClipCandidatesMock).toHaveBeenCalledWith(
       {
@@ -196,7 +218,7 @@ describe('detect-clips worker (adapter)', () => {
     const segments: TranscriptSegment[] = [{ start: 0, end: 5, text: 'hi' }];
 
     const processor = getProcessor();
-    await processor({ data: { videoId: 'video-1', segments } });
+    await processor(fakeJob({ videoId: 'video-1', segments }));
 
     expect(scoreClipCandidatesMock).toHaveBeenCalledWith(
       expect.objectContaining({ maxCandidates: 5, minClipSeconds: 15, maxClipSeconds: 45 }),
@@ -213,7 +235,7 @@ describe('detect-clips worker (adapter)', () => {
     const segments: TranscriptSegment[] = [{ start: 0, end: 5, text: 'hi' }];
 
     const processor = getProcessor();
-    await processor({ data: { videoId: 'video-1', segments } });
+    await processor(fakeJob({ videoId: 'video-1', segments }));
 
     const call = scoreClipCandidatesMock.mock.calls[0][0] as { maxCandidates: number };
     expect(Number.isFinite(call.maxCandidates)).toBe(true);
@@ -236,9 +258,7 @@ describe('detect-clips worker (adapter)', () => {
     videoFindUniqueOrThrowMock.mockResolvedValue({ id: 'video-1', sourceUrl: 'videos/abc.mp4' });
 
     const processor = getProcessor();
-    await processor({
-      data: { videoId: 'video-1', segments: [{ start: 0, end: 30, text: 'hi' }] },
-    });
+    await processor(fakeJob({ videoId: 'video-1', segments: [{ start: 0, end: 30, text: 'hi' }] }));
 
     expect(clipCreateMock).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -260,7 +280,7 @@ describe('detect-clips worker (adapter)', () => {
     videoFindUniqueOrThrowMock.mockResolvedValue({ id: 'video-1', sourceUrl: 'videos/abc.mp4' });
 
     const processor = getProcessor();
-    const result = (await processor({ data: { videoId: 'video-1', segments } })) as {
+    const result = (await processor(fakeJob({ videoId: 'video-1', segments }))) as {
       candidates: Array<{ viralityScore: number }>;
     };
 
@@ -292,7 +312,7 @@ describe('detect-clips worker (adapter)', () => {
     videoFindUniqueOrThrowMock.mockResolvedValue({ id: 'video-1', sourceUrl: 'videos/abc.mp4' });
 
     const processor = getProcessor();
-    await processor({ data: { videoId: 'video-1', segments } });
+    await processor(fakeJob({ videoId: 'video-1', segments }));
 
     expect(renderClipQueueAdd).toHaveBeenCalledWith(
       QueueName.RENDER_CLIP,
@@ -303,6 +323,7 @@ describe('detect-clips worker (adapter)', () => {
         endTime: 32,
         transcript: [{ start: 10, end: 30, text: 'inside clip' }],
       }),
+      RENDER_CLIP_RETRY_OPTIONS,
     );
   });
 
@@ -326,9 +347,7 @@ describe('detect-clips worker (adapter)', () => {
     userFindUniqueOrThrowMock.mockResolvedValue({ brandFontFamily: 'Roboto' });
 
     const processor = getProcessor();
-    await processor({
-      data: { videoId: 'video-1', segments: [{ start: 0, end: 10, text: 'hi' }] },
-    });
+    await processor(fakeJob({ videoId: 'video-1', segments: [{ start: 0, end: 10, text: 'hi' }] }));
 
     expect(workspaceFindUniqueOrThrowMock).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: 'team-ws-1' } }),
@@ -336,6 +355,7 @@ describe('detect-clips worker (adapter)', () => {
     expect(renderClipQueueAdd).toHaveBeenCalledWith(
       QueueName.RENDER_CLIP,
       expect.objectContaining({ fontFamily: 'Oswald' }),
+      RENDER_CLIP_RETRY_OPTIONS,
     );
   });
 
@@ -353,9 +373,7 @@ describe('detect-clips worker (adapter)', () => {
     videoFindUniqueOrThrowMock.mockResolvedValue({ id: 'video-1', sourceUrl: 'videos/abc.mp4' });
 
     const processor = getProcessor();
-    await processor({
-      data: { videoId: 'video-1', segments: [{ start: 0, end: 30, text: 'hi' }] },
-    });
+    await processor(fakeJob({ videoId: 'video-1', segments: [{ start: 0, end: 30, text: 'hi' }] }));
 
     expect(clipCreateMock).toHaveBeenCalledWith({
       data: expect.objectContaining({ applyBrandKit: false }),
@@ -396,9 +414,7 @@ describe('detect-clips worker (adapter)', () => {
     });
 
     const processor = getProcessor();
-    await processor({
-      data: { videoId: 'video-1', segments: [{ start: 0, end: 30, text: 'hi' }] },
-    });
+    await processor(fakeJob({ videoId: 'video-1', segments: [{ start: 0, end: 30, text: 'hi' }] }));
 
     expect(brandKitTemplateFindUniqueMock).toHaveBeenCalledWith({ where: { id: 'template-1' } });
     expect(workspaceFindUniqueOrThrowMock).not.toHaveBeenCalled();
@@ -415,6 +431,7 @@ describe('detect-clips worker (adapter)', () => {
           position: 'TOP_LEFT',
         },
       }),
+      RENDER_CLIP_RETRY_OPTIONS,
     );
   });
 
@@ -439,14 +456,13 @@ describe('detect-clips worker (adapter)', () => {
     userFindUniqueOrThrowMock.mockResolvedValue({ brandFontFamily: 'Roboto' });
 
     const processor = getProcessor();
-    await processor({
-      data: { videoId: 'video-1', segments: [{ start: 0, end: 30, text: 'hi' }] },
-    });
+    await processor(fakeJob({ videoId: 'video-1', segments: [{ start: 0, end: 30, text: 'hi' }] }));
 
     expect(userFindUniqueOrThrowMock).toHaveBeenCalled();
     expect(renderClipQueueAdd).toHaveBeenCalledWith(
       QueueName.RENDER_CLIP,
       expect.objectContaining({ fontFamily: 'Roboto' }),
+      RENDER_CLIP_RETRY_OPTIONS,
     );
   });
 
@@ -475,13 +491,12 @@ describe('detect-clips worker (adapter)', () => {
     userFindUniqueOrThrowMock.mockResolvedValue({ brandFontFamily: 'Roboto' });
 
     const processor = getProcessor();
-    await processor({
-      data: { videoId: 'video-1', segments: [{ start: 0, end: 30, text: 'hi' }] },
-    });
+    await processor(fakeJob({ videoId: 'video-1', segments: [{ start: 0, end: 30, text: 'hi' }] }));
 
     expect(renderClipQueueAdd).toHaveBeenCalledWith(
       QueueName.RENDER_CLIP,
       expect.objectContaining({ fontFamily: 'Roboto' }),
+      RENDER_CLIP_RETRY_OPTIONS,
     );
   });
 
@@ -500,7 +515,7 @@ describe('detect-clips worker (adapter)', () => {
     videoFindUniqueOrThrowMock.mockResolvedValue({ id: 'video-1', sourceUrl: 'videos/abc.mp4' });
 
     const processor = getProcessor();
-    const result = (await processor({ data: { videoId: 'video-1', segments } })) as {
+    const result = (await processor(fakeJob({ videoId: 'video-1', segments }))) as {
       candidates: Array<{ emojiSuggestions: string[] }>;
     };
 
@@ -514,9 +529,9 @@ describe('detect-clips worker (adapter)', () => {
     scoreClipCandidatesMock.mockResolvedValue({ candidates: [] });
 
     const processor = getProcessor();
-    const result = await processor({
-      data: { videoId: 'video-1', segments: [{ start: 0, end: 5, text: 'hi' }] },
-    });
+    const result = await processor(
+      fakeJob({ videoId: 'video-1', segments: [{ start: 0, end: 5, text: 'hi' }] }),
+    );
 
     expect(result).toEqual({ videoId: 'video-1', candidates: [] });
     expect(videoFindUniqueOrThrowMock).not.toHaveBeenCalled();
@@ -527,9 +542,9 @@ describe('detect-clips worker (adapter)', () => {
     videoFindUniqueMock.mockResolvedValue(null);
 
     const processor = getProcessor();
-    const result = await processor({
-      data: { videoId: 'video-1', segments: [{ start: 0, end: 5, text: 'hi' }] },
-    });
+    const result = await processor(
+      fakeJob({ videoId: 'video-1', segments: [{ start: 0, end: 5, text: 'hi' }] }),
+    );
 
     expect(result).toEqual({ videoId: 'video-1', candidates: [] });
     // No LLM call, no clip writes, no status update, no downstream enqueue -
@@ -544,9 +559,9 @@ describe('detect-clips worker (adapter)', () => {
     videoFindUniqueMock.mockResolvedValue({ status: VideoStatus.CLIPS_DETECTED });
 
     const processor = getProcessor();
-    const result = await processor({
-      data: { videoId: 'video-1', segments: [{ start: 0, end: 5, text: 'hi' }] },
-    });
+    const result = await processor(
+      fakeJob({ videoId: 'video-1', segments: [{ start: 0, end: 5, text: 'hi' }] }),
+    );
 
     expect(result).toEqual({ videoId: 'video-1', candidates: [] });
     expect(scoreClipCandidatesMock).not.toHaveBeenCalled();
@@ -561,9 +576,7 @@ describe('detect-clips worker (adapter)', () => {
     const processor = getProcessor();
 
     await expect(
-      processor({
-        data: { videoId: 'video-1', segments: [{ start: 0, end: 5, text: 'hi' }] },
-      }),
+      processor(fakeJob({ videoId: 'video-1', segments: [{ start: 0, end: 5, text: 'hi' }] })),
     ).rejects.toThrow('openai is down');
 
     expect(videoUpdateMock).toHaveBeenCalledWith({
@@ -584,11 +597,49 @@ describe('detect-clips worker (adapter)', () => {
     const processor = getProcessor();
 
     await expect(
-      processor({
-        data: { videoId: 'video-1', segments: [{ start: 0, end: 5, text: 'hi' }] },
-      }),
+      processor(fakeJob({ videoId: 'video-1', segments: [{ start: 0, end: 5, text: 'hi' }] })),
     ).rejects.toThrow('openai is down');
 
     expect(captureExceptionMock).toHaveBeenCalledWith(error, { tags: { videoId: 'video-1' } });
+  });
+
+  describe('retry framework (DETECT_CLIPS_RETRY_OPTIONS)', () => {
+    it('does not mark the video FAILED on a non-final attempt of a transient (retryable) error', async () => {
+      scoreClipCandidatesMock.mockRejectedValue(new Error('openai is down'));
+
+      const processor = getProcessor();
+      await expect(
+        processor(
+          fakeJob(
+            { videoId: 'video-1', segments: [{ start: 0, end: 5, text: 'hi' }] },
+            { attemptsMade: 0, opts: { attempts: 3 } },
+          ),
+        ),
+      ).rejects.toThrow('openai is down');
+
+      // Video.status stays TRANSCRIBED (no FAILED write) so the idempotency
+      // guard above lets BullMQ's next attempt actually re-run the LLM call
+      // instead of skipping it as "already past TRANSCRIBED".
+      expect(videoUpdateMock).not.toHaveBeenCalled();
+    });
+
+    it('marks the video FAILED once a transient (retryable) error reaches its final attempt', async () => {
+      scoreClipCandidatesMock.mockRejectedValue(new Error('openai is down'));
+
+      const processor = getProcessor();
+      await expect(
+        processor(
+          fakeJob(
+            { videoId: 'video-1', segments: [{ start: 0, end: 5, text: 'hi' }] },
+            { attemptsMade: 2, opts: { attempts: 3 } },
+          ),
+        ),
+      ).rejects.toThrow('openai is down');
+
+      expect(videoUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'video-1' },
+        data: { status: VideoStatus.FAILED },
+      });
+    });
   });
 });

@@ -61,7 +61,7 @@ import {
 import { getObjectStream, uploadObject } from '@speedora/storage';
 import { buildAss } from '@speedora/subtitles';
 import { DEFAULT_THUMBNAIL_WEIGHTS } from '@speedora/thumbnail-selection';
-import { Worker, type Job } from 'bullmq';
+import { UnrecoverableError, Worker, type Job } from 'bullmq';
 import { stockAssetService } from '../assets/stockAssetService';
 import {
   BROLL_DURATION_SECONDS,
@@ -517,48 +517,74 @@ async function buildBRollOverlays(
   outputHeight: number,
 ): Promise<{ overlays: BRollOverlay[]; finalPaths: string[] }> {
   const moments = findBRollMoments(keywords, clipRelativeWords, clipDurationSeconds);
+
+  // Reliability/performance hardening pass - each moment's search/download/
+  // fade-in/fade-out is independent of every other moment (its own
+  // uniquely-named scratch files via reserveScratchPath's randomUUID, no
+  // shared mutable state), so this runs them concurrently instead of the
+  // previous fully-serial for...of - real wall-clock savings for a clip
+  // with multiple B-roll moments, all of which previously ran before the
+  // main render pass even started. Still bounded by subprocessLimiter.ts's
+  // process-wide semaphore for the ffmpeg calls inside
+  // (trimAndFadeInBRoll/fadeOutBRoll), so this doesn't reopen the
+  // contention risk that justified concurrency: 1 elsewhere on this
+  // worker's own BullMQ queue - it only removes an artificial *extra* layer
+  // of serialization stacked on top of that shared budget. Promise.all
+  // preserves moments' original order in its results regardless of
+  // completion timing, so the returned arrays stay in the same order a
+  // fully-serial loop would have produced.
+  const results = await Promise.all(
+    moments.map(async (moment) => {
+      let rawPath: string | null = null;
+      let fadedInPath: string | null = null;
+      try {
+        const asset = await stockAssetService.searchAssets(moment.keyword);
+        if (!asset) return null;
+
+        // Extension doesn't functionally matter (trimAndFadeInBRoll forces
+        // -f image2 explicitly for the 'image' case rather than relying on
+        // it), just kept descriptive.
+        rawPath = await reserveScratchPath('broll-raw', asset.type === 'image' ? '.jpg' : '.mp4');
+        await downloadStockAsset(asset.url, rawPath);
+
+        fadedInPath = await reserveScratchPath('broll-fadein', '.mov');
+        await trimAndFadeInBRoll(
+          rawPath,
+          fadedInPath,
+          outputWidth,
+          outputHeight,
+          BROLL_DURATION_SECONDS,
+          BROLL_FADE_SECONDS,
+          asset.type,
+        );
+
+        const finalPath = await reserveScratchPath('broll-final', '.mov');
+        await fadeOutBRoll(fadedInPath, finalPath, BROLL_DURATION_SECONDS, BROLL_FADE_SECONDS);
+
+        return {
+          overlay: {
+            filePath: finalPath,
+            startTime: moment.t,
+            endTime: moment.t + BROLL_DURATION_SECONDS,
+          },
+          finalPath,
+        };
+      } catch (error) {
+        logger.warn('B-roll moment failed, skipping it', { keyword: moment.keyword }, error);
+        return null;
+      } finally {
+        if (rawPath) await cleanupTempFile(rawPath);
+        if (fadedInPath) await cleanupTempFile(fadedInPath);
+      }
+    }),
+  );
+
   const overlays: BRollOverlay[] = [];
   const finalPaths: string[] = [];
-
-  for (const moment of moments) {
-    let rawPath: string | null = null;
-    let fadedInPath: string | null = null;
-    try {
-      const asset = await stockAssetService.searchAssets(moment.keyword);
-      if (!asset) continue;
-
-      // Extension doesn't functionally matter (trimAndFadeInBRoll forces
-      // -f image2 explicitly for the 'image' case rather than relying on
-      // it), just kept descriptive.
-      rawPath = await reserveScratchPath('broll-raw', asset.type === 'image' ? '.jpg' : '.mp4');
-      await downloadStockAsset(asset.url, rawPath);
-
-      fadedInPath = await reserveScratchPath('broll-fadein', '.mov');
-      await trimAndFadeInBRoll(
-        rawPath,
-        fadedInPath,
-        outputWidth,
-        outputHeight,
-        BROLL_DURATION_SECONDS,
-        BROLL_FADE_SECONDS,
-        asset.type,
-      );
-
-      const finalPath = await reserveScratchPath('broll-final', '.mov');
-      await fadeOutBRoll(fadedInPath, finalPath, BROLL_DURATION_SECONDS, BROLL_FADE_SECONDS);
-
-      finalPaths.push(finalPath);
-      overlays.push({
-        filePath: finalPath,
-        startTime: moment.t,
-        endTime: moment.t + BROLL_DURATION_SECONDS,
-      });
-    } catch (error) {
-      logger.warn('B-roll moment failed, skipping it', { keyword: moment.keyword }, error);
-    } finally {
-      if (rawPath) await cleanupTempFile(rawPath);
-      if (fadedInPath) await cleanupTempFile(fadedInPath);
-    }
+  for (const result of results) {
+    if (!result) continue;
+    overlays.push(result.overlay);
+    finalPaths.push(result.finalPath);
   }
 
   return { overlays, finalPaths };
@@ -1402,7 +1428,23 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
 
             return { clipId, outputUrl: outputKey };
           } catch (error) {
-            logger.error('clip failed', { clipId, videoId }, error);
+            // Reliability hardening pass, same coordination as
+            // probe-video.worker.ts/transcribe.worker.ts: an
+            // UnrecoverableError is never retryable (none is thrown in this
+            // file today - every failure mode here defaults retryable,
+            // same "unknown error defaults retryable" convention
+            // import-youtube.worker.ts already uses); anything else is
+            // gated on whether this is genuinely the last BullMQ attempt.
+            const isRetryable = !(error instanceof UnrecoverableError);
+            const attemptNumber = job.attemptsMade + 1;
+            const maxAttempts = job.opts.attempts ?? 1;
+            const isFinalAttempt = !isRetryable || attemptNumber >= maxAttempts;
+
+            logger.error(
+              'clip failed',
+              { videoId, clipId, attempt: attemptNumber, maxAttempts, willRetry: !isFinalAttempt },
+              error,
+            );
             // Tags only - never the transcript text or the source video itself.
             Sentry.captureException(error, { tags: { videoId, clipId } });
             const errorMessage = error instanceof Error ? error.message : String(error);
@@ -1423,40 +1465,49 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               where: { id: videoId },
               select: { status: true, ownerId: true, title: true },
             });
-            if (currentVideo?.status === VideoStatus.RENDERED) {
-              // Reuses RENDER_FAILED so the existing generic NotificationBell
-              // action derivation (deriveActions in notifications-v2.service.ts)
-              // attaches the same "Coba Lagi" retry button, wired to the same
-              // POST /videos/:id/retry - no frontend change needed.
-              await recordNotification(
-                prisma,
-                {
-                  userId: currentVideo.ownerId,
-                  type: 'RENDER_FAILED',
-                  title: 'Klip tambahan gagal dibuat',
-                  body: currentVideo.title
-                    ? `Satu klip tambahan dari video "${currentVideo.title}" gagal diproses. Silakan coba lagi.`
-                    : 'Satu klip tambahan gagal diproses. Silakan coba lagi.',
+            // Both branches below are gated on isFinalAttempt - firing
+            // either one on a non-final attempt would prematurely show the
+            // video/clip as failed (or fire a misleading "Coba Lagi" CTA)
+            // for something BullMQ is about to retry successfully in the
+            // background, even though this worker's own idempotency guard
+            // is Clip-level (existingClip.outputUrl) and isn't itself at
+            // risk from an early write here.
+            if (isFinalAttempt) {
+              if (currentVideo?.status === VideoStatus.RENDERED) {
+                // Reuses RENDER_FAILED so the existing generic NotificationBell
+                // action derivation (deriveActions in notifications-v2.service.ts)
+                // attaches the same "Coba Lagi" retry button, wired to the same
+                // POST /videos/:id/retry - no frontend change needed.
+                await recordNotification(
+                  prisma,
+                  {
+                    userId: currentVideo.ownerId,
+                    type: 'RENDER_FAILED',
+                    title: 'Klip tambahan gagal dibuat',
+                    body: currentVideo.title
+                      ? `Satu klip tambahan dari video "${currentVideo.title}" gagal diproses. Silakan coba lagi.`
+                      : 'Satu klip tambahan gagal diproses. Silakan coba lagi.',
+                    videoId,
+                    clipId,
+                    metadata: { errorMessage },
+                  },
+                  { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
+                ).catch((notifyError) => {
+                  logger.warn(
+                    'failed to record top-up RENDER_FAILED notification',
+                    { clipId, videoId },
+                    notifyError,
+                  );
+                });
+              } else {
+                await updateVideoStatus(
+                  prisma,
                   videoId,
-                  clipId,
-                  metadata: { errorMessage },
-                },
-                { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
-              ).catch((notifyError) => {
-                logger.warn(
-                  'failed to record top-up RENDER_FAILED notification',
-                  { clipId, videoId },
-                  notifyError,
+                  VideoStatus.FAILED,
+                  { errorMessage },
+                  { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
                 );
-              });
-            } else {
-              await updateVideoStatus(
-                prisma,
-                videoId,
-                VideoStatus.FAILED,
-                { errorMessage },
-                { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
-              );
+              }
             }
             throw error;
           } finally {

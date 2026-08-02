@@ -19,6 +19,7 @@ import {
   mergeBrandKitFields,
   PUBLISH_RETRY_OPTIONS,
   QueueName,
+  RENDER_CLIP_RETRY_OPTIONS,
   sanitizeHashtags,
   SocialPlatform,
   type BrandKitFields,
@@ -792,27 +793,31 @@ export class ClipsService {
       });
     });
 
-    await this.renderClipQueue.add(QueueName.RENDER_CLIP, {
-      clipId: clip.id,
-      videoId: clip.videoId,
-      sourceUrl: clip.video.sourceUrl,
-      startTime: clip.startTime,
-      endTime: clip.endTime,
-      transcript: filterSegmentsForClip(
-        segments.map(toSharedTranscriptSegment),
-        clip.startTime,
-        clip.endTime,
-      ),
-      captionStyle: toSharedCaptionStyle(clip.captionStyle),
-      speakerColorCaptions: clip.speakerColorCaptions,
-      captionLanguage: clip.captionLanguage,
-      fontFamily,
-      watermark,
-      intro,
-      outro,
-      keywords: clip.keywords,
-      scores: toSharedClipScores(clip.scores),
-    });
+    await this.renderClipQueue.add(
+      QueueName.RENDER_CLIP,
+      {
+        clipId: clip.id,
+        videoId: clip.videoId,
+        sourceUrl: clip.video.sourceUrl,
+        startTime: clip.startTime,
+        endTime: clip.endTime,
+        transcript: filterSegmentsForClip(
+          segments.map(toSharedTranscriptSegment),
+          clip.startTime,
+          clip.endTime,
+        ),
+        captionStyle: toSharedCaptionStyle(clip.captionStyle),
+        speakerColorCaptions: clip.speakerColorCaptions,
+        captionLanguage: clip.captionLanguage,
+        fontFamily,
+        watermark,
+        intro,
+        outro,
+        keywords: clip.keywords,
+        scores: toSharedClipScores(clip.scores),
+      },
+      RENDER_CLIP_RETRY_OPTIONS,
+    );
 
     return this.toDto(cleared);
   }
