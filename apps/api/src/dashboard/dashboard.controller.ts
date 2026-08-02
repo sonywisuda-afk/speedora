@@ -40,6 +40,12 @@ export class DashboardController {
     return this.dashboardService.getActivity(user.id, parseLimit(limit, DEFAULT_ACTIVITY_LIMIT));
   }
 
+  // Phase E (Dashboard & Recent Activity) - Export Center visibility.
+  @Get('exports')
+  getExports(@CurrentUser() user: SafeUser) {
+    return this.dashboardService.getExports(user.id);
+  }
+
   @Get('export.csv')
   async exportCsv(@CurrentUser() user: SafeUser, @Res() res: Response) {
     const csv = await this.dashboardService.exportCsv(user.id);

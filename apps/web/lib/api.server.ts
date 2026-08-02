@@ -1,5 +1,10 @@
 import { cookies } from 'next/headers';
-import type { DashboardActivityDto, DashboardStatsDto, PaginatedVideos } from '@speedora/shared';
+import type {
+  DashboardActivityDto,
+  DashboardExportsDto,
+  DashboardStatsDto,
+  PaginatedVideos,
+} from '@speedora/shared';
 import { API_URL, parseJsonOrThrow, type UserDto } from './api';
 
 // Product Experience performance pass (Dashboard <1s) - Server Component-only
@@ -50,4 +55,9 @@ export async function getServerDashboardStats(): Promise<DashboardStatsDto> {
 export async function getServerDashboardActivity(): Promise<DashboardActivityDto> {
   const res = await serverApiFetch('/dashboard/activity');
   return parseJsonOrThrow<DashboardActivityDto>(res);
+}
+
+export async function getServerDashboardExports(): Promise<DashboardExportsDto> {
+  const res = await serverApiFetch('/dashboard/exports');
+  return parseJsonOrThrow<DashboardExportsDto>(res);
 }

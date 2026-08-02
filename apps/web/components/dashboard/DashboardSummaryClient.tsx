@@ -1,14 +1,20 @@
 'use client';
 
-import type { DashboardActivityDto, DashboardStatsDto } from '@speedora/shared';
+import type {
+  DashboardActivityDto,
+  DashboardExportsDto,
+  DashboardStatsDto,
+} from '@speedora/shared';
 import useSWR from 'swr';
-import { getDashboardActivity, getDashboardStats } from '@/lib/api';
+import { getDashboardActivity, getDashboardExports, getDashboardStats } from '@/lib/api';
 import { ActivityTimeline } from './ActivityTimeline';
+import { ExportActivityPanel } from './ExportActivityPanel';
 import { StatisticsRow } from './StatisticsRow';
 
 export interface DashboardSummaryClientProps {
   initialStats: DashboardStatsDto;
   initialActivity: DashboardActivityDto;
+  initialExports: DashboardExportsDto;
 }
 
 // Heavier aggregate queries than the video list, polled on a longer interval
@@ -22,6 +28,7 @@ const POLL_INTERVAL_MS = 10000;
 export function DashboardSummaryClient({
   initialStats,
   initialActivity,
+  initialExports,
 }: DashboardSummaryClientProps) {
   const { data: stats } = useSWR('dashboard-stats', getDashboardStats, {
     fallbackData: initialStats,
@@ -31,11 +38,16 @@ export function DashboardSummaryClient({
     fallbackData: initialActivity,
     refreshInterval: POLL_INTERVAL_MS,
   });
+  const { data: exports } = useSWR('dashboard-exports', getDashboardExports, {
+    fallbackData: initialExports,
+    refreshInterval: POLL_INTERVAL_MS,
+  });
 
   return (
     <>
       {stats && <StatisticsRow stats={stats} />}
       {activity && <ActivityTimeline events={activity.events} />}
+      {exports && <ExportActivityPanel exports={exports} />}
     </>
   );
 }

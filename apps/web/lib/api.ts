@@ -33,6 +33,7 @@ import type {
   CommentDto,
   CommentListDto,
   DashboardActivityDto,
+  DashboardExportsDto,
   DashboardStatsDto,
   ExportJobDto,
   ExportJobListDto,
@@ -1448,6 +1449,12 @@ export async function getDashboardStats(): Promise<DashboardStatsDto> {
 export async function getDashboardActivity(limit?: number): Promise<DashboardActivityDto> {
   const res = await apiFetch(`/dashboard/activity${toQueryString({ limit })}`);
   return parseJsonOrThrow<DashboardActivityDto>(res);
+}
+
+// Phase E (Dashboard & Recent Activity) - Export Center visibility.
+export async function getDashboardExports(): Promise<DashboardExportsDto> {
+  const res = await apiFetch('/dashboard/exports');
+  return parseJsonOrThrow<DashboardExportsDto>(res);
 }
 
 // Not fetched - used directly as an <a href>/window.location target so the

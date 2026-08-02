@@ -4,7 +4,12 @@ import { DashboardController } from './dashboard.controller';
 
 describe('DashboardController', () => {
   let controller: DashboardController;
-  let dashboardService: { getStats: jest.Mock; getActivity: jest.Mock; exportCsv: jest.Mock };
+  let dashboardService: {
+    getStats: jest.Mock;
+    getActivity: jest.Mock;
+    getExports: jest.Mock;
+    exportCsv: jest.Mock;
+  };
   const user = {
     id: 'user-1',
     email: 'a@example.com',
@@ -16,6 +21,7 @@ describe('DashboardController', () => {
     dashboardService = {
       getStats: jest.fn(),
       getActivity: jest.fn(),
+      getExports: jest.fn(),
       exportCsv: jest.fn(),
     };
     controller = new DashboardController(dashboardService as unknown as DashboardService);
@@ -49,6 +55,17 @@ describe('DashboardController', () => {
 
       expect(dashboardService.getActivity).toHaveBeenCalledWith('user-1', 50);
     });
+  });
+
+  // Phase E (Dashboard & Recent Activity) - Export Center visibility.
+  it('delegates GET exports to DashboardService.getExports with the requesting user', async () => {
+    const exports = { totalExports: 3 };
+    dashboardService.getExports.mockResolvedValue(exports);
+
+    const result = await controller.getExports(user);
+
+    expect(dashboardService.getExports).toHaveBeenCalledWith('user-1');
+    expect(result).toBe(exports);
   });
 
   describe('exportCsv', () => {
