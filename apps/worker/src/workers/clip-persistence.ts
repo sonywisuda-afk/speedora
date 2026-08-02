@@ -280,7 +280,8 @@ export async function enqueueRendersForCandidates(
           // ClipsService.resolveFontFamily/VideosService.retry for
           // consistency, not because it currently branches.
           fontFamily:
-            clips[index].fontFamily ?? (clips[index].applyBrandKit ? brandKit.brandFontFamily : null),
+            clips[index].fontFamily ??
+            (clips[index].applyBrandKit ? brandKit.brandFontFamily : null),
           // Watermark roadmap (P3c) - clips[index].watermarkEnabled
           // is always true for a brand-new clip, same "always true,
           // written for precedence consistency anyway" reasoning as

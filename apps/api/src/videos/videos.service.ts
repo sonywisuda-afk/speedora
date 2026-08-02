@@ -1148,7 +1148,8 @@ export class VideosService {
               speakerColorCaptions: clip.speakerColorCaptions,
               captionLanguage: clip.captionLanguage,
               fontFamily:
-                clip.fontFamily ?? (clip.applyBrandKit ? (brandKit?.brandFontFamily ?? null) : null),
+                clip.fontFamily ??
+                (clip.applyBrandKit ? (brandKit?.brandFontFamily ?? null) : null),
               watermark: clip.watermarkEnabled ? resolvedWatermark : null,
               intro: clip.introEnabled ? resolvedIntro : null,
               outro: clip.outroEnabled ? resolvedOutro : null,

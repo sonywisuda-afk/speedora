@@ -159,9 +159,7 @@ interface ClipRowProps {
   isBest: boolean;
   isConfirmingDelete: boolean;
   setConfirmDeleteClipId: Dispatch<SetStateAction<string | null>>;
-  setDeleteClipError: Dispatch<
-    SetStateAction<{ clipId: string; message: string } | null>
-  >;
+  setDeleteClipError: Dispatch<SetStateAction<{ clipId: string; message: string } | null>>;
   isDeletingClip: boolean;
   deleteClipErrorMessage: string | null;
   onDeleteClip: (videoId: string, clipId: string) => void;
@@ -371,9 +369,7 @@ const ClipRow = memo(function ClipRow({
       )}
 
       {clip.hookText && (
-        <p className="mt-2 font-body text-sm italic text-foreground">
-          &quot;{clip.hookText}&quot;
-        </p>
+        <p className="mt-2 font-body text-sm italic text-foreground">&quot;{clip.hookText}&quot;</p>
       )}
       {clip.hashtags.length > 0 && (
         <p className="mt-1 font-mono text-xs text-muted-foreground">
@@ -569,9 +565,10 @@ const ClipRow = memo(function ClipRow({
                       </Button>
                     </div>
                   )}
-                  {scheduleActionErrorMessage && scheduleActionErrorMessage.recordId === record.id && (
-                    <p className="text-destructive">{scheduleActionErrorMessage.message}</p>
-                  )}
+                  {scheduleActionErrorMessage &&
+                    scheduleActionErrorMessage.recordId === record.id && (
+                      <p className="text-destructive">{scheduleActionErrorMessage.message}</p>
+                    )}
                 </div>
               ) : (
                 <>
@@ -821,7 +818,10 @@ const VideoRow = memo(function VideoRow({
       {video.status === VideoStatus.FAILED && (
         <div className="mt-4 rounded-md border border-destructive bg-destructive/10 p-3">
           <div className="flex items-start gap-2">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+            <AlertTriangle
+              className="mt-0.5 h-4 w-4 shrink-0 text-destructive"
+              aria-hidden="true"
+            />
             <div>
               <p className="font-body text-sm text-foreground">Video ini gagal diproses.</p>
               {retryErrorMessage && (

@@ -18,9 +18,9 @@ jest.mock('@/lib/api', () => {
   return {
     ...actual,
     listVideos: jest.fn(),
-    listSocialAccounts: jest.fn().mockResolvedValue([
-      { id: 'account-1', platform: 'YOUTUBE', displayName: 'My Channel' },
-    ]),
+    listSocialAccounts: jest
+      .fn()
+      .mockResolvedValue([{ id: 'account-1', platform: 'YOUTUBE', displayName: 'My Channel' }]),
     listCampaigns: jest.fn().mockResolvedValue({ campaigns: [] }),
     listRecurringSchedules: jest.fn().mockResolvedValue({ recurringSchedules: [] }),
     publishClip: jest.fn(),
@@ -37,7 +37,9 @@ jest.mock('@/lib/api', () => {
 jest.mock('@/components/ProgressSteps', () => ({
   ProgressSteps: () => <div data-testid="progress-steps" />,
 }));
-jest.mock('@/components/ScoreGauge', () => ({ ScoreGauge: () => <div data-testid="score-gauge" /> }));
+jest.mock('@/components/ScoreGauge', () => ({
+  ScoreGauge: () => <div data-testid="score-gauge" />,
+}));
 jest.mock('@/components/dashboard/ShareDialog', () => ({
   ShareDialog: () => <div data-testid="share-dialog" />,
 }));
@@ -106,17 +108,13 @@ describe('DashboardClient - ClipRow memoization', () => {
   });
 
   it('renders every clip in the video with its own publish panel', async () => {
-    render(
-      <DashboardClient user={user} initialVideos={[video()]} initialNextCursor={null} />,
-    );
+    render(<DashboardClient user={user} initialVideos={[video()]} initialNextCursor={null} />);
 
     expect(await screen.findAllByTestId('platform-copy-panel')).toHaveLength(2);
   });
 
   it('does not re-render a sibling clip when typing in one clip schedule input', async () => {
-    render(
-      <DashboardClient user={user} initialVideos={[video()]} initialNextCursor={null} />,
-    );
+    render(<DashboardClient user={user} initialVideos={[video()]} initialNextCursor={null} />);
     await screen.findAllByTestId('platform-copy-panel');
     platformCopyPanelSpy.mockClear();
 

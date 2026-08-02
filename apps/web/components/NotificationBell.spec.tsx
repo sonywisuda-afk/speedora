@@ -188,9 +188,7 @@ describe('NotificationBell', () => {
 
     renderBell();
 
-    expect(
-      await screen.findByLabelText('Gagal memuat jumlah notifikasi'),
-    ).toBeInTheDocument();
+    expect(await screen.findByLabelText('Gagal memuat jumlah notifikasi')).toBeInTheDocument();
   });
 
   it('"Hapus semua" calls the bulk delete endpoint', async () => {

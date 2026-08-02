@@ -80,36 +80,31 @@ export function NotificationBell() {
     data: list,
     error: listError,
     mutate: mutateList,
-  } = useSWR(
-    'notifications-list',
-    () => getNotifications(LIST_LIMIT),
-    {
-      refreshInterval: connected ? LIST_POLL_MS_SSE : LIST_POLL_MS_ACTIVE,
-      onSuccess: (data) => {
-        if (!seeded.current) {
-          // First fetch just establishes the baseline - toasting every
-          // pre-existing unread item on page load would be a toast storm,
-          // not a notification.
-          seeded.current = true;
-          lastSeenCreatedAt.current = data.notifications[0]?.createdAt ?? null;
-          return;
+  } = useSWR('notifications-list', () => getNotifications(LIST_LIMIT), {
+    refreshInterval: connected ? LIST_POLL_MS_SSE : LIST_POLL_MS_ACTIVE,
+    onSuccess: (data) => {
+      if (!seeded.current) {
+        // First fetch just establishes the baseline - toasting every
+        // pre-existing unread item on page load would be a toast storm,
+        // not a notification.
+        seeded.current = true;
+        lastSeenCreatedAt.current = data.notifications[0]?.createdAt ?? null;
+        return;
+      }
+      const newest = data.notifications.filter(
+        (n) => !lastSeenCreatedAt.current || n.createdAt > lastSeenCreatedAt.current,
+      );
+      for (const n of newest.slice().reverse()) {
+        const toastEnabled = preferences?.preferences.find((p) => p.type === n.type)?.toast ?? true;
+        if (toastEnabled) {
+          toast({ title: n.title, description: n.body, tone: notificationTone(n.type) });
         }
-        const newest = data.notifications.filter(
-          (n) => !lastSeenCreatedAt.current || n.createdAt > lastSeenCreatedAt.current,
-        );
-        for (const n of newest.slice().reverse()) {
-          const toastEnabled =
-            preferences?.preferences.find((p) => p.type === n.type)?.toast ?? true;
-          if (toastEnabled) {
-            toast({ title: n.title, description: n.body, tone: notificationTone(n.type) });
-          }
-        }
-        if (data.notifications[0]) {
-          lastSeenCreatedAt.current = data.notifications[0].createdAt;
-        }
-      },
+      }
+      if (data.notifications[0]) {
+        lastSeenCreatedAt.current = data.notifications[0].createdAt;
+      }
     },
-  );
+  });
 
   mutateRef.current = { unread: mutateUnread, list: mutateList };
 

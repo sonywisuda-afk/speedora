@@ -1,7 +1,11 @@
 /** @jest-environment jsdom */
 import '@testing-library/jest-dom';
 import { fireEvent, render, screen } from '@testing-library/react';
-import type { DashboardActivityDto, DashboardExportsDto, DashboardStatsDto } from '@speedora/shared';
+import type {
+  DashboardActivityDto,
+  DashboardExportsDto,
+  DashboardStatsDto,
+} from '@speedora/shared';
 import { getDashboardActivity, getDashboardExports, getDashboardStats } from '@/lib/api';
 import { DashboardSummaryClient } from './DashboardSummaryClient';
 

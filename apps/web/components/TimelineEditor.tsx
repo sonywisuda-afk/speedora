@@ -502,11 +502,7 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
   // TRIM_STEP_SECONDS_LARGE - same clampStart/clampEnd + setClipRange +
   // seekTo call as the pointer path, just a fixed step instead of a
   // pointer-position delta.
-  function handleTrimKeyDown(
-    e: ReactKeyboardEvent,
-    clip: TimelineClip,
-    edge: 'start' | 'end',
-  ) {
+  function handleTrimKeyDown(e: ReactKeyboardEvent, clip: TimelineClip, edge: 'start' | 'end') {
     if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
     e.preventDefault();
     e.stopPropagation();

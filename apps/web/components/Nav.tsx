@@ -123,8 +123,7 @@ function MobileNavDrawer({
           <div className="mt-auto flex flex-col items-start gap-3 border-t border-border pt-4 font-body text-sm">
             <WorkspaceSwitcher />
             <span className="text-muted-foreground">
-              Signed in as{' '}
-              <span className="font-medium text-foreground">{user.email}</span>
+              Signed in as <span className="font-medium text-foreground">{user.email}</span>
             </span>
             <button
               onClick={() => {
