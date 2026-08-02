@@ -1,0 +1,2 @@
+-- AlterEnum
+ALTER TYPE "NotificationType" ADD VALUE 'IMPORT_FAILURE_SPIKE';

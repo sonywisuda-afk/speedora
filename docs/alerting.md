@@ -63,6 +63,37 @@ table or a background job - purely computed at request time.
 already been active for hours. Acceptable for a foundation with no external sink yet; revisit if
 alerts start being persisted or forwarded somewhere that survives a restart.
 
+## AlertRule / alert-engine (push-based, DB-persisted)
+
+A **separate, parallel mechanism** from everything above — this doc's "no background scheduler"
+scope note applies to `GET /alerts` specifically, not to this. `apps/worker/src/workers/
+alert-engine.worker.ts` polls a BullMQ repeatable trigger (`ALERT_CHECK_INTERVAL_MS`, default 30
+min) and evaluates a registered list of `AlertRule`s (`packages/database/src/alert-engine.ts`),
+each returning one or more `{ dedupeKey, breached, recipientUserIds, notification }` instances.
+`runAlertRules()` persists dedup state in a Postgres `AlertState` row (durable across worker
+restarts, unlike `alert-state.ts`'s in-memory tracker above) and calls `recordNotification()` -
+a real in-app `Notification` row, not a pull-based JSON response - exactly once per breach, deleting
+the `AlertState` row once the condition clears so a later re-breach notifies again.
+
+Registered rules today (`ALERT_RULES` in `alert-engine.worker.ts`):
+
+| Rule | Scope | Condition | `NotificationType` |
+|---|---|---|---|
+| `storage-warning` | system-wide | object storage usage over `STORAGE_QUOTA_BYTES` | `STORAGE_WARNING` |
+| `credit-warning` | per-user | unspent PAID premium-transcription credits reach 0 | `CREDIT_WARNING` |
+| `sync-failure-warning` | per-account | `SocialAccount.consecutiveSyncFailures >= SYNC_FAILURE_ALERT_THRESHOLD` (default 3) | `SYNC_FAILURE_WARNING` |
+| `video-import-crash-spike` | system-wide | rolling-window `internal`-category video-import failures `>= IMPORT_CRASH_ALERT_THRESHOLD` (default 5, window default 1h) | `IMPORT_FAILURE_SPIKE` |
+
+The last one is the Download Reliability Framework's addition - see `video-import-reliability.md`.
+It reads `readRecentInternalCrashCount()` (`packages/shared`'s `video-import-metrics.ts`, a
+Redis counter with a real `EXPIRE`-based rolling window, distinct from that module's other all-time
+counters) rather than querying Postgres for the condition itself, same "call whatever I/O the
+condition needs directly inside `evaluate()`" shape `storage-warning` already uses for
+`getBucketUsage()`.
+
+Adding a 5th rule is exactly "write the rule object, push it into `ALERT_RULES`" - no scheduler
+change, no new queue, no new plumbing (see that array's own comment).
+
 ## What this deliberately does not do
 
 - No Slack/PagerDuty/email/webhook delivery - `GET /alerts` is pull-based; something else (a cron,

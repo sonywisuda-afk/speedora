@@ -31,16 +31,22 @@ Four sections in one response:
   `readVideoImportMetrics()`: `totalImports`/`successfulImports`/`failedImports`/`successRate`,
   `retryCount`, `avgDurationMs`, `timeoutCount`, `cancellationCount`, a `failuresByCategory` breakdown
   (`network`/`extractor`/`unavailable`/`private`/`age_restricted`/`rate_limited`/`unsupported`/
-  `timeout`/`cancelled`/`storage`/`internal`), the current `engineName`/`engineVersion`/
+  `timeout`/`cancelled`/`storage`/`internal`, plus the Download Reliability Framework's
+  `disk`/`permission`/`geo_restricted`/`authentication`/`invalid_url` — see
+  `video-import-reliability.md` for what each means), the current `engineName`/`engineVersion`/
   `engineHealthStatus` (`healthy`/`stale`/`unreachable`, from the engine's `checkVersion()`), and
-  `lastSuccessfulImportAt`.
+  `lastSuccessfulImportAt`. **Download Reliability Framework** added 5 fields derived from the above
+  at read time (no new Redis keys): `retryRate`/`avgRetries` (both `retryCount / totalImports` -
+  same number under the two names the reliability requirements used),
+  `internalCrashCount`/`extractorFailureCount` (read off `failuresByCategory`), and
+  `topFailureReason` (the category with the highest count, `null` if none yet).
 
 ```json
 {
   "process": { "uptimeSeconds": 102, "memory": { "rssBytes": 220618752, "heapUsedBytes": 135794272, "heapTotalBytes": 142757888 }, "cpu": { "userMs": 12843, "systemMs": 8406 } },
   "http": { "totalRequests": 8, "byStatusClass": { "2xx": 8, "3xx": 0, "4xx": 0, "5xx": 0, "other": 0 } },
   "pipeline": { "windowHours": 24, "videosByStatus": { "RENDERED": 1 }, "videoFailures": 7, "renderJobs": { "count": 7, "avgDurationMs": 93915 }, "nodeExecutions": { "byStatus": { "FALLBACK": 35, "SUCCESS": 182 }, "failureRate": 0 } },
-  "videoImport": { "totalImports": 12, "successfulImports": 11, "failedImports": 1, "successRate": 0.9166666666666666, "retryCount": 2, "avgDurationMs": 48213, "timeoutCount": 0, "cancellationCount": 0, "failuresByCategory": { "network": 1 }, "engineName": "yt-dlp", "engineVersion": "2025.06.30", "engineHealthStatus": "healthy", "lastSuccessfulImportAt": "2026-07-26T01:15:32.209Z" }
+  "videoImport": { "totalImports": 12, "successfulImports": 11, "failedImports": 1, "successRate": 0.9166666666666666, "retryCount": 2, "avgDurationMs": 48213, "timeoutCount": 0, "cancellationCount": 0, "failuresByCategory": { "network": 1 }, "engineName": "yt-dlp", "engineVersion": "2025.06.30", "engineHealthStatus": "healthy", "lastSuccessfulImportAt": "2026-07-26T01:15:32.209Z", "retryRate": 0.16666666666666666, "avgRetries": 0.16666666666666666, "internalCrashCount": 0, "extractorFailureCount": 0, "topFailureReason": "network" }
 }
 ```
 

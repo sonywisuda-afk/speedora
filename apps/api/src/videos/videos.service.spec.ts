@@ -1,6 +1,11 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma, VideoStatus } from '@speedora/database';
-import { CaptionStyle, QueueName, TranscriptionProvider } from '@speedora/shared';
+import {
+  CaptionStyle,
+  IMPORT_YOUTUBE_RETRY_OPTIONS,
+  QueueName,
+  TranscriptionProvider,
+} from '@speedora/shared';
 import type { Queue } from 'bullmq';
 import type { PaymentsService } from '../payments/payments.service';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -355,11 +360,15 @@ describe('VideosService', () => {
         data: { videoId: 'video-1', toStatus: VideoStatus.IMPORTING, errorMessage: null },
       });
       expect(payments.getAvailability).not.toHaveBeenCalled();
-      expect(importYoutubeQueue.add).toHaveBeenCalledWith(QueueName.IMPORT_YOUTUBE, {
-        videoId: 'video-1',
-        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-        provider: TranscriptionProvider.GROQ,
-      });
+      expect(importYoutubeQueue.add).toHaveBeenCalledWith(
+        QueueName.IMPORT_YOUTUBE,
+        {
+          videoId: 'video-1',
+          url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+          provider: TranscriptionProvider.GROQ,
+        },
+        IMPORT_YOUTUBE_RETRY_OPTIONS,
+      );
       // Sprint 1-2 (Dashboard Redesign) - Activity Timeline entry. No title
       // metadata yet (unlike upload() above) - the YouTube title isn't known
       // until import-youtube.worker.ts actually runs.
@@ -419,11 +428,15 @@ describe('VideosService', () => {
       );
 
       expect(payments.consumeCredit).toHaveBeenCalledWith('user-1', 'video-1');
-      expect(importYoutubeQueue.add).toHaveBeenCalledWith(QueueName.IMPORT_YOUTUBE, {
-        videoId: 'video-1',
-        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-        provider: TranscriptionProvider.OPENAI,
-      });
+      expect(importYoutubeQueue.add).toHaveBeenCalledWith(
+        QueueName.IMPORT_YOUTUBE,
+        {
+          videoId: 'video-1',
+          url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+          provider: TranscriptionProvider.OPENAI,
+        },
+        IMPORT_YOUTUBE_RETRY_OPTIONS,
+      );
     });
 
     it('rolls back (deletes the video) when consumeCredit loses a race', async () => {
@@ -1740,11 +1753,15 @@ describe('VideosService', () => {
       expect(prisma.videoStatusEvent.create).toHaveBeenCalledWith({
         data: { videoId: 'video-1', toStatus: VideoStatus.IMPORTING, errorMessage: null },
       });
-      expect(importYoutubeQueue.add).toHaveBeenCalledWith(QueueName.IMPORT_YOUTUBE, {
-        videoId: 'video-1',
-        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-        provider: TranscriptionProvider.OPENAI,
-      });
+      expect(importYoutubeQueue.add).toHaveBeenCalledWith(
+        QueueName.IMPORT_YOUTUBE,
+        {
+          videoId: 'video-1',
+          url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+          provider: TranscriptionProvider.OPENAI,
+        },
+        IMPORT_YOUTUBE_RETRY_OPTIONS,
+      );
       expect(transcribeQueue.add).not.toHaveBeenCalled();
     });
 

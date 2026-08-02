@@ -73,6 +73,7 @@ pattern itself and its "add a new module" checklist.
 | [`docs/worker.md`](docs/worker.md) | `apps/worker` — job handlers, the full `render-clip` pipeline, Smart Reframe, captions, B-roll |
 | [`docs/worker-architecture.md`](docs/worker-architecture.md) | Flow-level companion to `worker.md`: Queue → Worker → Snapshot → Retry → Failure isolation — why the pipeline's atomic-write Snapshot pattern is what makes stage-inferred retry possible |
 | [`docs/queue.md`](docs/queue.md) | BullMQ queue design, self-chaining, retry semantics |
+| [`docs/video-import-reliability.md`](docs/video-import-reliability.md) | Download Reliability Framework — the `import-youtube` job's two-layer retry (in-process + BullMQ), health-check gate, full failure-category table, metrics/alerting additions, troubleshooting |
 | [`docs/database.md`](docs/database.md) | Prisma schema overview, `Clip`'s AI-signal columns, retry inference |
 | [`docs/prisma.md`](docs/prisma.md) | Prisma-specific conventions, `Prisma.JsonNull`, the TS2742 pitfall in detail |
 | [`docs/redis.md`](docs/redis.md) | Redis usage (BullMQ backing store, rate limiting) — never durable state |
@@ -303,6 +304,18 @@ High-level state of each major initiative (see the linked docs for what's actual
   transitively-imported modules with the same eager-module-scope-env-read shape (e.g.
   `apps/worker/src/prisma.ts`'s `createPrismaClient()` call) — their comments were updated to say so.
   All 3 Stabilization Pass Area 3/5 tech debts are now resolved.
+- **Download Reliability Framework** — an audit-and-harden pass over the `import-youtube` (yt-dlp)
+  pipeline, prompted by a real production crash (empty-stderr exit, correlated with a concurrent
+  antivirus scan) that had already been fixed at the classification level. Adds a second, BullMQ-
+  level retry layer (`IMPORT_YOUTUBE_RETRY_OPTIONS`) coordinated with the existing in-process retry
+  via `UnrecoverableError` for non-retryable categories, a cached pre-flight health-check gate, 5
+  new failure categories (`disk`/`permission`/`geo_restricted`/`authentication`/`invalid_url`), 5
+  derived reliability metrics, and a new `video-import-crash-spike` `AlertRule`. No new subsystem —
+  every addition extends an existing pattern (BullMQ `attempts`/`backoff` already used by
+  `publish-clip`, the `isFinalAttempt` gating already proven by `publish-clip.worker.ts`, the
+  `AlertRule`/`ALERT_RULES` extension point already used 3 times, the all-time Redis metrics store).
+  See `docs/video-import-reliability.md` for the full design and known verification gaps (the new
+  stderr-regex categories are unverified against real yt-dlp output in this environment).
 
 For new feature work: check whether it's an extension of an existing signal/module first (extend,
 don't rebuild — this has been an explicit recurring instruction across the AI Fusion roadmap), and

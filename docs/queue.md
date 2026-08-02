@@ -54,6 +54,17 @@ real latent bug — see `docs/ai/fusion.md`'s Fusion Engine v2.1 note on `Render
 
 Pipeline jobs (`transcribe`/`detect-clips`/`render-clip`) fail once and stop — `VideosService.retry`
 infers which stage to redo from what data already exists, not from a stored "failed at" marker
-(see `database.md`). `publish-clip` is the sole exception with automatic BullMQ retry, because
-platform API transient failures (rate limits, 5xx) are judged not to need user judgment the way a
-pipeline stage failure does.
+(see `database.md`). `publish-clip` and, since the Download Reliability Framework, `import-youtube`
+are the exceptions with automatic BullMQ retry, because their failure modes (platform API rate
+limits/5xx for publish; network blips, transient antivirus/OS interference, or a worker crash
+mid-download for import) are judged not to need user judgment the way a pipeline stage failure does.
+
+`import-youtube`'s `IMPORT_YOUTUBE_RETRY_OPTIONS` (`packages/shared/src/types/job.ts`) is
+`{ attempts: 3, backoff: { type: 'exponential', delay: 60_000 } }` — a second, outer retry layer on
+top of the engine's own in-process retry (`packages/video-import-engine/src/retry.ts`), added
+specifically because that in-process layer's state doesn't survive a worker process crash/restart.
+Only `VideoImportError.retryable` categories (`network`/`rate_limited`/`timeout`/`internal`) actually
+get retried at this layer — the worker throws BullMQ's `UnrecoverableError` for anything else, which
+skips all remaining attempts immediately regardless of `attempts`. See `video-import-reliability.md`
+for the full design (including how this coordinates with the `IMPORTING`-status idempotency guard so
+a mid-retry job doesn't get skipped as "already handled").

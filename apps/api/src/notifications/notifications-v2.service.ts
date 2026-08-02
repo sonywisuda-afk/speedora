@@ -235,6 +235,8 @@ export function mapNotificationTypeToV2(type: PrismaNotificationType): Notificat
       return SharedNotificationType.WORKSPACE_OWNERSHIP_TRANSFERRED;
     case 'GENERATE_MORE_NO_CANDIDATES':
       return SharedNotificationType.GENERATE_MORE_NO_CANDIDATES;
+    case 'IMPORT_FAILURE_SPIKE':
+      return SharedNotificationType.IMPORT_FAILURE_SPIKE;
     case 'PIPELINE_PROGRESS':
       return 'PIPELINE_PROGRESS';
     default:

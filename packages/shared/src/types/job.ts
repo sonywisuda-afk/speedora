@@ -109,6 +109,26 @@ export interface ImportYoutubeJobResult {
   sourceUrl: string;
 }
 
+// Download Reliability Framework - the outer, job-level retry layer. This is
+// deliberately separate from @speedora/video-import-engine's own in-process
+// withRetry (packages/video-import-engine/src/retry.ts, ~2 quick retries
+// within one job execution for a transient blip): this one survives a
+// worker crash/restart mid-job, which would otherwise silently lose all
+// in-process retry state and permanently fail the import (the actual gap
+// this framework closes). Coordination: import-youtube.worker.ts throws
+// bullmq's own UnrecoverableError for any VideoImportError.retryable ===
+// false, which skips these attempts entirely regardless of how many remain
+// - so this attempts/backoff pair only ever actually retries the categories
+// already listed in errors.ts's RETRYABLE_CATEGORIES (network/rate_limited/
+// timeout/internal). Same delay-type/shape as PUBLISH_RETRY_OPTIONS below,
+// just a longer base delay (60s, not 30s) - a stalled/crashed worker or a
+// rate-limit/AV-scan condition needs more real time to clear than a
+// transient social-platform API blip does.
+export const IMPORT_YOUTUBE_RETRY_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 60_000 },
+};
+
 // Quality Validation roadmap (Fase 0 design, Phase 1) - videoId is created
 // (status UPLOADED, sourceUrl already a real object-storage key) by
 // VideosService.upload()/importFromYoutube() before this is enqueued, same

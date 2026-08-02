@@ -9,6 +9,17 @@ jest.mock('@speedora/storage', () => ({
   getBucketUsage: (...args: unknown[]) => getBucketUsageMock(...args),
 }));
 
+// Download Reliability Framework - only readRecentInternalCrashCount is
+// mocked (the metricsRedis connection it reads from is itself a mocked
+// createRedisConnection() above, so the real implementation would just
+// throw on a null client) - QueueName and everything else stays real via
+// requireActual.
+const readRecentInternalCrashCountMock = jest.fn();
+jest.mock('@speedora/shared', () => ({
+  ...jest.requireActual('@speedora/shared'),
+  readRecentInternalCrashCount: (...args: unknown[]) => readRecentInternalCrashCountMock(...args),
+}));
+
 const publishNotificationMock = jest.fn();
 jest.mock('../notificationPublisher', () => ({
   publishNotification: (...args: unknown[]) => publishNotificationMock(...args),
@@ -72,6 +83,7 @@ describe('alert-engine worker', () => {
     premiumCreditFindManyMock.mockResolvedValue([]);
     userFindManyMock.mockResolvedValue([]);
     socialAccountFindManyMock.mockResolvedValue([]);
+    readRecentInternalCrashCountMock.mockResolvedValue(0);
   });
 
   afterAll(() => {
@@ -293,6 +305,70 @@ describe('alert-engine worker', () => {
     });
   });
 
+  describe('processor - video import crash spike', () => {
+    it('does not notify below the default threshold (5)', async () => {
+      readRecentInternalCrashCountMock.mockResolvedValue(4);
+
+      const processor = getProcessor();
+      await processor({});
+
+      expect(userFindManyMock).not.toHaveBeenCalled();
+      expect(notificationCreateMock).not.toHaveBeenCalled();
+    });
+
+    it('notifies every ops-role user once the rolling internal-crash count reaches the threshold', async () => {
+      readRecentInternalCrashCountMock.mockResolvedValue(5);
+      userFindManyMock.mockResolvedValue([{ id: 'admin-1' }, { id: 'ops-1' }]);
+
+      const processor = getProcessor();
+      await processor({});
+
+      expect(notificationCreateMock).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: 'admin-1', type: 'IMPORT_FAILURE_SPIKE' }),
+      });
+      expect(notificationCreateMock).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: 'ops-1', type: 'IMPORT_FAILURE_SPIKE' }),
+      });
+    });
+
+    it('re-arms once the crash rate drops back under threshold, so a later re-spike notifies again', async () => {
+      const activeDedupeKeys = new Set<string>();
+      alertStateFindUniqueMock.mockImplementation(({ where }: { where: { dedupeKey: string } }) =>
+        activeDedupeKeys.has(where.dedupeKey) ? { dedupeKey: where.dedupeKey } : null,
+      );
+      alertStateCreateMock.mockImplementation(({ data }: { data: { dedupeKey: string } }) => {
+        activeDedupeKeys.add(data.dedupeKey);
+        return {};
+      });
+      alertStateDeleteMock.mockImplementation(({ where }: { where: { dedupeKey: string } }) => {
+        activeDedupeKeys.delete(where.dedupeKey);
+        return {};
+      });
+      userFindManyMock.mockResolvedValue([{ id: 'admin-1' }]);
+
+      const processor = getProcessor();
+
+      readRecentInternalCrashCountMock.mockResolvedValue(6);
+      await processor({});
+      expect(notificationCreateMock).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: 'admin-1', type: 'IMPORT_FAILURE_SPIKE' }),
+      });
+      notificationCreateMock.mockClear();
+
+      readRecentInternalCrashCountMock.mockResolvedValue(0);
+      await processor({});
+      expect(alertStateDeleteMock).toHaveBeenCalledWith({
+        where: { dedupeKey: 'video-import-crash-spike' },
+      });
+
+      readRecentInternalCrashCountMock.mockResolvedValue(6);
+      await processor({});
+      expect(notificationCreateMock).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: 'admin-1', type: 'IMPORT_FAILURE_SPIKE' }),
+      });
+    });
+  });
+
   describe('de-dup across ticks', () => {
     it('does not re-notify on a second tick while still breached', async () => {
       process.env.STORAGE_QUOTA_BYTES = '1000';
@@ -302,10 +378,18 @@ describe('alert-engine worker', () => {
         truncated: false,
       });
       userFindManyMock.mockResolvedValue([{ id: 'admin-1' }]);
-      // First tick creates the AlertState row; simulate the second tick
-      // seeing it already exist.
-      alertStateFindUniqueMock.mockResolvedValueOnce(null).mockResolvedValueOnce({
-        dedupeKey: 'storage-warning',
+      // Keyed by dedupeKey (not call order) - every registered rule's own
+      // instance queries alertState.findUnique each tick regardless of its
+      // own breach state (see runAlertRules), so a fixed positional
+      // mockResolvedValueOnce queue would silently misattribute answers
+      // across rules once more than one rule is registered.
+      const activeDedupeKeys = new Set<string>();
+      alertStateFindUniqueMock.mockImplementation(({ where }: { where: { dedupeKey: string } }) =>
+        activeDedupeKeys.has(where.dedupeKey) ? { dedupeKey: where.dedupeKey } : null,
+      );
+      alertStateCreateMock.mockImplementation(({ data }: { data: { dedupeKey: string } }) => {
+        activeDedupeKeys.add(data.dedupeKey);
+        return {};
       });
 
       const processor = getProcessor();

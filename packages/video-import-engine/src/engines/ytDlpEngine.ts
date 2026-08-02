@@ -81,8 +81,29 @@ function categorizeExitFailure(stderr: string): ImportFailureCategory {
   if (/video (is )?unavailable|video has been removed|no longer available/i.test(stderr)) {
     return 'unavailable';
   }
-  if (/sign in to confirm|age[- ]restrict/i.test(stderr)) return 'age_restricted';
+  // Real yt-dlp uses the same "Sign in to confirm ..." prefix for two
+  // different conditions - the age gate ("...confirm your age") and its
+  // anti-bot check ("...confirm you're not a bot"). Checking the
+  // age-specific wording first keeps age_restricted correctly scoped;
+  // everything else under that prefix (plus other login-wall wording) is a
+  // distinct 'authentication' category below - not unverified against a real
+  // failing download in this environment, written from documented/expected
+  // yt-dlp wording (see this module's own docs/plan note on this).
+  if (/sign in to confirm your age|age[- ]restrict/i.test(stderr)) return 'age_restricted';
+  if (/sign in to confirm|login required|please sign in|use --cookies/i.test(stderr)) {
+    return 'authentication';
+  }
+  if (/available in your country|geo.?restrict/i.test(stderr)) return 'geo_restricted';
   if (/http error 429|rate.?limit/i.test(stderr)) return 'rate_limited';
+  // Disk/permission failures usually surface from this module's own
+  // fs.mkdir (see scratch.ts/nodeErrorClassifier.ts), not yt-dlp's stderr -
+  // these two patterns are a best-effort catch for the rarer case where
+  // yt-dlp itself hits the same OS error writing its output file.
+  if (/enospc|no space left on device/i.test(stderr)) return 'disk';
+  if (/eacces|eperm|permission denied/i.test(stderr)) return 'permission';
+  if (/is not a valid url|unsupported url|unable to extract video id/i.test(stderr)) {
+    return 'invalid_url';
+  }
   if (/http error (403|5\d\d)|unable to download|network|timed out|econnreset/i.test(stderr)) {
     return 'network';
   }

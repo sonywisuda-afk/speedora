@@ -1,4 +1,5 @@
 import {
+  readRecentInternalCrashCount,
   recordVideoImportOutcome,
   readVideoImportMetrics,
   type RedisLike,
@@ -8,11 +9,19 @@ import {
 // A minimal in-memory stand-in for ioredis/BullMQ's queue.client - exercises
 // the exact same INCR/INCRBY/HINCRBY/GET/SET/HGETALL surface RedisLike
 // declares, without a real Redis server.
-function createFakeRedis(): RedisLike {
+function createFakeRedis(): RedisLike & { expireMock: jest.Mock } {
   const strings = new Map<string, string>();
   const hashes = new Map<string, Map<string, number>>();
+  const expirations = new Map<string, number>();
+  const expireMock = jest.fn(async (key: string, seconds: number) => {
+    if (!strings.has(key)) return 0;
+    expirations.set(key, seconds);
+    return 1;
+  });
 
   return {
+    expireMock,
+    expire: expireMock,
     async incr(key) {
       const next = (Number(strings.get(key)) || 0) + 1;
       strings.set(key, String(next));
@@ -96,6 +105,11 @@ describe('video-import-metrics', () => {
       engineVersion: null,
       engineHealthStatus: null,
       lastSuccessfulImportAt: null,
+      retryRate: null,
+      avgRetries: null,
+      internalCrashCount: 0,
+      extractorFailureCount: 0,
+      topFailureReason: null,
     });
   });
 
@@ -158,5 +172,55 @@ describe('video-import-metrics', () => {
     expect(snapshot.engineName).toBe('yt-dlp');
     expect(snapshot.engineVersion).toBe('2025.06.30');
     expect(snapshot.engineHealthStatus).toBe('healthy');
+  });
+
+  it('computes retryRate/avgRetries, internal/extractor counts and the top failure reason', async () => {
+    const redis = createFakeRedis();
+
+    await recordVideoImportOutcome(redis, successEvent({ retries: 0 }));
+    await recordVideoImportOutcome(redis, failureEvent({ category: 'network', retries: 2 }));
+    await recordVideoImportOutcome(redis, failureEvent({ category: 'network', retries: 1 }));
+    await recordVideoImportOutcome(redis, failureEvent({ category: 'internal', retries: 0 }));
+    await recordVideoImportOutcome(redis, failureEvent({ category: 'extractor', retries: 0 }));
+
+    const snapshot = await readVideoImportMetrics(redis);
+
+    // 5 imports total, 3 total retries (2 + 1 + 0 + 0) -> 0.6 retries/import.
+    expect(snapshot.retryRate).toBe(0.6);
+    expect(snapshot.avgRetries).toBe(0.6);
+    expect(snapshot.internalCrashCount).toBe(1);
+    expect(snapshot.extractorFailureCount).toBe(1);
+    // network has the most failures (2) of the 3 categories seen.
+    expect(snapshot.topFailureReason).toBe('network');
+  });
+
+  it('reports null retryRate/avgRetries and a null topFailureReason with no recorded outcomes', async () => {
+    const redis = createFakeRedis();
+
+    const snapshot = await readVideoImportMetrics(redis);
+
+    expect(snapshot.retryRate).toBeNull();
+    expect(snapshot.avgRetries).toBeNull();
+    expect(snapshot.topFailureReason).toBeNull();
+  });
+
+  it('increments the rolling internal-crash window and sets its expiry only once', async () => {
+    const redis = createFakeRedis();
+
+    await recordVideoImportOutcome(redis, failureEvent({ category: 'internal' }));
+    await recordVideoImportOutcome(redis, failureEvent({ category: 'internal' }));
+    await recordVideoImportOutcome(redis, failureEvent({ category: 'network' }));
+
+    expect(await readRecentInternalCrashCount(redis)).toBe(2);
+    // EXPIRE is only meaningful (and only asserted as called) the first time
+    // the counter is created - a fixed window, not one that keeps resetting
+    // on every subsequent crash.
+    expect(redis.expireMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('reports 0 recent internal crashes when none have been recorded', async () => {
+    const redis = createFakeRedis();
+
+    expect(await readRecentInternalCrashCount(redis)).toBe(0);
   });
 });

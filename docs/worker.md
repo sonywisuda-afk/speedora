@@ -11,7 +11,7 @@ adapter pattern every AI module here follows. See `worker-architecture.md` for t
 - **`import-youtube`** — downloads via a `VideoImportEngine` abstraction (`@speedora/video-import-engine`,
   today's only implementation is `YtDlpEngine` wrapping `yt-dlp`: `spawn` with `--progress-template`
   streamed line-by-line for real progress, prefers H.264/AAC over AV1 for browser compatibility),
-  uploads to `videos/<videoId>.mp4`, self-chains `transcribe`. The interface (config-driven engine
+  uploads to `videos/<videoId>.mp4`, self-chains `probe-video`. The interface (config-driven engine
   selection via `resolveEngine()`, typed `VideoImportError` with a retry/metrics `category`,
   exponential backoff, `AbortSignal`-based cancellation wired through the adapter's own `.catch()` on
   `withJobTimeout`'s returned promise, and a `checkVersion()` health check) means a future non-YouTube
@@ -19,7 +19,11 @@ adapter pattern every AI module here follows. See `worker-architecture.md` for t
   path/timeout/retry/backoff/cookies/proxy/allowed-domains/scratch-dir/min-version are all configurable
   via env (see `.env.example`); yt-dlp itself is updated via the manual `pnpm yt-dlp:version` /
   `yt-dlp:update` / `yt-dlp:rollback` scripts (`apps/worker/src/scripts/`) as part of a Docker image
-  rebuild/redeploy, never at runtime by the worker process itself.
+  rebuild/redeploy, never at runtime by the worker process itself. **Download Reliability
+  Framework**: this is now a second job with BullMQ's own automatic retry
+  (`IMPORT_YOUTUBE_RETRY_OPTIONS`, coordinated with a health-check gate and `UnrecoverableError` for
+  non-retryable categories) — see `video-import-reliability.md` for the full design, failure-category
+  table, and troubleshooting notes.
 - **`transcribe`** — downloads source straight from object storage into Whisper (no local disk for
   this stage), writes `TranscriptSegment` rows with word-level timestamps, runs Diarization +
   Vocal Emotion + Audio Intelligence on the full audio track (see `ai/audio.md`), self-chains
@@ -48,9 +52,11 @@ adapter pattern every AI module here follows. See `worker-architecture.md` for t
 - **`render-clip`** — the biggest handler; see below. Also the re-render target for the Timeline
   Editor's explicit "Render" button (same job, same code path, not a special case).
 - **`publish-clip`** — uploads a rendered clip to the target platform (see `backend.md`'s Publish
-  Center). The only job with BullMQ's built-in retry (`attempts: 3`, exponential backoff) — every
-  other job fails once and waits for a manual retry, because a platform API's transient failures
-  are the one class of error this pipeline treats as not needing user judgment.
+  Center). One of two jobs with BullMQ's built-in retry (`attempts: 3`, exponential backoff) — the
+  other is `import-youtube` (Download Reliability Framework, see `video-import-reliability.md`).
+  Every other job fails once and waits for a manual retry, because a platform API's transient
+  failures (and, for `import-youtube`, transient network/OS/antivirus interference or a worker
+  crash) are the class of error this pipeline treats as not needing user judgment.
 - **`schedule-publish-clip`** (repeatable, 60s poll) and **`sync-publish-stats`** (repeatable, 6h)
   — see `backend.md`.
 

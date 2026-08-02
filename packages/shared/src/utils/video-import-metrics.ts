@@ -21,7 +21,15 @@ export type ImportFailureCategory =
   | 'timeout'
   | 'cancelled'
   | 'storage'
-  | 'internal';
+  | 'internal'
+  // Download Reliability Framework additions - kept in sync with
+  // @speedora/contracts's importFailureCategorySchema by hand (see this
+  // file's own header comment on why this type is mirrored, not imported).
+  | 'disk'
+  | 'permission'
+  | 'geo_restricted'
+  | 'authentication'
+  | 'invalid_url';
 
 export type EngineHealthStatus = 'healthy' | 'stale' | 'unreachable';
 
@@ -37,6 +45,10 @@ export interface RedisLike {
   get(key: string): Promise<string | null>;
   set(key: string, value: string): Promise<unknown>;
   hgetall(key: string): Promise<Record<string, string>>;
+  // Download Reliability Framework addition - both ioredis and BullMQ's own
+  // Queue.client already support this, same "structural, no new connection"
+  // reasoning as the rest of this interface.
+  expire(key: string, seconds: number): Promise<number>;
 }
 
 export interface VideoImportOutcomeEvent {
@@ -65,6 +77,13 @@ export interface VideoImportMetricsSnapshot {
   engineVersion: string | null;
   engineHealthStatus: EngineHealthStatus | null;
   lastSuccessfulImportAt: string | null;
+  // Download Reliability Framework additions - all derived from the fields
+  // above at read time, no new Redis keys needed for these four.
+  retryRate: number | null;
+  avgRetries: number | null;
+  internalCrashCount: number;
+  extractorFailureCount: number;
+  topFailureReason: ImportFailureCategory | null;
 }
 
 // No TTL on any of these - ephemeral operational state (same status as
@@ -86,7 +105,22 @@ const KEYS = {
   engineVersion: 'speedora:video-import:engine:version',
   engineHealthStatus: 'speedora:video-import:engine:healthStatus',
   lastSuccessAt: 'speedora:video-import:lastSuccessAt',
+  // Download Reliability Framework addition - the only key here with a TTL.
+  // A true fixed rolling window (EXPIRE set once, on creation, not reset on
+  // every increment) rather than an ever-extending one, so a genuine burst
+  // is what trips the alert threshold, not merely "crashes keep happening
+  // slowly forever."
+  recentInternalCrashes: 'speedora:video-import:internalCrash:recentWindow',
 } as const;
+
+// How long the recentInternalCrashes window stays open before resetting to
+// 0. Not calibrated against production data (there is none yet, same "no
+// data to calibrate against" posture as docs/alerting.md's own thresholds) -
+// 1 hour balances "an ops user learns about a crash spike within the hour"
+// against "a couple of unrelated one-off crashes hours apart don't look like
+// a spike." Exported so alert-engine.worker.ts's rule can describe the
+// window in its notification body without duplicating the number.
+export const RECENT_INTERNAL_CRASH_WINDOW_SECONDS = 60 * 60;
 
 export async function recordVideoImportOutcome(
   redis: RedisLike,
@@ -105,11 +139,22 @@ export async function recordVideoImportOutcome(
     if (event.timedOut) await redis.incr(KEYS.timeouts);
     if (event.cancelled) await redis.incr(KEYS.cancellations);
     if (event.category) await redis.hincrby(KEYS.failuresByCategory, event.category, 1);
+    if (event.category === 'internal') {
+      const count = await redis.incr(KEYS.recentInternalCrashes);
+      if (count === 1) {
+        await redis.expire(KEYS.recentInternalCrashes, RECENT_INTERNAL_CRASH_WINDOW_SECONDS);
+      }
+    }
   }
 
   await redis.set(KEYS.engineName, event.engineName);
   if (event.engineVersion) await redis.set(KEYS.engineVersion, event.engineVersion);
   await redis.set(KEYS.engineHealthStatus, event.engineHealthStatus);
+}
+
+// Read by videoImportInternalCrashSpikeRule (apps/worker's alert-engine.worker.ts).
+export async function readRecentInternalCrashCount(redis: RedisLike): Promise<number> {
+  return readInt(redis, KEYS.recentInternalCrashes);
 }
 
 async function readInt(redis: RedisLike, key: string): Promise<number> {
@@ -155,6 +200,19 @@ export async function readVideoImportMetrics(
     failuresByCategory[category as ImportFailureCategory] = Number(count);
   }
 
+  // topFailureReason: the category with the highest count, or null if there
+  // have been no categorized failures yet. Ties resolve to whichever
+  // Object.entries() visits first (Redis hash field insertion order) - not
+  // meaningful enough to break the tie more deliberately.
+  let topFailureReason: ImportFailureCategory | null = null;
+  let topFailureCount = 0;
+  for (const [category, count] of Object.entries(failuresByCategory)) {
+    if (count !== undefined && count > topFailureCount) {
+      topFailureCount = count;
+      topFailureReason = category as ImportFailureCategory;
+    }
+  }
+
   return {
     totalImports: total,
     successfulImports: success,
@@ -169,5 +227,14 @@ export async function readVideoImportMetrics(
     engineVersion: engineVersion ?? null,
     engineHealthStatus: (engineHealthStatus as EngineHealthStatus | null) ?? null,
     lastSuccessfulImportAt: lastSuccessfulImportAt ?? null,
+    // retryRate and avgRetries are deliberately the same computation
+    // (retries per import) under the two names the reliability framework's
+    // requirements used - "retry rate" and "average retry" mean the same
+    // thing here, there's no separate "attempted retry" denominator.
+    retryRate: total > 0 ? retries / total : null,
+    avgRetries: total > 0 ? retries / total : null,
+    internalCrashCount: failuresByCategory.internal ?? 0,
+    extractorFailureCount: failuresByCategory.extractor ?? 0,
+    topFailureReason,
   };
 }

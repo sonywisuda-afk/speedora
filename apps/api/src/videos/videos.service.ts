@@ -17,6 +17,7 @@ import { buildClipMetadataReport, buildVideoReportData } from '@speedora/report-
 import type { ClipMetadataOutput, TimelineEvent, VideoReportData } from '@speedora/contracts';
 import {
   filterSegmentsForClip,
+  IMPORT_YOUTUBE_RETRY_OPTIONS,
   mergeBrandKitFields,
   QueueName,
   TranscriptionProvider,
@@ -411,11 +412,11 @@ export class VideosService {
       await this.claimCreditOrRollback(ownerId, video.id);
     }
 
-    await this.importYoutubeQueue.add(QueueName.IMPORT_YOUTUBE, {
-      videoId: video.id,
-      url,
-      provider,
-    });
+    await this.importYoutubeQueue.add(
+      QueueName.IMPORT_YOUTUBE,
+      { videoId: video.id, url, provider },
+      IMPORT_YOUTUBE_RETRY_OPTIONS,
+    );
 
     // title isn't known yet at this point - import-youtube.worker.ts fetches
     // it once the yt-dlp job actually runs. See upload()'s own call for the
@@ -960,11 +961,15 @@ export class VideosService {
           enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
         },
       );
-      await this.importYoutubeQueue.add(QueueName.IMPORT_YOUTUBE, {
-        videoId: id,
-        url: video.importSourceUrl,
-        provider: toSharedTranscriptionProvider(video.transcriptionProvider),
-      });
+      await this.importYoutubeQueue.add(
+        QueueName.IMPORT_YOUTUBE,
+        {
+          videoId: id,
+          url: video.importSourceUrl,
+          provider: toSharedTranscriptionProvider(video.transcriptionProvider),
+        },
+        IMPORT_YOUTUBE_RETRY_OPTIONS,
+      );
     } else if (video.durationSeconds == null && video.width == null) {
       // Quality Validation roadmap (Fase 0 design, Phase 1) - probing never
       // completed (or failed an Error-tier check - see

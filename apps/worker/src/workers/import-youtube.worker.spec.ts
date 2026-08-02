@@ -2,7 +2,13 @@ import { VideoStatus } from '@speedora/database';
 import { QueueName, TranscriptionProvider } from '@speedora/shared';
 import { Worker } from 'bullmq';
 
-jest.mock('bullmq', () => ({ Worker: jest.fn() }));
+// UnrecoverableError is left real (via requireActual) - only Worker itself
+// is mocked, same "mock the seam, leave real classes/pure functions real"
+// convention as the video-import-engine mock below.
+jest.mock('bullmq', () => ({
+  ...jest.requireActual('bullmq'),
+  Worker: jest.fn(),
+}));
 jest.mock('../redis', () => ({ createRedisConnection: jest.fn() }));
 
 const captureExceptionMock = jest.fn();
@@ -86,11 +92,26 @@ jest.mock('../notificationPublisher', () => ({
 
 import { createImportYoutubeWorker } from './import-youtube.worker';
 
+type FakeJob = {
+  data: { videoId: string; url: string; provider: TranscriptionProvider };
+  attemptsMade: number;
+  opts: { attempts?: number };
+};
+
 function getProcessor() {
   createImportYoutubeWorker();
-  return (Worker as unknown as jest.Mock).mock.calls[0][1] as (job: {
-    data: { videoId: string; url: string; provider: TranscriptionProvider };
-  }) => Promise<unknown>;
+  return (Worker as unknown as jest.Mock).mock.calls[0][1] as (job: FakeJob) => Promise<unknown>;
+}
+
+// Every existing (pre-Download-Reliability-Framework) test exercises a
+// single-attempt job (attemptsMade: 0, opts.attempts: 1) - the retry/
+// UnrecoverableError/health-gate tests below override these explicitly to
+// exercise multi-attempt behavior.
+function fakeJob(
+  data: FakeJob['data'],
+  overrides: Partial<Pick<FakeJob, 'attemptsMade' | 'opts'>> = {},
+): FakeJob {
+  return { data, attemptsMade: 0, opts: { attempts: 1 }, ...overrides };
 }
 
 function createFakeEngine(overrides: Partial<Record<string, jest.Mock>> = {}) {
@@ -132,13 +153,13 @@ describe('import-youtube worker', () => {
 
   it('resolves an engine for the url, downloads, uploads to storage, marks UPLOADED, and enqueues probe-video on success', async () => {
     const processor = getProcessor();
-    const result = await processor({
-      data: {
+    const result = await processor(
+      fakeJob({
         videoId: 'video-1',
         url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
         provider: TranscriptionProvider.OPENAI,
-      },
-    });
+      }),
+    );
 
     expect(resolveEngineMock).toHaveBeenCalledWith(
       'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
@@ -200,13 +221,13 @@ describe('import-youtube worker', () => {
     resolveEngineMock.mockReturnValue(engine);
 
     const processor = getProcessor();
-    await processor({
-      data: {
+    await processor(
+      fakeJob({
         videoId: 'video-1',
         url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
         provider: TranscriptionProvider.GROQ,
-      },
-    });
+      }),
+    );
 
     // Rounded to the nearest integer - Video.importProgress is an Int
     // column, the engine's own percentages are fractional.
@@ -224,13 +245,13 @@ describe('import-youtube worker', () => {
     videoFindUniqueMock.mockResolvedValue(null);
 
     const processor = getProcessor();
-    const result = await processor({
-      data: {
+    const result = await processor(
+      fakeJob({
         videoId: 'video-1',
         url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
         provider: TranscriptionProvider.GROQ,
-      },
-    });
+      }),
+    );
 
     expect(result).toEqual({ videoId: 'video-1', sourceUrl: '' });
     expect(resolveEngineMock).not.toHaveBeenCalled();
@@ -243,13 +264,13 @@ describe('import-youtube worker', () => {
     videoFindUniqueMock.mockResolvedValue({ status: VideoStatus.UPLOADED });
 
     const processor = getProcessor();
-    const result = await processor({
-      data: {
+    const result = await processor(
+      fakeJob({
         videoId: 'video-1',
         url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
         provider: TranscriptionProvider.GROQ,
-      },
-    });
+      }),
+    );
 
     expect(result).toEqual({ videoId: 'video-1', sourceUrl: '' });
     expect(resolveEngineMock).not.toHaveBeenCalled();
@@ -272,13 +293,13 @@ describe('import-youtube worker', () => {
     const processor = getProcessor();
 
     await expect(
-      processor({
-        data: {
+      processor(
+        fakeJob({
           videoId: 'video-1',
           url: 'https://youtu.be/dQw4w9WgXcQ',
           provider: TranscriptionProvider.GROQ,
-        },
-      }),
+        }),
+      ),
     ).rejects.toThrow('yt-dlp exited with code 1');
 
     expect(captureExceptionMock).toHaveBeenCalledWith(error, { tags: { videoId: 'video-1' } });
@@ -300,8 +321,9 @@ describe('import-youtube worker', () => {
     );
   });
 
-  it('rejects a non-allowlisted URL before ever calling any engine method', async () => {
+  it('rejects a non-allowlisted URL before ever calling any engine method, as an UnrecoverableError so BullMQ does not retry it', async () => {
     const { VideoImportError } = jest.requireActual('@speedora/video-import-engine');
+    const { UnrecoverableError } = jest.requireActual('bullmq');
     const error = new VideoImportError('"vimeo.com" is not a supported import domain', {
       category: 'unsupported',
       engineName: 'yt-dlp',
@@ -312,17 +334,32 @@ describe('import-youtube worker', () => {
     });
 
     const processor = getProcessor();
+    // 2 attempts configured, but this category is non-retryable - the
+    // thrown error must be an UnrecoverableError so BullMQ skips the
+    // remaining attempt instead of scheduling a doomed retry.
+    let caught: unknown;
+    try {
+      await processor(
+        fakeJob(
+          {
+            videoId: 'video-1',
+            url: 'https://vimeo.com/123',
+            provider: TranscriptionProvider.GROQ,
+          },
+          { attemptsMade: 0, opts: { attempts: 2 } },
+        ),
+      );
+    } catch (thrown) {
+      caught = thrown;
+    }
 
-    await expect(
-      processor({
-        data: {
-          videoId: 'video-1',
-          url: 'https://vimeo.com/123',
-          provider: TranscriptionProvider.GROQ,
-        },
-      }),
-    ).rejects.toThrow('not a supported import domain');
-
+    expect(caught).toBeInstanceOf(UnrecoverableError);
+    expect((caught as Error).message).toContain('not a supported import domain');
+    // Still the terminal FAILED write despite 1 attempt remaining.
+    expect(videoUpdateMock).toHaveBeenCalledWith({
+      where: { id: 'video-1' },
+      data: { status: VideoStatus.FAILED },
+    });
     expect(uploadObjectMock).not.toHaveBeenCalled();
     expect(recordVideoImportOutcomeMock).toHaveBeenCalledWith(
       undefined,
@@ -351,13 +388,13 @@ describe('import-youtube worker', () => {
     jest.useFakeTimers();
     try {
       const processor = getProcessor();
-      const resultPromise = processor({
-        data: {
+      const resultPromise = processor(
+        fakeJob({
           videoId: 'video-1',
           url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
           provider: TranscriptionProvider.GROQ,
-        },
-      });
+        }),
+      );
 
       // Let the orphan/idempotency-guard queries and resolveEngine/
       // fetchMetadata microtasks resolve before advancing timers.
@@ -371,5 +408,187 @@ describe('import-youtube worker', () => {
     } finally {
       jest.useRealTimers();
     }
+  });
+
+  describe('job-level retry (Download Reliability Framework)', () => {
+    it('leaves Video.status at IMPORTING and does not notify on a non-final retryable failure, but still records metrics', async () => {
+      const { VideoImportError } = jest.requireActual('@speedora/video-import-engine');
+      const error = new VideoImportError('temporary network blip', {
+        category: 'network',
+        engineName: 'yt-dlp',
+      });
+      const engine = createFakeEngine();
+      engine.download.mockRejectedValue(error);
+      resolveEngineMock.mockReturnValue(engine);
+
+      const processor = getProcessor();
+
+      await expect(
+        processor(
+          fakeJob(
+            {
+              videoId: 'video-1',
+              url: 'https://youtu.be/dQw4w9WgXcQ',
+              provider: TranscriptionProvider.GROQ,
+            },
+            // 2 attempts remain after this one.
+            { attemptsMade: 0, opts: { attempts: 3 } },
+          ),
+        ),
+      ).rejects.toBe(error);
+
+      // No FAILED write and no RENDER_FAILED notification on a non-final
+      // attempt - Video.status stays IMPORTING so the idempotency guard
+      // passes BullMQ's next attempt instead of skipping it.
+      expect(videoUpdateMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: VideoStatus.FAILED }) }),
+      );
+      expect(publishNotificationMock).not.toHaveBeenCalled();
+      // Metrics are still recorded on every attempt, not just the final one.
+      expect(recordVideoImportOutcomeMock).toHaveBeenCalledWith(
+        undefined,
+        expect.objectContaining({ outcome: 'failure', category: 'network' }),
+      );
+    });
+
+    it('writes FAILED and notifies on the final configured attempt', async () => {
+      const { VideoImportError } = jest.requireActual('@speedora/video-import-engine');
+      const error = new VideoImportError('still failing', {
+        category: 'network',
+        engineName: 'yt-dlp',
+      });
+      const engine = createFakeEngine();
+      engine.download.mockRejectedValue(error);
+      resolveEngineMock.mockReturnValue(engine);
+
+      const processor = getProcessor();
+
+      await expect(
+        processor(
+          fakeJob(
+            {
+              videoId: 'video-1',
+              url: 'https://youtu.be/dQw4w9WgXcQ',
+              provider: TranscriptionProvider.GROQ,
+            },
+            // This is attempt 2 of 2 - the final one.
+            { attemptsMade: 1, opts: { attempts: 2 } },
+          ),
+        ),
+      ).rejects.toBe(error);
+
+      expect(videoUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'video-1' },
+        data: { status: VideoStatus.FAILED },
+      });
+      expect(publishNotificationMock).toHaveBeenCalledWith(
+        expect.objectContaining({ type: 'RENDER_FAILED' }),
+      );
+    });
+  });
+
+  describe('health-check gate (Download Reliability Framework)', () => {
+    afterEach(() => {
+      jest.useRealTimers();
+    });
+
+    it('defers the job with a retryable internal error when the cached engine health is unreachable, without calling fetchMetadata or download', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(2031, 0, 1));
+
+      const engine = createFakeEngine({
+        checkVersion: jest
+          .fn()
+          .mockResolvedValue({ engineName: 'yt-dlp', engineVersion: null, status: 'unreachable' }),
+      });
+      resolveEngineMock.mockReturnValue(engine);
+
+      const processor = getProcessor();
+
+      await expect(
+        processor(
+          fakeJob(
+            {
+              videoId: 'video-1',
+              url: 'https://youtu.be/dQw4w9WgXcQ',
+              provider: TranscriptionProvider.GROQ,
+            },
+            { attemptsMade: 0, opts: { attempts: 3 } },
+          ),
+        ),
+      ).rejects.toMatchObject({ category: 'internal', retryable: true });
+
+      expect(engine.fetchMetadata).not.toHaveBeenCalled();
+      expect(engine.download).not.toHaveBeenCalled();
+      expect(videoUpdateMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ status: VideoStatus.FAILED }) }),
+      );
+    });
+
+    it('reuses the cached health check across two jobs within the TTL (no extra preflight subprocess call)', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(2032, 0, 1));
+
+      const engine = createFakeEngine();
+      resolveEngineMock.mockReturnValue(engine);
+      const processor = getProcessor();
+
+      await processor(
+        fakeJob({
+          videoId: 'video-1',
+          url: 'https://youtu.be/dQw4w9WgXcQ',
+          provider: TranscriptionProvider.GROQ,
+        }),
+      );
+
+      // job1 called checkVersion twice: once for the preflight gate (cache
+      // miss) and once for the always-uncached post-download health read.
+      // Clear the count and run a second job well within the 5-minute TTL -
+      // only the post-download call should happen again.
+      engine.checkVersion.mockClear();
+      jest.setSystemTime(new Date(2032, 0, 1, 0, 1)); // +1 minute
+
+      await processor(
+        fakeJob({
+          videoId: 'video-2',
+          url: 'https://youtu.be/dQw4w9WgXcQ',
+          provider: TranscriptionProvider.GROQ,
+        }),
+      );
+
+      expect(engine.checkVersion).toHaveBeenCalledTimes(1);
+    });
+
+    it('re-checks health after the TTL expires', async () => {
+      jest.useFakeTimers();
+      jest.setSystemTime(new Date(2033, 0, 1));
+
+      const engine = createFakeEngine();
+      resolveEngineMock.mockReturnValue(engine);
+      const processor = getProcessor();
+
+      await processor(
+        fakeJob({
+          videoId: 'video-1',
+          url: 'https://youtu.be/dQw4w9WgXcQ',
+          provider: TranscriptionProvider.GROQ,
+        }),
+      );
+
+      engine.checkVersion.mockClear();
+      jest.setSystemTime(new Date(2033, 0, 1, 0, 6)); // +6 minutes, past the 5-minute TTL
+
+      await processor(
+        fakeJob({
+          videoId: 'video-2',
+          url: 'https://youtu.be/dQw4w9WgXcQ',
+          provider: TranscriptionProvider.GROQ,
+        }),
+      );
+
+      // Both the preflight gate (cache expired) and the post-download read
+      // call checkVersion this time.
+      expect(engine.checkVersion).toHaveBeenCalledTimes(2);
+    });
   });
 });

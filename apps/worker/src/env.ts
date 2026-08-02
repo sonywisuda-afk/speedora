@@ -68,6 +68,13 @@
 // warning), VIDEO_IMPORT_MAX_FILE_SIZE_BYTES (unset - no cap), and
 // VIDEO_IMPORT_KILL_GRACE_MS (5000, SIGTERM-to-SIGKILL grace period on
 // timeout/cancellation). See packages/video-import-engine/src/config.ts.
+//
+// Download Reliability Framework additions, same optional-at-boot treatment,
+// read directly (not via loadVideoImportEngineConfig, since these are
+// adapter-level - caching/alerting - not engine config): VIDEO_IMPORT_
+// HEALTH_CACHE_TTL_MS (5 min, import-youtube.worker.ts's pre-flight health-
+// check cache) and IMPORT_CRASH_ALERT_THRESHOLD (5, alert-engine.worker.ts's
+// video-import-crash-spike rule). See docs/video-import-reliability.md.
 const REQUIRED_ENV_VARS = [
   'DATABASE_URL',
   'REDIS_URL',
