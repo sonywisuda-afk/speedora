@@ -166,6 +166,33 @@ describe('NotificationBell', () => {
     expect(mockMarkNotificationRead).not.toHaveBeenCalled();
   });
 
+  it('shows a retry error state instead of a false empty state when the list fetch fails', async () => {
+    mockGetNotifications.mockRejectedValue(new Error('network error'));
+
+    renderBell();
+    fireEvent.click(screen.getByRole('button', { name: 'Notifikasi' }));
+
+    expect(await screen.findByText('Gagal memuat notifikasi.')).toBeInTheDocument();
+    expect(screen.queryByText('Belum ada notifikasi.')).not.toBeInTheDocument();
+
+    mockGetNotifications.mockResolvedValue({
+      notifications: [notification({ id: 'notif-1', title: 'Upload selesai' })],
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Coba Lagi' }));
+
+    expect(await screen.findByText('Upload selesai')).toBeInTheDocument();
+  });
+
+  it('shows an error indicator instead of a stale badge when the unread-count fetch fails', async () => {
+    mockGetUnreadNotificationCount.mockRejectedValue(new Error('network error'));
+
+    renderBell();
+
+    expect(
+      await screen.findByLabelText('Gagal memuat jumlah notifikasi'),
+    ).toBeInTheDocument();
+  });
+
   it('"Hapus semua" calls the bulk delete endpoint', async () => {
     mockGetNotifications.mockResolvedValue({
       notifications: [notification({ id: 'notif-1', readAt: null })],
