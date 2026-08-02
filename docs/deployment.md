@@ -92,6 +92,15 @@ ORACLE_WEB_API_HOST=<web-api instance's private IP> \
   docker compose -f docker-compose.oracle-worker.yml up --build
 ```
 
+### Rollback
+
+To roll back the whole hybrid split to the original single-host `docker-compose.prod.yml`: stop
+every `docker-compose.oracle-*.yml` stack currently running (`docker compose -f <file> down` on
+each instance), then bring up `docker-compose.prod.yml` on one host pointed at the same Postgres
+volume/data (or a restored backup - see `backup-restore.md`). Nothing about the application code or
+database schema differs between the two topologies; this is purely which compose file(s) are
+running where.
+
 ### Selective queue startup (`WORKER_QUEUES`)
 
 `apps/worker/src/main.ts` starts all 16 BullMQ queues in one process by default — identical
@@ -145,6 +154,63 @@ ORACLE_WEB_API_HOST=<web-api instance's private IP> \
 
 Same prerequisites as Fase 2 (real `POSTGRES_PASSWORD`/`REDIS_PASSWORD`, `ORACLE_WEB_API_HOST`, the
 web-api instance's firewall allowing each instance's IP) apply to all three.
+
+**Do not run `docker-compose.oracle-worker.yml` (Fase 2's un-split option) at the same time as the
+three specialized files above, on any host.** Nothing prevents it technically - BullMQ handles
+multiple consumers per queue fine, no data corruption results - but every queue the un-split
+worker also covers would silently get a second, competing consumer, doubling effective concurrency
+and defeating Fase 3's actual goal (`render-clip` never sharing a host with anything else). Pick
+one topology or the other.
+
+### Rollback
+
+Fase 3 is additive - `docker-compose.oracle-worker.yml` (Fase 2's un-split, all-16-queues-in-one-VM
+option) was not modified or removed by it and remains a fully valid deployment on its own. To roll
+back from three specialized worker VMs to one:
+
+1. Stop all three: `docker compose -f docker-compose.oracle-worker-light.yml down` (repeat for
+   `-ai`/`-render`). In-flight jobs are safe either way - BullMQ jobs live in Redis, not in any one
+   worker process, so stopping a consumer just leaves its jobs `waiting` until something else picks
+   them up.
+2. Bring up the un-split worker instead: `ORACLE_WEB_API_HOST=<...> docker compose -f
+   docker-compose.oracle-worker.yml up --build` on a single instance.
+3. Nothing on the web-api side (`docker-compose.oracle-web-api.yml`) or in `apps/api`/`apps/web`
+   needs to change - the split is entirely a worker-side deployment topology decision; producers
+   enqueue by queue *name*, never by which compose file/host happens to be consuming it.
+
+Rolling back further, from the whole Fase 1-3 hybrid to the original single-host
+`docker-compose.prod.yml`, is Fase 1-2's own "Rollback" procedure above (stop every
+`docker-compose.oracle-*.yml` stack, bring up `docker-compose.prod.yml` against the same
+Postgres/Redis data) - Fase 3 doesn't change that story, it only adds more worker-side stacks that
+need stopping first.
+
+### Troubleshooting
+
+- **A specialized worker isn't processing the jobs I'd expect it to.** Check `GET /workers/health`
+  (`monitoring.md`) - the `queues` array for that `worker` entry is exactly what
+  `apps/worker/src/env.ts`'s `validateEnv()` accepted from `WORKER_QUEUES` at boot. If a queue you
+  expected is missing from every entry, check the three compose files' hardcoded `WORKER_QUEUES`
+  values (`docs/deployment.md`'s table above) - a queue not listed in any of the three
+  won't be consumed by anything.
+- **`GET /workers/health` returns an empty array, or a worker's entry never appears.** The
+  heartbeat is written by `apps/worker/src/workerHeartbeat.ts` on boot and every
+  `WORKER_HEARTBEAT_INTERVAL_MS` (default 15s) after that, with a `WORKER_HEARTBEAT_TTL_SECONDS`
+  (default 45s) expiry - a worker that never successfully started (check its logs for
+  `"worker failed to start"`, or a `validateEnv()` error naming a bad `WORKER_QUEUES`/
+  `WORKER_HEARTBEAT_*` value) never gets to write one.
+- **A worker's entry lingers in `GET /workers/health` after I know I stopped it.** Expected for up
+  to `WORKER_HEARTBEAT_TTL_SECONDS` if it was killed ungracefully (`docker kill`, OOM, host loss) -
+  a graceful stop (`docker compose stop`/`down`, SIGTERM) deletes the key immediately instead of
+  waiting out the TTL. If it's an *ungraceful* kill during startup specifically (before the worker
+  finished creating every job handler), the heartbeat may never have started at all - see
+  `main.ts`'s comment on why it's started only after every trigger/worker is created successfully.
+- **Two entries appear in `GET /workers/health` for what should be one VM.** Almost always means
+  `WORKER_ID` collided - two processes sharing the same `WORKER_ID` (e.g. the same compose file run
+  as two replicas without overriding it) overwrite each other's heartbeat key, and whichever wrote
+  most recently "wins" the single entry, understating the true `jobsActive`/`jobsWaiting`. Set a
+  distinct `WORKER_ID` per replica.
+- **`docker compose config` fails with `ORACLE_WEB_API_HOST` unset.** Expected and intentional -
+  see that file's own top comment; this is the "fail loudly before boot" guard, not a bug.
 
 ### Queue Metrics
 

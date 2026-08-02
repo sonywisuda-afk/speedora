@@ -92,7 +92,8 @@ async function main() {
   const { parseWorkerQueues, isQueueEnabled, resolveEffectiveQueues } =
     await import('./workerQueueSelection');
   const { createRedisConnection } = await import('./redis');
-  const { startWorkerHeartbeat, resolveWorkerId } = await import('./workerHeartbeat');
+  const { startWorkerHeartbeat, resolveWorkerId, resolveHeartbeatOptions } =
+    await import('./workerHeartbeat');
   const logger = forStage('main');
 
   // Oracle Cloud Free hybrid deployment (Fase 2) - already validated by
@@ -100,26 +101,6 @@ async function main() {
   // means every queue, identical to pre-Fase-2 behavior.
   const enabledQueues = parseWorkerQueues(process.env.WORKER_QUEUES);
   const enabled = (queueName: QueueName) => isQueueEnabled(queueName, enabledQueues);
-
-  // Oracle Cloud Free hybrid deployment (Fase 3) - a dedicated connection,
-  // not one of the 16 above (which each already open their own), so the
-  // heartbeat keeps beating independent of any one queue's lifecycle and
-  // shutdown() below can close it on its own schedule.
-  const workerId = resolveWorkerId();
-  const heartbeatRedis = createRedisConnection();
-  const heartbeat = startWorkerHeartbeat(
-    heartbeatRedis,
-    workerId,
-    resolveEffectiveQueues(enabledQueues),
-    {
-      intervalMs: process.env.WORKER_HEARTBEAT_INTERVAL_MS
-        ? Number(process.env.WORKER_HEARTBEAT_INTERVAL_MS)
-        : undefined,
-      ttlSeconds: process.env.WORKER_HEARTBEAT_TTL_SECONDS
-        ? Number(process.env.WORKER_HEARTBEAT_TTL_SECONDS)
-        : undefined,
-    },
-  );
 
   // Registers (or re-confirms) each repeatable trigger before the worker
   // that consumes it starts, so there's no window where a queue could fire
@@ -155,6 +136,28 @@ async function main() {
   ];
   const workers = workerCandidates.filter(
     (worker): worker is Exclude<typeof worker, false> => worker !== false,
+  );
+
+  // Oracle Cloud Free hybrid deployment (Fase 3, hardened after PR #42's
+  // review) - started only after every trigger/worker above has been
+  // created successfully, not before. Starting it earlier meant a failure
+  // partway through this function (a trigger's Redis/Postgres call, a
+  // createXWorker() throwing) would leave a heartbeat ticking in Redis for
+  // a process that was actually about to crash - main().catch() below has
+  // no reference to `heartbeat` to stop it, so GET /workers/health would
+  // report this worker "healthy" for up to WORKER_HEARTBEAT_TTL_SECONDS
+  // after it was already dead. A dedicated connection, not one of the 16
+  // above (which each already open their own), so the heartbeat keeps
+  // beating independent of any one queue's lifecycle and shutdown() below
+  // can close it on its own schedule.
+  const workerId = resolveWorkerId();
+  const heartbeatRedis = createRedisConnection();
+  const heartbeat = startWorkerHeartbeat(
+    heartbeatRedis,
+    workerId,
+    resolveEffectiveQueues(enabledQueues),
+    // Already validated by validateEnv() above, so this can't throw here.
+    resolveHeartbeatOptions(),
   );
 
   logger.info('worker started', {

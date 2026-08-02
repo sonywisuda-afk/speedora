@@ -32,6 +32,15 @@ const LINKS = [
 // visibility only; GET /ops/ai/* enforces the real boundary server-side
 // (RolesGuard) regardless of whether this link is visible.
 const OPS_AI_LINK = { href: '/ops/ai', label: 'AI Ops' } as const;
+// PR #44 (Queue & Worker Observability Dashboard) - same visibility-only
+// gating as OPS_AI_LINK above, but genuinely visibility-only here: GET
+// /queues, /workers, /workers/health are NOT server-side role-guarded (see
+// docs/monitoring.md - they're deliberately reachable without a session for
+// infra tooling), so unlike OPS_AI_LINK there is no RolesGuard backing this
+// one up. Hiding the link keeps it out of a CREATOR's way; it does not
+// restrict access to the underlying data, which was already public before
+// this page existed.
+const OPS_QUEUES_LINK = { href: '/ops/queues', label: 'Queues' } as const;
 
 type NavLinkItem = { href: string; label: string };
 
@@ -143,7 +152,7 @@ function MobileNavDrawer({
 
 export function Nav({ user, onLogout }: { user: UserDto; onLogout: () => void }) {
   const pathname = usePathname();
-  const links = user.role === 'CREATOR' ? LINKS : [...LINKS, OPS_AI_LINK];
+  const links = user.role === 'CREATOR' ? LINKS : [...LINKS, OPS_AI_LINK, OPS_QUEUES_LINK];
   const [mobileOpen, setMobileOpen] = useState(false);
 
   // A route change means navigation succeeded - closes the drawer

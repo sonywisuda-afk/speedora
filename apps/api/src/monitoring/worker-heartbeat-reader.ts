@@ -1,4 +1,4 @@
-import type { QueueName, WorkerHeartbeatPayload } from '@speedora/shared';
+import type { QueueName, WorkerHealthEntry, WorkerHeartbeatPayload } from '@speedora/shared';
 // PR #45 (Production Metrics Collection) - apps/worker/src/workers/
 // metrics-snapshot.worker.ts needs to parse raw heartbeat values too now,
 // not just this endpoint, so the parser itself moved to @speedora/shared
@@ -9,14 +9,12 @@ import type { QueueName, WorkerHeartbeatPayload } from '@speedora/shared';
 // need to change at every call site.
 export { parseHeartbeatPayload } from '@speedora/shared';
 
-export interface WorkerHealthEntry {
-  worker: string;
-  queues: QueueName[];
-  jobsActive: number;
-  jobsWaiting: number;
-  startedAt: string;
-  heartbeatTtlSeconds: number;
-}
+// WorkerHealthEntry is defined in @speedora/shared (queue-monitoring.ts),
+// not here - PR #44 (Queue & Worker Observability Dashboard) needs
+// apps/web to consume the exact same shape this file produces, so it moved
+// out of this file to avoid two independently-maintained copies of the
+// same response shape (same reasoning worker-heartbeat.ts's own comment
+// gives for the heartbeat key/payload format living in @speedora/shared).
 
 // Pure - turns one heartbeat's payload + its Redis TTL + this queue's
 // current active/waiting job counts into the shape GET /workers/health

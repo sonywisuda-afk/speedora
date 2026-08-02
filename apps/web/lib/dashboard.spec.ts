@@ -1,5 +1,11 @@
 import { VideoStatus } from '@speedora/shared';
-import { formatBytes, formatDuration, formatRelativeTime, videoProcessingStage } from './dashboard';
+import {
+  formatBytes,
+  formatDuration,
+  formatMillis,
+  formatRelativeTime,
+  videoProcessingStage,
+} from './dashboard';
 
 describe('formatBytes', () => {
   it('formats 0 (and negative) bytes as "0 B"', () => {
@@ -33,6 +39,30 @@ describe('formatDuration', () => {
 
   it('rounds fractional seconds', () => {
     expect(formatDuration(59.6)).toBe('1:00');
+  });
+});
+
+describe('formatMillis', () => {
+  it('returns an em dash for null (no completed-job sample yet)', () => {
+    expect(formatMillis(null)).toBe('—');
+  });
+
+  it('formats sub-second durations in whole milliseconds', () => {
+    expect(formatMillis(165)).toBe('165ms');
+    expect(formatMillis(999)).toBe('999ms');
+  });
+
+  it('formats under a minute in seconds with one decimal', () => {
+    expect(formatMillis(1234)).toBe('1.2s');
+    expect(formatMillis(45_600)).toBe('45.6s');
+  });
+
+  it('formats under an hour as minutes and seconds', () => {
+    expect(formatMillis(93_915)).toBe('1m 34s');
+  });
+
+  it('formats an hour or more as hours and minutes', () => {
+    expect(formatMillis(3_725_000)).toBe('1h 2m');
   });
 });
 
