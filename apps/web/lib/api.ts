@@ -74,6 +74,7 @@ import type {
   ProjectDto,
   ProjectListDto,
   PublishRecord,
+  QueuesDto,
   RecurringScheduleDto,
   RecurringScheduleListDto,
   SearchResultsDto,
@@ -98,6 +99,8 @@ import type {
   VideoHistorySortBy,
   VideoHistoryStatusFilter,
   VideoWithClips,
+  WorkersDto,
+  WorkersHealthDto,
   WorkspaceDetailDto,
   WorkspaceDto,
   WorkspaceLeaderboardDto,
@@ -1453,6 +1456,31 @@ export async function getOpsAiDrift(): Promise<OpsAiDriftDto> {
 export async function getOpsAiReadiness(): Promise<OpsAiReadinessDto> {
   const res = await apiFetch('/ops/ai/readiness');
   return parseJsonOrThrow<OpsAiReadinessDto>(res);
+}
+
+// PR #44 (Queue & Worker Observability Dashboard). Unlike GET /ops/ai/*
+// above, these three (GET /queues, /workers, /workers/health) are NOT
+// server-side role-guarded - apps/api/src/monitoring/monitoring.controller.ts
+// deliberately leaves every monitoring route unauthenticated so a load
+// balancer/uptime checker can reach it without a session (see
+// docs/monitoring.md). The /ops/queues page still restricts who can *see*
+// this data in the UI (checking user.role client-side, same visibility-only
+// treatment Nav.tsx already gives the "AI Ops" link) - it's a UX boundary,
+// not a security one, since the underlying data was already reachable by
+// anyone with the URL before this page existed.
+export async function getQueues(): Promise<QueuesDto> {
+  const res = await apiFetch('/queues');
+  return parseJsonOrThrow<QueuesDto>(res);
+}
+
+export async function getWorkers(): Promise<WorkersDto> {
+  const res = await apiFetch('/workers');
+  return parseJsonOrThrow<WorkersDto>(res);
+}
+
+export async function getWorkersHealth(): Promise<WorkersHealthDto> {
+  const res = await apiFetch('/workers/health');
+  return parseJsonOrThrow<WorkersHealthDto>(res);
 }
 
 // Sprint 1-2 (Dashboard Redesign) - Statistics Row.

@@ -1,13 +1,11 @@
-import type { QueueName, WorkerHeartbeatPayload } from '@speedora/shared';
+import type { QueueName, WorkerHealthEntry, WorkerHeartbeatPayload } from '@speedora/shared';
 
-export interface WorkerHealthEntry {
-  worker: string;
-  queues: QueueName[];
-  jobsActive: number;
-  jobsWaiting: number;
-  startedAt: string;
-  heartbeatTtlSeconds: number;
-}
+// WorkerHealthEntry is defined in @speedora/shared (queue-monitoring.ts),
+// not here - PR #44 (Queue & Worker Observability Dashboard) needs
+// apps/web to consume the exact same shape this file produces, so it moved
+// out of this file to avoid two independently-maintained copies of the
+// same response shape (same reasoning worker-heartbeat.ts's own comment
+// gives for the heartbeat key/payload format living in @speedora/shared).
 
 // Parses one raw Redis GET result into a WorkerHeartbeatPayload, or null if
 // it's missing/malformed. A heartbeat key can expire between
