@@ -1,3 +1,4 @@
+import { resolveHeartbeatOptions } from './workerHeartbeat';
 import { parseWorkerQueues } from './workerQueueSelection';
 
 // Only variables with no safe fallback are listed here - FFMPEG_PATH
@@ -88,13 +89,16 @@ const REQUIRED_ENV_VARS = [
   'STORAGE_SECRET_ACCESS_KEY',
 ] as const;
 
-// WORKER_QUEUES is also deliberately NOT in REQUIRED_ENV_VARS above - unset
-// is its valid, default, single-host-behaving state (see
-// workerQueueSelection.ts). It's still validated here, not just where main.ts
-// reads it: a typo'd queue name would otherwise silently start zero workers
-// for that queue instead of failing loudly at boot - exactly the class of
-// "wrong value accepted silently" bug this file exists to prevent for every
-// other var.
+// WORKER_QUEUES/WORKER_HEARTBEAT_INTERVAL_MS/WORKER_HEARTBEAT_TTL_SECONDS are
+// also deliberately NOT in REQUIRED_ENV_VARS above - unset is each one's
+// valid, default, safe-fallback state (see workerQueueSelection.ts/
+// workerHeartbeat.ts). They're still validated here, not just where main.ts
+// reads them: a typo'd queue name, or a non-numeric/non-positive heartbeat
+// interval or TTL, would otherwise either silently start zero workers for
+// that queue or (found in review of PR #42, before this fix) reach
+// setInterval(fn, NaN) and fire effectively as fast as possible - exactly
+// the class of "wrong value accepted silently" bug this file exists to
+// prevent for every other var.
 export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   const missing = REQUIRED_ENV_VARS.filter((key) => !env[key]);
 
@@ -105,4 +109,5 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   }
 
   parseWorkerQueues(env.WORKER_QUEUES);
+  resolveHeartbeatOptions(env);
 }

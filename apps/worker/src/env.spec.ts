@@ -55,4 +55,37 @@ describe('validateEnv', () => {
       } as NodeJS.ProcessEnv),
     ).toThrow(/not-a-real-queue/);
   });
+
+  it('does not require WORKER_HEARTBEAT_INTERVAL_MS/WORKER_HEARTBEAT_TTL_SECONDS', () => {
+    expect(() => validateEnv(VALID_ENV)).not.toThrow(/WORKER_HEARTBEAT/);
+  });
+
+  it('accepts valid WORKER_HEARTBEAT_INTERVAL_MS/WORKER_HEARTBEAT_TTL_SECONDS values', () => {
+    expect(() =>
+      validateEnv({
+        ...VALID_ENV,
+        WORKER_HEARTBEAT_INTERVAL_MS: '5000',
+        WORKER_HEARTBEAT_TTL_SECONDS: '20',
+      } as NodeJS.ProcessEnv),
+    ).not.toThrow();
+  });
+
+  it('throws on a non-numeric WORKER_HEARTBEAT_INTERVAL_MS (PR #42 review finding: used to reach setInterval(fn, NaN) silently)', () => {
+    expect(() =>
+      validateEnv({
+        ...VALID_ENV,
+        WORKER_HEARTBEAT_INTERVAL_MS: 'garbage',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/WORKER_HEARTBEAT_INTERVAL_MS/);
+  });
+
+  it('throws when WORKER_HEARTBEAT_TTL_SECONDS would expire at or before the next beat', () => {
+    expect(() =>
+      validateEnv({
+        ...VALID_ENV,
+        WORKER_HEARTBEAT_INTERVAL_MS: '20000',
+        WORKER_HEARTBEAT_TTL_SECONDS: '15',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/must be greater than/);
+  });
 });
