@@ -71,6 +71,19 @@ const translateTranscriptQueue = BullModule.registerQueue({
 const generateMoreClipsQueue = BullModule.registerQueue({
   name: QueueName.GENERATE_MORE_CLIPS,
 });
+// Oracle Cloud Free hybrid deployment (Fase 3 - Queue Metrics) - the last 3
+// of the 16 queues apps/api didn't already register. Same "registered here
+// read-only, purely so MonitoringModule's /queues, /workers, and
+// /workers/health can report on every queue in the system" reasoning as
+// schedulePublishClipQueue/syncPublishStatsQueue above - apps/api never
+// produces into any of these three, they're all apps/worker-only repeatable
+// triggers (alert-engine.worker.ts/sync-follower-count.worker.ts/
+// telegram-chat-discovery.worker.ts).
+const alertEngineQueue = BullModule.registerQueue({ name: QueueName.ALERT_ENGINE });
+const syncFollowerCountQueue = BullModule.registerQueue({ name: QueueName.SYNC_FOLLOWER_COUNT });
+const telegramChatDiscoveryQueue = BullModule.registerQueue({
+  name: QueueName.TELEGRAM_CHAT_DISCOVERY,
+});
 
 @Module({
   imports: [
@@ -94,6 +107,9 @@ const generateMoreClipsQueue = BullModule.registerQueue({
     generatePlatformCopyQueue,
     translateTranscriptQueue,
     generateMoreClipsQueue,
+    alertEngineQueue,
+    syncFollowerCountQueue,
+    telegramChatDiscoveryQueue,
   ],
   providers: [NotificationDeliveryProducer],
   exports: [
@@ -110,6 +126,9 @@ const generateMoreClipsQueue = BullModule.registerQueue({
     generatePlatformCopyQueue,
     translateTranscriptQueue,
     generateMoreClipsQueue,
+    alertEngineQueue,
+    syncFollowerCountQueue,
+    telegramChatDiscoveryQueue,
     NotificationDeliveryProducer,
   ],
 })

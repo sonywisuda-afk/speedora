@@ -3,6 +3,7 @@ import {
   InvalidWorkerQueuesError,
   isQueueEnabled,
   parseWorkerQueues,
+  resolveEffectiveQueues,
 } from './workerQueueSelection';
 
 describe('parseWorkerQueues', () => {
@@ -54,5 +55,20 @@ describe('isQueueEnabled', () => {
     const enabled = new Set([QueueName.RENDER_CLIP]);
     expect(isQueueEnabled(QueueName.RENDER_CLIP, enabled)).toBe(true);
     expect(isQueueEnabled(QueueName.TRANSCRIBE, enabled)).toBe(false);
+  });
+});
+
+describe('resolveEffectiveQueues', () => {
+  it('returns every QueueName when null (WORKER_QUEUES unset)', () => {
+    const result = resolveEffectiveQueues(null);
+    expect(result).toEqual(Object.values(QueueName));
+    expect(result.length).toBe(Object.values(QueueName).length);
+  });
+
+  it('returns exactly the enabled set as an array otherwise', () => {
+    const enabled = new Set([QueueName.RENDER_CLIP, QueueName.DETECT_CLIPS]);
+    expect(resolveEffectiveQueues(enabled).sort()).toEqual(
+      [QueueName.RENDER_CLIP, QueueName.DETECT_CLIPS].sort(),
+    );
   });
 });

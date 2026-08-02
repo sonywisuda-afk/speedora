@@ -1,0 +1,47 @@
+# Oracle Cloud Free hybrid deployment (Fase 3 - Queue Specialization) - see
+# docker-compose.oracle-worker-light.yml's top comment for the full
+# rationale and how the 16 queues were split across the three roles.
+#
+# "ai": detect-clips (the LLM clip-selection call plus clip-scoring
+# computation) and generate-more-clips (the same LLM path, re-entered from
+# VideosService.generateMore - see QueueName.GENERATE_MORE_CLIPS's own
+# comment in packages/shared). Separated from the "light" role instead of
+# folded into it because these two make the one LLM call in the pipeline
+# that's both latency-sensitive and non-trivial CPU work on this side
+# (clip-scoring's own computation, not just waiting on the HTTP response) -
+# giving them a dedicated, moderately-sized host means a burst of detect-clips
+# jobs can't starve the many small "light" queues sharing one process (or
+# vice versa), without paying render-clip's full 4g/2-CPU sizing for a
+# workload that never touches FFmpeg or MediaPipe.
+#
+#   ORACLE_WEB_API_HOST=10.0.0.5 docker compose -f docker-compose.oracle-worker-ai.yml up --build
+#
+# Same prerequisites as docker-compose.oracle-worker.yml (ORACLE_WEB_API_HOST,
+# matching POSTGRES_PASSWORD/REDIS_PASSWORD, the web-api instance's firewall
+# allowing this instance's IP) - see that file's own top comment.
+name: speedora-oracle-worker-ai
+
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+      - .env.production
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@${ORACLE_WEB_API_HOST:?Set ORACLE_WEB_API_HOST to the web-api instance's private IP/hostname before running this file}:5432/${POSTGRES_DB:-viralclip}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-viralclip}@${ORACLE_WEB_API_HOST:?Set ORACLE_WEB_API_HOST to the web-api instance's private IP/hostname before running this file}:6379
+      WORKER_ID: ${WORKER_ID:-worker-ai}
+      # Fixed, not env-overridable - see docker-compose.oracle-worker-light.yml's
+      # own comment on why.
+      WORKER_QUEUES: detect-clips,generate-more-clips
+      FFMPEG_PATH: ffmpeg
+      FFPROBE_PATH: ffprobe
+      YTDLP_PATH: yt-dlp
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: '1.0'

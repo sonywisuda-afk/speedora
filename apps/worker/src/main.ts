@@ -86,7 +86,10 @@ async function main() {
   const { prisma } = await import('./prisma');
   const { forStage } = await import('./logger');
   const { QueueName } = await import('@speedora/shared');
-  const { parseWorkerQueues, isQueueEnabled } = await import('./workerQueueSelection');
+  const { parseWorkerQueues, isQueueEnabled, resolveEffectiveQueues } =
+    await import('./workerQueueSelection');
+  const { createRedisConnection } = await import('./redis');
+  const { startWorkerHeartbeat, resolveWorkerId } = await import('./workerHeartbeat');
   const logger = forStage('main');
 
   // Oracle Cloud Free hybrid deployment (Fase 2) - already validated by
@@ -94,6 +97,26 @@ async function main() {
   // means every queue, identical to pre-Fase-2 behavior.
   const enabledQueues = parseWorkerQueues(process.env.WORKER_QUEUES);
   const enabled = (queueName: QueueName) => isQueueEnabled(queueName, enabledQueues);
+
+  // Oracle Cloud Free hybrid deployment (Fase 3) - a dedicated connection,
+  // not one of the 16 above (which each already open their own), so the
+  // heartbeat keeps beating independent of any one queue's lifecycle and
+  // shutdown() below can close it on its own schedule.
+  const workerId = resolveWorkerId();
+  const heartbeatRedis = createRedisConnection();
+  const heartbeat = startWorkerHeartbeat(
+    heartbeatRedis,
+    workerId,
+    resolveEffectiveQueues(enabledQueues),
+    {
+      intervalMs: process.env.WORKER_HEARTBEAT_INTERVAL_MS
+        ? Number(process.env.WORKER_HEARTBEAT_INTERVAL_MS)
+        : undefined,
+      ttlSeconds: process.env.WORKER_HEARTBEAT_TTL_SECONDS
+        ? Number(process.env.WORKER_HEARTBEAT_TTL_SECONDS)
+        : undefined,
+    },
+  );
 
   // Registers (or re-confirms) each repeatable trigger before the worker
   // that consumes it starts, so there's no window where a queue could fire
@@ -130,6 +153,7 @@ async function main() {
   );
 
   logger.info('worker started', {
+    workerId,
     queueCount: workers.length,
     queues: enabledQueues ? [...enabledQueues] : 'all',
   });
@@ -159,6 +183,13 @@ async function main() {
     }, SHUTDOWN_TIMEOUT_MS);
 
     try {
+      // Deletes the heartbeat key immediately (rather than waiting out its
+      // TTL) so GET /workers/health reflects a graceful shutdown right
+      // away - stopped before the workers below so this worker stops
+      // being reported as available before its queues actually finish
+      // draining.
+      await heartbeat.stop();
+      await heartbeatRedis.quit();
       await Promise.all(workers.map((worker) => worker.close()));
       await Promise.all([
         probeVideoQueue.close(),

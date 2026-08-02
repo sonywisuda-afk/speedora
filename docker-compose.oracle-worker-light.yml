@@ -1,0 +1,48 @@
+# Oracle Cloud Free hybrid deployment (Fase 3 - Queue Specialization) - one
+# of three worker roles this and its two sibling files split
+# docker-compose.oracle-worker.yml's single "every queue in one process" VM
+# into, so render-clip's CPU/memory load can never contend with anything
+# else for a host's resources (docker-compose.prod.yml's own comment on the
+# `worker` service documents a real OOM incident this is meant to prevent
+# from recurring). See docs/deployment.md's Fase 3 section for the full
+# rationale and how the 16 queues were split across the three roles below.
+#
+# "light": every I/O-bound, non-AI, non-render queue - waiting on hosted
+# APIs (Groq/OpenAI/YouTube/TikTok/etc.) or doing small Postgres writes, not
+# CPU/memory work. The biggest of the three roles by queue COUNT but the
+# lightest by resource footprint.
+#
+#   ORACLE_WEB_API_HOST=10.0.0.5 docker compose -f docker-compose.oracle-worker-light.yml up --build
+#
+# Same prerequisites as docker-compose.oracle-worker.yml (ORACLE_WEB_API_HOST,
+# matching POSTGRES_PASSWORD/REDIS_PASSWORD, the web-api instance's firewall
+# allowing this instance's IP) - see that file's own top comment.
+name: speedora-oracle-worker-light
+
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+      - .env.production
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@${ORACLE_WEB_API_HOST:?Set ORACLE_WEB_API_HOST to the web-api instance's private IP/hostname before running this file}:5432/${POSTGRES_DB:-viralclip}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-viralclip}@${ORACLE_WEB_API_HOST:?Set ORACLE_WEB_API_HOST to the web-api instance's private IP/hostname before running this file}:6379
+      WORKER_ID: ${WORKER_ID:-worker-light}
+      # Fixed, not env-overridable like docker-compose.oracle-worker.yml's
+      # WORKER_QUEUES - this file's whole purpose IS this exact queue set;
+      # an operator wanting a different split should edit it here (visible,
+      # versioned, matches what GET /workers/health then reports) rather
+      # than silently diverging from what the filename claims to run.
+      WORKER_QUEUES: import-youtube,probe-video,transcribe,publish-clip,schedule-publish-clip,sync-publish-stats,sync-follower-count,export-generate,alert-engine,notification-delivery,telegram-chat-discovery,generate-platform-copy,translate-transcript
+      FFMPEG_PATH: ffmpeg
+      FFPROBE_PATH: ffprobe
+      YTDLP_PATH: yt-dlp
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: '1.0'

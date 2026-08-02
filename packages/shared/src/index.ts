@@ -36,6 +36,8 @@ export * from './utils/alert-conditions';
 export * from './utils/duration';
 export * from './utils/export-format';
 export * from './utils/hashtags';
+export * from './utils/queue-metrics';
 export * from './utils/transcript';
 export * from './utils/video-import-metrics';
+export * from './utils/worker-heartbeat';
 export * from './utils/youtube';
