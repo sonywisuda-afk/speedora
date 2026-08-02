@@ -68,6 +68,10 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   // since this is a Generate More Clips outcome too (just "found nothing
   // new"), not a rendering or error event.
   GENERATE_MORE_NO_CANDIDATES: NotificationCategory.CLIP_GENERATION,
+  // Download Reliability Framework - same category as STORAGE_WARNING/
+  // SYNC_FAILURE_WARNING (an ops-facing system health condition, not a
+  // per-video pipeline event).
+  IMPORT_FAILURE_SPIKE: NotificationCategory.SYSTEM,
 };
 
 // Default priority per type - overridable per-call (params.priority) for
@@ -96,6 +100,11 @@ export const NOTIFICATION_TYPE_PRIORITY: Record<NotificationType, NotificationPr
   // succeeded) nor a success (nothing new was produced) - informational,
   // same tone as PIPELINE_PROGRESS.
   GENERATE_MORE_NO_CANDIDATES: NotificationPriority.INFO,
+  // Download Reliability Framework - same severity as STORAGE_WARNING/
+  // SYNC_FAILURE_WARNING (a degraded-condition warning, not yet a hard
+  // error - imports are still succeeding via retry, this just says the
+  // crash rate is elevated).
+  IMPORT_FAILURE_SPIKE: NotificationPriority.WARNING,
 };
 
 // Notification Center v2 Phase 5 (Preferences & Delivery) - the simplified

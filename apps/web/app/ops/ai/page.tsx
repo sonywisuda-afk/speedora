@@ -24,6 +24,7 @@ import { SignalContributionChart } from '@/components/ops-ai/SignalContributionC
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Nav } from '@/components/Nav';
 import {
+  ApiError,
   getOpsAiCalibration,
   getOpsAiCorrelation,
   getOpsAiDistribution,
@@ -80,11 +81,15 @@ export default function OpsAiPage() {
       })
       .catch((err) => {
         if (cancelled) return;
-        const message = err instanceof Error ? err.message : 'Gagal memuat AI Diagnostics';
-        if (message.includes('restricted to AI Ops roles')) {
+        // Phase F (RBAC hardening) - checks the real HTTP status now
+        // (RolesGuard always responds 403 for this page, see
+        // roles.guard.ts), not a string match against the exact backend
+        // error message, which would silently break if that wording ever
+        // changed.
+        if (err instanceof ApiError && err.status === 403) {
           setForbidden(true);
         } else {
-          setError(message);
+          setError(err instanceof Error ? err.message : 'Gagal memuat AI Diagnostics');
         }
       });
 

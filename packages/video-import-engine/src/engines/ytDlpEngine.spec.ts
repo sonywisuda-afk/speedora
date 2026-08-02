@@ -218,6 +218,25 @@ describe('YtDlpEngine.download', () => {
     await expect(promise).rejects.toMatchObject({ category: 'unavailable', retryable: false });
   });
 
+  it('categorizes a non-zero exit with empty stderr as internal and retryable (a crashed process, not an extractor failure)', async () => {
+    // Real production case: yt-dlp.exe exited 3221225794 (0xC0000409,
+    // STATUS_STACK_BUFFER_OVERRUN) with nothing on stderr, correlated with a
+    // Windows Defender scan running at the same time - a transient crash,
+    // not a site/extractor problem, so it must be retried rather than
+    // permanently failing the import (see categorizeExitFailure's comment).
+    const { deps, getLastChild } = createHarness();
+    const promise = YtDlpEngine.download({ url: 'https://youtu.be/abc' }, deps);
+    await flushMicrotasks();
+    const child = getLastChild();
+    child.emit('close', 3221225794);
+
+    await expect(promise).rejects.toMatchObject({
+      category: 'internal',
+      exitCode: 3221225794,
+      retryable: true,
+    });
+  });
+
   it('categorizes a spawn-level error (e.g. missing binary) as internal and non-retryable', async () => {
     const { deps, getLastChild } = createHarness();
     const promise = YtDlpEngine.download({ url: 'https://youtu.be/abc' }, deps);
@@ -291,6 +310,79 @@ describe('YtDlpEngine.download', () => {
     const result = await promise;
     expect(result.retries).toBe(1);
     expect(deps.sleep).toHaveBeenCalledWith(20);
+  });
+
+  // Download Reliability Framework - the following categorization tests are
+  // written from documented/expected yt-dlp wording, not confirmed against a
+  // real failing download in this environment (unlike the 'unavailable' and
+  // 'internal' tests above, which were caught/fixed from real production
+  // runs) - flagged here and in the final report as needing production log
+  // confirmation.
+
+  it('categorizes "confirm your age" as age_restricted, not authentication', async () => {
+    const { deps, getLastChild } = createHarness();
+    const promise = YtDlpEngine.download({ url: 'https://youtu.be/abc' }, deps);
+    await flushMicrotasks();
+    const child = getLastChild();
+    child.stderr.write('ERROR: Sign in to confirm your age\n');
+    child.emit('close', 1);
+
+    await expect(promise).rejects.toMatchObject({ category: 'age_restricted', retryable: false });
+  });
+
+  it('categorizes the anti-bot "sign in to confirm" wording as authentication, not age_restricted', async () => {
+    const { deps, getLastChild } = createHarness();
+    const promise = YtDlpEngine.download({ url: 'https://youtu.be/abc' }, deps);
+    await flushMicrotasks();
+    const child = getLastChild();
+    child.stderr.write("ERROR: Sign in to confirm you're not a bot\n");
+    child.emit('close', 1);
+
+    await expect(promise).rejects.toMatchObject({ category: 'authentication', retryable: false });
+  });
+
+  it('categorizes a geo-restriction failure', async () => {
+    const { deps, getLastChild } = createHarness();
+    const promise = YtDlpEngine.download({ url: 'https://youtu.be/abc' }, deps);
+    await flushMicrotasks();
+    const child = getLastChild();
+    child.stderr.write('ERROR: The uploader has not made this video available in your country\n');
+    child.emit('close', 1);
+
+    await expect(promise).rejects.toMatchObject({ category: 'geo_restricted', retryable: false });
+  });
+
+  it('categorizes an ENOSPC failure surfaced through yt-dlp stderr as disk', async () => {
+    const { deps, getLastChild } = createHarness();
+    const promise = YtDlpEngine.download({ url: 'https://youtu.be/abc' }, deps);
+    await flushMicrotasks();
+    const child = getLastChild();
+    child.stderr.write('ERROR: unable to write data: [Errno 28] No space left on device\n');
+    child.emit('close', 1);
+
+    await expect(promise).rejects.toMatchObject({ category: 'disk', retryable: false });
+  });
+
+  it('categorizes an EACCES failure surfaced through yt-dlp stderr as permission', async () => {
+    const { deps, getLastChild } = createHarness();
+    const promise = YtDlpEngine.download({ url: 'https://youtu.be/abc' }, deps);
+    await flushMicrotasks();
+    const child = getLastChild();
+    child.stderr.write('ERROR: unable to open for writing: [Errno 13] Permission denied\n');
+    child.emit('close', 1);
+
+    await expect(promise).rejects.toMatchObject({ category: 'permission', retryable: false });
+  });
+
+  it('categorizes an invalid-URL failure', async () => {
+    const { deps, getLastChild } = createHarness();
+    const promise = YtDlpEngine.download({ url: 'https://youtu.be/abc' }, deps);
+    await flushMicrotasks();
+    const child = getLastChild();
+    child.stderr.write('ERROR: zzz is not a valid URL\n');
+    child.emit('close', 1);
+
+    await expect(promise).rejects.toMatchObject({ category: 'invalid_url', retryable: false });
   });
 
   it('rejects with a "storage" category and cleans up the file when it exceeds the configured max size', async () => {

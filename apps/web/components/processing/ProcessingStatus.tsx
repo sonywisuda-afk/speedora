@@ -187,14 +187,16 @@ export function ProcessingStatus({
             </div>
 
             {!failedDuringImport && (
-              // TODO(UI backlog, Stabilization Pass Area 4 Visual QA): fixed
-              // grid-cols-3 with no mobile breakpoint - unlike the rest of
-              // this app's stat/summary grids (e.g. apps/web/app/analytics/
-              // page.tsx's `sm:grid-cols-2 lg:grid-cols-4`), this squeezes on
-              // a narrow phone viewport instead of stacking. Same issue at
+              // Phase F (Test Matrix hardening) - fixed, closing the
+              // Stabilization Pass Area 4 Visual QA backlog item: stacks on
+              // a narrow phone viewport instead of squeezing 3 columns,
+              // matching the sm: convention this app's other stat/summary
+              // grids already use (e.g. apps/web/app/analytics/page.tsx's
+              // `sm:grid-cols-2 lg:grid-cols-4`) - STAGES is always exactly
+              // 3 items, so 3 columns from `sm` up (not `lg:grid-cols-4`,
+              // which would leave a dangling empty column). Same fix at
               // line ~260 below and in apps/web/app/campaigns/[id]/page.tsx.
-              // Not fixed yet - flagged only, approved to stay as backlog.
-              <div className="mt-12 grid w-full grid-cols-3 gap-4">
+              <div className="mt-12 grid w-full grid-cols-1 gap-4 sm:grid-cols-3">
                 {STAGES.map((stage, i) => (
                   <StagePanel
                     key={stage.status}
@@ -264,8 +266,8 @@ export function ProcessingStatus({
               />
             </div>
 
-            {/* TODO(UI backlog, Stabilization Pass Area 4): same missing-breakpoint issue as line ~190 above. */}
-            <div className="mt-12 grid grid-cols-3 gap-4">
+            {/* Phase F (Test Matrix hardening) - same fix as line ~190 above. */}
+            <div className="mt-12 grid grid-cols-1 gap-4 sm:grid-cols-3">
               {STAGES.map((stage, i) => (
                 <StagePanel
                   key={stage.status}

@@ -2,10 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { execFile, spawn } from 'node:child_process';
 import { createReadStream } from 'node:fs';
 import { mkdir, stat, unlink } from 'node:fs/promises';
+import * as os from 'node:os';
 import { promisify } from 'node:util';
 import * as Sentry from '@sentry/node';
 import { updateVideoStatus, VideoStatus } from '@speedora/database';
 import {
+  PROBE_VIDEO_RETRY_OPTIONS,
   QueueName,
   recordVideoImportOutcome,
   type ImportYoutubeJobData,
@@ -24,7 +26,7 @@ import {
   type SpawnedProcess,
   type VideoImportEngine,
 } from '@speedora/video-import-engine';
-import { Worker, type Job } from 'bullmq';
+import { UnrecoverableError, Worker, type Job } from 'bullmq';
 import { JobTimeoutError, withJobTimeout } from '../jobTimeout';
 import { forStage } from '../logger';
 import { enqueueNotificationDelivery } from '../notificationDeliveryEnqueuer';
@@ -99,6 +101,34 @@ async function checkEngineHealth(
     engineVersion: null,
     status: 'unreachable',
   }));
+}
+
+// Health-check gate (Download Reliability Framework) - cached at module
+// scope so a per-job health check doesn't spawn an extra `yt-dlp --version`
+// subprocess on every single job (this worker runs concurrency: 1, so one
+// process-lifetime cache is safe and correct). Deliberately a per-job gate
+// that throws a retryable error rather than a Worker.pause()/resume() -
+// pausing needs a background poller to decide when to resume (new
+// coordination state); this reuses the retry/backoff machinery that already
+// exists (see IMPORT_YOUTUBE_RETRY_OPTIONS's comment) to get the same
+// practical effect (no wasted download attempt while unhealthy, automatic
+// recovery once it clears) with no new moving parts.
+const HEALTH_CACHE_TTL_MS = Number(process.env.VIDEO_IMPORT_HEALTH_CACHE_TTL_MS) || 5 * 60 * 1000;
+const WORKER_HOST = os.hostname();
+
+let cachedHealth: { health: EngineHealth; checkedAt: number } | null = null;
+
+async function getCachedEngineHealth(
+  engine: VideoImportEngine,
+  deps: ImportDeps,
+): Promise<EngineHealth> {
+  const now = Date.now();
+  if (cachedHealth && now - cachedHealth.checkedAt < HEALTH_CACHE_TTL_MS) {
+    return cachedHealth.health;
+  }
+  const health = await checkEngineHealth(engine, deps);
+  cachedHealth = { health, checkedAt: now };
+  return health;
 }
 
 export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, ImportYoutubeJobResult> {
@@ -183,6 +213,32 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
             // spawned if the URL's domain isn't allowlisted.
             engine = resolveEngine(url, deps.config);
 
+            // Health-check gate: if the binary is known-unreachable (missing,
+            // not executable, corrupt), fail this attempt now - before
+            // spawning a doomed download - so the job-level backoff
+            // (IMPORT_YOUTUBE_RETRY_OPTIONS) defers the retry instead of
+            // wasting a multi-minute download attempt.
+            const preflightHealth = await getCachedEngineHealth(engine, deps);
+            if (preflightHealth.status === 'unreachable') {
+              logger.warn('yt-dlp engine unhealthy - deferring job for retry', {
+                videoId,
+                engineName: engine.name,
+                workerHost: WORKER_HOST,
+              });
+              throw new VideoImportError(
+                'yt-dlp engine health check failed - binary unreachable or not executable',
+                { category: 'internal', engineName: engine.name },
+              );
+            }
+            if (preflightHealth.status === 'stale') {
+              logger.warn('yt-dlp engine version is stale', {
+                videoId,
+                engineName: engine.name,
+                engineVersion: preflightHealth.engineVersion,
+                workerHost: WORKER_HOST,
+              });
+            }
+
             // Best-effort, never fails the job (see the engine's own
             // fetchMetadata comment). Fetched before the download starts
             // since it's a separate, much shorter subprocess call, not
@@ -225,6 +281,7 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
               engineVersion: health.engineVersion,
               durationMs: downloadResult.durationMs,
               retries: downloadResult.retries,
+              workerHost: WORKER_HOST,
             });
 
             recordVideoImportOutcome(metricsRedis, {
@@ -234,10 +291,22 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
               engineHealthStatus: health.status,
             }).catch(() => {});
 
-            await probeVideoQueue.add(QueueName.PROBE_VIDEO, { videoId, sourceUrl });
+            await probeVideoQueue.add(
+              QueueName.PROBE_VIDEO,
+              { videoId, sourceUrl },
+              PROBE_VIDEO_RETRY_OPTIONS,
+            );
 
             return { videoId, sourceUrl };
           } catch (error) {
+            // Download Reliability Framework: unknown (non-VideoImportError)
+            // errors default retryable - conservative, since we can't prove
+            // they're permanent (e.g. a raw network/storage exception).
+            const isRetryable = error instanceof VideoImportError ? error.retryable : true;
+            const attemptNumber = job.attemptsMade + 1;
+            const maxAttempts = job.opts.attempts ?? 1;
+            const isFinalAttempt = !isRetryable || attemptNumber >= maxAttempts;
+
             logger.error(
               'video failed',
               {
@@ -245,6 +314,11 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
                 category: error instanceof VideoImportError ? error.category : undefined,
                 exitCode: error instanceof VideoImportError ? error.exitCode : undefined,
                 stderrExcerpt: error instanceof VideoImportError ? error.stderrExcerpt : undefined,
+                retries: error instanceof VideoImportError ? error.retries : undefined,
+                attempt: attemptNumber,
+                maxAttempts,
+                willRetry: !isFinalAttempt,
+                workerHost: WORKER_HOST,
               },
               error,
             );
@@ -273,13 +347,34 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
                   };
             recordVideoImportOutcome(metricsRedis, failureEvent).catch(() => {});
 
-            await updateVideoStatus(
-              prisma,
-              videoId,
-              VideoStatus.FAILED,
-              { errorMessage: error instanceof Error ? error.message : String(error) },
-              { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
-            );
+            // Only write the terminal FAILED status (and, via
+            // updateVideoStatus's own recordNotification call, only fire the
+            // RENDER_FAILED notification) once this is genuinely the last
+            // attempt - see IMPORT_YOUTUBE_RETRY_OPTIONS's comment. Leaving
+            // Video.status at IMPORTING on a non-final attempt is what lets
+            // the idempotency guard above pass on BullMQ's next attempt
+            // instead of skipping it as "already past IMPORTING"; it also
+            // closes the pre-existing duplicate-notification gap for retries
+            // (recordNotification's flat RENDER_FAILED path has no dedup of
+            // its own).
+            if (isFinalAttempt) {
+              await updateVideoStatus(
+                prisma,
+                videoId,
+                VideoStatus.FAILED,
+                { errorMessage: error instanceof Error ? error.message : String(error) },
+                { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
+              );
+            }
+
+            // Non-retryable categories skip BullMQ's remaining attempts
+            // immediately, regardless of how many are configured - see
+            // IMPORT_YOUTUBE_RETRY_OPTIONS's own comment on this
+            // coordination. Everything above (logging/Sentry/metrics/FAILED
+            // write) has already run against the real error.
+            if (!isRetryable) {
+              throw new UnrecoverableError(error instanceof Error ? error.message : String(error));
+            }
             throw error;
           } finally {
             if (downloadPath) await cleanupTempFile(downloadPath);

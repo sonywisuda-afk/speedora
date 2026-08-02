@@ -9,7 +9,13 @@ import {
   type FontFamily,
 } from '@speedora/shared';
 import { KEYWORD_PATTERN } from '@speedora/subtitles';
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
 import useSWR from 'swr';
 
 import { LetterboxBand } from '@/components/signature/LetterboxBand';
@@ -31,6 +37,11 @@ import { useTimelineStore, type TimelineClip } from '@/lib/timelineStore';
 // Guards against a drag collapsing a clip to zero/negative length. The
 // backend also validates startTime < endTime independently (ClipsService.update).
 const MIN_CLIP_SECONDS = 1;
+
+// Phase F (accessibility hardening) - keyboard trim-handle nudge steps,
+// ArrowLeft/ArrowRight vs. Shift+Arrow for a coarser adjustment.
+const TRIM_STEP_SECONDS = 0.1;
+const TRIM_STEP_SECONDS_LARGE = 1;
 
 // Short labels for the segmented toggle below - order matches CAPTION_STYLES.
 const CAPTION_STYLE_LABELS: Record<CaptionStyle, string> = {
@@ -445,6 +456,17 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
     setPlayhead(time);
   }
 
+  // Phase F (accessibility hardening) - the exact clamp math both the
+  // pointer-drag handler below and the new keyboard trim handler share, so
+  // a keyboard nudge can never produce a result the mouse drag wouldn't
+  // also allow.
+  function clampStart(clip: TimelineClip, t: number): number {
+    return Math.max(0, Math.min(t, clip.endTime - MIN_CLIP_SECONDS));
+  }
+  function clampEnd(clip: TimelineClip, t: number): number {
+    return Math.min(duration, Math.max(t, clip.startTime + MIN_CLIP_SECONDS));
+  }
+
   function startHandleDrag(clip: TimelineClip, edge: 'start' | 'end') {
     return (e: ReactPointerEvent) => {
       e.preventDefault();
@@ -454,11 +476,11 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
       function onMove(moveEvent: PointerEvent) {
         const t = timeFromClientX(moveEvent.clientX);
         if (edge === 'start') {
-          const newStart = Math.max(0, Math.min(t, clip.endTime - MIN_CLIP_SECONDS));
+          const newStart = clampStart(clip, t);
           setClipRange(clip.id, newStart, clip.endTime);
           seekTo(newStart);
         } else {
-          const newEnd = Math.min(duration, Math.max(t, clip.startTime + MIN_CLIP_SECONDS));
+          const newEnd = clampEnd(clip, t);
           setClipRange(clip.id, clip.startTime, newEnd);
           seekTo(newEnd);
         }
@@ -472,6 +494,30 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
       window.addEventListener('pointermove', onMove);
       window.addEventListener('pointerup', onUp);
     };
+  }
+
+  // Phase F (accessibility hardening) - keyboard equivalent of
+  // startHandleDrag, for a trim handle focused via Tab rather than dragged.
+  // ArrowLeft/ArrowRight nudge by TRIM_STEP_SECONDS, Shift+Arrow by
+  // TRIM_STEP_SECONDS_LARGE - same clampStart/clampEnd + setClipRange +
+  // seekTo call as the pointer path, just a fixed step instead of a
+  // pointer-position delta.
+  function handleTrimKeyDown(e: ReactKeyboardEvent, clip: TimelineClip, edge: 'start' | 'end') {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    e.stopPropagation();
+    selectClip(clip.id);
+    const step = e.shiftKey ? TRIM_STEP_SECONDS_LARGE : TRIM_STEP_SECONDS;
+    const delta = e.key === 'ArrowLeft' ? -step : step;
+    if (edge === 'start') {
+      const newStart = clampStart(clip, clip.startTime + delta);
+      setClipRange(clip.id, newStart, clip.endTime);
+      seekTo(newStart);
+    } else {
+      const newEnd = clampEnd(clip, clip.endTime + delta);
+      setClipRange(clip.id, clip.startTime, newEnd);
+      seekTo(newEnd);
+    }
   }
 
   return (
@@ -545,12 +591,23 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
                 return (
                   <div
                     key={clip.id}
+                    role="button"
+                    tabIndex={0}
+                    aria-pressed={isSelected}
+                    aria-label={`Klip ${clip.startTime.toFixed(1)}s - ${clip.endTime.toFixed(1)}s${isSelected ? ', dipilih' : ''}`}
                     onClick={(e) => {
                       e.stopPropagation();
                       selectClip(clip.id);
                     }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        selectClip(clip.id);
+                      }
+                    }}
                     className={cn(
-                      'absolute top-1 h-8 cursor-pointer rounded-sm transition-colors',
+                      'absolute top-1 h-8 cursor-pointer rounded-sm transition-colors focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
                       isSelected
                         ? 'bg-primary'
                         : 'bg-muted-foreground/40 hover:bg-muted-foreground/60',
@@ -560,12 +617,28 @@ export function TimelineEditor({ videoId }: { videoId: string }) {
                     {isSelected && (
                       <>
                         <div
+                          role="slider"
+                          tabIndex={0}
+                          aria-label="Awal klip"
+                          aria-valuemin={0}
+                          aria-valuemax={clip.endTime - MIN_CLIP_SECONDS}
+                          aria-valuenow={clip.startTime}
+                          aria-valuetext={`${clip.startTime.toFixed(1)} detik`}
                           onPointerDown={startHandleDrag(clip, 'start')}
-                          className="absolute left-0 top-0 h-full w-2 cursor-ew-resize bg-primary-foreground"
+                          onKeyDown={(e) => handleTrimKeyDown(e, clip, 'start')}
+                          className="absolute left-0 top-0 h-full w-2 cursor-ew-resize bg-primary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         />
                         <div
+                          role="slider"
+                          tabIndex={0}
+                          aria-label="Akhir klip"
+                          aria-valuemin={clip.startTime + MIN_CLIP_SECONDS}
+                          aria-valuemax={duration}
+                          aria-valuenow={clip.endTime}
+                          aria-valuetext={`${clip.endTime.toFixed(1)} detik`}
                           onPointerDown={startHandleDrag(clip, 'end')}
-                          className="absolute right-0 top-0 h-full w-2 cursor-ew-resize bg-primary-foreground"
+                          onKeyDown={(e) => handleTrimKeyDown(e, clip, 'end')}
+                          className="absolute right-0 top-0 h-full w-2 cursor-ew-resize bg-primary-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         />
                       </>
                     )}

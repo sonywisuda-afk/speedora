@@ -16,9 +16,15 @@ import {
 import { buildClipMetadataReport, buildVideoReportData } from '@speedora/report-builder';
 import type { ClipMetadataOutput, TimelineEvent, VideoReportData } from '@speedora/contracts';
 import {
+  DETECT_CLIPS_RETRY_OPTIONS,
   filterSegmentsForClip,
+  GENERATE_MORE_CLIPS_RETRY_OPTIONS,
+  IMPORT_YOUTUBE_RETRY_OPTIONS,
   mergeBrandKitFields,
+  PROBE_VIDEO_RETRY_OPTIONS,
   QueueName,
+  RENDER_CLIP_RETRY_OPTIONS,
+  TRANSCRIBE_RETRY_OPTIONS,
   TranscriptionProvider,
   type BrandKitFields,
   type DetectClipsJobData,
@@ -284,10 +290,11 @@ export class VideosService {
     // not TRANSCRIBE directly (see QueueName.PROBE_VIDEO's own comment).
     // TRANSCRIBE is now only ever enqueued by startProcessing() below, once
     // probing succeeds and the user has submitted Processing Settings.
-    await this.probeVideoQueue.add(QueueName.PROBE_VIDEO, {
-      videoId: video.id,
-      sourceUrl: video.sourceUrl,
-    });
+    await this.probeVideoQueue.add(
+      QueueName.PROBE_VIDEO,
+      { videoId: video.id, sourceUrl: video.sourceUrl },
+      PROBE_VIDEO_RETRY_OPTIONS,
+    );
 
     // Sprint 1-2 (Dashboard Redesign) - Dashboard's Activity Timeline. Fire
     // after the transaction commits, same "don't let a secondary feed's
@@ -411,11 +418,11 @@ export class VideosService {
       await this.claimCreditOrRollback(ownerId, video.id);
     }
 
-    await this.importYoutubeQueue.add(QueueName.IMPORT_YOUTUBE, {
-      videoId: video.id,
-      url,
-      provider,
-    });
+    await this.importYoutubeQueue.add(
+      QueueName.IMPORT_YOUTUBE,
+      { videoId: video.id, url, provider },
+      IMPORT_YOUTUBE_RETRY_OPTIONS,
+    );
 
     // title isn't known yet at this point - import-youtube.worker.ts fetches
     // it once the yt-dlp job actually runs. See upload()'s own call for the
@@ -897,11 +904,15 @@ export class VideosService {
         enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
       },
     );
-    await this.transcribeQueue.add(QueueName.TRANSCRIBE, {
-      videoId: id,
-      sourceUrl: video.sourceUrl,
-      provider: toSharedTranscriptionProvider(video.transcriptionProvider),
-    });
+    await this.transcribeQueue.add(
+      QueueName.TRANSCRIBE,
+      {
+        videoId: id,
+        sourceUrl: video.sourceUrl,
+        provider: toSharedTranscriptionProvider(video.transcriptionProvider),
+      },
+      TRANSCRIBE_RETRY_OPTIONS,
+    );
 
     return this.findOne(id, requesterId);
   }
@@ -960,11 +971,15 @@ export class VideosService {
           enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
         },
       );
-      await this.importYoutubeQueue.add(QueueName.IMPORT_YOUTUBE, {
-        videoId: id,
-        url: video.importSourceUrl,
-        provider: toSharedTranscriptionProvider(video.transcriptionProvider),
-      });
+      await this.importYoutubeQueue.add(
+        QueueName.IMPORT_YOUTUBE,
+        {
+          videoId: id,
+          url: video.importSourceUrl,
+          provider: toSharedTranscriptionProvider(video.transcriptionProvider),
+        },
+        IMPORT_YOUTUBE_RETRY_OPTIONS,
+      );
     } else if (video.durationSeconds == null && video.width == null) {
       // Quality Validation roadmap (Fase 0 design, Phase 1) - probing never
       // completed (or failed an Error-tier check - see
@@ -984,10 +999,11 @@ export class VideosService {
           enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
         },
       );
-      await this.probeVideoQueue.add(QueueName.PROBE_VIDEO, {
-        videoId: id,
-        sourceUrl: video.sourceUrl,
-      });
+      await this.probeVideoQueue.add(
+        QueueName.PROBE_VIDEO,
+        { videoId: id, sourceUrl: video.sourceUrl },
+        PROBE_VIDEO_RETRY_OPTIONS,
+      );
     } else if (video.transcriptSegments.length === 0) {
       // transcribeProgress reset immediately (not left to wait for the job
       // itself to reset it) so a retry click doesn't briefly show a stale
@@ -1003,11 +1019,15 @@ export class VideosService {
           enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
         },
       );
-      await this.transcribeQueue.add(QueueName.TRANSCRIBE, {
-        videoId: id,
-        sourceUrl: video.sourceUrl,
-        provider: toSharedTranscriptionProvider(video.transcriptionProvider),
-      });
+      await this.transcribeQueue.add(
+        QueueName.TRANSCRIBE,
+        {
+          videoId: id,
+          sourceUrl: video.sourceUrl,
+          provider: toSharedTranscriptionProvider(video.transcriptionProvider),
+        },
+        TRANSCRIBE_RETRY_OPTIONS,
+      );
     } else if (video.clips.length === 0) {
       await updateVideoStatus(
         this.prisma,
@@ -1019,10 +1039,11 @@ export class VideosService {
           enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
         },
       );
-      await this.detectClipsQueue.add(QueueName.DETECT_CLIPS, {
-        videoId: id,
-        segments: video.transcriptSegments.map(toSharedTranscriptSegment),
-      });
+      await this.detectClipsQueue.add(
+        QueueName.DETECT_CLIPS,
+        { videoId: id, segments: video.transcriptSegments.map(toSharedTranscriptSegment) },
+        DETECT_CLIPS_RETRY_OPTIONS,
+      );
     } else {
       const unrendered = video.clips.filter((clip) => !clip.outputUrl);
 
@@ -1110,28 +1131,33 @@ export class VideosService {
           : null;
       await Promise.all(
         unrendered.map((clip) =>
-          this.renderClipQueue.add(QueueName.RENDER_CLIP, {
-            clipId: clip.id,
-            videoId: id,
-            sourceUrl: video.sourceUrl,
-            startTime: clip.startTime,
-            endTime: clip.endTime,
-            transcript: filterSegmentsForClip(
-              video.transcriptSegments.map(toSharedTranscriptSegment),
-              clip.startTime,
-              clip.endTime,
-            ),
-            captionStyle: toSharedCaptionStyle(clip.captionStyle),
-            speakerColorCaptions: clip.speakerColorCaptions,
-            captionLanguage: clip.captionLanguage,
-            fontFamily:
-              clip.fontFamily ?? (clip.applyBrandKit ? (brandKit?.brandFontFamily ?? null) : null),
-            watermark: clip.watermarkEnabled ? resolvedWatermark : null,
-            intro: clip.introEnabled ? resolvedIntro : null,
-            outro: clip.outroEnabled ? resolvedOutro : null,
-            keywords: clip.keywords,
-            scores: toSharedClipScores(clip.scores),
-          }),
+          this.renderClipQueue.add(
+            QueueName.RENDER_CLIP,
+            {
+              clipId: clip.id,
+              videoId: id,
+              sourceUrl: video.sourceUrl,
+              startTime: clip.startTime,
+              endTime: clip.endTime,
+              transcript: filterSegmentsForClip(
+                video.transcriptSegments.map(toSharedTranscriptSegment),
+                clip.startTime,
+                clip.endTime,
+              ),
+              captionStyle: toSharedCaptionStyle(clip.captionStyle),
+              speakerColorCaptions: clip.speakerColorCaptions,
+              captionLanguage: clip.captionLanguage,
+              fontFamily:
+                clip.fontFamily ??
+                (clip.applyBrandKit ? (brandKit?.brandFontFamily ?? null) : null),
+              watermark: clip.watermarkEnabled ? resolvedWatermark : null,
+              intro: clip.introEnabled ? resolvedIntro : null,
+              outro: clip.outroEnabled ? resolvedOutro : null,
+              keywords: clip.keywords,
+              scores: toSharedClipScores(clip.scores),
+            },
+            RENDER_CLIP_RETRY_OPTIONS,
+          ),
         ),
       );
     }
@@ -1180,10 +1206,11 @@ export class VideosService {
       throw new BadRequestException('Video sedang diproses');
     }
 
-    await this.generateMoreClipsQueue.add(QueueName.GENERATE_MORE_CLIPS, {
-      videoId: id,
-      ...params,
-    });
+    await this.generateMoreClipsQueue.add(
+      QueueName.GENERATE_MORE_CLIPS,
+      { videoId: id, ...params },
+      GENERATE_MORE_CLIPS_RETRY_OPTIONS,
+    );
 
     return this.findOne(id, requesterId);
   }

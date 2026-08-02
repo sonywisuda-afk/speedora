@@ -1,5 +1,9 @@
 import { VideoStatus } from '@speedora/database';
-import { QueueName, type GenerateMoreClipsJobData } from '@speedora/shared';
+import {
+  QueueName,
+  RENDER_CLIP_RETRY_OPTIONS,
+  type GenerateMoreClipsJobData,
+} from '@speedora/shared';
 import { Worker } from 'bullmq';
 
 jest.mock('bullmq', () => ({ Worker: jest.fn() }));
@@ -250,6 +254,7 @@ describe('generate-more-clips worker (adapter)', () => {
     expect(renderClipQueueAdd).toHaveBeenCalledWith(
       QueueName.RENDER_CLIP,
       expect.objectContaining({ startTime: 30, endTime: 55 }),
+      RENDER_CLIP_RETRY_OPTIONS,
     );
     // The one behavior this worker must never have: detect-clips.worker.ts's
     // CLIPS_DETECTED transition. A RENDERED video stays RENDERED throughout

@@ -62,9 +62,10 @@ const TRIM_TIMEOUT_MS = 5 * 60 * 1000;
 // observed for real hanging over an hour under load with a complex filter graph (multiple B-roll
 // overlays + dynamic crop + subtitles) on a longer clip. Unlike TRIM_TIMEOUT_MS this one has no
 // graceful fallback available (there is no clip without this render succeeding), so a timeout here
-// still fails the render-clip job - but a bounded, clean failure the caller's existing FAILED/retry
-// path already handles, instead of a worker slot wedged for however long the machine happens to
-// stay pathologically slow. More generous than TRIM_TIMEOUT_MS since this is strictly the more
+// still fails the render-clip job - but a bounded, clean failure that now retries automatically via
+// RENDER_CLIP_RETRY_OPTIONS (see packages/shared/src/types/job.ts), instead of a worker slot wedged
+// for however long the machine happens to stay pathologically slow. More generous than
+// TRIM_TIMEOUT_MS since this is strictly the more
 // expensive of the two operations (full encode vs. a re-encode of already-rendered output).
 const RENDER_TIMEOUT_MS = 15 * 60 * 1000;
 

@@ -1492,6 +1492,13 @@ enum NotificationType {
   // succeeded but found nothing new to add," which needs its own type so
   // the message doesn't read as an error.
   GENERATE_MORE_NO_CANDIDATES
+  // Download Reliability Framework - a fourth state-based AlertRule
+  // alongside STORAGE_WARNING/CREDIT_WARNING/SYNC_FAILURE_WARNING, fired
+  // system-wide (recipients = ops-role users, same as STORAGE_WARNING) once
+  // recentInternalCrashes (packages/shared's video-import-metrics.ts) crosses
+  // alert-engine.worker.ts's threshold within its rolling window - see
+  // videoImportInternalCrashSpikeRule.
+  IMPORT_FAILURE_SPIKE
 }
 
 // Only IN_APP for Sprint 4A. Milestone 04d wired SLACK/DISCORD/WEBHOOK, 04e

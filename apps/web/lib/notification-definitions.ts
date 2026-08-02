@@ -43,6 +43,9 @@ export const NOTIFICATION_ICONS: Record<NotificationType, typeof Bell> = {
   // Generate More Clips roadmap (Phase C) - "search that found nothing",
   // distinct from Film (CLIP_READY) so it never reads as "a clip is ready".
   [NotificationType.GENERATE_MORE_NO_CANDIDATES]: SearchX,
+  // Download Reliability Framework - same icon as SYNC_FAILURE_WARNING
+  // (a system-health "something is disconnected/broken" condition).
+  [NotificationType.IMPORT_FAILURE_SPIKE]: Unplug,
 };
 
 // Same 'good' | 'neutral' | 'bad' tone vocabulary as lib/export.ts's
@@ -88,6 +91,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   [NotificationType.MEMBER_INVITATION_ACCEPTED]: 'Undangan diterima',
   [NotificationType.WORKSPACE_OWNERSHIP_TRANSFERRED]: 'Kepemilikan workspace ditransfer',
   [NotificationType.GENERATE_MORE_NO_CANDIDATES]: 'Tidak ada klip tambahan ditemukan',
+  [NotificationType.IMPORT_FAILURE_SPIKE]: 'Lonjakan crash proses download',
 };
 
 const DEFAULT_ICON = Bell;

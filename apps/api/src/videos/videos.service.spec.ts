@@ -1,6 +1,16 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Prisma, VideoStatus } from '@speedora/database';
-import { CaptionStyle, QueueName, TranscriptionProvider } from '@speedora/shared';
+import {
+  CaptionStyle,
+  DETECT_CLIPS_RETRY_OPTIONS,
+  GENERATE_MORE_CLIPS_RETRY_OPTIONS,
+  IMPORT_YOUTUBE_RETRY_OPTIONS,
+  PROBE_VIDEO_RETRY_OPTIONS,
+  QueueName,
+  RENDER_CLIP_RETRY_OPTIONS,
+  TRANSCRIBE_RETRY_OPTIONS,
+  TranscriptionProvider,
+} from '@speedora/shared';
 import type { Queue } from 'bullmq';
 import type { PaymentsService } from '../payments/payments.service';
 import type { PrismaService } from '../prisma/prisma.service';
@@ -227,10 +237,11 @@ describe('VideosService', () => {
       });
       expect(payments.getAvailability).not.toHaveBeenCalled();
       expect(payments.consumeCredit).not.toHaveBeenCalled();
-      expect(probeVideoQueue.add).toHaveBeenCalledWith(QueueName.PROBE_VIDEO, {
-        videoId: 'video-1',
-        sourceUrl: 'videos/abc.mp4',
-      });
+      expect(probeVideoQueue.add).toHaveBeenCalledWith(
+        QueueName.PROBE_VIDEO,
+        { videoId: 'video-1', sourceUrl: 'videos/abc.mp4' },
+        PROBE_VIDEO_RETRY_OPTIONS,
+      );
       expect(result).toEqual(createdVideo);
     });
 
@@ -245,10 +256,11 @@ describe('VideosService', () => {
       expect(payments.getAvailability).toHaveBeenCalledWith('user-1');
       expect(payments.consumeCredit).toHaveBeenCalledWith('user-1', 'video-1');
       expect(prisma.video.delete).not.toHaveBeenCalled();
-      expect(probeVideoQueue.add).toHaveBeenCalledWith(QueueName.PROBE_VIDEO, {
-        videoId: 'video-1',
-        sourceUrl: 'videos/abc.mp4',
-      });
+      expect(probeVideoQueue.add).toHaveBeenCalledWith(
+        QueueName.PROBE_VIDEO,
+        { videoId: 'video-1', sourceUrl: 'videos/abc.mp4' },
+        PROBE_VIDEO_RETRY_OPTIONS,
+      );
       expect(result).toEqual(createdVideo);
     });
 
@@ -355,11 +367,15 @@ describe('VideosService', () => {
         data: { videoId: 'video-1', toStatus: VideoStatus.IMPORTING, errorMessage: null },
       });
       expect(payments.getAvailability).not.toHaveBeenCalled();
-      expect(importYoutubeQueue.add).toHaveBeenCalledWith(QueueName.IMPORT_YOUTUBE, {
-        videoId: 'video-1',
-        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-        provider: TranscriptionProvider.GROQ,
-      });
+      expect(importYoutubeQueue.add).toHaveBeenCalledWith(
+        QueueName.IMPORT_YOUTUBE,
+        {
+          videoId: 'video-1',
+          url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+          provider: TranscriptionProvider.GROQ,
+        },
+        IMPORT_YOUTUBE_RETRY_OPTIONS,
+      );
       // Sprint 1-2 (Dashboard Redesign) - Activity Timeline entry. No title
       // metadata yet (unlike upload() above) - the YouTube title isn't known
       // until import-youtube.worker.ts actually runs.
@@ -419,11 +435,15 @@ describe('VideosService', () => {
       );
 
       expect(payments.consumeCredit).toHaveBeenCalledWith('user-1', 'video-1');
-      expect(importYoutubeQueue.add).toHaveBeenCalledWith(QueueName.IMPORT_YOUTUBE, {
-        videoId: 'video-1',
-        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-        provider: TranscriptionProvider.OPENAI,
-      });
+      expect(importYoutubeQueue.add).toHaveBeenCalledWith(
+        QueueName.IMPORT_YOUTUBE,
+        {
+          videoId: 'video-1',
+          url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+          provider: TranscriptionProvider.OPENAI,
+        },
+        IMPORT_YOUTUBE_RETRY_OPTIONS,
+      );
     });
 
     it('rolls back (deletes the video) when consumeCredit loses a race', async () => {
@@ -1740,11 +1760,15 @@ describe('VideosService', () => {
       expect(prisma.videoStatusEvent.create).toHaveBeenCalledWith({
         data: { videoId: 'video-1', toStatus: VideoStatus.IMPORTING, errorMessage: null },
       });
-      expect(importYoutubeQueue.add).toHaveBeenCalledWith(QueueName.IMPORT_YOUTUBE, {
-        videoId: 'video-1',
-        url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
-        provider: TranscriptionProvider.OPENAI,
-      });
+      expect(importYoutubeQueue.add).toHaveBeenCalledWith(
+        QueueName.IMPORT_YOUTUBE,
+        {
+          videoId: 'video-1',
+          url: 'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+          provider: TranscriptionProvider.OPENAI,
+        },
+        IMPORT_YOUTUBE_RETRY_OPTIONS,
+      );
       expect(transcribeQueue.add).not.toHaveBeenCalled();
     });
 
@@ -1767,10 +1791,11 @@ describe('VideosService', () => {
         where: { id: 'video-1' },
         data: { status: VideoStatus.UPLOADED },
       });
-      expect(probeVideoQueue.add).toHaveBeenCalledWith(QueueName.PROBE_VIDEO, {
-        videoId: 'video-1',
-        sourceUrl: 'videos/abc.mp4',
-      });
+      expect(probeVideoQueue.add).toHaveBeenCalledWith(
+        QueueName.PROBE_VIDEO,
+        { videoId: 'video-1', sourceUrl: 'videos/abc.mp4' },
+        PROBE_VIDEO_RETRY_OPTIONS,
+      );
       expect(transcribeQueue.add).not.toHaveBeenCalled();
     });
 
@@ -1796,11 +1821,11 @@ describe('VideosService', () => {
         where: { id: 'video-1' },
         data: { status: VideoStatus.UPLOADED, transcribeProgress: 0 },
       });
-      expect(transcribeQueue.add).toHaveBeenCalledWith(QueueName.TRANSCRIBE, {
-        videoId: 'video-1',
-        sourceUrl: 'videos/abc.mp4',
-        provider: TranscriptionProvider.GROQ,
-      });
+      expect(transcribeQueue.add).toHaveBeenCalledWith(
+        QueueName.TRANSCRIBE,
+        { videoId: 'video-1', sourceUrl: 'videos/abc.mp4', provider: TranscriptionProvider.GROQ },
+        TRANSCRIBE_RETRY_OPTIONS,
+      );
       expect(detectClipsQueue.add).not.toHaveBeenCalled();
       expect(renderClipQueue.add).not.toHaveBeenCalled();
     });
@@ -1824,10 +1849,11 @@ describe('VideosService', () => {
         where: { id: 'video-1' },
         data: { status: VideoStatus.TRANSCRIBED },
       });
-      expect(detectClipsQueue.add).toHaveBeenCalledWith(QueueName.DETECT_CLIPS, {
-        videoId: 'video-1',
-        segments,
-      });
+      expect(detectClipsQueue.add).toHaveBeenCalledWith(
+        QueueName.DETECT_CLIPS,
+        { videoId: 'video-1', segments },
+        DETECT_CLIPS_RETRY_OPTIONS,
+      );
       expect(transcribeQueue.add).not.toHaveBeenCalled();
       expect(renderClipQueue.add).not.toHaveBeenCalled();
     });
@@ -1874,21 +1900,25 @@ describe('VideosService', () => {
         data: { status: VideoStatus.CLIPS_DETECTED },
       });
       expect(renderClipQueue.add).toHaveBeenCalledTimes(1);
-      expect(renderClipQueue.add).toHaveBeenCalledWith(QueueName.RENDER_CLIP, {
-        clipId: 'clip-1',
-        videoId: 'video-1',
-        sourceUrl: 'videos/abc.mp4',
-        startTime: 10,
-        endTime: 20,
-        transcript: [{ start: 12, end: 18, text: 'inside' }],
-        captionStyle: 'DEFAULT',
-        fontFamily: null,
-        watermark: null,
-        intro: null,
-        outro: null,
-        keywords: ['sunset', 'beach'],
-        scores: null,
-      });
+      expect(renderClipQueue.add).toHaveBeenCalledWith(
+        QueueName.RENDER_CLIP,
+        {
+          clipId: 'clip-1',
+          videoId: 'video-1',
+          sourceUrl: 'videos/abc.mp4',
+          startTime: 10,
+          endTime: 20,
+          transcript: [{ start: 12, end: 18, text: 'inside' }],
+          captionStyle: 'DEFAULT',
+          fontFamily: null,
+          watermark: null,
+          intro: null,
+          outro: null,
+          keywords: ['sunset', 'beach'],
+          scores: null,
+        },
+        RENDER_CLIP_RETRY_OPTIONS,
+      );
       expect(transcribeQueue.add).not.toHaveBeenCalled();
       expect(detectClipsQueue.add).not.toHaveBeenCalled();
     });
@@ -1940,6 +1970,7 @@ describe('VideosService', () => {
       expect(renderClipQueue.add).toHaveBeenCalledWith(
         QueueName.RENDER_CLIP,
         expect.objectContaining({ clipId: 'clip-2', keywords: ['top-up'] }),
+        RENDER_CLIP_RETRY_OPTIONS,
       );
       expect(transcribeQueue.add).not.toHaveBeenCalled();
       expect(detectClipsQueue.add).not.toHaveBeenCalled();
@@ -1979,6 +2010,7 @@ describe('VideosService', () => {
       expect(renderClipQueue.add).toHaveBeenCalledWith(
         QueueName.RENDER_CLIP,
         expect.objectContaining({ fontFamily: 'Poppins' }),
+        RENDER_CLIP_RETRY_OPTIONS,
       );
     });
 
@@ -2022,6 +2054,7 @@ describe('VideosService', () => {
         expect(renderClipQueue.add).toHaveBeenCalledWith(
           QueueName.RENDER_CLIP,
           expect.objectContaining({ fontFamily: 'Oswald' }),
+          RENDER_CLIP_RETRY_OPTIONS,
         );
       });
 
@@ -2060,6 +2093,7 @@ describe('VideosService', () => {
         expect(renderClipQueue.add).toHaveBeenCalledWith(
           QueueName.RENDER_CLIP,
           expect.objectContaining({ fontFamily: 'Roboto' }),
+          RENDER_CLIP_RETRY_OPTIONS,
         );
       });
     });
@@ -2163,14 +2197,18 @@ describe('VideosService', () => {
         avoidOverlap: false,
       });
 
-      expect(generateMoreClipsQueue.add).toHaveBeenCalledWith(QueueName.GENERATE_MORE_CLIPS, {
-        videoId: 'video-1',
-        requestedCount: 3,
-        minClipDurationSeconds: 15,
-        maxClipDurationSeconds: 90,
-        minConfidence: 60,
-        avoidOverlap: false,
-      });
+      expect(generateMoreClipsQueue.add).toHaveBeenCalledWith(
+        QueueName.GENERATE_MORE_CLIPS,
+        {
+          videoId: 'video-1',
+          requestedCount: 3,
+          minClipDurationSeconds: 15,
+          maxClipDurationSeconds: 90,
+          minConfidence: 60,
+          avoidOverlap: false,
+        },
+        GENERATE_MORE_CLIPS_RETRY_OPTIONS,
+      );
     });
   });
 
@@ -2219,11 +2257,11 @@ describe('VideosService', () => {
         where: { id: 'video-1' },
         data: { processingOptions, status: VideoStatus.UPLOADED },
       });
-      expect(transcribeQueue.add).toHaveBeenCalledWith(QueueName.TRANSCRIBE, {
-        videoId: 'video-1',
-        sourceUrl: 'videos/abc.mp4',
-        provider: TranscriptionProvider.GROQ,
-      });
+      expect(transcribeQueue.add).toHaveBeenCalledWith(
+        QueueName.TRANSCRIBE,
+        { videoId: 'video-1', sourceUrl: 'videos/abc.mp4', provider: TranscriptionProvider.GROQ },
+        TRANSCRIBE_RETRY_OPTIONS,
+      );
     });
 
     it('throws NotFoundException for a missing video', async () => {

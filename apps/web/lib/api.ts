@@ -143,6 +143,22 @@ export type ClipDto = Clip;
 export type VideoDto = Video;
 export type VideoWithClipsDto = VideoWithClips;
 
+// Phase F (RBAC hardening) - every error parseJsonOrThrow throws now carries
+// the real HTTP status code, not just a message. Previously callers that
+// needed to distinguish e.g. 403 from any other failure had to string-match
+// the message body (see ops/ai/page.tsx's old check, fixed as part of this
+// same pass) - fragile against any wording change on the backend. Additive:
+// every existing `err.message`/`err instanceof Error` call site keeps
+// working unchanged, since ApiError still is an Error.
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 // Tahap 2 Step 2 Sprint 2b (Session Elevation) - thrown whenever ANY
 // endpoint responds 403 { elevationRequired: true } (disable MFA,
 // regenerate recovery codes, change password, delete account - see
@@ -151,9 +167,9 @@ export type VideoWithClipsDto = VideoWithClips;
 // identical regardless of which of the four endpoints triggered it: catch
 // it, prompt for a fresh code/password via elevateSession, then retry the
 // original action.
-export class ElevationRequiredError extends Error {
+export class ElevationRequiredError extends ApiError {
   constructor(message: string) {
-    super(message);
+    super(message, 403);
     this.name = 'ElevationRequiredError';
   }
 }
@@ -178,7 +194,7 @@ export async function parseJsonOrThrow<T>(res: Response): Promise<T> {
         typeof message === 'string' ? message : 'Recent verification required',
       );
     }
-    throw new Error(typeof message === 'string' ? message : 'Request failed');
+    throw new ApiError(typeof message === 'string' ? message : 'Request failed', res.status);
   }
   return body as T;
 }

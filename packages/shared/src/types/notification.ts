@@ -39,6 +39,10 @@ export enum NotificationType {
   // (not a thread-status concept), so it belongs in the full V1 enum with a
   // normal icon/label/severity, not the V2-only widened union.
   GENERATE_MORE_NO_CANDIDATES = 'GENERATE_MORE_NO_CANDIDATES',
+  // Download Reliability Framework - a fourth state-based type alongside
+  // STORAGE_WARNING/CREDIT_WARNING/SYNC_FAILURE_WARNING, system-wide. See
+  // alert-engine.worker.ts's videoImportInternalCrashSpikeRule.
+  IMPORT_FAILURE_SPIKE = 'IMPORT_FAILURE_SPIKE',
 }
 
 // Mirrors NotificationChannel in packages/database's Prisma schema, same
@@ -95,6 +99,9 @@ export const NOTIFICATION_SEVERITY: Record<NotificationType, NotificationSeverit
   // already treats STORAGE_WARNING/CREDIT_WARNING: worth the user's
   // attention, not a failure.
   [NotificationType.GENERATE_MORE_NO_CANDIDATES]: 'warning',
+  // Download Reliability Framework - a degraded-condition warning, same tone
+  // as STORAGE_WARNING/CREDIT_WARNING/SYNC_FAILURE_WARNING.
+  [NotificationType.IMPORT_FAILURE_SPIKE]: 'warning',
 };
 
 export interface NotificationDto {

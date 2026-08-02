@@ -1,7 +1,13 @@
 import { VideoStatus } from '@speedora/database';
 import { Worker } from 'bullmq';
 
-jest.mock('bullmq', () => ({ Worker: jest.fn() }));
+// UnrecoverableError is left real (via requireActual) - only Worker itself
+// is mocked, same "mock the seam, leave real classes/pure functions real"
+// convention as import-youtube.worker.spec.ts.
+jest.mock('bullmq', () => ({
+  ...jest.requireActual('bullmq'),
+  Worker: jest.fn(),
+}));
 jest.mock('../redis', () => ({ createRedisConnection: jest.fn() }));
 
 // probe-video.worker.ts doesn't enqueue anything itself, but it transitively
@@ -79,11 +85,26 @@ jest.mock('../notificationPublisher', () => ({
 
 import { createProbeVideoWorker } from './probe-video.worker';
 
+type FakeJob = {
+  data: { videoId: string; sourceUrl: string };
+  attemptsMade: number;
+  opts: { attempts?: number };
+};
+
 function getProcessor() {
   createProbeVideoWorker();
-  return (Worker as unknown as jest.Mock).mock.calls[0][1] as (job: {
-    data: { videoId: string; sourceUrl: string };
-  }) => Promise<unknown>;
+  return (Worker as unknown as jest.Mock).mock.calls[0][1] as (job: FakeJob) => Promise<unknown>;
+}
+
+// Every existing (pre-retry-framework) test exercises a single-attempt job
+// (attemptsMade: 0, opts.attempts: 1) - the new retry/UnrecoverableError
+// tests below override these explicitly, same convention as
+// import-youtube.worker.spec.ts's own fakeJob helper.
+function fakeJob(
+  data: FakeJob['data'],
+  overrides: Partial<Pick<FakeJob, 'attemptsMade' | 'opts'>> = {},
+): FakeJob {
+  return { data, attemptsMade: 0, opts: { attempts: 1 }, ...overrides };
 }
 
 const VALID_METADATA = {
@@ -116,9 +137,9 @@ describe('probe-video worker', () => {
     probeVideoMetadataMock.mockResolvedValue(VALID_METADATA);
 
     const processor = getProcessor();
-    const result = await processor({
-      data: { videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' },
-    });
+    const result = await processor(
+      fakeJob({ videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' }),
+    );
 
     expect(result).toEqual({ videoId: 'video-1' });
     expect(pipelineMock).toHaveBeenCalled();
@@ -151,9 +172,9 @@ describe('probe-video worker', () => {
     });
 
     const processor = getProcessor();
-    const result = await processor({
-      data: { videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' },
-    });
+    const result = await processor(
+      fakeJob({ videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' }),
+    );
 
     expect(result).toEqual({ videoId: 'video-1' });
     expect(videoUpdateMock).toHaveBeenCalledWith(
@@ -178,7 +199,7 @@ describe('probe-video worker', () => {
 
     const processor = getProcessor();
     await expect(
-      processor({ data: { videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' } }),
+      processor(fakeJob({ videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' })),
     ).rejects.toThrow('video stream');
 
     expect(videoUpdateMock).toHaveBeenCalledWith({
@@ -193,7 +214,7 @@ describe('probe-video worker', () => {
 
     const processor = getProcessor();
     await expect(
-      processor({ data: { videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' } }),
+      processor(fakeJob({ videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' })),
     ).rejects.toThrow('audio stream');
 
     expect(videoUpdateMock).toHaveBeenCalledWith({
@@ -207,7 +228,7 @@ describe('probe-video worker', () => {
 
     const processor = getProcessor();
     await expect(
-      processor({ data: { videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' } }),
+      processor(fakeJob({ videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' })),
     ).rejects.toThrow('durasi');
 
     expect(videoUpdateMock).toHaveBeenCalledWith({
@@ -221,7 +242,7 @@ describe('probe-video worker', () => {
 
     const processor = getProcessor();
     await expect(
-      processor({ data: { videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' } }),
+      processor(fakeJob({ videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' })),
     ).rejects.toThrow('unparseable');
 
     expect(videoUpdateMock).toHaveBeenCalledWith({
@@ -235,9 +256,9 @@ describe('probe-video worker', () => {
     videoFindUniqueMock.mockResolvedValue(null);
 
     const processor = getProcessor();
-    const result = await processor({
-      data: { videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' },
-    });
+    const result = await processor(
+      fakeJob({ videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' }),
+    );
 
     expect(result).toEqual({ videoId: 'video-1' });
     expect(probeVideoMetadataMock).not.toHaveBeenCalled();
@@ -248,9 +269,9 @@ describe('probe-video worker', () => {
     videoFindUniqueMock.mockResolvedValue({ status: VideoStatus.PENDING_SETTINGS });
 
     const processor = getProcessor();
-    const result = await processor({
-      data: { videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' },
-    });
+    const result = await processor(
+      fakeJob({ videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' }),
+    );
 
     expect(result).toEqual({ videoId: 'video-1' });
     expect(probeVideoMetadataMock).not.toHaveBeenCalled();
@@ -262,11 +283,84 @@ describe('probe-video worker', () => {
 
     const processor = getProcessor();
     await expect(
-      processor({ data: { videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' } }),
+      processor(fakeJob({ videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' })),
     ).rejects.toThrow();
 
     expect(captureExceptionMock).toHaveBeenCalledWith(expect.any(Error), {
       tags: { videoId: 'video-1' },
+    });
+  });
+
+  describe('retry framework (PROBE_VIDEO_RETRY_OPTIONS)', () => {
+    it('does not mark the video FAILED on a non-final attempt of a transient (retryable) error', async () => {
+      probeVideoMetadataMock.mockRejectedValue(new Error('spawn ffprobe ENOENT'));
+
+      const processor = getProcessor();
+      await expect(
+        processor(
+          fakeJob(
+            { videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' },
+            { attemptsMade: 0, opts: { attempts: 3 } },
+          ),
+        ),
+      ).rejects.toThrow('spawn ffprobe ENOENT');
+
+      // Video.status stays UPLOADED (no FAILED write) so the idempotency
+      // guard above lets BullMQ's next attempt actually re-probe instead of
+      // skipping it as "already past UPLOADED".
+      expect(videoUpdateMock).not.toHaveBeenCalled();
+    });
+
+    it('marks the video FAILED once a transient (retryable) error reaches its final attempt', async () => {
+      probeVideoMetadataMock.mockRejectedValue(new Error('spawn ffprobe ENOENT'));
+
+      const processor = getProcessor();
+      await expect(
+        processor(
+          fakeJob(
+            { videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' },
+            { attemptsMade: 2, opts: { attempts: 3 } },
+          ),
+        ),
+      ).rejects.toThrow('spawn ffprobe ENOENT');
+
+      expect(videoUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'video-1' },
+        data: { status: VideoStatus.FAILED },
+      });
+      expect(videoStatusEventCreateMock).toHaveBeenCalledWith({
+        data: {
+          videoId: 'video-1',
+          toStatus: VideoStatus.FAILED,
+          errorMessage: 'spawn ffprobe ENOENT',
+        },
+      });
+    });
+
+    it('marks a deterministic validation failure FAILED immediately as an UnrecoverableError, even with attempts remaining', async () => {
+      const { UnrecoverableError } = jest.requireActual('bullmq');
+      probeVideoMetadataMock.mockResolvedValue({ ...VALID_METADATA, hasVideoStream: false });
+
+      const processor = getProcessor();
+      const caught: unknown = await processor(
+        fakeJob(
+          { videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' },
+          { attemptsMade: 0, opts: { attempts: 3 } },
+        ),
+      ).catch((error: unknown) => error);
+
+      expect(caught).toBeInstanceOf(UnrecoverableError);
+      expect(videoUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'video-1' },
+        data: { status: VideoStatus.FAILED },
+      });
+      expect(videoStatusEventCreateMock).toHaveBeenCalledWith({
+        data: {
+          videoId: 'video-1',
+          toStatus: VideoStatus.FAILED,
+          errorMessage: 'Video tidak memiliki video stream yang valid',
+        },
+      });
     });
   });
 });

@@ -5,7 +5,9 @@ import type {
   DashboardExportsDto,
   DashboardStatsDto,
 } from '@speedora/shared';
+import { AlertTriangle } from 'lucide-react';
 import useSWR from 'swr';
+import { Button } from '@/components/ui/button';
 import { getDashboardActivity, getDashboardExports, getDashboardStats } from '@/lib/api';
 import { ActivityTimeline } from './ActivityTimeline';
 import { ExportActivityPanel } from './ExportActivityPanel';
@@ -25,29 +27,73 @@ export interface DashboardSummaryClientProps {
 // render.
 const POLL_INTERVAL_MS = 10000;
 
+// Phase F (performance hardening) - a fetch failure for any of the three
+// sections below used to render nothing at all, silently (only `data` was
+// ever destructured from useSWR, never `error`). Same error+retry posture
+// NotificationListV2 already uses elsewhere in this app, scaled down to one
+// line since these are dashboard summary tiles, not a full list view.
+function SectionError({ label, onRetry }: { label: string; onRetry: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive-surface px-4 py-3"
+    >
+      <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+      <p className="flex-1 font-body text-sm text-foreground">Gagal memuat {label}.</p>
+      <Button size="sm" variant="outline" onClick={onRetry}>
+        Coba Lagi
+      </Button>
+    </div>
+  );
+}
+
 export function DashboardSummaryClient({
   initialStats,
   initialActivity,
   initialExports,
 }: DashboardSummaryClientProps) {
-  const { data: stats } = useSWR('dashboard-stats', getDashboardStats, {
+  const {
+    data: stats,
+    error: statsError,
+    mutate: mutateStats,
+  } = useSWR('dashboard-stats', getDashboardStats, {
     fallbackData: initialStats,
     refreshInterval: POLL_INTERVAL_MS,
   });
-  const { data: activity } = useSWR('dashboard-activity', () => getDashboardActivity(), {
+  const {
+    data: activity,
+    error: activityError,
+    mutate: mutateActivity,
+  } = useSWR('dashboard-activity', () => getDashboardActivity(), {
     fallbackData: initialActivity,
     refreshInterval: POLL_INTERVAL_MS,
   });
-  const { data: exports } = useSWR('dashboard-exports', getDashboardExports, {
+  const {
+    data: exports,
+    error: exportsError,
+    mutate: mutateExports,
+  } = useSWR('dashboard-exports', getDashboardExports, {
     fallbackData: initialExports,
     refreshInterval: POLL_INTERVAL_MS,
   });
 
   return (
     <>
-      {stats && <StatisticsRow stats={stats} />}
-      {activity && <ActivityTimeline events={activity.events} />}
-      {exports && <ExportActivityPanel exports={exports} />}
+      {statsError ? (
+        <SectionError label="statistik" onRetry={() => mutateStats()} />
+      ) : (
+        stats && <StatisticsRow stats={stats} />
+      )}
+      {activityError ? (
+        <SectionError label="aktivitas" onRetry={() => mutateActivity()} />
+      ) : (
+        activity && <ActivityTimeline events={activity.events} />
+      )}
+      {exportsError ? (
+        <SectionError label="aktivitas export" onRetry={() => mutateExports()} />
+      ) : (
+        exports && <ExportActivityPanel exports={exports} />
+      )}
     </>
   );
 }

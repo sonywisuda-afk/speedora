@@ -6,7 +6,13 @@ import {
   UserRole,
   type AlertRule,
 } from '@speedora/database';
-import { isOutOfPurchasedCredit, isStorageOverQuota, QueueName } from '@speedora/shared';
+import {
+  isOutOfPurchasedCredit,
+  isStorageOverQuota,
+  QueueName,
+  readRecentInternalCrashCount,
+  RECENT_INTERNAL_CRASH_WINDOW_SECONDS,
+} from '@speedora/shared';
 import { getBucketUsage } from '@speedora/storage';
 import { Worker } from 'bullmq';
 import { forStage } from '../logger';
@@ -46,6 +52,19 @@ const SYNC_FAILURE_ALERT_THRESHOLD = Number(process.env.SYNC_FAILURE_ALERT_THRES
 // Same "AI Ops roles" set as apps/api/src/ops-ai/ops-ai.controller.ts's
 // @Roles(...) - the one existing precedent for "which roles count as ops."
 const OPS_ROLES = [UserRole.ADMIN, UserRole.AI_ENGINEER, UserRole.OPERATOR];
+
+// Download Reliability Framework - how many 'internal'-category (crash)
+// video-import failures within the rolling window (see
+// RECENT_INTERNAL_CRASH_WINDOW_SECONDS in packages/shared's
+// video-import-metrics.ts) count as a spike worth paging ops about. Not
+// calibrated against production data (there is none yet) - same posture as
+// SYNC_FAILURE_ALERT_THRESHOLD above.
+const IMPORT_CRASH_ALERT_THRESHOLD = Number(process.env.IMPORT_CRASH_ALERT_THRESHOLD) || 5;
+
+// Separate connection from the Worker's own BullMQ connection below - same
+// "different concern, own connection" reasoning as import-youtube.worker.ts's
+// metricsRedis.
+const metricsRedis = createRedisConnection();
 
 const storageWarningRule: AlertRule = {
   name: 'storage-warning',
@@ -143,12 +162,48 @@ const syncFailureWarningRule: AlertRule = {
   },
 };
 
-// The registered list of active AlertRules - adding rule #4 (GPU almost
+// Download Reliability Framework - system-wide (not per-account), same shape
+// as storageWarningRule: one dedupeKey, breach re-arms once
+// recentInternalCrashes drops back under threshold (the window naturally
+// expires in Redis - see readRecentInternalCrashCount), no Prisma query
+// needed to evaluate the condition itself (only to resolve recipients).
+const videoImportInternalCrashSpikeRule: AlertRule = {
+  name: 'video-import-crash-spike',
+  async evaluate(prismaClient) {
+    const recentCrashes = await readRecentInternalCrashCount(metricsRedis);
+    const breached = recentCrashes >= IMPORT_CRASH_ALERT_THRESHOLD;
+    const recipientUserIds = breached
+      ? (await findUsersByRoles(prismaClient, OPS_ROLES)).map((user) => user.id)
+      : [];
+    return [
+      {
+        dedupeKey: 'video-import-crash-spike',
+        breached,
+        recipientUserIds,
+        notification: {
+          type: NotificationType.IMPORT_FAILURE_SPIKE,
+          title: 'Lonjakan crash pada proses download video',
+          body: `${recentCrashes} kegagalan download berkategori "internal crash" terjadi dalam ${Math.round(
+            RECENT_INTERNAL_CRASH_WINDOW_SECONDS / 60,
+          )} menit terakhir. Periksa kondisi worker (mis. antivirus, disk, proses zombie yt-dlp).`,
+          metadata: { recentCrashes, threshold: IMPORT_CRASH_ALERT_THRESHOLD },
+        },
+      },
+    ];
+  },
+};
+
+// The registered list of active AlertRules - adding rule #5 (GPU almost
 // full, AI worker offline, license/subscription expiry, dataset
 // staleness) is exactly "write the rule object, add it to this array." No
 // scheduler change, no new queue, no new plumbing - see runAlertRules in
 // packages/database/src/alert-engine.ts.
-const ALERT_RULES: AlertRule[] = [storageWarningRule, creditWarningRule, syncFailureWarningRule];
+const ALERT_RULES: AlertRule[] = [
+  storageWarningRule,
+  creditWarningRule,
+  syncFailureWarningRule,
+  videoImportInternalCrashSpikeRule,
+];
 
 // Idempotent, same pattern as sync-publish-stats.worker.ts's version of
 // this - called once at startup (see main.ts).

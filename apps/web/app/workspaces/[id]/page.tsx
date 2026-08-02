@@ -260,15 +260,39 @@ function MembersTab({
     }
   }
 
+  // Phase F (RBAC hardening) - both handlers below previously had no
+  // try/catch at all, unlike their siblings handleInvite/
+  // handleTransferConfirm in this same component - a 403/400 (e.g. an
+  // EDITOR attempting this, or hitting assertNotLastOwnerChange) became an
+  // unhandled promise rejection with no user-visible feedback. Uses toast()
+  // for the error, same as handleRemove's own existing success toast below
+  // (there's no dedicated inline error slot for either action, unlike the
+  // invite/transfer forms which do have one).
   async function handleRoleChange(userId: string, newRole: WorkspaceRole) {
-    await updateWorkspaceMemberRole(workspace.id, userId, newRole);
-    onChanged();
+    try {
+      await updateWorkspaceMemberRole(workspace.id, userId, newRole);
+      onChanged();
+    } catch (err) {
+      toast({
+        title: 'Gagal mengubah role',
+        description: err instanceof Error ? err.message : undefined,
+        tone: 'bad',
+      });
+    }
   }
 
   async function handleRemove(userId: string) {
-    await removeWorkspaceMember(workspace.id, userId);
-    toast({ title: 'Anggota dihapus', tone: 'neutral' });
-    onChanged();
+    try {
+      await removeWorkspaceMember(workspace.id, userId);
+      toast({ title: 'Anggota dihapus', tone: 'neutral' });
+      onChanged();
+    } catch (err) {
+      toast({
+        title: 'Gagal menghapus anggota',
+        description: err instanceof Error ? err.message : undefined,
+        tone: 'bad',
+      });
+    }
   }
 
   async function handleTransferConfirm() {

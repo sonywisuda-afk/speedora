@@ -17,6 +17,16 @@ export const importFailureCategorySchema = z.enum([
   'cancelled',
   'storage',
   'internal',
+  // Download Reliability Framework additions - all four default non-retryable
+  // (see packages/video-import-engine/src/errors.ts's RETRYABLE_CATEGORIES),
+  // since each represents either an operator-fixable environment problem
+  // (disk/permission) or a site/URL-level condition a retry can't change
+  // (geo_restricted/authentication/invalid_url).
+  'disk',
+  'permission',
+  'geo_restricted',
+  'authentication',
+  'invalid_url',
 ]);
 
 export type ImportFailureCategory = z.infer<typeof importFailureCategorySchema>;

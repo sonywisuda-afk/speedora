@@ -18,13 +18,14 @@ import {
 } from '@speedora/database';
 import { deriveDiarizationFeatures } from '@speedora/speaker-diarization';
 import {
+  DETECT_CLIPS_RETRY_OPTIONS,
   QueueName,
   TranscriptionProvider,
   type TranscribeJobData,
   type TranscribeJobResult,
 } from '@speedora/shared';
 import { getObjectStream, uploadObject } from '@speedora/storage';
-import { Worker, type Job } from 'bullmq';
+import { UnrecoverableError, Worker, type Job } from 'bullmq';
 import type OpenAI from 'openai';
 import { audioIntelligenceDeps } from '../audioIntelligenceDeps';
 import {
@@ -78,7 +79,12 @@ function resolveWhisperClient(provider: TranscriptionProvider): {
 } {
   if (provider === TranscriptionProvider.OPENAI) {
     if (!process.env.OPENAI_API_KEY) {
-      throw new Error(
+      // UnrecoverableError, not a plain Error - a missing API key is a
+      // deployment/config problem, not a transient failure; retrying 3
+      // times with backoff would just waste ~1 minute before failing the
+      // same way, since nothing about this condition changes between
+      // attempts without an admin action.
+      throw new UnrecoverableError(
         'OPENAI_API_KEY is not configured - premium (OpenAI Whisper) transcription is unavailable',
       );
     }
@@ -677,20 +683,47 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
               );
             }
 
-            await detectClipsQueue.add(QueueName.DETECT_CLIPS, { videoId, segments });
+            await detectClipsQueue.add(
+              QueueName.DETECT_CLIPS,
+              { videoId, segments },
+              DETECT_CLIPS_RETRY_OPTIONS,
+            );
 
             return { videoId, segments };
           } catch (error) {
-            logger.error('video failed', { videoId }, error);
+            // Reliability hardening pass, same coordination as
+            // probe-video.worker.ts: an UnrecoverableError (thrown above for
+            // a deterministic config problem) is never retryable; anything
+            // else defaults retryable.
+            const isRetryable = !(error instanceof UnrecoverableError);
+            const attemptNumber = job.attemptsMade + 1;
+            const maxAttempts = job.opts.attempts ?? 1;
+            const isFinalAttempt = !isRetryable || attemptNumber >= maxAttempts;
+
+            logger.error(
+              'video failed',
+              { videoId, attempt: attemptNumber, maxAttempts, willRetry: !isFinalAttempt },
+              error,
+            );
             // Tags only - never the transcript text/audio or OPENAI_API_KEY.
             Sentry.captureException(error, { tags: { videoId } });
-            await updateVideoStatus(
-              prisma,
-              videoId,
-              VideoStatus.FAILED,
-              { errorMessage: error instanceof Error ? error.message : String(error) },
-              { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
-            );
+
+            // Only write the terminal FAILED status once this is genuinely
+            // the last attempt - leaving Video.status at UPLOADED on a
+            // non-final attempt is what lets the idempotency guard above
+            // pass on BullMQ's next attempt instead of skipping it as
+            // "already past UPLOADED", same reasoning as
+            // probe-video.worker.ts/import-youtube.worker.ts's own
+            // isFinalAttempt gating.
+            if (isFinalAttempt) {
+              await updateVideoStatus(
+                prisma,
+                videoId,
+                VideoStatus.FAILED,
+                { errorMessage: error instanceof Error ? error.message : String(error) },
+                { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
+              );
+            }
             throw error;
           } finally {
             // Scratch files only - the persisted source lives in object storage.

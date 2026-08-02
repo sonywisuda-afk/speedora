@@ -275,6 +275,21 @@ export class WorkspaceService {
     input: { email: string; role: WorkspaceRole },
     webOrigin: string,
   ): Promise<PendingInviteDto> {
+    // Phase F (RBAC hardening) - closes a real gap found while auditing
+    // updateMemberRole's own "OWNER can no longer be granted through this
+    // generic role-PATCH" comment (see below in this file): that comment
+    // was only true for the PATCH endpoint. This invite path had no
+    // matching check - the DTO's @IsEnum(WorkspaceRole) accepts OWNER, and
+    // acceptInvite() writes invite.role directly onto a new
+    // WorkspaceMembership with no guard. Any ADMIN could invite someone as
+    // OWNER, producing a second OWNER-ranked membership without ever
+    // touching Workspace.ownerId - exactly the anomalous state
+    // updateMemberRole's comment describes as "since-patched." Same
+    // "granting OWNER only happens through transferOwnership(), which
+    // atomically demotes the old owner" reasoning as that block.
+    if (input.role === WorkspaceRole.OWNER) {
+      throw new BadRequestException('Cannot invite a member as OWNER - use transfer-ownership');
+    }
     await this.access.assertMinRole(inviterId, workspaceId, WorkspaceRole.ADMIN);
 
     const workspace = await this.prisma.workspace.findUniqueOrThrow({
@@ -365,6 +380,12 @@ export class WorkspaceService {
     }
     if (invite.email.toLowerCase() !== userEmail.toLowerCase()) {
       throw new ForbiddenException('This invite was sent to a different email address');
+    }
+    // Phase F (RBAC hardening) - defense in depth alongside createInvite's
+    // own new guard, for any PendingInvite row with role=OWNER that was
+    // already created before that fix shipped.
+    if (invite.role === WorkspaceRole.OWNER) {
+      throw new BadRequestException('This invite is invalid - use transfer-ownership for OWNER');
     }
 
     await this.prisma.$transaction(async (tx) => {

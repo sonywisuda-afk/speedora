@@ -1,6 +1,6 @@
 'use client';
 
-import { Bell, Trash2 } from 'lucide-react';
+import { AlertTriangle, Bell, Trash2 } from 'lucide-react';
 import { useRef, useState } from 'react';
 import useSWR from 'swr';
 import type { NotificationDto } from '@speedora/shared';
@@ -62,11 +62,13 @@ export function NotificationBell() {
     mutateRef.current.list();
   });
 
-  const { data: unread, mutate: mutateUnread } = useSWR(
-    'notifications-unread-count',
-    getUnreadNotificationCount,
-    { refreshInterval: connected ? UNREAD_POLL_MS_SSE : UNREAD_POLL_MS_ACTIVE },
-  );
+  const {
+    data: unread,
+    error: unreadError,
+    mutate: mutateUnread,
+  } = useSWR('notifications-unread-count', getUnreadNotificationCount, {
+    refreshInterval: connected ? UNREAD_POLL_MS_SSE : UNREAD_POLL_MS_ACTIVE,
+  });
 
   // Sprint 4B - no aggressive refreshInterval; preferences change rarely,
   // default SWR revalidate-on-focus is enough. Kept as its own hook (not
@@ -74,36 +76,35 @@ export function NotificationBell() {
   // pay for a preferences round trip.
   const { data: preferences } = useSWR('notification-preferences', getNotificationPreferences);
 
-  const { data: list, mutate: mutateList } = useSWR(
-    'notifications-list',
-    () => getNotifications(LIST_LIMIT),
-    {
-      refreshInterval: connected ? LIST_POLL_MS_SSE : LIST_POLL_MS_ACTIVE,
-      onSuccess: (data) => {
-        if (!seeded.current) {
-          // First fetch just establishes the baseline - toasting every
-          // pre-existing unread item on page load would be a toast storm,
-          // not a notification.
-          seeded.current = true;
-          lastSeenCreatedAt.current = data.notifications[0]?.createdAt ?? null;
-          return;
+  const {
+    data: list,
+    error: listError,
+    mutate: mutateList,
+  } = useSWR('notifications-list', () => getNotifications(LIST_LIMIT), {
+    refreshInterval: connected ? LIST_POLL_MS_SSE : LIST_POLL_MS_ACTIVE,
+    onSuccess: (data) => {
+      if (!seeded.current) {
+        // First fetch just establishes the baseline - toasting every
+        // pre-existing unread item on page load would be a toast storm,
+        // not a notification.
+        seeded.current = true;
+        lastSeenCreatedAt.current = data.notifications[0]?.createdAt ?? null;
+        return;
+      }
+      const newest = data.notifications.filter(
+        (n) => !lastSeenCreatedAt.current || n.createdAt > lastSeenCreatedAt.current,
+      );
+      for (const n of newest.slice().reverse()) {
+        const toastEnabled = preferences?.preferences.find((p) => p.type === n.type)?.toast ?? true;
+        if (toastEnabled) {
+          toast({ title: n.title, description: n.body, tone: notificationTone(n.type) });
         }
-        const newest = data.notifications.filter(
-          (n) => !lastSeenCreatedAt.current || n.createdAt > lastSeenCreatedAt.current,
-        );
-        for (const n of newest.slice().reverse()) {
-          const toastEnabled =
-            preferences?.preferences.find((p) => p.type === n.type)?.toast ?? true;
-          if (toastEnabled) {
-            toast({ title: n.title, description: n.body, tone: notificationTone(n.type) });
-          }
-        }
-        if (data.notifications[0]) {
-          lastSeenCreatedAt.current = data.notifications[0].createdAt;
-        }
-      },
+      }
+      if (data.notifications[0]) {
+        lastSeenCreatedAt.current = data.notifications[0].createdAt;
+      }
     },
-  );
+  });
 
   mutateRef.current = { unread: mutateUnread, list: mutateList };
 
@@ -147,13 +148,20 @@ export function NotificationBell() {
           aria-label="Notifikasi"
         >
           <Bell className="h-4 w-4" aria-hidden="true" />
-          {count > 0 && (
-            <Badge
-              variant="default"
-              className="absolute -right-1 -top-1 h-4 min-w-4 justify-center rounded-full px-1 py-0 text-[10px] leading-none"
-            >
-              {count > 99 ? '99+' : count}
-            </Badge>
+          {unreadError ? (
+            <span
+              className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-destructive"
+              aria-label="Gagal memuat jumlah notifikasi"
+            />
+          ) : (
+            count > 0 && (
+              <Badge
+                variant="default"
+                className="absolute -right-1 -top-1 h-4 min-w-4 justify-center rounded-full px-1 py-0 text-[10px] leading-none"
+              >
+                {count > 99 ? '99+' : count}
+              </Badge>
+            )
           )}
         </button>
       </DialogTrigger>
@@ -181,7 +189,18 @@ export function NotificationBell() {
               )}
             </div>
 
-            {notifications.length === 0 ? (
+            {listError ? (
+              <div
+                role="alert"
+                className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive-surface px-3 py-2"
+              >
+                <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+                <p className="flex-1 font-body text-xs text-foreground">Gagal memuat notifikasi.</p>
+                <Button size="sm" variant="outline" onClick={() => mutateList()}>
+                  Coba Lagi
+                </Button>
+              </div>
+            ) : notifications.length === 0 ? (
               <p className="font-body text-sm text-muted-foreground">Belum ada notifikasi.</p>
             ) : (
               <div className="divide-y divide-border">
