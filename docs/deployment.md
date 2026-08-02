@@ -102,7 +102,78 @@ queue name at boot with a clear error rather than silently starting zero workers
 `workerQueueSelection.ts`). `docker-compose.oracle-worker.yml` leaves it unset — Fase 2 moves the
 whole worker process to its own host as one unit, it does not split `render-clip` out yet.
 
-This exists ahead of need: it's the mechanism a future Fase 3 (GPU worker) reuses to run only
-`render-clip-gpu` on a GPU-backed host once that queue exists, without touching this file's
-CPU-only worker at all. See the infrastructure audit artifact referenced in project history for
-the full hybrid/GPU-routing design this prepares for.
+This exists ahead of need: it's the exact mechanism Fase 3 (below) builds on to split a single
+worker VM into three specialized ones, and the one a future GPU-routing phase would reuse to run
+only a `render-clip-gpu` queue on a GPU-backed host once that queue exists, without touching this
+file's CPU-only worker at all. See the infrastructure audit artifact referenced in project history
+for the full hybrid/GPU-routing design that later phase would implement.
+
+## Queue Specialization (Fase 3)
+
+Fase 2 moved the whole worker process (all 16 queues) to its own host as one unit. Fase 3 splits
+that single worker VM into **three** specialized ones, so `render-clip` - the one queue in this
+system that's genuinely CPU/memory-heavy (FFmpeg + MediaPipe, the real OOM incident behind
+`docker-compose.prod.yml`'s `worker` service comment) - can never contend with anything else for a
+host's resources:
+
+| Role | Compose file | Queues | Sizing |
+|---|---|---|---|
+| **light** | `docker-compose.oracle-worker-light.yml` | Everything I/O-bound: `import-youtube`, `probe-video`, `transcribe`, `publish-clip`, `schedule-publish-clip`, `sync-publish-stats`, `sync-follower-count`, `export-generate`, `alert-engine`, `notification-delivery`, `telegram-chat-discovery`, `generate-platform-copy`, `translate-transcript` (13 queues) | 1g / 1 CPU |
+| **ai** | `docker-compose.oracle-worker-ai.yml` | `detect-clips`, `generate-more-clips` (the LLM clip-selection + clip-scoring path) | 2g / 1 CPU |
+| **render** | `docker-compose.oracle-worker-render.yml` | `render-clip` alone | 4g / 2 CPU (same sizing as Fase 2's single worker VM - only its neighbors were removed) |
+
+The three files' `WORKER_QUEUES` values partition all 16 `QueueName` values exactly once each - no
+queue left unassigned, none double-assigned to two roles (`workerQueueSelection.oracle-compose.spec.ts`
+in `apps/worker` locks this at CI time, not just at container boot). Unlike
+`docker-compose.oracle-worker.yml`'s `WORKER_QUEUES: ${WORKER_QUEUES:-}`, each of these three files
+hardcodes its queue list directly rather than leaving it env-overridable - the whole point of a
+named role is that what it runs is visible and versioned in the file, not something that can
+silently drift via an unset/mistyped env var. `docker-compose.oracle-worker.yml` (the un-split,
+"everything in one worker VM" option from Fase 2) remains valid on its own for anyone not ready to
+run three VMs instead of one.
+
+```bash
+# On each of three separate instances:
+ORACLE_WEB_API_HOST=<web-api instance's private IP> \
+  docker compose -f docker-compose.oracle-worker-light.yml up --build
+ORACLE_WEB_API_HOST=<web-api instance's private IP> \
+  docker compose -f docker-compose.oracle-worker-ai.yml up --build
+ORACLE_WEB_API_HOST=<web-api instance's private IP> \
+  docker compose -f docker-compose.oracle-worker-render.yml up --build
+```
+
+Same prerequisites as Fase 2 (real `POSTGRES_PASSWORD`/`REDIS_PASSWORD`, `ORACLE_WEB_API_HOST`, the
+web-api instance's firewall allowing each instance's IP) apply to all three.
+
+### Queue Metrics
+
+`GET /queues` now covers all 16 queues (it covered 7 before this pass - see `monitoring.md`) and
+reports `failureRate`/`avgProcessingTimeMs`/`retriedJobs` alongside the existing
+waiting/active/completed/failed/delayed/paused/likelyStalled counts. See `monitoring.md`'s
+`GET /queues` section for exactly how each is computed.
+
+### Health Endpoint
+
+`GET /workers/health` reports per-worker-**process** status (which queues a given process is
+actually running, plus its current `jobsActive`/`jobsWaiting`) by reading a Redis heartbeat each
+worker process writes on startup and every 15s (`apps/worker/src/workerHeartbeat.ts`; `WORKER_ID`
+names each entry - the three compose files above set it to `worker-light`/`worker-ai`/
+`worker-render`). See `monitoring.md`'s `GET /workers/health` section for the full response shape
+and TTL/staleness behavior.
+
+### Worker Affinity
+
+Already guaranteed by Fase 2's `WORKER_QUEUES` mechanism - a worker process only ever starts
+`createXWorker()` for queues in its `WORKER_QUEUES` list (`apps/worker/src/main.ts`), so the
+render VM structurally cannot pick up a `probe-video` job even if one were enqueued to it by
+mistake. Fase 3 adds nothing new here at the code level; what's new is
+`workerQueueSelection.oracle-compose.spec.ts` proving the three compose files' assignments are
+complete and non-overlapping, so affinity is enforced by construction, not just by convention.
+
+### Autoscaling - explicitly deferred
+
+Not part of Fase 3. Auto-provisioning/deprovisioning worker capacity based on queue depth needs
+real operational data (actual queue-depth patterns, actual render times) to calibrate sensibly
+against - the same "don't build against a threshold with nothing to calibrate it to" reasoning
+`packages/shared/src/utils/alert-conditions.ts`'s own thresholds already document. `GET /queues`'
+new metrics above are what that future data collection would read from.

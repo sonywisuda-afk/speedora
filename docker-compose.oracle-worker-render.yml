@@ -1,0 +1,49 @@
+# Oracle Cloud Free hybrid deployment (Fase 3 - Queue Specialization) - see
+# docker-compose.oracle-worker-light.yml's top comment for the full
+# rationale and how the 16 queues were split across the three roles.
+#
+# "render": render-clip alone - the one queue in this whole system that's
+# genuinely CPU/memory-heavy (FFmpeg encodes plus concurrent Python/
+# MediaPipe subprocesses, bounded by subprocessLimiter.ts's
+# MAX_CONCURRENT_SUBPROCESSES but still memory-hungry - see
+# docker-compose.prod.yml's own comment on the `worker` service for the real
+# OOM incident behind this). This is the entire point of Queue
+# Specialization: render-clip never shares a host with anything else, so a
+# render burst can't starve the "light" queues (probe-video, transcribe,
+# publish, notifications, sync-*, ...) or the "ai" queues (detect-clips,
+# generate-more-clips) the way it could when all 16 queues shared one
+# process (docker-compose.oracle-worker.yml, Fase 2).
+#
+#   ORACLE_WEB_API_HOST=10.0.0.5 docker compose -f docker-compose.oracle-worker-render.yml up --build
+#
+# Same prerequisites as docker-compose.oracle-worker.yml (ORACLE_WEB_API_HOST,
+# matching POSTGRES_PASSWORD/REDIS_PASSWORD, the web-api instance's firewall
+# allowing this instance's IP) - see that file's own top comment. Same
+# memory/CPU sizing as that file too - this role's resource profile hasn't
+# changed, only its neighbors have been removed.
+name: speedora-oracle-worker-render
+
+services:
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    env_file:
+      - .env
+      - .env.production
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@${ORACLE_WEB_API_HOST:?Set ORACLE_WEB_API_HOST to the web-api instance's private IP/hostname before running this file}:5432/${POSTGRES_DB:-viralclip}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-viralclip}@${ORACLE_WEB_API_HOST:?Set ORACLE_WEB_API_HOST to the web-api instance's private IP/hostname before running this file}:6379
+      WORKER_ID: ${WORKER_ID:-worker-render}
+      # Fixed, not env-overridable - see docker-compose.oracle-worker-light.yml's
+      # own comment on why.
+      WORKER_QUEUES: render-clip
+      FFMPEG_PATH: ffmpeg
+      FFPROBE_PATH: ffprobe
+      YTDLP_PATH: yt-dlp
+    deploy:
+      resources:
+        limits:
+          memory: 4g
+          cpus: '2.0'

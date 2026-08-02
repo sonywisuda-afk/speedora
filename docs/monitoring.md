@@ -60,20 +60,72 @@ stays correct across worker restarts and multiple worker replicas.
 ## `GET /queues`
 
 Per-queue job counts (`waiting`/`active`/`completed`/`failed`/`delayed`/`paused`) for **every**
-queue in the system - including `schedule-publish-clip`/`sync-publish-stats`, which `apps/api`
-never produces into (see `queue.module.ts`) but are registered read-only so this endpoint has the
-full picture, not just the queues `apps/api` happens to enqueue into.
+queue in the system - all 16 as of the Oracle Cloud Free hybrid deployment's Fase 3 (Queue
+Metrics); this endpoint covered only 7 before that pass completed the `queue.module.ts`
+registration list (`ALERT_ENGINE`/`SYNC_FOLLOWER_COUNT`/`TELEGRAM_CHAT_DISCOVERY` were missing
+entirely) and injected the rest into `MonitoringController`. Several queues `apps/api` never
+produces into (e.g. `schedule-publish-clip`/`sync-publish-stats`/`alert-engine`) are registered
+read-only, purely so this endpoint has the full picture rather than just the queues `apps/api`
+happens to enqueue into.
 
-Also reports `likelyStalled`: jobs that have been `active` for more than 5 minutes with no
-progress, checked over at most the 100 most-recently-active jobs per queue (bounded so this
-endpoint can never itself become a slow query). This is a **visibility heuristic**, not BullMQ's
-actual stalled-job recovery mechanism (`maxStalledCount` on the `Worker` side), which already
-exists and handles the real recovery independently of this endpoint.
+Also reports:
+
+- `likelyStalled`: jobs that have been `active` for more than 5 minutes with no progress, checked
+  over at most the 100 most-recently-active jobs per queue (bounded so this endpoint can never
+  itself become a slow query). A **visibility heuristic**, not BullMQ's actual stalled-job recovery
+  mechanism (`maxStalledCount` on the `Worker` side), which already exists and handles the real
+  recovery independently of this endpoint.
+- `failureRate` - `failed / (failed + completed)` from the same `getJobCounts()` call above (no
+  extra Redis round-trips), `null` if there's no completed/failed data yet.
+- `avgProcessingTimeMs` / `retriedJobs` (Fase 3 - Queue Metrics) - sampled over each queue's 50
+  most recent completed/failed jobs (same bounded-sample shape as `likelyStalled` above, via
+  `computeRecentJobMetrics()`), since BullMQ doesn't expose these as O(1) aggregates the way
+  waiting/active/completed/failed are. `avgProcessingTimeMs` averages `finishedOn - processedOn`
+  across the sampled completed jobs; `retriedJobs` counts sampled jobs whose `attemptsMade > 1`. The
+  pure computation (`computeFailureRate`/`computeAvgProcessingTimeMs`/`countRetriedJobs`) lives in
+  `@speedora/shared`'s `queue-metrics.ts`, unit-tested without a real Queue/Redis - the controller
+  only fetches raw job data and calls these functions.
 
 ## `GET /workers`
 
 Connected worker count per queue, read from BullMQ's own worker registry (`Queue.getWorkers()`) -
-not a separate worker-registration mechanism, since BullMQ already tracks this.
+not a separate worker-registration mechanism, since BullMQ already tracks this. Per-**queue**, not
+per-worker-**process** - see `GET /workers/health` below for that.
+
+## `GET /workers/health`
+
+Oracle Cloud Free hybrid deployment, Fase 3 (Health Endpoint). Per-worker-**process** visibility,
+which `GET /workers` above can't provide (it reports "N clients connected to queue X", not "here is
+process Y and everything it's responsible for"). `apps/worker` has no HTTP server of its own (see
+`CLAUDE.md`), so each worker process instead writes a small heartbeat into Redis on startup and
+every 15s (`apps/worker/src/workerHeartbeat.ts`), with a 45s TTL so a crashed (not gracefully
+stopped) process's entry disappears on its own rather than lying stale forever. This endpoint reads
+those heartbeats back (`speedora:worker:heartbeat:*`, key format shared via `@speedora/shared`'s
+`worker-heartbeat.ts` so the writer and reader can't drift) and joins each one against that
+worker's queues' current `active`/`waiting` counts:
+
+```json
+[
+  {
+    "worker": "worker-render",
+    "queues": ["render-clip"],
+    "jobsActive": 2,
+    "jobsWaiting": 5,
+    "startedAt": "2026-08-02T09:10:00.000Z",
+    "heartbeatTtlSeconds": 41
+  }
+]
+```
+
+`WORKER_ID` (env var, see `.env.example`) is what names each entry - the Oracle worker-specialization
+compose files (`docker-compose.oracle-worker-{light,ai,render}.yml`) set it explicitly
+(`worker-light`/`worker-ai`/`worker-render`) since a container's hostname is normally a random
+container id, not something an operator recognizes here. Unset, it falls back to `hostname-pid`.
+
+Uses `KEYS speedora:worker:heartbeat:*`, not `SCAN` - safe here because cardinality is bounded by
+the number of worker **processes** (single digits to low tens even at scale), not a general Redis
+keyspace scan; the same judgment call `GET /redis`'s reachability check already makes for a single
+key `GET`.
 
 ## `GET /storage`
 

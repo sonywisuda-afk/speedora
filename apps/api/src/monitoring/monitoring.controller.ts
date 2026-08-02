@@ -1,6 +1,9 @@
 import { InjectQueue } from '@nestjs/bullmq';
 import { Controller, Get, Logger, ServiceUnavailableException } from '@nestjs/common';
 import {
+  computeAvgProcessingTimeMs,
+  computeFailureRate,
+  countRetriedJobs,
   DEFAULT_ALERT_THRESHOLDS,
   hasLikelyStalledJobs,
   isBackupStale,
@@ -9,16 +12,23 @@ import {
   isHeapPressureHigh,
   isQueueBacklogged,
   isWorkerOffline,
+  heartbeatKeyPattern,
   QueueName,
   readVideoImportMetrics,
   type RedisLike,
 } from '@speedora/shared';
 import { checkStorageConnection, getBucketUsage } from '@speedora/storage';
 import type { Queue } from 'bullmq';
+import type { Redis } from 'ioredis';
 import { getBackupStatus } from '../health/backup-status';
 import { PrismaService } from '../prisma/prisma.service';
 import { alertStateTracker, type AlertDefinition } from './alert-state';
 import { metricsRegistry } from './metrics-registry';
+import {
+  buildWorkerHealthEntry,
+  parseHeartbeatPayload,
+  type WorkerHealthEntry,
+} from './worker-heartbeat-reader';
 
 // A request stuck in 'active' this long with no progress is worth flagging
 // even though BullMQ's own stalled-job recovery (maxStalledCount, on the
@@ -29,6 +39,12 @@ const LIKELY_STALLED_THRESHOLD_MS = 5 * 60 * 1000;
 // regardless of how many jobs are active - an operational endpoint should
 // never itself become a slow query against Redis.
 const MAX_ACTIVE_JOBS_TO_INSPECT = 100;
+// Oracle Cloud Free hybrid deployment (Fase 3 - Queue Metrics) - same
+// bounded-sample reasoning as MAX_ACTIVE_JOBS_TO_INSPECT above, applied to
+// completed/failed jobs for avgProcessingTimeMs/retriedJobs. Lower than the
+// active-job limit since this endpoint now does two extra getJobs() calls
+// per queue (completed AND failed) instead of one.
+const MAX_RECENT_JOBS_TO_INSPECT = 50;
 
 async function countLikelyStalled(queue: Queue): Promise<number> {
   const active = await queue.getJobs(['active'], 0, MAX_ACTIVE_JOBS_TO_INSPECT - 1);
@@ -36,6 +52,20 @@ async function countLikelyStalled(queue: Queue): Promise<number> {
   return active.filter(
     (job) => job.processedOn && now - job.processedOn > LIKELY_STALLED_THRESHOLD_MS,
   ).length;
+}
+
+async function computeRecentJobMetrics(
+  queue: Queue,
+): Promise<{ avgProcessingTimeMs: number | null; retriedJobs: number }> {
+  const [completed, failed] = await Promise.all([
+    queue.getJobs(['completed'], 0, MAX_RECENT_JOBS_TO_INSPECT - 1),
+    queue.getJobs(['failed'], 0, MAX_RECENT_JOBS_TO_INSPECT - 1),
+  ]);
+
+  return {
+    avgProcessingTimeMs: computeAvgProcessingTimeMs(completed),
+    retriedJobs: countRetriedJobs([...completed, ...failed]),
+  };
 }
 
 // getJobCounts() is typed as a bare index signature ({[index: string]:
@@ -51,6 +81,14 @@ interface QueueCounts {
   delayed: number;
   paused: number;
   likelyStalled: number;
+  // Oracle Cloud Free hybrid deployment (Fase 3 - Queue Metrics) -
+  // failureRate is computed from the full getJobCounts() totals above (no
+  // extra Redis calls); avgProcessingTimeMs/retriedJobs are necessarily
+  // sampled (see computeRecentJobMetrics) since BullMQ doesn't expose them
+  // as O(1) aggregates the way waiting/active/completed/failed are.
+  failureRate: number | null;
+  avgProcessingTimeMs: number | null;
+  retriedJobs: number;
 }
 
 // Every route below is unauthenticated and unthrottled on purpose - same
@@ -63,30 +101,53 @@ interface QueueCounts {
 export class MonitoringController {
   private readonly logger = new Logger(MonitoringController.name);
 
-  // Every queue in the system, including the two apps/api never produces
-  // into (SCHEDULE_PUBLISH_CLIP/SYNC_PUBLISH_STATS - see queue.module.ts)
-  // - /queues and /workers report on the whole pipeline, not just the
-  // queues apps/api happens to be a producer for.
+  // Every queue in the system - /queues, /workers, and /workers/health
+  // report on the whole pipeline, not just the queues apps/api happens to
+  // be a producer for. Oracle Cloud Free hybrid deployment (Fase 3 - Queue
+  // Metrics) completed this list to all 16: PROBE_VIDEO, EXPORT_GENERATE,
+  // NOTIFICATION_DELIVERY, GENERATE_PLATFORM_COPY, TRANSLATE_TRANSCRIPT, and
+  // GENERATE_MORE_CLIPS were already registered in queue.module.ts but not
+  // injected here; ALERT_ENGINE/SYNC_FOLLOWER_COUNT/TELEGRAM_CHAT_DISCOVERY
+  // needed registering there too (see that file's own comment) - this
+  // endpoint set previously covered only 7 of 16.
   private readonly queues: { name: QueueName; queue: Queue }[];
 
   constructor(
     private readonly prisma: PrismaService,
     @InjectQueue(QueueName.IMPORT_YOUTUBE) importYoutubeQueue: Queue,
+    @InjectQueue(QueueName.PROBE_VIDEO) probeVideoQueue: Queue,
     @InjectQueue(QueueName.TRANSCRIBE) transcribeQueue: Queue,
     @InjectQueue(QueueName.DETECT_CLIPS) detectClipsQueue: Queue,
+    @InjectQueue(QueueName.GENERATE_MORE_CLIPS) generateMoreClipsQueue: Queue,
     @InjectQueue(QueueName.RENDER_CLIP) renderClipQueue: Queue,
     @InjectQueue(QueueName.PUBLISH_CLIP) publishClipQueue: Queue,
     @InjectQueue(QueueName.SCHEDULE_PUBLISH_CLIP) schedulePublishClipQueue: Queue,
     @InjectQueue(QueueName.SYNC_PUBLISH_STATS) syncPublishStatsQueue: Queue,
+    @InjectQueue(QueueName.SYNC_FOLLOWER_COUNT) syncFollowerCountQueue: Queue,
+    @InjectQueue(QueueName.EXPORT_GENERATE) exportGenerateQueue: Queue,
+    @InjectQueue(QueueName.NOTIFICATION_DELIVERY) notificationDeliveryQueue: Queue,
+    @InjectQueue(QueueName.GENERATE_PLATFORM_COPY) generatePlatformCopyQueue: Queue,
+    @InjectQueue(QueueName.TRANSLATE_TRANSCRIPT) translateTranscriptQueue: Queue,
+    @InjectQueue(QueueName.ALERT_ENGINE) alertEngineQueue: Queue,
+    @InjectQueue(QueueName.TELEGRAM_CHAT_DISCOVERY) telegramChatDiscoveryQueue: Queue,
   ) {
     this.queues = [
       { name: QueueName.IMPORT_YOUTUBE, queue: importYoutubeQueue },
+      { name: QueueName.PROBE_VIDEO, queue: probeVideoQueue },
       { name: QueueName.TRANSCRIBE, queue: transcribeQueue },
       { name: QueueName.DETECT_CLIPS, queue: detectClipsQueue },
+      { name: QueueName.GENERATE_MORE_CLIPS, queue: generateMoreClipsQueue },
       { name: QueueName.RENDER_CLIP, queue: renderClipQueue },
       { name: QueueName.PUBLISH_CLIP, queue: publishClipQueue },
       { name: QueueName.SCHEDULE_PUBLISH_CLIP, queue: schedulePublishClipQueue },
       { name: QueueName.SYNC_PUBLISH_STATS, queue: syncPublishStatsQueue },
+      { name: QueueName.SYNC_FOLLOWER_COUNT, queue: syncFollowerCountQueue },
+      { name: QueueName.EXPORT_GENERATE, queue: exportGenerateQueue },
+      { name: QueueName.NOTIFICATION_DELIVERY, queue: notificationDeliveryQueue },
+      { name: QueueName.GENERATE_PLATFORM_COPY, queue: generatePlatformCopyQueue },
+      { name: QueueName.TRANSLATE_TRANSCRIPT, queue: translateTranscriptQueue },
+      { name: QueueName.ALERT_ENGINE, queue: alertEngineQueue },
+      { name: QueueName.TELEGRAM_CHAT_DISCOVERY, queue: telegramChatDiscoveryQueue },
     ];
   }
 
@@ -223,17 +284,25 @@ export class MonitoringController {
           'delayed',
           'paused',
         );
-        const likelyStalled = await countLikelyStalled(queue);
+        const completed = raw.completed ?? 0;
+        const failed = raw.failed ?? 0;
+        const [likelyStalled, recentJobMetrics] = await Promise.all([
+          countLikelyStalled(queue),
+          computeRecentJobMetrics(queue),
+        ]);
         return [
           name,
           {
             waiting: raw.waiting ?? 0,
             active: raw.active ?? 0,
-            completed: raw.completed ?? 0,
-            failed: raw.failed ?? 0,
+            completed,
+            failed,
             delayed: raw.delayed ?? 0,
             paused: raw.paused ?? 0,
             likelyStalled,
+            failureRate: computeFailureRate(failed, completed),
+            avgProcessingTimeMs: recentJobMetrics.avgProcessingTimeMs,
+            retriedJobs: recentJobMetrics.retriedJobs,
           },
         ];
       }),
@@ -254,6 +323,57 @@ export class MonitoringController {
       }),
     );
     return Object.fromEntries(entries);
+  }
+
+  // Oracle Cloud Free hybrid deployment (Fase 3 - Health Endpoint) -
+  // per-WORKER-PROCESS visibility (e.g. "is worker-render alive, and what's
+  // its actual queue backlog"), which workerSummary() above can't answer -
+  // that endpoint reports per-QUEUE connected-client counts, not "here is
+  // process X and everything assigned to it". Reads the Redis heartbeats
+  // apps/worker/src/workerHeartbeat.ts writes (apps/worker has no HTTP
+  // server of its own, see CLAUDE.md, so this is how apps/api learns about
+  // it) rather than building a second worker-registration mechanism.
+  //
+  // KEYS, not SCAN - safe here because cardinality is bounded by the number
+  // of worker PROCESSES (single digits to low tens even at scale), not a
+  // general Redis keyspace scan; this is the same judgment call
+  // checkRedis() below already makes for a single '__health_check__' GET.
+  @Get('workers/health')
+  async workersHealth(): Promise<WorkerHealthEntry[]> {
+    // BullMQ's own IRedisClient type doesn't declare keys()/ttl() even
+    // though the real ioredis client backing it (this deployment's only
+    // adapter) has them - same gap metrics()'s readVideoImportMetrics()
+    // call above works around, same cast.
+    const client = (await this.queues[0].queue.client) as unknown as Redis;
+    const keys = await client.keys(heartbeatKeyPattern());
+    if (keys.length === 0) return [];
+
+    const [values, ttls] = await Promise.all([
+      Promise.all(keys.map((key) => client.get(key))),
+      Promise.all(keys.map((key) => client.ttl(key))),
+    ]);
+
+    const jobCountsByQueue = new Map(
+      await Promise.all(
+        this.queues.map(
+          async ({ name, queue }): Promise<[QueueName, { active: number; waiting: number }]> => {
+            const counts = await queue.getJobCounts('active', 'waiting');
+            return [name, { active: counts.active ?? 0, waiting: counts.waiting ?? 0 }];
+          },
+        ),
+      ),
+    );
+
+    const entries: WorkerHealthEntry[] = [];
+    for (let i = 0; i < values.length; i++) {
+      const payload = parseHeartbeatPayload(values[i]);
+      // A key can expire between the KEYS scan above and this GET (both
+      // TTL-based) - skip that one entry rather than fail the whole
+      // response over a worker that just happened to go quiet mid-request.
+      if (!payload) continue;
+      entries.push(buildWorkerHealthEntry(payload, ttls[i], jobCountsByQueue));
+    }
+    return entries;
   }
 
   // Non-throwing internal checks - shared by the public @Get routes below

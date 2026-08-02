@@ -38,3 +38,13 @@ export function parseWorkerQueues(raw: string | undefined): Set<QueueName> | nul
 export function isQueueEnabled(queueName: QueueName, enabled: Set<QueueName> | null): boolean {
   return enabled === null || enabled.has(queueName);
 }
+
+// Oracle Cloud Free hybrid deployment (Fase 3) - workerHeartbeat.ts needs the
+// concrete queue list this process actually handles (for GET /workers/health
+// to report), not the null-means-everything sentinel parseWorkerQueues()
+// returns for the unset case. Order matches QueueName's own declaration
+// order when enabled is null, and the caller's comma-separated order
+// otherwise (Set preserves insertion order) - not meaningful, just stable.
+export function resolveEffectiveQueues(enabled: Set<QueueName> | null): QueueName[] {
+  return enabled === null ? (Object.values(QueueName) as QueueName[]) : [...enabled];
+}
