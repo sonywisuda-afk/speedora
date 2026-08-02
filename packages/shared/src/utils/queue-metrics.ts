@@ -11,12 +11,17 @@
 // apps/api's countLikelyStalled() already uses for its own likelyStalled
 // figure.
 
-// Structural, not BullMQ's own Job<T> type - only the three fields these
+// Structural, not BullMQ's own Job<T> type - only the four fields these
 // functions actually read, so they stay testable with plain object
 // literals instead of constructing real BullMQ Job instances. Optional
-// (matching BullMQ's own Job.processedOn?/finishedOn?), not `| null` - a
-// job that hasn't reached that stage simply omits the field.
+// (matching BullMQ's own Job.timestamp/processedOn?/finishedOn?), not
+// `| null` - a job that hasn't reached that stage simply omits the field.
 export interface JobSample {
+  // BullMQ's own enqueue time (ms since epoch) - PR #45 (Production
+  // Metrics Collection) added this for computeAvgQueueWaitMs below; every
+  // pre-existing caller of this interface is unaffected since it's
+  // optional.
+  timestamp?: number;
   processedOn?: number;
   finishedOn?: number;
   attemptsMade: number;
@@ -49,4 +54,26 @@ export function computeAvgProcessingTimeMs(completedSample: JobSample[]): number
 // (1 means it succeeded/failed on the first try, no retry happened).
 export function countRetriedJobs(sample: JobSample[]): number {
   return sample.filter((job) => job.attemptsMade > 1).length;
+}
+
+// PR #45 (Production Metrics Collection) - how long a job sat in `waiting`
+// before a worker picked it up (processedOn - timestamp), averaged over the
+// same bounded completed-job sample computeAvgProcessingTimeMs reads. A
+// queue with a consistently high wait but a low processing time indicates
+// under-capacity (jobs are fast once started, they're just not being
+// started soon enough) - the opposite read from a high processing time,
+// which points at the work itself, not capacity. Distinguishing the two is
+// exactly why this is a separate figure rather than folded into
+// avgProcessingTimeMs.
+export function computeAvgQueueWaitMs(completedSample: JobSample[]): number | null {
+  const waits = completedSample
+    .map((job) =>
+      typeof job.timestamp === 'number' && typeof job.processedOn === 'number'
+        ? job.processedOn - job.timestamp
+        : null,
+    )
+    .filter((value): value is number => value !== null);
+
+  if (waits.length === 0) return null;
+  return Math.round(waits.reduce((sum, value) => sum + value, 0) / waits.length);
 }

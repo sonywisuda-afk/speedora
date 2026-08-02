@@ -84,6 +84,11 @@ const syncFollowerCountQueue = BullModule.registerQueue({ name: QueueName.SYNC_F
 const telegramChatDiscoveryQueue = BullModule.registerQueue({
   name: QueueName.TELEGRAM_CHAT_DISCOVERY,
 });
+// PR #45 (Production Metrics Collection) - the 17th queue, same
+// "registered here read-only" reasoning as the three above - apps/api
+// never produces into it, it's apps/worker's own repeatable trigger (see
+// metrics-snapshot.worker.ts).
+const metricsSnapshotQueue = BullModule.registerQueue({ name: QueueName.METRICS_SNAPSHOT });
 
 @Module({
   imports: [
@@ -110,6 +115,7 @@ const telegramChatDiscoveryQueue = BullModule.registerQueue({
     alertEngineQueue,
     syncFollowerCountQueue,
     telegramChatDiscoveryQueue,
+    metricsSnapshotQueue,
   ],
   providers: [NotificationDeliveryProducer],
   exports: [
@@ -129,6 +135,7 @@ const telegramChatDiscoveryQueue = BullModule.registerQueue({
     alertEngineQueue,
     syncFollowerCountQueue,
     telegramChatDiscoveryQueue,
+    metricsSnapshotQueue,
     NotificationDeliveryProducer,
   ],
 })

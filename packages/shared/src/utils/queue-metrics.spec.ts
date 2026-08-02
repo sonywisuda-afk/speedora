@@ -1,5 +1,6 @@
 import {
   computeAvgProcessingTimeMs,
+  computeAvgQueueWaitMs,
   computeFailureRate,
   countRetriedJobs,
   type JobSample,
@@ -44,6 +45,44 @@ describe('computeAvgProcessingTimeMs', () => {
       { processedOn: undefined, finishedOn: 9000, attemptsMade: 1 },
     ];
     expect(computeAvgProcessingTimeMs(sample)).toBe(2000);
+  });
+});
+
+describe('computeAvgQueueWaitMs', () => {
+  it('returns null for an empty sample', () => {
+    expect(computeAvgQueueWaitMs([])).toBeNull();
+  });
+
+  it('returns null when no job in the sample has both timestamps', () => {
+    const sample: JobSample[] = [
+      { timestamp: undefined, processedOn: undefined, attemptsMade: 1 },
+      { timestamp: 100, processedOn: undefined, attemptsMade: 1 },
+    ];
+    expect(computeAvgQueueWaitMs(sample)).toBeNull();
+  });
+
+  it('averages processedOn - timestamp across the sample', () => {
+    const sample: JobSample[] = [
+      { timestamp: 1000, processedOn: 1500, attemptsMade: 1 }, // 500ms wait
+      { timestamp: 5000, processedOn: 7000, attemptsMade: 1 }, // 2000ms wait
+    ];
+    expect(computeAvgQueueWaitMs(sample)).toBe(1250);
+  });
+
+  it('ignores jobs missing either timestamp rather than treating them as 0', () => {
+    const sample: JobSample[] = [
+      { timestamp: 1000, processedOn: 1500, attemptsMade: 1 }, // 500ms wait
+      { timestamp: undefined, processedOn: 9000, attemptsMade: 1 },
+    ];
+    expect(computeAvgQueueWaitMs(sample)).toBe(500);
+  });
+
+  it('is independent from processing time - a fast-processing, slow-to-start job still shows a wait', () => {
+    const sample: JobSample[] = [
+      { timestamp: 0, processedOn: 10_000, finishedOn: 10_050, attemptsMade: 1 },
+    ];
+    expect(computeAvgQueueWaitMs(sample)).toBe(10_000);
+    expect(computeAvgProcessingTimeMs(sample)).toBe(50);
   });
 });
 

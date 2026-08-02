@@ -1,41 +1,11 @@
 import { QueueName } from '@speedora/shared';
-import { buildWorkerHealthEntry, parseHeartbeatPayload } from './worker-heartbeat-reader';
+import { buildWorkerHealthEntry } from './worker-heartbeat-reader';
 
-describe('parseHeartbeatPayload', () => {
-  it('returns null for null/empty input', () => {
-    expect(parseHeartbeatPayload(null)).toBeNull();
-    expect(parseHeartbeatPayload('')).toBeNull();
-  });
-
-  it('returns null for invalid JSON', () => {
-    expect(parseHeartbeatPayload('not json')).toBeNull();
-  });
-
-  it('returns null when required fields are missing or the wrong type', () => {
-    expect(parseHeartbeatPayload(JSON.stringify({ workerId: 'w1' }))).toBeNull();
-    expect(
-      parseHeartbeatPayload(JSON.stringify({ workerId: 1, queues: [], startedAt: 'x' })),
-    ).toBeNull();
-    expect(
-      parseHeartbeatPayload(
-        JSON.stringify({ workerId: 'w1', queues: 'not-an-array', startedAt: 'x' }),
-      ),
-    ).toBeNull();
-  });
-
-  it('parses a valid payload', () => {
-    const raw = JSON.stringify({
-      workerId: 'worker-render',
-      queues: [QueueName.RENDER_CLIP],
-      startedAt: '2026-08-02T00:00:00.000Z',
-    });
-    expect(parseHeartbeatPayload(raw)).toEqual({
-      workerId: 'worker-render',
-      queues: [QueueName.RENDER_CLIP],
-      startedAt: '2026-08-02T00:00:00.000Z',
-    });
-  });
-});
+// parseHeartbeatPayload's own tests moved to
+// packages/shared/src/utils/worker-heartbeat.spec.ts as of PR #45
+// (Production Metrics Collection) - it's still re-exported from this
+// module (see worker-heartbeat-reader.ts's own comment), just implemented
+// and tested at its new home.
 
 describe('buildWorkerHealthEntry', () => {
   it('sums job counts across every queue the worker claims', () => {

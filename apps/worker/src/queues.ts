@@ -109,3 +109,12 @@ export const syncFollowerCountQueue = new Queue(QueueName.SYNC_FOLLOWER_COUNT, {
   connection: createRedisConnection(),
   defaultJobOptions,
 });
+
+// PR #45 (Production Metrics Collection) - the repeatable trigger queue for
+// metrics-snapshot.worker.ts - self-contained (snapshots every queue's
+// counts/metrics and every live worker heartbeat into Postgres, no further
+// job to hand off to), same shape as syncPublishStatsQueue above.
+export const metricsSnapshotQueue = new Queue(QueueName.METRICS_SNAPSHOT, {
+  connection: createRedisConnection(),
+  defaultJobOptions,
+});

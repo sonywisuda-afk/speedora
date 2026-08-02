@@ -1,4 +1,13 @@
 import type { QueueName, WorkerHeartbeatPayload } from '@speedora/shared';
+// PR #45 (Production Metrics Collection) - apps/worker/src/workers/
+// metrics-snapshot.worker.ts needs to parse raw heartbeat values too now,
+// not just this endpoint, so the parser itself moved to @speedora/shared
+// (worker-heartbeat.ts) alongside the key format/payload shape it already
+// lived next to. Re-exported here (not just imported-and-used) so this
+// module's existing public surface (`import { parseHeartbeatPayload } from
+// './worker-heartbeat-reader'`, used by monitoring.controller.ts) doesn't
+// need to change at every call site.
+export { parseHeartbeatPayload } from '@speedora/shared';
 
 export interface WorkerHealthEntry {
   worker: string;
@@ -7,31 +16,6 @@ export interface WorkerHealthEntry {
   jobsWaiting: number;
   startedAt: string;
   heartbeatTtlSeconds: number;
-}
-
-// Parses one raw Redis GET result into a WorkerHeartbeatPayload, or null if
-// it's missing/malformed. A heartbeat key can expire between
-// MonitoringController.workersHealth()'s KEYS scan and its GET on that same
-// key (a real, if narrow, race - TTL-based keys, see workerHeartbeat.ts) -
-// this endpoint skips that one entry rather than 500ing the whole response
-// over it.
-export function parseHeartbeatPayload(raw: string | null): WorkerHeartbeatPayload | null {
-  if (!raw) return null;
-  try {
-    const parsed: unknown = JSON.parse(raw);
-    if (
-      typeof parsed === 'object' &&
-      parsed !== null &&
-      typeof (parsed as Partial<WorkerHeartbeatPayload>).workerId === 'string' &&
-      Array.isArray((parsed as Partial<WorkerHeartbeatPayload>).queues) &&
-      typeof (parsed as Partial<WorkerHeartbeatPayload>).startedAt === 'string'
-    ) {
-      return parsed as WorkerHeartbeatPayload;
-    }
-    return null;
-  } catch {
-    return null;
-  }
 }
 
 // Pure - turns one heartbeat's payload + its Redis TTL + this queue's

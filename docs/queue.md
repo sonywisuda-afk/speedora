@@ -34,6 +34,15 @@ pipeline job fails once and waits for a user-triggered retry.
   distributed lock.
 - **`sync-publish-stats`** (6h interval) — refreshes analytics snapshots per `PublishRecord`,
   isolates failures per-record (one broken token/deleted video doesn't stop the rest of the batch).
+- **`metrics-snapshot`** (5min interval, PR #45 - Production Metrics Collection) — samples every
+  queue's live counts/metrics and every live worker heartbeat, appends one row per queue/worker to
+  `QueueSnapshot`/`WorkerHeartbeatSnapshot` (see `database.md`). Data collection only — see
+  `deployment.md`'s "Production Metrics Collection" section for what it deliberately does not do
+  (analysis, alerting, scaling decisions).
+
+(This list predates several other repeatable triggers — `alert-engine`, `sync-follower-count`,
+`telegram-chat-discovery` — and isn't exhaustive; see `apps/worker/src/main.ts`'s
+`scheduleRepeatingTrigger()` calls for the authoritative current list.)
 
 ## Job payload convention
 

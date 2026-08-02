@@ -60,13 +60,14 @@ stays correct across worker restarts and multiple worker replicas.
 ## `GET /queues`
 
 Per-queue job counts (`waiting`/`active`/`completed`/`failed`/`delayed`/`paused`) for **every**
-queue in the system - all 16 as of the Oracle Cloud Free hybrid deployment's Fase 3 (Queue
-Metrics); this endpoint covered only 7 before that pass completed the `queue.module.ts`
-registration list (`ALERT_ENGINE`/`SYNC_FOLLOWER_COUNT`/`TELEGRAM_CHAT_DISCOVERY` were missing
-entirely) and injected the rest into `MonitoringController`. Several queues `apps/api` never
-produces into (e.g. `schedule-publish-clip`/`sync-publish-stats`/`alert-engine`) are registered
-read-only, purely so this endpoint has the full picture rather than just the queues `apps/api`
-happens to enqueue into.
+queue in the system - all 17 as of PR #45 (16 as of Fase 3's Queue Metrics pass, which completed
+the `queue.module.ts` registration list - `ALERT_ENGINE`/`SYNC_FOLLOWER_COUNT`/
+`TELEGRAM_CHAT_DISCOVERY` were missing entirely, this endpoint covered only 7 before that - and
+injected the rest into `MonitoringController`; PR #45 added the 17th, `metrics-snapshot`, see
+`deployment.md`'s "Production Metrics Collection" section). Several queues `apps/api` never
+produces into (e.g. `schedule-publish-clip`/`sync-publish-stats`/`alert-engine`/`metrics-snapshot`)
+are registered read-only, purely so this endpoint has the full picture rather than just the queues
+`apps/api` happens to enqueue into.
 
 Also reports:
 

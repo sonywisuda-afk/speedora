@@ -118,12 +118,13 @@ host's resources:
 
 | Role | Compose file | Queues | Sizing |
 |---|---|---|---|
-| **light** | `docker-compose.oracle-worker-light.yml` | Everything I/O-bound: `import-youtube`, `probe-video`, `transcribe`, `publish-clip`, `schedule-publish-clip`, `sync-publish-stats`, `sync-follower-count`, `export-generate`, `alert-engine`, `notification-delivery`, `telegram-chat-discovery`, `generate-platform-copy`, `translate-transcript` (13 queues) | 1g / 1 CPU |
+| **light** | `docker-compose.oracle-worker-light.yml` | Everything I/O-bound: `import-youtube`, `probe-video`, `transcribe`, `publish-clip`, `schedule-publish-clip`, `sync-publish-stats`, `sync-follower-count`, `export-generate`, `alert-engine`, `notification-delivery`, `telegram-chat-discovery`, `generate-platform-copy`, `translate-transcript`, `metrics-snapshot` (14 queues) | 1g / 1 CPU |
 | **ai** | `docker-compose.oracle-worker-ai.yml` | `detect-clips`, `generate-more-clips` (the LLM clip-selection + clip-scoring path) | 2g / 1 CPU |
 | **render** | `docker-compose.oracle-worker-render.yml` | `render-clip` alone | 4g / 2 CPU (same sizing as Fase 2's single worker VM - only its neighbors were removed) |
 
-The three files' `WORKER_QUEUES` values partition all 16 `QueueName` values exactly once each - no
-queue left unassigned, none double-assigned to two roles (`workerQueueSelection.oracle-compose.spec.ts`
+The three files' `WORKER_QUEUES` values partition all 17 `QueueName` values exactly once each (16
+as of Fase 3, plus `metrics-snapshot` added in PR #45 - see "Production Metrics Collection" below) -
+no queue left unassigned, none double-assigned to two roles (`workerQueueSelection.oracle-compose.spec.ts`
 in `apps/worker` locks this at CI time, not just at container boot). Unlike
 `docker-compose.oracle-worker.yml`'s `WORKER_QUEUES: ${WORKER_QUEUES:-}`, each of these three files
 hardcodes its queue list directly rather than leaving it env-overridable - the whole point of a
@@ -177,3 +178,38 @@ real operational data (actual queue-depth patterns, actual render times) to cali
 against - the same "don't build against a threshold with nothing to calibrate it to" reasoning
 `packages/shared/src/utils/alert-conditions.ts`'s own thresholds already document. `GET /queues`'
 new metrics above are what that future data collection would read from.
+
+## Production Metrics Collection (PR #45)
+
+The post-Fase-3 roadmap's second step (fix known findings → **add observability (Fase 3, above)**
+→ **collect production metrics (this section)** → only then evaluate autoscaling against real
+data). Purely data collection - no analytics, dashboard, alerting, or scaling logic reads this data
+yet; PR #44's dashboard still reads live state directly, and a later PR is what reads this history.
+
+A new 17th queue, `metrics-snapshot` (added to the **light** role's `WORKER_QUEUES` above), runs a
+repeatable BullMQ trigger every 5 minutes
+(`apps/worker/src/workers/metrics-snapshot.worker.ts`). Each tick samples every queue's live
+counts/metrics (reusing `@speedora/shared`'s `queue-metrics.ts` - the exact same pure functions
+`GET /queues` itself calls, so a snapshot row and a live API response captured at the same moment
+agree) and every live worker heartbeat, and appends one row per queue/worker to two new Postgres
+tables:
+
+- **`QueueSnapshot`** - one row per queue per tick: `waiting`/`active`/`completed`/`failed`/
+  `delayed`/`paused`, plus `failureRate`/`avgProcessingTimeMs`/`retriedJobs` (sampled, same
+  nullability as `GET /queues`) and a new `avgQueueWaitMs` (`processedOn - timestamp`, averaged
+  over the same completed-job sample) - how long a job sat in `waiting` before a worker picked it
+  up, a distinct signal from processing time: a queue with a high wait but fast processing points at
+  under-capacity, not at the work itself being slow.
+- **`WorkerHeartbeatSnapshot`** - one row per live worker heartbeat per tick: `workerId`, `queues`,
+  `jobsActive`/`jobsWaiting`, `workerStartedAt`, `heartbeatTtlSeconds`. A worker whose heartbeat has
+  expired simply stops appearing in new snapshots - same absence-is-the-signal convention
+  `GET /workers/health` itself uses, not a stored "offline" row.
+
+**Retention is an explicit, deliberately open question, not solved by this PR.** Both tables are
+purely append-only with no pruning job - left running indefinitely, they grow without bound (288
+`QueueSnapshot` rows/day/queue at the 5-minute interval, 17 queues = ~4,900 rows/day; worker rows
+scale with however many worker processes are live). This is the same class of "explicit tech debt,
+not silently ignored" call the Stabilization Pass's three deferred findings made (see `CLAUDE.md`'s
+"Stabilization Pass" section) - a pruning job (likely mirroring `ops/backup`'s own
+`BACKUP_RETENTION_DAYS` pattern) is a natural, small follow-up once there's a real sense of how much
+history is actually useful to keep.

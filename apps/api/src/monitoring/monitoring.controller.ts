@@ -108,8 +108,8 @@ export class MonitoringController {
   // NOTIFICATION_DELIVERY, GENERATE_PLATFORM_COPY, TRANSLATE_TRANSCRIPT, and
   // GENERATE_MORE_CLIPS were already registered in queue.module.ts but not
   // injected here; ALERT_ENGINE/SYNC_FOLLOWER_COUNT/TELEGRAM_CHAT_DISCOVERY
-  // needed registering there too (see that file's own comment) - this
-  // endpoint set previously covered only 7 of 16.
+  // needed registering there too (see that file's own comment). PR #45
+  // (Production Metrics Collection) added the 17th, METRICS_SNAPSHOT.
   private readonly queues: { name: QueueName; queue: Queue }[];
 
   constructor(
@@ -130,6 +130,7 @@ export class MonitoringController {
     @InjectQueue(QueueName.TRANSLATE_TRANSCRIPT) translateTranscriptQueue: Queue,
     @InjectQueue(QueueName.ALERT_ENGINE) alertEngineQueue: Queue,
     @InjectQueue(QueueName.TELEGRAM_CHAT_DISCOVERY) telegramChatDiscoveryQueue: Queue,
+    @InjectQueue(QueueName.METRICS_SNAPSHOT) metricsSnapshotQueue: Queue,
   ) {
     this.queues = [
       { name: QueueName.IMPORT_YOUTUBE, queue: importYoutubeQueue },
@@ -148,6 +149,7 @@ export class MonitoringController {
       { name: QueueName.TRANSLATE_TRANSCRIPT, queue: translateTranscriptQueue },
       { name: QueueName.ALERT_ENGINE, queue: alertEngineQueue },
       { name: QueueName.TELEGRAM_CHAT_DISCOVERY, queue: telegramChatDiscoveryQueue },
+      { name: QueueName.METRICS_SNAPSHOT, queue: metricsSnapshotQueue },
     ];
   }
 
