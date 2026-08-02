@@ -1,5 +1,5 @@
 import { VideoStatus } from '@speedora/database';
-import { QueueName, TranscriptionProvider } from '@speedora/shared';
+import { PROBE_VIDEO_RETRY_OPTIONS, QueueName, TranscriptionProvider } from '@speedora/shared';
 import { Worker } from 'bullmq';
 
 // UnrecoverableError is left real (via requireActual) - only Worker itself
@@ -194,10 +194,11 @@ describe('import-youtube worker', () => {
         status: VideoStatus.UPLOADED,
       },
     });
-    expect(probeVideoQueueAdd).toHaveBeenCalledWith(QueueName.PROBE_VIDEO, {
-      videoId: 'video-1',
-      sourceUrl: 'videos/video-1.mp4',
-    });
+    expect(probeVideoQueueAdd).toHaveBeenCalledWith(
+      QueueName.PROBE_VIDEO,
+      { videoId: 'video-1', sourceUrl: 'videos/video-1.mp4' },
+      PROBE_VIDEO_RETRY_OPTIONS,
+    );
     expect(cleanupTempFileMock).toHaveBeenCalledWith('/tmp/youtube-import-abc.mp4');
     expect(recordVideoImportOutcomeMock).toHaveBeenCalledWith(
       undefined,

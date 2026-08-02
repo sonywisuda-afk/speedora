@@ -3,6 +3,7 @@ import { Prisma, VideoStatus } from '@speedora/database';
 import {
   CaptionStyle,
   IMPORT_YOUTUBE_RETRY_OPTIONS,
+  PROBE_VIDEO_RETRY_OPTIONS,
   QueueName,
   TranscriptionProvider,
 } from '@speedora/shared';
@@ -232,10 +233,11 @@ describe('VideosService', () => {
       });
       expect(payments.getAvailability).not.toHaveBeenCalled();
       expect(payments.consumeCredit).not.toHaveBeenCalled();
-      expect(probeVideoQueue.add).toHaveBeenCalledWith(QueueName.PROBE_VIDEO, {
-        videoId: 'video-1',
-        sourceUrl: 'videos/abc.mp4',
-      });
+      expect(probeVideoQueue.add).toHaveBeenCalledWith(
+        QueueName.PROBE_VIDEO,
+        { videoId: 'video-1', sourceUrl: 'videos/abc.mp4' },
+        PROBE_VIDEO_RETRY_OPTIONS,
+      );
       expect(result).toEqual(createdVideo);
     });
 
@@ -250,10 +252,11 @@ describe('VideosService', () => {
       expect(payments.getAvailability).toHaveBeenCalledWith('user-1');
       expect(payments.consumeCredit).toHaveBeenCalledWith('user-1', 'video-1');
       expect(prisma.video.delete).not.toHaveBeenCalled();
-      expect(probeVideoQueue.add).toHaveBeenCalledWith(QueueName.PROBE_VIDEO, {
-        videoId: 'video-1',
-        sourceUrl: 'videos/abc.mp4',
-      });
+      expect(probeVideoQueue.add).toHaveBeenCalledWith(
+        QueueName.PROBE_VIDEO,
+        { videoId: 'video-1', sourceUrl: 'videos/abc.mp4' },
+        PROBE_VIDEO_RETRY_OPTIONS,
+      );
       expect(result).toEqual(createdVideo);
     });
 
@@ -1784,10 +1787,11 @@ describe('VideosService', () => {
         where: { id: 'video-1' },
         data: { status: VideoStatus.UPLOADED },
       });
-      expect(probeVideoQueue.add).toHaveBeenCalledWith(QueueName.PROBE_VIDEO, {
-        videoId: 'video-1',
-        sourceUrl: 'videos/abc.mp4',
-      });
+      expect(probeVideoQueue.add).toHaveBeenCalledWith(
+        QueueName.PROBE_VIDEO,
+        { videoId: 'video-1', sourceUrl: 'videos/abc.mp4' },
+        PROBE_VIDEO_RETRY_OPTIONS,
+      );
       expect(transcribeQueue.add).not.toHaveBeenCalled();
     });
 

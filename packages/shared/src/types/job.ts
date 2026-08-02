@@ -129,6 +129,28 @@ export const IMPORT_YOUTUBE_RETRY_OPTIONS = {
   backoff: { type: 'exponential' as const, delay: 60_000 },
 };
 
+// Quality Validation roadmap - PROBE_VIDEO's own job-level retry layer, same
+// "outer retry survives a worker crash/restart mid-job" reasoning as
+// IMPORT_YOUTUBE_RETRY_OPTIONS above. Without this, every one of this
+// queue's 3 enqueue sites (VideosService.upload/importFromYoutube,
+// import-youtube.worker.ts's own self-chain) passed no options at all,
+// which BullMQ defaults to attempts: 0 - a single transient ffprobe crash
+// (e.g. AV-scan interference on Windows, the same
+// empty-stderr/no-explanation crash shape as yt-dlp's own 'internal'
+// category) permanently failed the video on the very first hiccup, with no
+// automatic recovery. Genuinely deterministic failures (no video/audio
+// stream, unreadable duration) are thrown as bullmq's own
+// UnrecoverableError directly by probe-video.worker.ts and skip these
+// attempts entirely, same coordination IMPORT_YOUTUBE_RETRY_OPTIONS
+// documents for VideoImportError.retryable === false. Shorter base delay
+// than IMPORT_YOUTUBE_RETRY_OPTIONS (30s, not 60s) - this is a local
+// subprocess crash, not a network/rate-limit condition, so it needs less
+// real time to clear.
+export const PROBE_VIDEO_RETRY_OPTIONS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 30_000 },
+};
+
 // Quality Validation roadmap (Fase 0 design, Phase 1) - videoId is created
 // (status UPLOADED, sourceUrl already a real object-storage key) by
 // VideosService.upload()/importFromYoutube() before this is enqueued, same

@@ -19,6 +19,7 @@ import {
   filterSegmentsForClip,
   IMPORT_YOUTUBE_RETRY_OPTIONS,
   mergeBrandKitFields,
+  PROBE_VIDEO_RETRY_OPTIONS,
   QueueName,
   TranscriptionProvider,
   type BrandKitFields,
@@ -285,10 +286,11 @@ export class VideosService {
     // not TRANSCRIBE directly (see QueueName.PROBE_VIDEO's own comment).
     // TRANSCRIBE is now only ever enqueued by startProcessing() below, once
     // probing succeeds and the user has submitted Processing Settings.
-    await this.probeVideoQueue.add(QueueName.PROBE_VIDEO, {
-      videoId: video.id,
-      sourceUrl: video.sourceUrl,
-    });
+    await this.probeVideoQueue.add(
+      QueueName.PROBE_VIDEO,
+      { videoId: video.id, sourceUrl: video.sourceUrl },
+      PROBE_VIDEO_RETRY_OPTIONS,
+    );
 
     // Sprint 1-2 (Dashboard Redesign) - Dashboard's Activity Timeline. Fire
     // after the transaction commits, same "don't let a secondary feed's
@@ -989,10 +991,11 @@ export class VideosService {
           enqueueDelivery: (event) => this.notificationDeliveryProducer.enqueue(event),
         },
       );
-      await this.probeVideoQueue.add(QueueName.PROBE_VIDEO, {
-        videoId: id,
-        sourceUrl: video.sourceUrl,
-      });
+      await this.probeVideoQueue.add(
+        QueueName.PROBE_VIDEO,
+        { videoId: id, sourceUrl: video.sourceUrl },
+        PROBE_VIDEO_RETRY_OPTIONS,
+      );
     } else if (video.transcriptSegments.length === 0) {
       // transcribeProgress reset immediately (not left to wait for the job
       // itself to reset it) so a retry click doesn't briefly show a stale

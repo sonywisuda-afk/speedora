@@ -6,7 +6,7 @@ import { updateVideoStatus, VideoStatus } from '@speedora/database';
 import { QueueName, type ProbeVideoJobData, type ProbeVideoJobResult } from '@speedora/shared';
 import { getObjectStream } from '@speedora/storage';
 import { evaluateVideoQuality } from '@speedora/video-validation';
-import { Worker, type Job } from 'bullmq';
+import { UnrecoverableError, Worker, type Job } from 'bullmq';
 import { probeVideoMetadata } from '../ffmpeg';
 import { withJobTimeout } from '../jobTimeout';
 import { forStage } from '../logger';
@@ -83,14 +83,23 @@ export function createProbeVideoWorker(): Worker<ProbeVideoJobData, ProbeVideoJo
             // Processing Settings. Everything else (low resolution/bitrate,
             // unstable fps, very long duration, mono audio) is Phase 2's
             // Warning-tier rule evaluation over the metadata persisted below.
+            // UnrecoverableError, not a plain Error - these are deterministic
+            // content problems (a re-probe of the exact same bytes always
+            // finds the same missing stream/duration), unlike a transient
+            // ffprobe process crash. Skips PROBE_VIDEO_RETRY_OPTIONS's
+            // remaining attempts entirely, same coordination
+            // import-youtube.worker.ts uses for VideoImportError.retryable
+            // === false.
             if (!metadata.hasVideoStream) {
-              throw new Error('Video tidak memiliki video stream yang valid');
+              throw new UnrecoverableError('Video tidak memiliki video stream yang valid');
             }
             if (!metadata.hasAudioStream) {
-              throw new Error('Video tidak memiliki audio stream - transkripsi membutuhkan audio');
+              throw new UnrecoverableError(
+                'Video tidak memiliki audio stream - transkripsi membutuhkan audio',
+              );
             }
             if (!Number.isFinite(metadata.durationSeconds) || metadata.durationSeconds <= 0) {
-              throw new Error('Video kosong atau durasinya tidak dapat dibaca');
+              throw new UnrecoverableError('Video kosong atau durasinya tidak dapat dibaca');
             }
 
             // Quality Validation roadmap (Fase 0 design, Phase 2) - Warning/
@@ -139,15 +148,39 @@ export function createProbeVideoWorker(): Worker<ProbeVideoJobData, ProbeVideoJo
 
             return { videoId };
           } catch (error) {
-            logger.error('video probe failed', { videoId }, error);
-            Sentry.captureException(error, { tags: { videoId } });
-            await updateVideoStatus(
-              prisma,
-              videoId,
-              VideoStatus.FAILED,
-              { errorMessage: error instanceof Error ? error.message : String(error) },
-              { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
+            // Download Reliability Framework's coordination, reused here:
+            // an UnrecoverableError (thrown above for a deterministic
+            // content problem) is never retryable; anything else defaults
+            // retryable (conservative - we can't prove a raw execFile/fs
+            // exception is permanent), same "unknown error defaults
+            // retryable" reasoning as import-youtube.worker.ts.
+            const isRetryable = !(error instanceof UnrecoverableError);
+            const attemptNumber = job.attemptsMade + 1;
+            const maxAttempts = job.opts.attempts ?? 1;
+            const isFinalAttempt = !isRetryable || attemptNumber >= maxAttempts;
+
+            logger.error(
+              'video probe failed',
+              { videoId, attempt: attemptNumber, maxAttempts, willRetry: !isFinalAttempt },
+              error,
             );
+            Sentry.captureException(error, { tags: { videoId } });
+
+            // Only write the terminal FAILED status once this is genuinely
+            // the last attempt - leaving Video.status at UPLOADED on a
+            // non-final attempt is what lets the idempotency guard above
+            // pass on BullMQ's next attempt instead of skipping it as
+            // "already past UPLOADED", same reasoning as
+            // import-youtube.worker.ts's own isFinalAttempt gating.
+            if (isFinalAttempt) {
+              await updateVideoStatus(
+                prisma,
+                videoId,
+                VideoStatus.FAILED,
+                { errorMessage: error instanceof Error ? error.message : String(error) },
+                { publish: publishNotification, enqueueDelivery: enqueueNotificationDelivery },
+              );
+            }
             throw error;
           } finally {
             if (sourcePath) await cleanupTempFile(sourcePath);

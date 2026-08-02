@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import * as Sentry from '@sentry/node';
 import { updateVideoStatus, VideoStatus } from '@speedora/database';
 import {
+  PROBE_VIDEO_RETRY_OPTIONS,
   QueueName,
   recordVideoImportOutcome,
   type ImportYoutubeJobData,
@@ -290,7 +291,11 @@ export function createImportYoutubeWorker(): Worker<ImportYoutubeJobData, Import
               engineHealthStatus: health.status,
             }).catch(() => {});
 
-            await probeVideoQueue.add(QueueName.PROBE_VIDEO, { videoId, sourceUrl });
+            await probeVideoQueue.add(
+              QueueName.PROBE_VIDEO,
+              { videoId, sourceUrl },
+              PROBE_VIDEO_RETRY_OPTIONS,
+            );
 
             return { videoId, sourceUrl };
           } catch (error) {
