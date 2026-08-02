@@ -116,6 +116,24 @@ directly (`scp`/`rsync`) instead of restoring from an off-box backup.
   (the `worker` service publishes no host ports, so this scales cleanly with no port-conflict
   concern).
 
+**On the Oracle Cloud Free hybrid deployment (`deployment.md`'s Fase 1-3)**, the single `worker`
+service above doesn't exist - there's no one `docker compose ... --scale worker=<N>` to run.
+Everything above still applies **per role**:
+
+- Replacing/restarting a role: `docker compose -f docker-compose.oracle-worker-{light,ai,render}.yml
+  restart worker` on that role's instance - same graceful-shutdown path, same 30-second timeout.
+- Scaling a role: run its compose file on an additional instance with a distinct `WORKER_ID` (e.g.
+  `WORKER_ID=worker-render-2`) - **do not** leave `WORKER_ID` at its default on a second replica of
+  the same role, or its heartbeat silently overwrites the first's key in `GET /workers/health`
+  (`monitoring.md`), making one replica invisible to that endpoint even though it's still correctly
+  processing jobs (BullMQ itself doesn't care about `WORKER_ID` - only the heartbeat does).
+  `MAX_CONCURRENT_SUBPROCESSES` scaling reasoning above is unchanged (still per-process).
+- **Which instance is actually down?** `GET /workers/health` names each entry by `WORKER_ID`
+  (`worker-light`/`worker-ai`/`worker-render` by default) and disappears once its heartbeat's TTL
+  lapses - faster and more specific than checking `GET /workers`'s per-queue connected count when
+  three separate instances are in play. See `deployment.md`'s Fase 3 Troubleshooting section for
+  more.
+
 ## Database recovery
 
 - **Corruption / bad migration**: restore from the most recent backup (see **Restore** above), then
