@@ -3,6 +3,11 @@ import { config } from 'dotenv';
 
 config({ path: path.resolve(__dirname, '../../../.env'), quiet: true });
 
+// Type-only - erased entirely at compile time, so this doesn't reintroduce
+// the module-scope-import-order hazard the dynamic-import comment below
+// warns about (nothing here runs, it only names a type for the `enabled()`
+// helper in main()).
+import type { QueueName } from '@speedora/shared';
 import { initSentry } from './sentry';
 
 // Before validateEnv() (which can itself throw) and everything else below,
@@ -80,37 +85,54 @@ async function main() {
   const { closeNotificationPublisher } = await import('./notificationPublisher');
   const { prisma } = await import('./prisma');
   const { forStage } = await import('./logger');
+  const { QueueName } = await import('@speedora/shared');
+  const { parseWorkerQueues, isQueueEnabled } = await import('./workerQueueSelection');
   const logger = forStage('main');
+
+  // Oracle Cloud Free hybrid deployment (Fase 2) - already validated by
+  // validateEnv() above, so this can't throw here. null (the default, unset)
+  // means every queue, identical to pre-Fase-2 behavior.
+  const enabledQueues = parseWorkerQueues(process.env.WORKER_QUEUES);
+  const enabled = (queueName: QueueName) => isQueueEnabled(queueName, enabledQueues);
 
   // Registers (or re-confirms) each repeatable trigger before the worker
   // that consumes it starts, so there's no window where a queue could fire
-  // before anything is listening.
-  await scheduleSchedulePublishClipTrigger();
-  await scheduleSyncPublishStatsTrigger();
-  await scheduleSyncFollowerCountTrigger();
-  await scheduleAlertEngineTrigger();
-  await scheduleTelegramChatDiscoveryTrigger();
+  // before anything is listening. Gated the same way as the workers below -
+  // a host not running e.g. sync-publish-stats shouldn't also register its
+  // repeatable trigger (harmless either way since BullMQ dedups repeatable
+  // jobs by id, but keeps each host's responsibility list unambiguous).
+  if (enabled(QueueName.SCHEDULE_PUBLISH_CLIP)) await scheduleSchedulePublishClipTrigger();
+  if (enabled(QueueName.SYNC_PUBLISH_STATS)) await scheduleSyncPublishStatsTrigger();
+  if (enabled(QueueName.SYNC_FOLLOWER_COUNT)) await scheduleSyncFollowerCountTrigger();
+  if (enabled(QueueName.ALERT_ENGINE)) await scheduleAlertEngineTrigger();
+  if (enabled(QueueName.TELEGRAM_CHAT_DISCOVERY)) await scheduleTelegramChatDiscoveryTrigger();
 
-  const workers = [
-    createImportYoutubeWorker(),
-    createProbeVideoWorker(),
-    createTranscribeWorker(),
-    createDetectClipsWorker(),
-    createGenerateMoreClipsWorker(),
-    createRenderClipWorker(),
-    createPublishClipWorker(),
-    createSchedulePublishClipWorker(),
-    createSyncPublishStatsWorker(),
-    createSyncFollowerCountWorker(),
-    createExportGenerateWorker(),
-    createGeneratePlatformCopyWorker(),
-    createTranslateTranscriptWorker(),
-    createAlertEngineWorker(),
-    createNotificationDeliveryWorker(),
-    createTelegramChatDiscoveryWorker(),
+  const workerCandidates = [
+    enabled(QueueName.IMPORT_YOUTUBE) && createImportYoutubeWorker(),
+    enabled(QueueName.PROBE_VIDEO) && createProbeVideoWorker(),
+    enabled(QueueName.TRANSCRIBE) && createTranscribeWorker(),
+    enabled(QueueName.DETECT_CLIPS) && createDetectClipsWorker(),
+    enabled(QueueName.GENERATE_MORE_CLIPS) && createGenerateMoreClipsWorker(),
+    enabled(QueueName.RENDER_CLIP) && createRenderClipWorker(),
+    enabled(QueueName.PUBLISH_CLIP) && createPublishClipWorker(),
+    enabled(QueueName.SCHEDULE_PUBLISH_CLIP) && createSchedulePublishClipWorker(),
+    enabled(QueueName.SYNC_PUBLISH_STATS) && createSyncPublishStatsWorker(),
+    enabled(QueueName.SYNC_FOLLOWER_COUNT) && createSyncFollowerCountWorker(),
+    enabled(QueueName.EXPORT_GENERATE) && createExportGenerateWorker(),
+    enabled(QueueName.GENERATE_PLATFORM_COPY) && createGeneratePlatformCopyWorker(),
+    enabled(QueueName.TRANSLATE_TRANSCRIPT) && createTranslateTranscriptWorker(),
+    enabled(QueueName.ALERT_ENGINE) && createAlertEngineWorker(),
+    enabled(QueueName.NOTIFICATION_DELIVERY) && createNotificationDeliveryWorker(),
+    enabled(QueueName.TELEGRAM_CHAT_DISCOVERY) && createTelegramChatDiscoveryWorker(),
   ];
+  const workers = workerCandidates.filter(
+    (worker): worker is Exclude<typeof worker, false> => worker !== false,
+  );
 
-  logger.info('worker started', { queueCount: workers.length });
+  logger.info('worker started', {
+    queueCount: workers.length,
+    queues: enabledQueues ? [...enabledQueues] : 'all',
+  });
 
   // Generous margin over worker.close()'s own wait for in-flight jobs to
   // finish (each job is bounded well under this by its own lockDuration/

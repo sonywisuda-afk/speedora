@@ -1,3 +1,5 @@
+import { parseWorkerQueues } from './workerQueueSelection';
+
 // Only variables with no safe fallback are listed here - FFMPEG_PATH
 // already defaults to "ffmpeg" (assumed on PATH) in ffmpeg.ts and doesn't
 // need to be required. A missing DATABASE_URL/REDIS_URL/GROQ_API_KEY/
@@ -86,6 +88,13 @@ const REQUIRED_ENV_VARS = [
   'STORAGE_SECRET_ACCESS_KEY',
 ] as const;
 
+// WORKER_QUEUES is also deliberately NOT in REQUIRED_ENV_VARS above - unset
+// is its valid, default, single-host-behaving state (see
+// workerQueueSelection.ts). It's still validated here, not just where main.ts
+// reads it: a typo'd queue name would otherwise silently start zero workers
+// for that queue instead of failing loudly at boot - exactly the class of
+// "wrong value accepted silently" bug this file exists to prevent for every
+// other var.
 export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
   const missing = REQUIRED_ENV_VARS.filter((key) => !env[key]);
 
@@ -94,4 +103,6 @@ export function validateEnv(env: NodeJS.ProcessEnv = process.env): void {
       `Missing required environment variable(s): ${missing.join(', ')}. Check .env against .env.example.`,
     );
   }
+
+  parseWorkerQueues(env.WORKER_QUEUES);
 }

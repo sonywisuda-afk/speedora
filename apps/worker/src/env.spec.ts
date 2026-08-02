@@ -36,4 +36,23 @@ describe('validateEnv', () => {
   it('does not require FFMPEG_PATH (it has its own default elsewhere)', () => {
     expect(() => validateEnv(VALID_ENV)).not.toThrow(/FFMPEG_PATH/);
   });
+
+  it('does not require WORKER_QUEUES (unset means every queue runs)', () => {
+    expect(() => validateEnv(VALID_ENV)).not.toThrow(/WORKER_QUEUES/);
+  });
+
+  it('accepts a valid WORKER_QUEUES value', () => {
+    expect(() =>
+      validateEnv({ ...VALID_ENV, WORKER_QUEUES: 'render-clip,detect-clips' } as NodeJS.ProcessEnv),
+    ).not.toThrow();
+  });
+
+  it('throws naming the bad value(s) when WORKER_QUEUES has an unknown queue name', () => {
+    expect(() =>
+      validateEnv({
+        ...VALID_ENV,
+        WORKER_QUEUES: 'render-clip,not-a-real-queue',
+      } as NodeJS.ProcessEnv),
+    ).toThrow(/not-a-real-queue/);
+  });
 });

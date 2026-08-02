@@ -44,11 +44,21 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ['redis-server', '--appendonly', 'yes']
+    # REDIS_PASSWORD defaults the same way POSTGRES_PASSWORD above does - a
+    # committed placeholder that works out of the box for this single-host
+    # reference stack (where Redis never leaves the compose network), with
+    # the expectation that a real deployment overrides it. This stopped
+    # being optional once the Oracle Cloud Free hybrid split
+    # (docker-compose.oracle-web-api.yml/docker-compose.oracle-worker.yml)
+    # made Redis reachable from a second host over the network instead of
+    # only from containers on this same compose network - auth is what
+    # makes that exposure safe. See docs/deployment.md's hybrid section.
+    command:
+      ['redis-server', '--appendonly', 'yes', '--requirepass', '${REDIS_PASSWORD:-viralclip}']
     volumes:
       - redis-data:/data
     healthcheck:
-      test: ['CMD', 'redis-cli', 'ping']
+      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD:-viralclip}', '--no-auth-warning', 'ping']
       interval: 5s
       timeout: 5s
       retries: 10
@@ -112,7 +122,7 @@ services:
       - .env.production
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@postgres:5432/${POSTGRES_DB:-viralclip}
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:-viralclip}@redis:6379
       WEB_ORIGIN: http://localhost:3000
       # Read-only view onto the backup service's status files - see
       # GET /backups in apps/api/src/health.
@@ -147,7 +157,7 @@ services:
       - .env.production
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@postgres:5432/${POSTGRES_DB:-viralclip}
-      REDIS_URL: redis://redis:6379
+      REDIS_URL: redis://:${REDIS_PASSWORD:-viralclip}@redis:6379
       # Overrides whatever host-specific FFMPEG_PATH/FFPROBE_PATH/YTDLP_PATH
       # is in .env for local dev - the image already has a real
       # ffmpeg/ffprobe/yt-dlp on PATH (see apps/worker/Dockerfile).

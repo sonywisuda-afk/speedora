@@ -1,0 +1,164 @@
+# Oracle Cloud Free hybrid deployment (Fase 1-2) - the "light" half of the
+# split described in docs/deployment.md's hybrid section: web, api, Postgres,
+# Redis, migrate, and backup, meant to run on one Oracle Free Ampere A1
+# instance. apps/worker runs separately (docker-compose.oracle-worker.yml),
+# on its own instance, and reaches this stack's Postgres/Redis over the
+# network - see that file's own top comment for what that requires.
+#
+# This is docker-compose.prod.yml's postgres/redis/migrate/backup/api/web
+# services unchanged, minus `worker`, plus two things `worker` moving to a
+# different host requires: Postgres/Redis publish their ports (nothing in
+# docker-compose.prod.yml did, since api/worker/postgres/redis all shared one
+# compose network there), and REDIS_PASSWORD/POSTGRES_PASSWORD stop being
+# optional in practice - see the warning below.
+#
+#   docker compose -f docker-compose.oracle-web-api.yml up --build
+#
+# REQUIRED before running this anywhere reachable from the internet, not
+# optional hardening:
+#   1. Set real POSTGRES_PASSWORD and REDIS_PASSWORD in .env (both default to
+#      a committed placeholder - fine for docker-compose.prod.yml, where
+#      neither port ever leaves the compose network, but this file publishes
+#      both to the host).
+#   2. Restrict inbound access to POSTGRES_PORT/REDIS_PORT at the Oracle
+#      Cloud VCN Security List (or an OS-level firewall) to only the worker
+#      instance's IP - putting both instances in the same VCN and using
+#      REDIS_URL/DATABASE_URL below with the worker VM's *private* IP is the
+#      recommended shape, not exposing either port publicly at all. Compose's
+#      `ports:` mapping only controls container-to-host binding; it has no
+#      opinion on host-to-internet exposure, that's this step.
+name: speedora-oracle-web-api
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-viralclip}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-viralclip}
+      POSTGRES_DB: ${POSTGRES_DB:-viralclip}
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-viralclip}']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: '1.0'
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command:
+      ['redis-server', '--appendonly', 'yes', '--requirepass', '${REDIS_PASSWORD:-viralclip}']
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', '-a', '${REDIS_PASSWORD:-viralclip}', '--no-auth-warning', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '0.5'
+
+  migrate:
+    build:
+      context: .
+      dockerfile: packages/database/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@postgres:5432/${POSTGRES_DB:-viralclip}
+
+  backup:
+    build:
+      context: ./ops/backup
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+      - .env.production
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@postgres:5432/${POSTGRES_DB:-viralclip}
+      BACKUP_INTERVAL_HOURS: ${BACKUP_INTERVAL_HOURS:-24}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - backup-data:/backups
+      - backup-status:/status
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+          cpus: '0.5'
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    env_file:
+      - .env
+      - .env.production
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-viralclip}:${POSTGRES_PASSWORD:-viralclip}@postgres:5432/${POSTGRES_DB:-viralclip}
+      REDIS_URL: redis://:${REDIS_PASSWORD:-viralclip}@redis:6379
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      BACKUP_STATUS_DIR: /status
+    ports:
+      - '${API_PORT:-3001}:3001'
+    volumes:
+      - backup-status:/status:ro
+    deploy:
+      resources:
+        limits:
+          memory: 1g
+          cpus: '1.0'
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:3001}
+        NEXT_PUBLIC_MIDTRANS_CLIENT_KEY: ${NEXT_PUBLIC_MIDTRANS_CLIENT_KEY:-}
+        NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION: ${NEXT_PUBLIC_MIDTRANS_IS_PRODUCTION:-false}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - '3000:3000'
+    deploy:
+      resources:
+        limits:
+          memory: 512m
+          cpus: '1.0'
+
+volumes:
+  postgres-data:
+  redis-data:
+  backup-data:
+  backup-status:
