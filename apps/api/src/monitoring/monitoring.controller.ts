@@ -15,7 +15,9 @@ import {
   heartbeatKeyPattern,
   QueueName,
   readVideoImportMetrics,
+  type QueueCounts,
   type RedisLike,
+  type WorkerHealthEntry,
 } from '@speedora/shared';
 import { checkStorageConnection, getBucketUsage } from '@speedora/storage';
 import type { Queue } from 'bullmq';
@@ -24,11 +26,7 @@ import { getBackupStatus } from '../health/backup-status';
 import { PrismaService } from '../prisma/prisma.service';
 import { alertStateTracker, type AlertDefinition } from './alert-state';
 import { metricsRegistry } from './metrics-registry';
-import {
-  buildWorkerHealthEntry,
-  parseHeartbeatPayload,
-  type WorkerHealthEntry,
-} from './worker-heartbeat-reader';
+import { buildWorkerHealthEntry, parseHeartbeatPayload } from './worker-heartbeat-reader';
 
 // A request stuck in 'active' this long with no progress is worth flagging
 // even though BullMQ's own stalled-job recovery (maxStalledCount, on the
@@ -68,28 +66,15 @@ async function computeRecentJobMetrics(
   };
 }
 
-// getJobCounts() is typed as a bare index signature ({[index: string]:
-// number}) - spelled out here as named fields instead of spread directly,
-// both for a stable shape callers (GET /alerts) can destructure and
-// because TS doesn't propagate an index-signature-only type through
-// object spread the way you'd expect.
-interface QueueCounts {
-  waiting: number;
-  active: number;
-  completed: number;
-  failed: number;
-  delayed: number;
-  paused: number;
-  likelyStalled: number;
-  // Oracle Cloud Free hybrid deployment (Fase 3 - Queue Metrics) -
-  // failureRate is computed from the full getJobCounts() totals above (no
-  // extra Redis calls); avgProcessingTimeMs/retriedJobs are necessarily
-  // sampled (see computeRecentJobMetrics) since BullMQ doesn't expose them
-  // as O(1) aggregates the way waiting/active/completed/failed are.
-  failureRate: number | null;
-  avgProcessingTimeMs: number | null;
-  retriedJobs: number;
-}
+// QueueCounts moved to @speedora/shared (queue-monitoring.ts) as of PR #44
+// (Queue & Worker Observability Dashboard) - apps/web needs the exact same
+// shape this endpoint returns, so it's no longer defined only here. Was
+// originally spelled out as named fields instead of spreading
+// getJobCounts()'s bare index-signature return type directly, both for a
+// stable shape callers (GET /alerts) can destructure and because TS doesn't
+// propagate an index-signature-only type through object spread the way
+// you'd expect - that reasoning still applies, it just now lives in the
+// shared type's own comment.
 
 // Every route below is unauthenticated and unthrottled on purpose - same
 // posture as HealthController's own /health, documented in full in

@@ -25,6 +25,25 @@ export function formatDuration(seconds: number | null): string {
   return hours > 0 ? `${hours}:${pad(minutes)}:${pad(secs)}` : `${minutes}:${pad(secs)}`;
 }
 
+// PR #44 (Queue & Worker Observability Dashboard) - GET /queues'
+// avgProcessingTimeMs is often sub-second (a publish-clip job observed at
+// 165ms in dev - see docs/deployment.md's Fase 3 Queue Metrics), which
+// formatDuration()'s whole-seconds rounding would flatten to a useless
+// "0:00". null (not a fabricated "0ms") when the queue has no completed-job
+// sample yet - same "no data" vs. "zero" distinction as formatDuration
+// above.
+export function formatMillis(ms: number | null): string {
+  if (ms === null) return '—';
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  const totalSeconds = ms / 1000;
+  if (totalSeconds < 60) return `${totalSeconds.toFixed(1)}s`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.round(totalSeconds % 60);
+  if (minutes < 60) return `${minutes}m ${seconds}s`;
+  const hours = Math.floor(minutes / 60);
+  return `${hours}h ${minutes % 60}m`;
+}
+
 // `now` is an optional override (defaults to Date.now()) purely so this is
 // deterministically testable - real callers never pass it.
 export function formatRelativeTime(iso: string, now: number = Date.now()): string {
