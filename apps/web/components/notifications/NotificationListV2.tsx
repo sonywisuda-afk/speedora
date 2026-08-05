@@ -86,7 +86,6 @@ export function NotificationListV2({
     return (
       <ul aria-busy="true" aria-label="Memuat notifikasi">
         {Array.from({ length: 6 }).map((_, i) => (
-          // eslint-disable-next-line react/no-array-index-key
           <RowSkeleton key={i} />
         ))}
       </ul>

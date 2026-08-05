@@ -42,7 +42,6 @@ export default function MfaChallengePage() {
     }
     setMfaToken(token);
     // Mount-only, same reasoning as verify-email's own effect.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function handleSubmit(e: FormEvent) {

@@ -46,9 +46,23 @@ Note: converting the `lastActiveStatusRef` fix above from a ref-write to `setLas
 inside an effect is itself now one of the 25 `set-state-in-effect` warnings below — a deliberate,
 accepted trade (an *error* became one more instance of an already-downgraded *warning*).
 
+### A third, undocumented warning category found via real CI (fixed)
+
+The first real CI run on this branch's PR surfaced 9 `Unused eslint-disable directive` warnings
+that this report had missed locally — a genuine gap, not a CI-specific issue: 5×
+`react-hooks/exhaustive-deps` (`app/accounts/page.tsx:370`, `app/mfa-challenge/page.tsx:45`,
+`app/upload/page.tsx:83`, `app/upload/page.tsx:103`, `components/review/FrameByFrameViewer.tsx:34`),
+3× `react/no-array-index-key` (`components/notifications/{NotificationListV2,
+NotificationPreferencesPanelV2,NotificationThreadPanel}.tsx`), and 1× `no-constant-condition`
+(`lib/timelineStore.ts:365`). All 9 were stale `// eslint-disable-next-line` comments left over
+from before this migration — ESLint's own "unused directive" detection confirms the underlying
+rule no longer fires at that line, so removing the comment is provably a no-op change (same
+mechanical pattern as the `no-bitwise` fix in Step 5). Removed all 9; re-verified 0 errors, exactly
+35 warnings, exactly the 2 documented categories below, and typecheck still clean.
+
 ### Remaining warnings — two documented categories only, 0 errors
 
-Final state: **44 problems (0 errors, 44 warnings)** — `pnpm --filter @speedora/web lint` exits 0.
+Final state: **35 problems (0 errors, 35 warnings)** — `pnpm --filter @speedora/web lint` exits 0.
 
 #### Category 1 — `react-hooks/set-state-in-effect` (25 occurrences, downgraded error→warn)
 

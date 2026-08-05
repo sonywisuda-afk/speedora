@@ -144,7 +144,6 @@ export function NotificationThreadPanel({
                 </p>
                 <ul className="mt-1.5 space-y-1">
                   {data.timeline.failureHistory.map((entry, index) => (
-                    // eslint-disable-next-line react/no-array-index-key
                     <li key={index} className="font-body text-xs text-muted-foreground">
                       <span className="font-medium text-foreground">{entry.stage}</span>
                       {entry.reason ? `: ${entry.reason}` : ''} —{' '}
