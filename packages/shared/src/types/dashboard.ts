@@ -23,11 +23,43 @@ export interface ActivityEventDto {
   // since have been deleted) - see ActivityEvent.metadata's own comment in
   // schema.prisma.
   metadata: Record<string, unknown> | null;
+  // Activity Timeline v2 - denormalized at write time from type+metadata via
+  // utils/activity-events.ts's describeActivityEvent (see
+  // ActivityEvent.title's own schema comment for why). title is the fixed
+  // action phrase, description is the variable part (null when the event
+  // type has none). Both null only for rows written before this migration
+  // and not yet backfilled.
+  title: string | null;
+  description: string | null;
   createdAt: string;
 }
 
+// Activity Timeline v2 - cursor pagination, same `{ <items>, nextCursor:
+// string | null }` convention as NotificationV2ListDto and every other
+// cursor-paginated list in this app (clip library, video history, audit
+// log). null means "last page."
 export interface DashboardActivityDto {
   events: ActivityEventDto[];
+  nextCursor: string | null;
+}
+
+export interface DashboardActivityListQuery {
+  cursor?: string;
+  limit?: number;
+  q?: string;
+  type?: ActivityEventType;
+}
+
+// Activity Timeline v2 - bulk delete (1-or-many ids; empty array is a
+// no-op, same posture as NotificationV2BulkActionRequest/Result). Clear-all
+// has no request body - see DashboardController's separate
+// DELETE /dashboard/activity/all route.
+export interface ActivityDeleteRequest {
+  ids: string[];
+}
+
+export interface ActivityDeleteResult {
+  count: number;
 }
 
 // Statistics Row. avgProcessingTimeSeconds is null when no video has

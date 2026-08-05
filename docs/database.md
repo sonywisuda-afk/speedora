@@ -40,6 +40,35 @@ for client-usage conventions.
   `errorMessage`, `createdAt`; no `fromStatus` — transitions are always sequential per video, so
   the prior status is just the previous row). Written exclusively through `@speedora/database`'s
   `updateVideoStatus()`/`recordVideoStatusEvent()`.
+- **`ActivityEvent`** — the Dashboard's user-facing Activity Timeline (`GET /dashboard/activity`,
+  see `backend.md`), a coarser feed than `VideoStatusEvent` above ("Video uploaded", "Clip
+  generated", ...) written from a handful of call sites (`VideosService`, `render-clip.worker.ts`,
+  `ClipsController`'s download route, `WorkspaceService`'s invite/delete routes) via
+  `recordActivityEvent()`. `userId`-scoped only — no `workspaceId` column, so this is never shared
+  across a workspace's members even when the event itself (e.g. `WORKSPACE_DELETED`) was workspace-
+  flavored. `videoId`/`clipId` are plain nullable strings, not real relations, and `metadata` is
+  loose `Json?` — both deliberately survive the referenced video/clip/workspace being deleted later,
+  so a history entry never blanks itself out. Activity Timeline v2 added `title`/`description`
+  (both nullable `String?`, no `NOT NULL`/backfill requirement): denormalized *at write time* inside
+  `recordActivityEvent()` itself from `type`+`metadata`, via a new `packages/shared` pure function
+  (`describeActivityEvent`), specifically so `GET /dashboard/activity?q=` has real text to
+  `contains`-search against — the Indonesian display sentence ("Video diunggah: X") previously only
+  ever existed client-side, computed at render time, so there was nothing for Postgres to search
+  before this. A not-yet-backfilled pre-migration row (both columns `NULL`) simply never matches a
+  search — the correct degrade, not a bug; `apps/api/src/scripts/backfill-activity-event-
+  descriptions.ts` is the one-off, idempotent (`where: { title: null }`) script that backfills
+  existing rows, run once after the migration deploys.
+- **`ActivityDeletionLog`** (Activity Timeline v2) — a narrow, **internal-only** traceability trail
+  (no DTO, no controller route — Prisma Studio/future admin tooling only) for a user deleting their
+  own `ActivityEvent` history via `DELETE /dashboard/activity`/`DELETE /dashboard/activity/all` (see
+  `backend.md`). `userId` + `action` (`ActivityDeletionAction`: `DELETE_SELECTED`/`DELETE_ALL`) +
+  `deletedIds` (`Json?`, set only for `DELETE_SELECTED`, always `null` for `DELETE_ALL` since
+  `count` already captures the magnitude) + `count` + `createdAt`. Deliberately a fourth, separate
+  audit-adjacent model rather than reusing `AuditLogEntry` (which requires `workspaceId` and doesn't
+  fit a per-user action) or a `deletedAt` soft-delete flag on `ActivityEvent` itself — there is no
+  soft-delete precedent anywhere in this schema; every delete flow here (this one included) hard-
+  deletes and writes a separate trail row instead. Written fire-and-forget, after the delete
+  commits, via `recordActivityDeletionLog()`.
 - **`SocialAccount`**, **`PublishRecord`**, **`PremiumCredit`** — see `backend.md`.
 - **`PublishRecordStatsSnapshot`** — append-only, one row per `sync-publish-stats` run (same
   audit-trail shape as `VideoStatusEvent` above, no `fromValue`, always sequential). Added for
@@ -101,4 +130,12 @@ all:
 
 Schema changes go through Prisma migrations (`prisma migrate dev`), never manual schema sync —
 every migration in this project has been run against a real dev Postgres instance before being
-considered done, not just written and assumed correct.
+considered done, not just written and assumed correct. Production applies the same migration via
+`prisma migrate deploy` (see `operations-runbook.md`), never `dev`.
+
+Activity Timeline v2's migration (`ActivityEvent.title`/`description`,
+`ActivityDeletionAction`/`ActivityDeletionLog`) is a representative example of the additive-only
+shape `migrate deploy` needs to stay non-blocking: two nullable columns (no `NOT NULL`, no
+backfill-then-tighten two-step) and one brand-new table — no column drops, renames, or type changes
+touching existing data. It was applied and verified against the local dev database, then backfilled
+via `apps/api/src/scripts/backfill-activity-event-descriptions.ts`, before this PR was opened.

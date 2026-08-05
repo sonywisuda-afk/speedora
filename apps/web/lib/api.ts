@@ -5,6 +5,8 @@ import type {
   RegistrationResponseJSON,
 } from '@simplewebauthn/browser';
 import type {
+  ActivityDeleteResult,
+  ActivityEventType,
   AnalyticsHeatmapDto,
   AnalyticsOverviewDto,
   AnalyticsPerformanceClipsDto,
@@ -1489,10 +1491,40 @@ export async function getDashboardStats(): Promise<DashboardStatsDto> {
   return parseJsonOrThrow<DashboardStatsDto>(res);
 }
 
-// Activity Timeline.
-export async function getDashboardActivity(limit?: number): Promise<DashboardActivityDto> {
-  const res = await apiFetch(`/dashboard/activity${toQueryString({ limit })}`);
+// Activity Timeline v2 - cursor pagination + optional type/q filters, same
+// `{ <items>, nextCursor }` + query-param convention as
+// listNotificationsV2.
+export interface DashboardActivityParams {
+  cursor?: string;
+  limit?: number;
+  q?: string;
+  type?: ActivityEventType;
+}
+
+export async function getDashboardActivity(
+  params: DashboardActivityParams = {},
+): Promise<DashboardActivityDto> {
+  const res = await apiFetch(
+    `/dashboard/activity${toQueryString(params as Record<string, string | number | undefined>)}`,
+  );
   return parseJsonOrThrow<DashboardActivityDto>(res);
+}
+
+// Bulk-delete-by-ids (1-or-many; empty array is a no-op) vs. clear-all
+// below - two distinct endpoints, same reasoning as
+// DashboardController.removeActivity/removeAllActivity.
+export async function deleteActivityEvents(ids: string[]): Promise<ActivityDeleteResult> {
+  const res = await apiFetch('/dashboard/activity', {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  });
+  return parseJsonOrThrow<ActivityDeleteResult>(res);
+}
+
+export async function deleteAllActivityEvents(): Promise<ActivityDeleteResult> {
+  const res = await apiFetch('/dashboard/activity/all', { method: 'DELETE' });
+  return parseJsonOrThrow<ActivityDeleteResult>(res);
 }
 
 // Phase E (Dashboard & Recent Activity) - Export Center visibility.

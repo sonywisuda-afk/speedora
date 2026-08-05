@@ -51,11 +51,13 @@ disproportionate to a stabilization pass), the resolved, honest two-tier convent
 - **Cursor pagination** (`?cursor`/`?limit`, 1-50 clamped, default 20, → `{ <resource>, nextCursor }`
   — the wrapper key is the resource name, e.g. `videos`/`entries`, not a generic `items`) for the
   handful of genuinely high-cardinality, unbounded-growth lists: `GET /videos`,
-  `GET /workspaces/:id/audit-log`. `GET /videos/:videoId/comments` is the next candidate if a
-  video's comment count ever realistically approaches its new `take: 500` cap below.
+  `GET /workspaces/:id/audit-log`, `GET /dashboard/activity` (Activity Timeline v2 — promoted out
+  of the no-cursor tier below once the feed grew a real "Load More" UI plus search/type filters;
+  wrapper key is `events`, see "Key endpoints" below). `GET /videos/:videoId/comments` is the next
+  candidate if a video's comment count ever realistically approaches its new `take: 500` cap below.
 - **A clamped `limit` query param, no cursor** (1-50, sensible per-endpoint default) for lists that
-  are naturally small and browsed as a whole page, not paged through: `GET /dashboard/activity`,
-  `GET /notifications`, `GET /analytics/performance/{clips,videos}` (default 50 — a deliberately
+  are naturally small and browsed as a whole page, not paged through: `GET /notifications`,
+  `GET /analytics/performance/{clips,videos}` (default 50 — a deliberately
   higher default than the 20 elsewhere, since these are analytics tables meant to be scanned, not a
   feed). `GET /workspaces/:workspaceId/analytics/leaderboard`'s 1-20 ceiling is a separate,
   deliberate product decision ("Top 10 or Top 20"), not part of this convention.
@@ -132,6 +134,31 @@ another user, so IDs can't be probed. CORS is enabled explicitly with `credentia
   focused single-clip read instead of re-fetching the whole video), `POST /clips/:id/publish`
   (optional `scheduledAt`), `DELETE`/`PATCH /clips/:id/publish/:recordId` (cancel/reschedule,
   `SCHEDULED` only).
+- `GET /dashboard/activity` (Activity Timeline v2 — the dashboard's personal, per-user activity
+  feed; `ActivityEvent` has no `workspaceId`, so this is never visible to or shared with other
+  workspace members, unlike `GET /workspaces/:id/audit-log`). Cursor-paginated (see "Pagination
+  convention" above — `?cursor`/`?limit`, 1-50 clamped, default 20), plus two optional filters:
+  `?type=` (one of the real `ActivityEventType` values — `VIDEO_UPLOADED`/`CLIP_GENERATED`/
+  `CLIP_EXPORTED`/`MEMBER_INVITED`/`WORKSPACE_DELETED`; an unrecognized value degrades to "no
+  filter" rather than 400ing, same posture as `NotificationsV2Controller`'s own filter resolvers)
+  and `?q=` (search, matched case-insensitively against the row's denormalized `title`/
+  `description` — see `database.md`'s `ActivityEvent` entry for why those columns exist). Example:
+  `GET /dashboard/activity?limit=20&type=CLIP_GENERATED&q=acme` → `{ events: [{ id, type, videoId,
+  clipId, metadata, title, description, createdAt }, ...], nextCursor: "clxyz..." | null }`.
+- `DELETE /dashboard/activity` (bulk-delete-by-ids) and `DELETE /dashboard/activity/all`
+  (clear-all) — both `JwtAuthGuard`'d and scoped to `userId` from `@CurrentUser()` like every other
+  endpoint in this module, so a caller can only ever delete their own activity history, never
+  another user's. Both are **hard deletes** (`deleteMany`) — there is no soft-delete/`deletedAt`
+  convention anywhere in this schema, see `database.md`. `DELETE /dashboard/activity` takes
+  `{ ids: string[] }` in the body (1-or-many; an empty/missing array is a no-op, never an error)
+  and returns `{ count: number }`; `DELETE /dashboard/activity/all` takes no body, deletes every
+  one of the caller's rows, and also returns `{ count: number }`. Deliberately two separate, fully
+  literal routes rather than "bulk-delete with an empty `ids` array means delete everything," so a
+  client bug can never silently wipe a user's whole history — this route shape is also
+  structurally immune to the wildcard-route-collision bug class `notifications.module.ts` hit
+  (neither route has a dynamic `:id` segment for a sibling route to collide with). Every call is
+  logged, fire-and-forget after the delete commits, to `ActivityDeletionLog` for internal
+  traceability only (no DTO, no read endpoint) — see `database.md`.
 - `GET /analytics/overview` (Milestone 5A — `AnalyticsModule`, ownership-scoped like every other
   endpoint here, never system-wide) — per-user totals (videos/clips/published clips), average
   engagement score (latest `PublishRecordStatsSnapshot` per publish record, averaged — `null`, not

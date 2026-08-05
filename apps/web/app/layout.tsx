@@ -39,6 +39,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body
         className={`${oswald.variable} ${manrope.variable} ${ibmPlexMono.variable} font-body antialiased`}
+        suppressHydrationWarning
       >
         <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
           {children}

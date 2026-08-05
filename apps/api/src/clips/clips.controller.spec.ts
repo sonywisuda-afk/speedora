@@ -83,6 +83,9 @@ describe('ClipsController', () => {
       'attachment; filename="clip-clip-1.mp4"',
     );
     expect(fakeStream.pipe).toHaveBeenCalledWith(res);
+    // Activity Timeline v2 - title/description are denormalized by
+    // recordActivityEvent itself (see ActivityEvent.title's own schema
+    // comment); CLIP_EXPORTED has no variable description.
     expect(prisma.activityEvent.create).toHaveBeenCalledWith({
       data: {
         userId: 'user-1',
@@ -90,6 +93,8 @@ describe('ClipsController', () => {
         videoId: 'video-1',
         clipId: 'clip-1',
         metadata: undefined,
+        title: 'Klip diunduh',
+        description: null,
       },
     });
   });

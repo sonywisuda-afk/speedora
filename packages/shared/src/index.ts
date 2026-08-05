@@ -33,6 +33,7 @@ export * from './types/clip-library';
 export * from './types/subtitle-preset';
 export * from './types/processing-options';
 export * from './types/queue-monitoring';
+export * from './utils/activity-events';
 export * from './utils/alert-conditions';
 export * from './utils/duration';
 export * from './utils/export-format';

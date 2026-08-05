@@ -205,7 +205,10 @@ describe('VideosService', () => {
       expect(prisma.videoStatusEvent.create).toHaveBeenCalledWith({
         data: { videoId: 'video-1', toStatus: VideoStatus.UPLOADED, errorMessage: null },
       });
-      // Sprint 1-2 (Dashboard Redesign) - Activity Timeline entry.
+      // Sprint 1-2 (Dashboard Redesign) - Activity Timeline entry. title/
+      // description are denormalized by recordActivityEvent itself
+      // (Activity Timeline v2) - see ActivityEvent.title's own schema
+      // comment.
       expect(prisma.activityEvent.create).toHaveBeenCalledWith({
         data: {
           userId: 'user-1',
@@ -213,6 +216,8 @@ describe('VideosService', () => {
           videoId: 'video-1',
           clipId: null,
           metadata: { title: 'my-video.mp4' },
+          title: 'Video diunggah',
+          description: 'my-video.mp4',
         },
       });
       // Notification Center Sprint 4A - Upload Complete.
@@ -378,7 +383,9 @@ describe('VideosService', () => {
       );
       // Sprint 1-2 (Dashboard Redesign) - Activity Timeline entry. No title
       // metadata yet (unlike upload() above) - the YouTube title isn't known
-      // until import-youtube.worker.ts actually runs.
+      // until import-youtube.worker.ts actually runs, so describeActivityEvent
+      // falls back to its generic "video tanpa judul" description (Activity
+      // Timeline v2 - see recordActivityEvent's own comment).
       expect(prisma.activityEvent.create).toHaveBeenCalledWith({
         data: {
           userId: 'user-1',
@@ -386,6 +393,8 @@ describe('VideosService', () => {
           videoId: 'video-1',
           clipId: null,
           metadata: undefined,
+          title: 'Video diunggah',
+          description: 'video tanpa judul',
         },
       });
       // Notification Center Sprint 4A - Upload Complete (YouTube import path).

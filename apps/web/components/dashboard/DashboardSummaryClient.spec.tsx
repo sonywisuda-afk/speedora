@@ -1,6 +1,8 @@
 /** @jest-environment jsdom */
 import '@testing-library/jest-dom';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { createElement } from 'react';
+import { SWRConfig } from 'swr';
 import type {
   DashboardActivityDto,
   DashboardExportsDto,
@@ -29,7 +31,7 @@ const stats: DashboardStatsDto = {
   premiumCreditsThisMonth: 0,
 };
 
-const activity: DashboardActivityDto = { events: [] };
+const activity: DashboardActivityDto = { events: [], nextCursor: null };
 
 const exportsData: DashboardExportsDto = {
   recentExports: [],
@@ -50,6 +52,25 @@ const exportsData: DashboardExportsDto = {
   } as DashboardExportsDto['exportsByType'],
 };
 
+// Fresh SWR cache per render (Activity Timeline v2) - ActivityTimeline is
+// now hook-driven (useActivityTimeline -> useSWRInfinite/useSWR under
+// module-level keys like 'dashboard-activity-peek'), so without this, one
+// test's resolved cache would leak into the next render in the same file -
+// same isolation convention lib/useNotificationCenter.spec.ts already uses.
+function renderSummary(props: {
+  initialStats: DashboardStatsDto;
+  initialActivity: DashboardActivityDto;
+  initialExports: DashboardExportsDto;
+}) {
+  return render(
+    createElement(
+      SWRConfig,
+      { value: { provider: () => new Map() } },
+      createElement(DashboardSummaryClient, props),
+    ),
+  );
+}
+
 // Phase F (performance hardening) - previously a fetch failure for any of
 // the 3 sections silently rendered nothing (only `data` was destructured
 // from useSWR, `error` was ignored). These prove the fallback error+retry
@@ -63,34 +84,22 @@ describe('DashboardSummaryClient - error states', () => {
   });
 
   it('renders every section normally when every fetch succeeds', async () => {
-    render(
-      <DashboardSummaryClient
-        initialStats={stats}
-        initialActivity={activity}
-        initialExports={exportsData}
-      />,
-    );
+    renderSummary({ initialStats: stats, initialActivity: activity, initialExports: exportsData });
 
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-    expect(screen.getByText('Belum ada aktivitas.')).toBeInTheDocument();
+    expect(await screen.findByText('Belum ada aktivitas.')).toBeInTheDocument();
     expect(screen.getByText('Belum ada export.')).toBeInTheDocument();
   });
 
   it('shows a retryable error just for stats when only that fetch fails, other sections unaffected', async () => {
     mockGetDashboardStats.mockRejectedValue(new Error('network down'));
 
-    render(
-      <DashboardSummaryClient
-        initialStats={stats}
-        initialActivity={activity}
-        initialExports={exportsData}
-      />,
-    );
+    renderSummary({ initialStats: stats, initialActivity: activity, initialExports: exportsData });
 
     const alert = await screen.findByRole('alert');
     expect(alert).toHaveTextContent('Gagal memuat statistik.');
     // Activity/Exports still render normally - the failure is isolated.
-    expect(screen.getByText('Belum ada aktivitas.')).toBeInTheDocument();
+    expect(await screen.findByText('Belum ada aktivitas.')).toBeInTheDocument();
     expect(screen.getByText('Belum ada export.')).toBeInTheDocument();
 
     mockGetDashboardStats.mockResolvedValue(stats);
