@@ -52,10 +52,7 @@ export default function ReviewModePage({ params }: { params: Promise<{ id: strin
 
     async function fetchData() {
       try {
-        const [v, transcript] = await Promise.all([
-          getVideo(id),
-          getVideoTranscript(id),
-        ]);
+        const [v, transcript] = await Promise.all([getVideo(id), getVideoTranscript(id)]);
         if (cancelled) return;
         setVideo(v);
         // Feeds Frame-by-Frame/Transcript/Comments' shared playhead + reply

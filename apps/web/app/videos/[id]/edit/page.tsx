@@ -53,10 +53,7 @@ export default function EditVideoPage({ params }: { params: Promise<{ id: string
 
     async function fetchData() {
       try {
-        const [video, transcript] = await Promise.all([
-          getVideo(id),
-          getVideoTranscript(id),
-        ]);
+        const [video, transcript] = await Promise.all([getVideo(id), getVideoTranscript(id)]);
         if (cancelled) return;
         if (video.clips.length === 0) {
           setError(

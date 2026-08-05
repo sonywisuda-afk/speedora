@@ -193,10 +193,7 @@ export default function CampaignDetailPage({ params }: { params: Promise<{ id: s
                   </TabsContent>
 
                   <TabsContent value="analytics">
-                    <CampaignAnalyticsTab
-                      campaignId={id}
-                      workspaceId={campaign.workspaceId}
-                    />
+                    <CampaignAnalyticsTab campaignId={id} workspaceId={campaign.workspaceId} />
                   </TabsContent>
                 </Tabs>
               </>
