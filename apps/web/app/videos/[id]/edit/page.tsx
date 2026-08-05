@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { Button } from '../../../../components/ui/button';
 import { Nav } from '../../../../components/Nav';
 import { TimelineEditor } from '../../../../components/TimelineEditor';
@@ -34,7 +34,8 @@ const ExportCenterDialog = dynamic(
   },
 );
 
-export default function EditVideoPage({ params }: { params: { id: string } }) {
+export default function EditVideoPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const { user, checkingAuth, logout } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [loaded, setLoaded] = useState(false);
@@ -53,8 +54,8 @@ export default function EditVideoPage({ params }: { params: { id: string } }) {
     async function fetchData() {
       try {
         const [video, transcript] = await Promise.all([
-          getVideo(params.id),
-          getVideoTranscript(params.id),
+          getVideo(id),
+          getVideoTranscript(id),
         ]);
         if (cancelled) return;
         if (video.clips.length === 0) {
@@ -63,7 +64,7 @@ export default function EditVideoPage({ params }: { params: { id: string } }) {
           );
           return;
         }
-        load(params.id, video.clips, transcript);
+        load(id, video.clips, transcript);
         if (requestedClipId && video.clips.some((c) => c.id === requestedClipId)) {
           selectClip(requestedClipId);
         }
@@ -77,7 +78,7 @@ export default function EditVideoPage({ params }: { params: { id: string } }) {
     return () => {
       cancelled = true;
     };
-  }, [user, params.id, load, selectClip, requestedClipId]);
+  }, [user, id, load, selectClip, requestedClipId]);
 
   return (
     <main className="min-h-screen bg-background px-6 py-6">
@@ -104,16 +105,16 @@ export default function EditVideoPage({ params }: { params: { id: string } }) {
               <div className="mt-3">
                 <div className="mb-3 flex justify-end gap-2">
                   <Button variant="outline" asChild>
-                    <Link href={`/videos/${params.id}/review`}>Review Mode</Link>
+                    <Link href={`/videos/${id}/review`}>Review Mode</Link>
                   </Button>
-                  <GenerateMoreClipsDialog videoId={params.id} />
-                  <ExportCenterDialog videoId={params.id} />
+                  <GenerateMoreClipsDialog videoId={id} />
+                  <ExportCenterDialog videoId={id} />
                 </div>
                 <VideoAnalysisDashboard />
-                <TimelineEditor videoId={params.id} />
+                <TimelineEditor videoId={id} />
                 <VersionHistoryPanel />
-                <ApprovalPanel videoId={params.id} />
-                <CommentsPanel videoId={params.id} />
+                <ApprovalPanel videoId={id} />
+                <CommentsPanel videoId={id} />
               </div>
             )}
           </>

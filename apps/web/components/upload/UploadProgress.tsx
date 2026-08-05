@@ -15,7 +15,9 @@ const STEP_MS = 12;
 function useSmoothedProgress(target: number): number {
   const [displayed, setDisplayed] = useState(0);
   const targetRef = useRef(target);
-  targetRef.current = target;
+  useEffect(() => {
+    targetRef.current = target;
+  });
 
   useEffect(() => {
     const id = setInterval(() => {

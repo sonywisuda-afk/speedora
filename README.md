@@ -25,8 +25,8 @@ AI video repurposing platform (mirip OpusClip) — upload video panjang, otomati
 
 ## Prerequisites
 
-- [Node.js](https://nodejs.org/) >= 20
-- [pnpm](https://pnpm.io/) 9.x (lihat catatan instalasi di bawah kalau `pnpm` belum ada di PATH)
+- [Node.js](https://nodejs.org/) 22.x LTS (lihat `.nvmrc` untuk versi patch yang persis; pakai `nvm use` kalau punya nvm/nvm-windows)
+- [pnpm](https://pnpm.io/) 11.x (lihat catatan instalasi di bawah kalau `pnpm` belum ada di PATH)
 - [Docker](https://www.docker.com/) (untuk Postgres + Redis lokal)
 - [FFmpeg](https://ffmpeg.org/) di `PATH` (untuk `apps/worker`'s `render-clip` job — potong video, crop 9:16, & burn-in caption). Kalau tidak di `PATH`, set `FFMPEG_PATH` (dan `FFPROBE_PATH`) di `.env` ke path binary-nya.
 - [yt-dlp](https://github.com/yt-dlp/yt-dlp) di `PATH` (`pip install yt-dlp`) — untuk `apps/worker`'s `import-youtube` job (fitur "Import dari YouTube" di halaman upload). Kalau tidak di `PATH`, set `YTDLP_PATH` di `.env` ke path binary-nya.

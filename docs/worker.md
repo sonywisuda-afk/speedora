@@ -147,7 +147,7 @@ cutaways from different providers don't visibly jump in framerate or tint.
 
 ## Docker image (`apps/worker/Dockerfile`)
 
-`node:20-slim` (Debian/glibc), not Alpine — MediaPipe's PyPI wheels have no musl build at all.
+`node:22-slim` (Debian/glibc), not Alpine — MediaPipe's PyPI wheels have no musl build at all.
 Installs: `ffmpeg`, `python3` + `mediapipe`/`opencv-python-headless`/`transformers`/`torch`/
 `torchaudio`/`pyannote.audio`/`soundfile`/`scipy` (`--break-system-packages`, PEP 668), plus
 `tesseract-ocr`/`tesseract-ocr-eng` + `pytesseract` for OCR. Model files (`.tflite`/`.task`,

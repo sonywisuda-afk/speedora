@@ -120,6 +120,10 @@ export function NotificationRowV2({
         className="mt-1 h-4 w-4 shrink-0 rounded border-border text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       />
 
+      {/* eslint-disable-next-line react-hooks/static-components -- Icon is a
+          stable module-level component reference from a pure lookup table
+          (getNotificationIconV2), not a component created during render;
+          the rule can't see through the function-call indirection. */}
       <Icon className="mt-0.5 h-4 w-4 shrink-0 text-chrome" aria-hidden="true" />
 
       <div className="min-w-0 flex-1">

@@ -1,7 +1,7 @@
 'use client';
 
 import { AlertTriangle, Bell, Trash2 } from 'lucide-react';
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import useSWR from 'swr';
 import type { NotificationDto } from '@speedora/shared';
 import {
@@ -106,7 +106,9 @@ export function NotificationBell() {
     },
   });
 
-  mutateRef.current = { unread: mutateUnread, list: mutateList };
+  useEffect(() => {
+    mutateRef.current = { unread: mutateUnread, list: mutateList };
+  });
 
   async function handleMarkRead(notification: NotificationDto) {
     if (notification.readAt) return;

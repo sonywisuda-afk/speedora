@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { Nav } from '../../../../components/Nav';
 import { OcrReviewer } from '../../../../components/OcrReviewer';
 import { getVideo, type VideoWithClipsDto } from '../../../../lib/api';
@@ -12,7 +12,8 @@ import { useAuth } from '../../../../lib/useAuth';
 // shell as the edit page, but its own route, its own data fetch (only
 // needs the clips' ocrTracks, not the transcript Timeline Editor loads),
 // and its own component (OcrReviewer.tsx) with no shared state.
-export default function OcrReviewPage({ params }: { params: { id: string } }) {
+export default function OcrReviewPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const { user, checkingAuth, logout } = useAuth();
   const [video, setVideo] = useState<VideoWithClipsDto | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -21,7 +22,7 @@ export default function OcrReviewPage({ params }: { params: { id: string } }) {
     if (!user) return;
     let cancelled = false;
 
-    getVideo(params.id)
+    getVideo(id)
       .then((v) => {
         if (!cancelled) setVideo(v);
       })
@@ -32,7 +33,7 @@ export default function OcrReviewPage({ params }: { params: { id: string } }) {
     return () => {
       cancelled = true;
     };
-  }, [user, params.id]);
+  }, [user, id]);
 
   return (
     <main className="min-h-screen bg-background px-6 py-6">

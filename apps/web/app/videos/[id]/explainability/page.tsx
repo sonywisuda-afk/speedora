@@ -3,7 +3,7 @@
 import type { ClipEngineExplainability } from '@speedora/shared';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { ExplainabilityDetailPanel } from '../../../../components/explainability/ExplainabilityDetailPanel';
 import { ExplainabilityTimeline } from '../../../../components/explainability/ExplainabilityTimeline';
 import { ThumbnailSelectionPanel } from '../../../../components/explainability/ThumbnailSelectionPanel';
@@ -18,7 +18,8 @@ import { useAuth } from '../../../../lib/useAuth';
 // calls getClipExplainability() for only the currently-selected clip's
 // detail panel - a real per-clip round trip is worth it for a page most
 // users won't select every clip on.
-export default function ExplainabilityPage({ params }: { params: { id: string } }) {
+export default function ExplainabilityPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const { user, checkingAuth, logout } = useAuth();
   const [video, setVideo] = useState<VideoWithClipsDto | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -36,7 +37,7 @@ export default function ExplainabilityPage({ params }: { params: { id: string } 
     if (!user) return;
     let cancelled = false;
 
-    getVideo(params.id)
+    getVideo(id)
       .then((v) => {
         if (cancelled) return;
         setVideo(v);
@@ -57,7 +58,7 @@ export default function ExplainabilityPage({ params }: { params: { id: string } 
     return () => {
       cancelled = true;
     };
-  }, [user, params.id, requestedClipId]);
+  }, [user, id, requestedClipId]);
 
   useEffect(() => {
     if (!selectedClipId) return;

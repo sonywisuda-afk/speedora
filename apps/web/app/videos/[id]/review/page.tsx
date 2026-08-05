@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { ApprovalPanel } from '@/components/editor/ApprovalPanel';
 import { CommentsPanel } from '@/components/editor/CommentsPanel';
 import { FaceReviewPanel } from '@/components/review/FaceReviewPanel';
@@ -38,7 +38,8 @@ type Mode = (typeof MODES)[number]['id'];
 // existing CommentsPanel/ApprovalPanel (Sprint 5C/5D) so a reviewer can act
 // without leaving - the "wraps 5C/5D's comments/approval" the roadmap
 // called for.
-export default function ReviewModePage({ params }: { params: { id: string } }) {
+export default function ReviewModePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const { user, checkingAuth, logout } = useAuth();
   const [video, setVideo] = useState<VideoWithClipsDto | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -52,15 +53,15 @@ export default function ReviewModePage({ params }: { params: { id: string } }) {
     async function fetchData() {
       try {
         const [v, transcript] = await Promise.all([
-          getVideo(params.id),
-          getVideoTranscript(params.id),
+          getVideo(id),
+          getVideoTranscript(id),
         ]);
         if (cancelled) return;
         setVideo(v);
         // Feeds Frame-by-Frame/Transcript/Comments' shared playhead + reply
         // context - same load() the Timeline Editor calls, so this page and
         // the editor stay consistent if a reviewer opens both.
-        load(params.id, v.clips, transcript);
+        load(id, v.clips, transcript);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Gagal memuat video');
       }
@@ -70,7 +71,7 @@ export default function ReviewModePage({ params }: { params: { id: string } }) {
     return () => {
       cancelled = true;
     };
-  }, [user, params.id, load]);
+  }, [user, id, load]);
 
   return (
     <main className="min-h-screen bg-background px-6 py-6">
@@ -113,7 +114,7 @@ export default function ReviewModePage({ params }: { params: { id: string } }) {
                       </button>
                     ))}
                     <Link
-                      href={`/videos/${params.id}/ocr-review`}
+                      href={`/videos/${id}/ocr-review`}
                       className="ml-auto rounded-md px-3 py-1.5 font-body text-sm text-muted-foreground underline underline-offset-2 hover:text-foreground"
                     >
                       OCR Review →
@@ -121,19 +122,19 @@ export default function ReviewModePage({ params }: { params: { id: string } }) {
                   </div>
 
                   <div className="mt-4">
-                    {mode === 'frame' && <FrameByFrameViewer videoId={params.id} />}
+                    {mode === 'frame' && <FrameByFrameViewer videoId={id} />}
                     {mode === 'transcript' && <TranscriptReviewPanel />}
                     {mode === 'face' && <FaceReviewPanel clips={video.clips} />}
                     {mode === 'highlight' && (
-                      <HighlightReviewPanel videoId={params.id} clips={video.clips} />
+                      <HighlightReviewPanel videoId={id} clips={video.clips} />
                     )}
-                    {mode === 'subtitle-studio' && <SubtitleStudioPanel videoId={params.id} />}
+                    {mode === 'subtitle-studio' && <SubtitleStudioPanel videoId={id} />}
                   </div>
                 </div>
 
                 <div className="space-y-6">
-                  <ApprovalPanel videoId={params.id} />
-                  <CommentsPanel videoId={params.id} />
+                  <ApprovalPanel videoId={id} />
+                  <CommentsPanel videoId={id} />
                 </div>
               </div>
             )}

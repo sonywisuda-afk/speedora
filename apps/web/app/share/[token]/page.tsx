@@ -1,7 +1,7 @@
 'use client';
 
 import type { SharedVideoDto } from '@speedora/shared';
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { getSharedVideo, sharedThumbnailUrl, sharedVideoStreamUrl } from '@/lib/api';
 
 // Sprint 5B (Shared Clips) - deliberately unauthenticated: the raw token in
@@ -9,19 +9,20 @@ import { getSharedVideo, sharedThumbnailUrl, sharedVideoStreamUrl } from '@/lib/
 // required. Every fetch below hits GET /share/:token or one of its
 // sub-routes (all public, no JwtAuthGuard), never the authenticated
 // /videos/:id family this app's other pages use.
-export default function SharedVideoPage({ params }: { params: { token: string } }) {
+export default function SharedVideoPage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = use(params);
   const [data, setData] = useState<SharedVideoDto | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getSharedVideo(params.token)
+    getSharedVideo(token)
       .then(setData)
       .catch((err) =>
         setError(
           err instanceof Error ? err.message : 'Link ini tidak valid atau sudah tidak berlaku',
         ),
       );
-  }, [params.token]);
+  }, [token]);
 
   return (
     <main className="min-h-screen bg-background px-6 py-12">

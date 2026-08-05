@@ -4,7 +4,7 @@ import { WorkspaceRole } from '@speedora/shared';
 import type { AuditLogEntryDto, WorkspaceDetailDto, WorkspaceMemberDto } from '@speedora/shared';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import useSWR from 'swr';
 import { Nav } from '@/components/Nav';
 import { Badge } from '@/components/ui/badge';
@@ -55,7 +55,8 @@ const ROLE_LABELS: Record<WorkspaceRole, string> = {
 // the URL regardless of which one is currently active) - Audit Log reuses
 // the same ACTION_LABELS as the dedicated /workspaces/[id]/audit-log route
 // so the two never drift.
-export default function WorkspaceSettingsPage({ params }: { params: { id: string } }) {
+export default function WorkspaceSettingsPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const { user, checkingAuth, logout } = useAuth();
   const router = useRouter();
   const activeWorkspaceId = useWorkspaceStore((s) => s.activeWorkspaceId);
@@ -65,13 +66,13 @@ export default function WorkspaceSettingsPage({ params }: { params: { id: string
     data: workspace,
     error,
     mutate,
-  } = useSWR(user ? ['workspace-settings', params.id] : null, () => getWorkspace(params.id));
+  } = useSWR(user ? ['workspace-settings', id] : null, () => getWorkspace(id));
 
   const isAdmin = workspace ? workspace.role === 'OWNER' || workspace.role === 'ADMIN' : false;
   const isOwner = workspace ? workspace.role === 'OWNER' : false;
 
   function afterLeaveOrDelete() {
-    if (activeWorkspaceId === params.id) {
+    if (activeWorkspaceId === id) {
       setActiveWorkspaceId(null);
     }
     router.push('/projects');

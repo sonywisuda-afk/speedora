@@ -13,7 +13,9 @@ import { API_URL } from './api';
 export function useNotificationStream(onEvent: () => void): { connected: boolean } {
   const [connected, setConnected] = useState(false);
   const onEventRef = useRef(onEvent);
-  onEventRef.current = onEvent;
+  useEffect(() => {
+    onEventRef.current = onEvent;
+  });
 
   useEffect(() => {
     if (typeof window === 'undefined' || !('EventSource' in window)) return;

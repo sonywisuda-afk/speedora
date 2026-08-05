@@ -2,7 +2,7 @@
 
 import { CampaignStatus } from '@speedora/shared';
 import Link from 'next/link';
-import { useState } from 'react';
+import { use, useState } from 'react';
 import useSWR from 'swr';
 import { CampaignAnalyticsTab } from '@/components/analytics/CampaignAnalyticsTab';
 import { Nav } from '@/components/Nav';
@@ -21,7 +21,8 @@ import { useAuth } from '@/lib/useAuth';
 // Phase 6 (Scheduling), Frontend part A - detail view for one Campaign:
 // name/description/tag/dates, derived status, progress, and its full
 // publish job list (CampaignDetailDto.publishRecords).
-export default function CampaignDetailPage({ params }: { params: { id: string } }) {
+export default function CampaignDetailPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const { user, checkingAuth, logout } = useAuth();
   const [cancelling, setCancelling] = useState(false);
 
@@ -29,12 +30,12 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
     data: campaign,
     error,
     mutate,
-  } = useSWR(user ? ['campaign-detail', params.id] : null, () => getCampaign(params.id));
+  } = useSWR(user ? ['campaign-detail', id] : null, () => getCampaign(id));
 
   async function handleCancel() {
     setCancelling(true);
     try {
-      await cancelCampaign(params.id);
+      await cancelCampaign(id);
       await mutate();
     } finally {
       setCancelling(false);
@@ -193,7 +194,7 @@ export default function CampaignDetailPage({ params }: { params: { id: string } 
 
                   <TabsContent value="analytics">
                     <CampaignAnalyticsTab
-                      campaignId={params.id}
+                      campaignId={id}
                       workspaceId={campaign.workspaceId}
                     />
                   </TabsContent>

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { acceptInvite, previewInvite, type InvitePreviewDto } from '@/lib/api';
@@ -12,7 +12,8 @@ import { useAuth } from '@/lib/useAuth';
 // "you've been invited to X as Editor" before the visitor is logged in -
 // only the accept action itself (POST /invites/:token/accept) requires a
 // session, same split as the reset-password flow's read-vs-mutate routes.
-export default function AcceptInvitePage({ params }: { params: { token: string } }) {
+export default function AcceptInvitePage({ params }: { params: Promise<{ token: string }> }) {
+  const { token } = use(params);
   const { user, checkingAuth } = useAuth();
   const [preview, setPreview] = useState<InvitePreviewDto | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -20,16 +21,16 @@ export default function AcceptInvitePage({ params }: { params: { token: string }
   const [accepted, setAccepted] = useState(false);
 
   useEffect(() => {
-    previewInvite(params.token)
+    previewInvite(token)
       .then(setPreview)
       .catch((err) => setError(err instanceof Error ? err.message : 'Undangan tidak ditemukan'));
-  }, [params.token]);
+  }, [token]);
 
   async function handleAccept() {
     setAccepting(true);
     setError(null);
     try {
-      await acceptInvite(params.token);
+      await acceptInvite(token);
       setAccepted(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Gagal menerima undangan');

@@ -10,7 +10,7 @@ postinstall — `prisma generate` — reruns during the `--prod` install using t
 even though the already-built generated client from the build stage was already copied in).
 
 - **`apps/worker`** — see `worker.md`'s Docker section for the full Python/MediaPipe/Tesseract
-  dependency list. `node:20-slim` (Debian), not Alpine — MediaPipe has no musl wheel.
+  dependency list. `node:22-slim` (Debian), not Alpine — MediaPipe has no musl wheel.
 - **`apps/web`** — Next.js `output: 'standalone'`. `NEXT_PUBLIC_API_URL` is a **build arg**, not a
   runtime env var — `NEXT_PUBLIC_*` values are inlined into the client bundle at `next build` time.
 - **`apps/api`** — standard NestJS build.
