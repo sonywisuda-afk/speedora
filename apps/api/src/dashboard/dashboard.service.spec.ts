@@ -309,7 +309,7 @@ describe('DashboardService', () => {
       });
     });
 
-    it('never touches another user\'s rows', async () => {
+    it("never touches another user's rows", async () => {
       prisma.activityEvent.deleteMany.mockResolvedValue({ count: 0 });
 
       await service.removeAllActivity('user-2');

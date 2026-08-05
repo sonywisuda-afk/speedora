@@ -4,11 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import useSWR from 'swr';
 import useSWRInfinite from 'swr/infinite';
 import type { ActivityEventDto, ActivityEventType, DashboardActivityDto } from '@speedora/shared';
-import {
-  deleteActivityEvents,
-  deleteAllActivityEvents,
-  getDashboardActivity,
-} from './api';
+import { deleteActivityEvents, deleteAllActivityEvents, getDashboardActivity } from './api';
 import { ACTIVITY_PAGE_LIMIT } from './activity-events';
 import { groupActivityEventsByTimeBucket, type ActivityBucketGroup } from './activity-time-buckets';
 
@@ -54,6 +50,7 @@ export function useActivityTimeline({
 } = {}) {
   const [filters, setFilters] = useState<ActivityTimelineFilters>(DEFAULT_FILTERS);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [hasNewActivity, setHasNewActivity] = useState(false);
   const newActivityBaselineRef = useRef<string | null>(null);
 
   const filterKey = useMemo(() => JSON.stringify(filters), [filters]);
@@ -113,25 +110,31 @@ export function useActivityTimeline({
     { refreshInterval: 10000, revalidateOnFocus: false },
   );
 
-  // Establishes the baseline once, after the FIRST real page load - never
-  // announces the initial mount as "new activity available", same gating
-  // reasoning as useNotificationCenter.ts's own previousRef.
+  // Establishes the baseline once, after the FIRST real page load (never
+  // announcing the initial mount as "new activity available", same gating
+  // reasoning as useNotificationCenter.ts's own previousRef), then compares
+  // every subsequent peek against it. Ref reads/writes only ever happen
+  // inside this effect body (never during render itself - react-hooks/refs
+  // disallows that, since it isn't safe under concurrent rendering) -
+  // hasNewActivity is derived into real state here, not computed inline.
   useEffect(() => {
-    if (!newActivityBaselineRef.current && !isLoading && events.length > 0) {
-      newActivityBaselineRef.current = events[0].id;
+    if (!newActivityBaselineRef.current) {
+      if (!isLoading && events.length > 0) {
+        newActivityBaselineRef.current = events[0].id;
+      }
+      return;
     }
-  }, [isLoading, events]);
-
-  const hasNewActivity = Boolean(
-    newActivityBaselineRef.current &&
-      peek?.events[0] &&
-      peek.events[0].id !== newActivityBaselineRef.current,
-  );
+    const newestPeekId = peek?.events[0]?.id;
+    if (newestPeekId && newestPeekId !== newActivityBaselineRef.current) {
+      setHasNewActivity(true);
+    }
+  }, [isLoading, events, peek]);
 
   async function showNewActivity() {
     const fresh = await mutateList();
     const freshFlat = flattenDedup(fresh);
     if (freshFlat.length > 0) newActivityBaselineRef.current = freshFlat[0].id;
+    setHasNewActivity(false);
     void mutatePeek();
   }
 
@@ -187,6 +190,7 @@ export function useActivityTimeline({
     await setSize(1);
     await mutateList();
     newActivityBaselineRef.current = null;
+    setHasNewActivity(false);
   }
 
   return {

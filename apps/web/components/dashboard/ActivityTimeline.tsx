@@ -67,9 +67,7 @@ const ActivityRow = memo(function ActivityRow({
       <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
       <div className="flex-1">
         <p className="font-body text-sm text-foreground">{title}</p>
-        {description && (
-          <p className="font-body text-xs text-muted-foreground">{description}</p>
-        )}
+        {description && <p className="font-body text-xs text-muted-foreground">{description}</p>}
       </div>
       <span className="shrink-0 font-mono text-xs text-muted-foreground">
         {formatRelativeTime(event.createdAt)}
@@ -165,9 +163,7 @@ export function ActivityTimeline({ initialActivity }: ActivityTimelineProps = {}
           role="alert"
           className="flex items-center gap-2 rounded-md border border-destructive/30 bg-destructive-surface px-4 py-3"
         >
-          <p className="flex-1 font-body text-sm text-foreground">
-            Tidak dapat memuat aktivitas.
-          </p>
+          <p className="flex-1 font-body text-sm text-foreground">Tidak dapat memuat aktivitas.</p>
           <Button size="sm" variant="outline" onClick={() => window.location.reload()}>
             Coba Lagi
           </Button>

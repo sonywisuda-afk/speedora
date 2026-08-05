@@ -38,7 +38,10 @@ function wrapper({ children }: { children: ReactNode }) {
 // paginated list and the { limit: 1 } "new activity" peek) through the same
 // mocked function - route by the limit param so each test can control them
 // independently without a second mock.
-function mockListAndPeek(listResult: unknown, peekResult: unknown = { events: [], nextCursor: null }) {
+function mockListAndPeek(
+  listResult: unknown,
+  peekResult: unknown = { events: [], nextCursor: null },
+) {
   mockList.mockImplementation((params: { limit?: number } = {}) =>
     Promise.resolve(params.limit === 1 ? peekResult : listResult),
   );

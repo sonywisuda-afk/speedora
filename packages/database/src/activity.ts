@@ -1,4 +1,7 @@
-import { ActivityEventType as SharedActivityEventType, describeActivityEvent } from '@speedora/shared';
+import {
+  ActivityEventType as SharedActivityEventType,
+  describeActivityEvent,
+} from '@speedora/shared';
 import type { ActivityEventType, Prisma, PrismaClient } from './generated/prisma/client';
 
 function assertNever(value: never): never {

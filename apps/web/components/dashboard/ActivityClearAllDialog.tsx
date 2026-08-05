@@ -58,8 +58,8 @@ export function ActivityClearAllDialog({
         <DialogHeader>
           <DialogTitle>Hapus Semua Aktivitas?</DialogTitle>
           <DialogDescription>
-            Tindakan ini tidak bisa dibatalkan. Seluruh riwayat aktivitas pribadi Anda akan
-            dihapus permanen.
+            Tindakan ini tidak bisa dibatalkan. Seluruh riwayat aktivitas pribadi Anda akan dihapus
+            permanen.
           </DialogDescription>
         </DialogHeader>
 

@@ -126,8 +126,18 @@ describe('ActivityTimeline', () => {
     const yesterday = new Date(now.getTime() - 25 * 3600 * 1000);
     mockListAndPeek({
       events: [
-        event({ id: 'today-1', type: 'CLIP_GENERATED', title: 'Klip baru berhasil dibuat', createdAt: now.toISOString() }),
-        event({ id: 'yesterday-1', type: 'CLIP_GENERATED', title: 'Klip baru berhasil dibuat', createdAt: yesterday.toISOString() }),
+        event({
+          id: 'today-1',
+          type: 'CLIP_GENERATED',
+          title: 'Klip baru berhasil dibuat',
+          createdAt: now.toISOString(),
+        }),
+        event({
+          id: 'yesterday-1',
+          type: 'CLIP_GENERATED',
+          title: 'Klip baru berhasil dibuat',
+          createdAt: yesterday.toISOString(),
+        }),
       ],
       nextCursor: null,
     });
@@ -206,7 +216,9 @@ describe('ActivityTimeline', () => {
 
     fireEvent.click(screen.getByLabelText(/Pilih aktivitas/));
 
-    expect(await screen.findByRole('toolbar', { name: 'Aksi massal aktivitas' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('toolbar', { name: 'Aksi massal aktivitas' }),
+    ).toBeInTheDocument();
 
     mockListAndPeek({ events: [], nextCursor: null });
     fireEvent.click(screen.getByRole('button', { name: 'Hapus Terpilih' }));
@@ -251,7 +263,10 @@ describe('ActivityTimeline', () => {
 
   it('shows a new-activity banner once the peek sees a newer event, and refreshes on click', async () => {
     mockListAndPeek(
-      { events: [event({ id: 'e1', type: 'CLIP_GENERATED', title: 'Klip baru berhasil dibuat' })], nextCursor: null },
+      {
+        events: [event({ id: 'e1', type: 'CLIP_GENERATED', title: 'Klip baru berhasil dibuat' })],
+        nextCursor: null,
+      },
       { events: [event({ id: 'e1', type: 'CLIP_GENERATED' })], nextCursor: null },
     );
     renderTimeline();
@@ -263,7 +278,9 @@ describe('ActivityTimeline', () => {
         params.limit === 1
           ? { events: [event({ id: 'e2', type: 'CLIP_GENERATED' })], nextCursor: null }
           : {
-              events: [event({ id: 'e2', type: 'CLIP_GENERATED', title: 'Klip baru berhasil dibuat' })],
+              events: [
+                event({ id: 'e2', type: 'CLIP_GENERATED', title: 'Klip baru berhasil dibuat' }),
+              ],
               nextCursor: null,
             },
       ),
@@ -273,6 +290,8 @@ describe('ActivityTimeline', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Tampilkan' }));
 
-    await waitFor(() => expect(screen.queryByText('Aktivitas baru tersedia')).not.toBeInTheDocument());
+    await waitFor(() =>
+      expect(screen.queryByText('Aktivitas baru tersedia')).not.toBeInTheDocument(),
+    );
   }, 20000);
 });

@@ -18,58 +18,37 @@ function makeEvent(id: string, createdAt: string): ActivityEventDto {
 
 describe('groupActivityEventsByTimeBucket', () => {
   it('buckets an event from earlier today as today', () => {
-    const result = groupActivityEventsByTimeBucket(
-      [makeEvent('e1', '2026-08-15T08:00:00')],
-      NOW,
-    );
+    const result = groupActivityEventsByTimeBucket([makeEvent('e1', '2026-08-15T08:00:00')], NOW);
     expect(result).toEqual([{ bucket: 'today', events: [expect.objectContaining({ id: 'e1' })] }]);
   });
 
   it('buckets an event from yesterday as yesterday', () => {
-    const result = groupActivityEventsByTimeBucket(
-      [makeEvent('e1', '2026-08-14T23:00:00')],
-      NOW,
-    );
+    const result = groupActivityEventsByTimeBucket([makeEvent('e1', '2026-08-14T23:00:00')], NOW);
     expect(result[0].bucket).toBe('yesterday');
   });
 
   it('buckets an event 2-6 days ago as last7Days', () => {
-    const result = groupActivityEventsByTimeBucket(
-      [makeEvent('e1', '2026-08-10T00:00:00')],
-      NOW,
-    );
+    const result = groupActivityEventsByTimeBucket([makeEvent('e1', '2026-08-10T00:00:00')], NOW);
     expect(result[0].bucket).toBe('last7Days');
   });
 
   it('buckets an event 7+ days ago but in the same calendar month as thisMonth', () => {
-    const result = groupActivityEventsByTimeBucket(
-      [makeEvent('e1', '2026-08-01T00:00:00')],
-      NOW,
-    );
+    const result = groupActivityEventsByTimeBucket([makeEvent('e1', '2026-08-01T00:00:00')], NOW);
     expect(result[0].bucket).toBe('thisMonth');
   });
 
   it('buckets an event from a prior month as older', () => {
-    const result = groupActivityEventsByTimeBucket(
-      [makeEvent('e1', '2026-07-15T00:00:00')],
-      NOW,
-    );
+    const result = groupActivityEventsByTimeBucket([makeEvent('e1', '2026-07-15T00:00:00')], NOW);
     expect(result[0].bucket).toBe('older');
   });
 
   it('clamps a future/clock-skewed event into today rather than crashing', () => {
-    const result = groupActivityEventsByTimeBucket(
-      [makeEvent('e1', '2026-08-16T00:00:00')],
-      NOW,
-    );
+    const result = groupActivityEventsByTimeBucket([makeEvent('e1', '2026-08-16T00:00:00')], NOW);
     expect(result[0].bucket).toBe('today');
   });
 
   it('omits empty buckets from the result', () => {
-    const result = groupActivityEventsByTimeBucket(
-      [makeEvent('e1', '2026-08-15T08:00:00')],
-      NOW,
-    );
+    const result = groupActivityEventsByTimeBucket([makeEvent('e1', '2026-08-15T08:00:00')], NOW);
     expect(result.map((g) => g.bucket)).toEqual(['today']);
   });
 

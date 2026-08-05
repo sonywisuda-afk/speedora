@@ -3,9 +3,10 @@ import { describeActivityEvent } from './activity-events';
 
 describe('describeActivityEvent', () => {
   it('describes VIDEO_UPLOADED using the video title from metadata', () => {
-    expect(describeActivityEvent(ActivityEventType.VIDEO_UPLOADED, { title: 'My Video' })).toEqual(
-      { title: 'Video diunggah', description: 'My Video' },
-    );
+    expect(describeActivityEvent(ActivityEventType.VIDEO_UPLOADED, { title: 'My Video' })).toEqual({
+      title: 'Video diunggah',
+      description: 'My Video',
+    });
   });
 
   it('falls back to a generic title when VIDEO_UPLOADED metadata has none', () => {
@@ -30,9 +31,10 @@ describe('describeActivityEvent', () => {
   });
 
   it('describes MEMBER_INVITED using the invitee email from metadata', () => {
-    expect(
-      describeActivityEvent(ActivityEventType.MEMBER_INVITED, { email: 'a@b.com' }),
-    ).toEqual({ title: 'Mengundang', description: 'a@b.com' });
+    expect(describeActivityEvent(ActivityEventType.MEMBER_INVITED, { email: 'a@b.com' })).toEqual({
+      title: 'Mengundang',
+      description: 'a@b.com',
+    });
   });
 
   it('has a null description for MEMBER_INVITED when metadata has no email', () => {

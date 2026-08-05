@@ -213,9 +213,7 @@ export class DashboardService {
   async removeAllActivity(userId: string): Promise<ActivityDeleteResult> {
     const { count } = await this.prisma.activityEvent.deleteMany({ where: { userId } });
 
-    recordActivityDeletionLog(this.prisma, { userId, action: 'DELETE_ALL', count }).catch(
-      () => {},
-    );
+    recordActivityDeletionLog(this.prisma, { userId, action: 'DELETE_ALL', count }).catch(() => {});
 
     return { count };
   }
