@@ -17,8 +17,9 @@ import { API_URL, parseJsonOrThrow, type UserDto } from './api';
 // headers throws if it's ever pulled into a client bundle, which is the
 // enforcement mechanism (no separate 'server-only' package dependency
 // needed).
-function serverApiFetch(path: string, init?: RequestInit): Promise<Response> {
-  const token = cookies().get('token')?.value;
+async function serverApiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const cookieStore = await cookies();
+  const token = cookieStore.get('token')?.value;
   return fetch(`${API_URL}${path}`, {
     ...init,
     headers: { ...init?.headers, ...(token ? { Cookie: `token=${token}` } : {}) },

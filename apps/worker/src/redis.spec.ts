@@ -27,7 +27,7 @@ describe('createRedisConnection', () => {
   // AFTER, is exactly the ordering that broke under the old module-scope
   // read - this test would have failed against that code.
   it('reads REDIS_URL at call time, not at the time the module was first required', () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createRedisConnection } = require('./redis') as typeof import('./redis');
 
     process.env.REDIS_URL = 'redis://set-after-require:1234';
@@ -39,7 +39,7 @@ describe('createRedisConnection', () => {
   });
 
   it('falls back to the localhost default when REDIS_URL is unset', () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createRedisConnection } = require('./redis') as typeof import('./redis');
 
     createRedisConnection();
@@ -50,7 +50,7 @@ describe('createRedisConnection', () => {
   });
 
   it('reflects a changed REDIS_URL on a later call within the same process', () => {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const { createRedisConnection } = require('./redis') as typeof import('./redis');
 
     process.env.REDIS_URL = 'redis://first:6379';

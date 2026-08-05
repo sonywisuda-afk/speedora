@@ -106,7 +106,6 @@ export function buildSyntheticRegistrationResponse(params: {
   const credentialIdBytes = crypto.randomBytes(32);
   const rpIdHash = crypto.createHash('sha256').update(rpID).digest();
 
-  // eslint-disable-next-line no-bitwise
   const flags = 0x01 | (userVerified ? 0x04 : 0) | 0x40; // UP | UV? | AT
   const flagsAndCounter = Buffer.from([flags, 0, 0, 0, 0]); // signCount = 0
 
@@ -192,7 +191,6 @@ export function buildSyntheticAuthenticationResponse(params: {
   } = params;
 
   const rpIdHash = crypto.createHash('sha256').update(rpID).digest();
-  // eslint-disable-next-line no-bitwise
   const flags = 0x01 | (userVerified ? 0x04 : 0); // UP | UV? (no AT - not a registration)
   const counterBuf = Buffer.alloc(4);
   counterBuf.writeUInt32BE(counter, 0);

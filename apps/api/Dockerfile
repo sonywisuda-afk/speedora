@@ -3,7 +3,7 @@
 # packages/storage are real source dependencies of apps/api, not published
 # packages, so the build context has to be the whole monorepo.
 
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 RUN corepack enable
 WORKDIR /repo
 
@@ -25,7 +25,7 @@ RUN pnpm --filter "./packages/**" build \
 # already sitting in packages/database/dist and gets copied over as-is.
 RUN pnpm --filter @speedora/api deploy --prod --ignore-scripts /out
 
-FROM node:20-alpine AS runtime
+FROM node:22-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 COPY --from=build /out .

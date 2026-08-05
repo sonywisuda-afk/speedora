@@ -6,7 +6,7 @@
 # Deliberately a single stage with the full (non --prod) install: `prisma`
 # itself is a devDependency, and `prisma migrate deploy` needs the real CLI,
 # not just the generated client apps/api and apps/worker ship with.
-FROM node:20-alpine
+FROM node:22-alpine
 RUN corepack enable
 WORKDIR /repo
 COPY . .

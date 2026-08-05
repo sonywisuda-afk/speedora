@@ -62,11 +62,13 @@ export function ProcessingStatus({
   // non-FAILED status we observed IS the stage that was running when it
   // failed, since polling always sees a job's start status before its
   // terminal one within this session.
-  const lastActiveStatusRef = useRef<VideoStatus>(isFailed ? VideoStatus.UPLOADED : video.status);
+  const [lastActiveStatus, setLastActiveStatus] = useState<VideoStatus>(
+    isFailed ? VideoStatus.UPLOADED : video.status,
+  );
   useEffect(() => {
-    if (video.status !== VideoStatus.FAILED) lastActiveStatusRef.current = video.status;
+    if (video.status !== VideoStatus.FAILED) setLastActiveStatus(video.status);
   }, [video.status]);
-  const effectiveStatus = isFailed ? lastActiveStatusRef.current : video.status;
+  const effectiveStatus = isFailed ? lastActiveStatus : video.status;
   // IMPORTING isn't one of the 3 STAGES (Transcribe/Auto-Clip/Render) - a
   // video imported from YouTube that fails before the download ever
   // finishes has effectiveStatus === IMPORTING here, which STAGE_ORDER
@@ -137,12 +139,15 @@ export function ProcessingStatus({
   // Real elapsed wall-clock time since this screen started watching the
   // job - a ticking clock, not a progress fabrication. Freezes once the
   // job reaches a terminal state.
-  const startedAtRef = useRef(Date.now());
+  const startedAtRef = useRef<number | null>(null);
+  useEffect(() => {
+    startedAtRef.current = Date.now();
+  }, []);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   useEffect(() => {
     if (isDone || isFailed) return;
     const interval = setInterval(() => {
-      setElapsedSeconds(Math.floor((Date.now() - startedAtRef.current) / 1000));
+      setElapsedSeconds(Math.floor((Date.now() - (startedAtRef.current ?? Date.now())) / 1000));
     }, 1000);
     return () => clearInterval(interval);
   }, [isDone, isFailed]);

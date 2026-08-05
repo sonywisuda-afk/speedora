@@ -2,7 +2,7 @@
 
 import type { AuditLogEntryDto } from '@speedora/shared';
 import Link from 'next/link';
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Nav } from '@/components/Nav';
 import { formatRelativeTime } from '@/lib/dashboard';
@@ -17,7 +17,8 @@ const DEFAULT_LIMIT = 30;
 // page (not video-scoped, unlike Comments/Approval/Version History), so it
 // lives under its own /workspaces/[id]/ route rather than the Timeline
 // Editor.
-export default function AuditLogPage({ params }: { params: { id: string } }) {
+export default function AuditLogPage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const { user, checkingAuth, logout } = useAuth();
   const [workspaceName, setWorkspaceName] = useState<string | null>(null);
   const [entries, setEntries] = useState<AuditLogEntryDto[]>([]);
@@ -32,7 +33,7 @@ export default function AuditLogPage({ params }: { params: { id: string } }) {
 
     async function load() {
       try {
-        const workspace = await getWorkspace(params.id);
+        const workspace = await getWorkspace(id);
         if (cancelled) return;
         if (workspace.role !== 'ADMIN' && workspace.role !== 'OWNER') {
           setForbidden(true);
@@ -40,7 +41,7 @@ export default function AuditLogPage({ params }: { params: { id: string } }) {
         }
         setWorkspaceName(workspace.name);
 
-        const page = await listWorkspaceAuditLog(params.id, { limit: DEFAULT_LIMIT });
+        const page = await listWorkspaceAuditLog(id, { limit: DEFAULT_LIMIT });
         if (cancelled) return;
         setEntries(page.entries);
         setNextCursor(page.nextCursor);
@@ -53,13 +54,13 @@ export default function AuditLogPage({ params }: { params: { id: string } }) {
     return () => {
       cancelled = true;
     };
-  }, [user, params.id]);
+  }, [user, id]);
 
   async function loadMore() {
     if (!nextCursor) return;
     setLoadingMore(true);
     try {
-      const page = await listWorkspaceAuditLog(params.id, {
+      const page = await listWorkspaceAuditLog(id, {
         cursor: nextCursor,
         limit: DEFAULT_LIMIT,
       });

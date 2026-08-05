@@ -367,7 +367,6 @@ export default function AccountsPage() {
     fetchPasskeys();
     // Only ever meant to run once the user is known, same reasoning as
     // useAuth's own mount-only effect.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
   async function handleStartEnroll() {

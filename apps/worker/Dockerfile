@@ -3,7 +3,7 @@
 # packages/storage are real source dependencies of apps/worker, not
 # published packages, so the build context has to be the whole monorepo.
 
-FROM node:20-slim AS base
+FROM node:22-slim AS base
 RUN corepack enable
 WORKDIR /repo
 
@@ -32,7 +32,7 @@ RUN pnpm --filter "./packages/**" build \
 # already sitting in packages/database/dist and gets copied over as-is.
 RUN pnpm --filter @speedora/worker deploy --prod --ignore-scripts /out
 
-FROM node:20-slim AS runtime
+FROM node:22-slim AS runtime
 ENV NODE_ENV=production
 # node:20-slim (Debian/glibc), not node:20-alpine, specifically for this
 # image - MediaPipe's PyPI wheels have no musl (Alpine) build at all, only

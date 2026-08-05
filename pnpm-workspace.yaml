@@ -1,3 +1,12 @@
 packages:
   - 'apps/*'
   - 'packages/*'
+injectWorkspacePackages: true
+allowBuilds:
+  '@nestjs/core': true
+  '@prisma/engines': true
+  bcrypt: true
+  esbuild: true
+  msgpackr-extract: true
+  prisma: true
+  unrs-resolver: true

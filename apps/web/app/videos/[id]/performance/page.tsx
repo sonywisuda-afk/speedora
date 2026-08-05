@@ -3,7 +3,7 @@
 import type { ClipPerformanceDto } from '@speedora/shared';
 import Link from 'next/link';
 import { useSearchParams } from 'next/navigation';
-import { useEffect, useState } from 'react';
+import { use, useEffect, useState } from 'react';
 import { ExplainabilityTimeline } from '../../../../components/explainability/ExplainabilityTimeline';
 import { ExplainabilityDetailPanel } from '../../../../components/explainability/ExplainabilityDetailPanel';
 import { ClipPerformanceHistoryTable } from '../../../../components/clip-performance/ClipPerformanceHistoryTable';
@@ -24,7 +24,8 @@ import { useAuth } from '../../../../lib/useAuth';
 // per-clip round trip is worth it for a page most users won't select every
 // clip on. Deliberately single-clip-oriented: nothing here shows an
 // aggregate across other clips - that's /analytics's job.
-export default function ClipPerformancePage({ params }: { params: { id: string } }) {
+export default function ClipPerformancePage({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = use(params);
   const { user, checkingAuth, logout } = useAuth();
   const [video, setVideo] = useState<VideoWithClipsDto | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -40,7 +41,7 @@ export default function ClipPerformancePage({ params }: { params: { id: string }
     if (!user) return;
     let cancelled = false;
 
-    getVideo(params.id)
+    getVideo(id)
       .then((v) => {
         if (cancelled) return;
         setVideo(v);
@@ -58,7 +59,7 @@ export default function ClipPerformancePage({ params }: { params: { id: string }
     return () => {
       cancelled = true;
     };
-  }, [user, params.id, requestedClipId]);
+  }, [user, id, requestedClipId]);
 
   useEffect(() => {
     if (!selectedClipId) return;

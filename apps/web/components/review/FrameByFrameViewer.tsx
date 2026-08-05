@@ -31,7 +31,6 @@ export function FrameByFrameViewer({ videoId }: { videoId: string }) {
     // Only re-sync when playhead changes from OUTSIDE this component (e.g.
     // clicking a transcript segment) - re-running on every local
     // timeupdate would fight the video element's own playback.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playhead]);
 
   function step(deltaFrames: number) {

@@ -80,7 +80,6 @@ export default function UploadPage() {
       window.history.replaceState(null, '', '/upload');
     }
     // Mount-only, matches useAuth's own mount-only effect reasoning.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Dashboard Improvement Sprint Phase A - ProjectPickerDialog navigates
@@ -100,7 +99,6 @@ export default function UploadPage() {
     if (projectId) setPendingProjectId(projectId);
     if (params.get('import') === 'youtube') setImportDefaultTab('youtube');
     // Mount-only, same reasoning as the OAuth ?error= effect above.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const [forgotEmail, setForgotEmail] = useState('');

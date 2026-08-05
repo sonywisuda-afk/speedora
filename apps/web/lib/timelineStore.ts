@@ -362,7 +362,6 @@ export const useTimelineStore = create<TimelineState>((set, get) => ({
       const startedAt = started.updatedAt;
 
       const deadline = Date.now() + RENDER_POLL_TIMEOUT_MS;
-      // eslint-disable-next-line no-constant-condition
       while (true) {
         await new Promise((resolve) => setTimeout(resolve, RENDER_POLL_INTERVAL_MS));
         const video = await getVideo(videoId);
