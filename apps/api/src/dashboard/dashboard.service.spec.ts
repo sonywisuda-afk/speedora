@@ -9,7 +9,8 @@ describe('DashboardService', () => {
     video: { count: jest.Mock; findMany: jest.Mock; aggregate: jest.Mock };
     clip: { count: jest.Mock; aggregate: jest.Mock };
     premiumCredit: { count: jest.Mock };
-    activityEvent: { findMany: jest.Mock };
+    activityEvent: { findMany: jest.Mock; deleteMany: jest.Mock };
+    activityDeletionLog: { create: jest.Mock };
     exportJob: { findMany: jest.Mock; groupBy: jest.Mock; findFirst: jest.Mock };
   };
   let analytics: { getOverview: jest.Mock; getPerformance: jest.Mock };
@@ -27,7 +28,11 @@ describe('DashboardService', () => {
         aggregate: jest.fn().mockResolvedValue({ _sum: { outputSizeBytes: null } }),
       },
       premiumCredit: { count: jest.fn().mockResolvedValue(0) },
-      activityEvent: { findMany: jest.fn().mockResolvedValue([]) },
+      activityEvent: {
+        findMany: jest.fn().mockResolvedValue([]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 0 }),
+      },
+      activityDeletionLog: { create: jest.fn().mockResolvedValue({}) },
       exportJob: {
         findMany: jest.fn().mockResolvedValue([]),
         groupBy: jest.fn().mockResolvedValue([]),
@@ -113,24 +118,29 @@ describe('DashboardService', () => {
   });
 
   describe('getActivity', () => {
-    it('maps ActivityEvent rows to the shared DTO shape, newest first', async () => {
-      prisma.activityEvent.findMany.mockResolvedValue([
-        {
-          id: 'event-1',
-          type: 'VIDEO_UPLOADED',
-          videoId: 'video-1',
-          clipId: null,
-          metadata: { title: 'My Video' },
-          createdAt: new Date('2026-01-01T00:00:00Z'),
-        },
-      ]);
+    function row(overrides: Partial<Record<string, unknown>> = {}) {
+      return {
+        id: 'event-1',
+        type: 'VIDEO_UPLOADED',
+        videoId: 'video-1',
+        clipId: null,
+        metadata: { title: 'My Video' },
+        title: 'Video diunggah',
+        description: 'My Video',
+        createdAt: new Date('2026-01-01T00:00:00Z'),
+        ...overrides,
+      };
+    }
 
-      const result = await service.getActivity('user-1', 20);
+    it('maps ActivityEvent rows to the shared DTO shape, newest first', async () => {
+      prisma.activityEvent.findMany.mockResolvedValue([row()]);
+
+      const result = await service.getActivity('user-1', { limit: 20 });
 
       expect(prisma.activityEvent.findMany).toHaveBeenCalledWith({
         where: { userId: 'user-1' },
-        orderBy: { createdAt: 'desc' },
-        take: 20,
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        take: 21,
       });
       expect(result).toEqual({
         events: [
@@ -140,25 +150,19 @@ describe('DashboardService', () => {
             videoId: 'video-1',
             clipId: null,
             metadata: { title: 'My Video' },
+            title: 'Video diunggah',
+            description: 'My Video',
             createdAt: '2026-01-01T00:00:00.000Z',
           },
         ],
+        nextCursor: null,
       });
     });
 
     it('defaults metadata to null when the row has none', async () => {
-      prisma.activityEvent.findMany.mockResolvedValue([
-        {
-          id: 'event-1',
-          type: 'CLIP_EXPORTED',
-          videoId: 'video-1',
-          clipId: 'clip-1',
-          metadata: null,
-          createdAt: new Date('2026-01-01T00:00:00Z'),
-        },
-      ]);
+      prisma.activityEvent.findMany.mockResolvedValue([row({ metadata: null })]);
 
-      const result = await service.getActivity('user-1', 20);
+      const result = await service.getActivity('user-1', { limit: 20 });
 
       expect(result.events[0].metadata).toBeNull();
     });
@@ -180,19 +184,139 @@ describe('DashboardService', () => {
         'WORKSPACE_DELETED',
       ];
       prisma.activityEvent.findMany.mockResolvedValue(
-        rawTypes.map((type, i) => ({
-          id: `event-${i}`,
-          type,
-          videoId: null,
-          clipId: null,
-          metadata: null,
-          createdAt: new Date('2026-01-01T00:00:00Z'),
-        })),
+        rawTypes.map((type, i) => row({ id: `event-${i}`, type, metadata: null })),
       );
 
-      const result = await service.getActivity('user-1', 20);
+      const result = await service.getActivity('user-1', { limit: 20 });
 
       expect(result.events.map((e) => e.type)).toEqual(rawTypes);
+    });
+
+    // Cursor pagination - mirrors NotificationsV2Service.list's own
+    // fetch-limit+1-to-detect-more-pages test shape.
+    it('returns nextCursor and trims the extra row when more pages exist', async () => {
+      prisma.activityEvent.findMany.mockResolvedValue([
+        row({ id: 'event-1' }),
+        row({ id: 'event-2' }),
+        row({ id: 'event-3' }), // the "limit + 1"'th row - proves there's a next page
+      ]);
+
+      const result = await service.getActivity('user-1', { limit: 2 });
+
+      expect(prisma.activityEvent.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ take: 3 }),
+      );
+      expect(result.events).toHaveLength(2);
+      expect(result.nextCursor).toBe('event-2');
+    });
+
+    it('passes a cursor param straight through to Prisma', async () => {
+      prisma.activityEvent.findMany.mockResolvedValue([]);
+
+      await service.getActivity('user-1', { limit: 20, cursor: 'event-9' });
+
+      expect(prisma.activityEvent.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ cursor: { id: 'event-9' }, skip: 1 }),
+      );
+    });
+
+    it('filters by type when given', async () => {
+      prisma.activityEvent.findMany.mockResolvedValue([]);
+
+      await service.getActivity('user-1', {
+        limit: 20,
+        type: 'CLIP_GENERATED' as never,
+      });
+
+      expect(prisma.activityEvent.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { userId: 'user-1', type: 'CLIP_GENERATED' },
+        }),
+      );
+    });
+
+    it('searches title/description (case-insensitive) when q is given', async () => {
+      prisma.activityEvent.findMany.mockResolvedValue([]);
+
+      await service.getActivity('user-1', { limit: 20, q: '  Acme  ' });
+
+      expect(prisma.activityEvent.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            userId: 'user-1',
+            OR: [
+              { title: { contains: 'Acme', mode: 'insensitive' } },
+              { description: { contains: 'Acme', mode: 'insensitive' } },
+            ],
+          },
+        }),
+      );
+    });
+
+    it('ignores a blank/whitespace-only q rather than adding a useless filter', async () => {
+      prisma.activityEvent.findMany.mockResolvedValue([]);
+
+      await service.getActivity('user-1', { limit: 20, q: '   ' });
+
+      expect(prisma.activityEvent.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: 'user-1' } }),
+      );
+    });
+  });
+
+  describe('removeActivity', () => {
+    it('no-ops on an empty ids array without hitting Prisma', async () => {
+      const result = await service.removeActivity('user-1', []);
+
+      expect(prisma.activityEvent.deleteMany).not.toHaveBeenCalled();
+      expect(result).toEqual({ count: 0 });
+    });
+
+    it('deletes only the given ids, scoped to the owner, and logs the deletion', async () => {
+      prisma.activityEvent.deleteMany.mockResolvedValue({ count: 2 });
+
+      const result = await service.removeActivity('user-1', ['event-1', 'event-2']);
+
+      expect(prisma.activityEvent.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', id: { in: ['event-1', 'event-2'] } },
+      });
+      expect(result).toEqual({ count: 2 });
+      await Promise.resolve(); // flush the fire-and-forget deletion-log write
+      expect(prisma.activityDeletionLog.create).toHaveBeenCalledWith({
+        data: {
+          userId: 'user-1',
+          action: 'DELETE_SELECTED',
+          deletedIds: ['event-1', 'event-2'],
+          count: 2,
+        },
+      });
+    });
+  });
+
+  describe('removeAllActivity', () => {
+    it('deletes every row scoped to the owner and logs the deletion', async () => {
+      prisma.activityEvent.deleteMany.mockResolvedValue({ count: 37 });
+
+      const result = await service.removeAllActivity('user-1');
+
+      expect(prisma.activityEvent.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1' },
+      });
+      expect(result).toEqual({ count: 37 });
+      await Promise.resolve();
+      expect(prisma.activityDeletionLog.create).toHaveBeenCalledWith({
+        data: { userId: 'user-1', action: 'DELETE_ALL', deletedIds: undefined, count: 37 },
+      });
+    });
+
+    it('never touches another user\'s rows', async () => {
+      prisma.activityEvent.deleteMany.mockResolvedValue({ count: 0 });
+
+      await service.removeAllActivity('user-2');
+
+      expect(prisma.activityEvent.deleteMany).toHaveBeenCalledWith({
+        where: { userId: 'user-2' },
+      });
     });
   });
 

@@ -1,15 +1,19 @@
 import { Injectable } from '@nestjs/common';
 import {
-  ActivityEventType as PrismaActivityEventType,
   ExportJobStatus,
+  mapActivityEventType,
   PremiumCreditStatus,
+  recordActivityDeletionLog,
   VideoStatus,
+  type ActivityEventType as PrismaActivityEventType,
 } from '@speedora/database';
 import {
   ActivityEventType,
   ExportType,
+  type ActivityDeleteResult,
   type ActivityEventDto,
   type DashboardActivityDto,
+  type DashboardActivityListQuery,
   type DashboardExportsDto,
   type DashboardStatsDto,
 } from '@speedora/shared';
@@ -23,34 +27,28 @@ function average(values: number[]): number | null {
   return values.reduce((sum, v) => sum + v, 0) / values.length;
 }
 
-function assertNever(value: never): never {
+function assertNeverActivityEventType(value: never): never {
   throw new Error(`Unhandled ActivityEventType: ${JSON.stringify(value)}`);
 }
 
-// Prisma's ActivityEventType (packages/database, generated from
-// schema.prisma) and packages/shared's ActivityEventType are nominally
-// distinct types with identical runtime string values - this function is the
-// one place that bridges them, replacing what used to be a blind
-// `as unknown as` cast. The switch has no `default` case: adding a new
-// member to schema.prisma's enum widens the parameter type here, and the
-// assertNever call fails to compile until a matching case (and, by
-// necessity, a matching packages/shared ActivityEventType member) is added -
-// this is what makes the next ActivityEventType addition fail at compile
-// time in apps/api itself, not just silently pass through to the frontend.
-function mapActivityEventType(type: PrismaActivityEventType): ActivityEventType {
+// The reverse direction of packages/database's mapActivityEventType (shared
+// enum -> Prisma's string-literal union) - needed only here, to turn a
+// GET /dashboard/activity?type= filter into a Prisma `where` value. Same
+// exhaustive-switch-assertNever posture as the forward mapper.
+function mapActivityEventTypeToPrisma(type: ActivityEventType): PrismaActivityEventType {
   switch (type) {
-    case 'VIDEO_UPLOADED':
-      return ActivityEventType.VIDEO_UPLOADED;
-    case 'CLIP_GENERATED':
-      return ActivityEventType.CLIP_GENERATED;
-    case 'CLIP_EXPORTED':
-      return ActivityEventType.CLIP_EXPORTED;
-    case 'MEMBER_INVITED':
-      return ActivityEventType.MEMBER_INVITED;
-    case 'WORKSPACE_DELETED':
-      return ActivityEventType.WORKSPACE_DELETED;
+    case ActivityEventType.VIDEO_UPLOADED:
+      return 'VIDEO_UPLOADED';
+    case ActivityEventType.CLIP_GENERATED:
+      return 'CLIP_GENERATED';
+    case ActivityEventType.CLIP_EXPORTED:
+      return 'CLIP_EXPORTED';
+    case ActivityEventType.MEMBER_INVITED:
+      return 'MEMBER_INVITED';
+    case ActivityEventType.WORKSPACE_DELETED:
+      return 'WORKSPACE_DELETED';
     default:
-      return assertNever(type);
+      return assertNeverActivityEventType(type);
   }
 }
 
@@ -131,28 +129,95 @@ export class DashboardService {
     };
   }
 
-  // Activity Timeline - newest first, capped by the controller's parsed
-  // `limit`. Deliberately a thin read of ActivityEvent as-is (no joins back
-  // to Video/Clip for a live title) - `metadata` already carries whatever
-  // display context was known at write time (e.g. a video's title), which
-  // survives even if the video/clip is later deleted.
-  async getActivity(userId: string, limit: number): Promise<DashboardActivityDto> {
+  // Activity Timeline v2 - cursor pagination, newest first, mirroring
+  // NotificationsV2Service.list's exact shape: fetch `limit + 1` rows so the
+  // extra row (never returned) answers "is there a next page" without a
+  // second count query; `createdAt` carries an `id` tie-breaker so two rows
+  // sharing the identical millisecond still sort deterministically across
+  // pages. `type`/`q` are optional filters, both AND-combined with the
+  // userId scope - `q` matches the denormalized title/description (see
+  // ActivityEvent.title's own schema comment for why those columns exist).
+  // Deliberately a thin read of ActivityEvent as-is (no joins back to
+  // Video/Clip for a live title) - `metadata`/`title`/`description` already
+  // carry whatever display context was known at write time, which survives
+  // even if the video/clip is later deleted.
+  async getActivity(
+    userId: string,
+    { cursor, limit, type, q }: DashboardActivityListQuery & { limit: number },
+  ): Promise<DashboardActivityDto> {
+    const trimmedQuery = q?.trim();
+
     const events = await this.prisma.activityEvent.findMany({
-      where: { userId },
-      orderBy: { createdAt: 'desc' },
-      take: limit,
+      where: {
+        userId,
+        ...(type ? { type: mapActivityEventTypeToPrisma(type) } : {}),
+        ...(trimmedQuery
+          ? {
+              OR: [
+                { title: { contains: trimmedQuery, mode: 'insensitive' as const } },
+                { description: { contains: trimmedQuery, mode: 'insensitive' as const } },
+              ],
+            }
+          : {}),
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: limit + 1,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
     });
 
+    const hasMore = events.length > limit;
+    const page = hasMore ? events.slice(0, limit) : events;
+
     return {
-      events: events.map((event): ActivityEventDto => ({
+      events: page.map((event): ActivityEventDto => ({
         id: event.id,
         type: mapActivityEventType(event.type),
         videoId: event.videoId,
         clipId: event.clipId,
         metadata: (event.metadata as unknown as Record<string, unknown> | null) ?? null,
+        title: event.title,
+        description: event.description,
         createdAt: event.createdAt.toISOString(),
       })),
+      nextCursor: hasMore ? page[page.length - 1].id : null,
     };
+  }
+
+  // Bulk-delete-by-ids (1-or-many) - idempotent (deleteMany over
+  // `id: { in: ids }` never errors on an already-deleted or foreign id) and
+  // userId-scoped (never touches another user's rows), same posture as
+  // NotificationsV2Service.remove. Fire-and-forget deletion-log write AFTER
+  // the delete commits - same "log after, not before" rule
+  // WorkspaceService.remove() already documents.
+  async removeActivity(userId: string, ids: string[]): Promise<ActivityDeleteResult> {
+    if (ids.length === 0) return { count: 0 };
+
+    const { count } = await this.prisma.activityEvent.deleteMany({
+      where: { userId, id: { in: ids } },
+    });
+
+    recordActivityDeletionLog(this.prisma, {
+      userId,
+      action: 'DELETE_SELECTED',
+      deletedIds: ids,
+      count,
+    }).catch(() => {});
+
+    return { count };
+  }
+
+  // Clear-all - a separate, explicit action (not "bulk delete with an empty
+  // ids array", which is a no-op per removeActivity above) since silently
+  // inferring "wipe everything" from an empty/missing field would be a
+  // landmine. userId-scoped, same as removeActivity.
+  async removeAllActivity(userId: string): Promise<ActivityDeleteResult> {
+    const { count } = await this.prisma.activityEvent.deleteMany({ where: { userId } });
+
+    recordActivityDeletionLog(this.prisma, { userId, action: 'DELETE_ALL', count }).catch(
+      () => {},
+    );
+
+    return { count };
   }
 
   // Phase E (Dashboard & Recent Activity) - Export Center visibility.

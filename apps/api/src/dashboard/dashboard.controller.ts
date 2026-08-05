@@ -1,4 +1,5 @@
-import { Controller, Get, Query, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Query, Res, UseGuards } from '@nestjs/common';
+import { ActivityEventType, type ActivityDeleteRequest } from '@speedora/shared';
 import type { Response } from 'express';
 import type { SafeUser } from '../auth/auth.service';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
@@ -35,9 +36,48 @@ export class DashboardController {
     return this.dashboardService.getStats(user.id);
   }
 
+  // Activity Timeline v2 - cursor/type/q are all optional filters; an
+  // invalid/unrecognized `type` degrades to "no filter" via resolveType
+  // rather than throwing, same posture as NotificationsV2Controller's own
+  // resolveState/resolveCategory/resolvePriority helpers (this is a read
+  // filter, not data-integrity-critical input).
   @Get('activity')
-  getActivity(@CurrentUser() user: SafeUser, @Query('limit') limit?: string) {
-    return this.dashboardService.getActivity(user.id, parseLimit(limit, DEFAULT_ACTIVITY_LIMIT));
+  getActivity(
+    @CurrentUser() user: SafeUser,
+    @Query('cursor') cursor?: string,
+    @Query('limit') limit?: string,
+    @Query('type') type?: string,
+    @Query('q') q?: string,
+  ) {
+    return this.dashboardService.getActivity(user.id, {
+      cursor,
+      limit: parseLimit(limit, DEFAULT_ACTIVITY_LIMIT),
+      type: this.resolveType(type),
+      q,
+    });
+  }
+
+  // Bulk-delete-by-ids (1-or-many, body-driven) vs. clear-all below -
+  // deliberately two fully literal, different-segment-count routes (no
+  // dynamic `:id` segment anywhere on this controller), structurally immune
+  // to the wildcard-route-collision bug class fixed earlier in
+  // notifications.module.ts (that required a `:id`-shaped route somewhere
+  // in the mix; there isn't one here).
+  @Delete('activity')
+  removeActivity(@CurrentUser() user: SafeUser, @Body() dto: ActivityDeleteRequest) {
+    return this.dashboardService.removeActivity(user.id, dto.ids ?? []);
+  }
+
+  @Delete('activity/all')
+  removeAllActivity(@CurrentUser() user: SafeUser) {
+    return this.dashboardService.removeAllActivity(user.id);
+  }
+
+  private resolveType(raw: string | undefined): ActivityEventType | undefined {
+    if (raw && Object.values(ActivityEventType).includes(raw as ActivityEventType)) {
+      return raw as ActivityEventType;
+    }
+    return undefined;
   }
 
   // Phase E (Dashboard & Recent Activity) - Export Center visibility.

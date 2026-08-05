@@ -5,6 +5,7 @@ export * from './generated/prisma/client';
 export * from './video-status';
 export * from './node-execution';
 export * from './activity';
+export * from './activity-deletion-log';
 export * from './notification';
 export * from './notification-timeline';
 export * from './alert-engine';

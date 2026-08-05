@@ -252,6 +252,7 @@ model User {
   socialAccounts                  SocialAccount[]
   premiumCredits                  PremiumCredit[]
   activityEvents                  ActivityEvent[]
+  activityDeletionLogs             ActivityDeletionLog[]
   sentInvites                     PendingInvite[]
   exportJobs                      ExportJob[]
   notifications                   Notification[]
@@ -1418,7 +1419,50 @@ model ActivityEvent {
   // read at feed-render time so a deleted video/clip doesn't blank out its
   // own history entry.
   metadata  Json?
+  // Activity Timeline v2 - denormalized at write time (recordActivityEvent,
+  // via packages/shared's describeActivityEvent) from type+metadata, so
+  // GET /dashboard/activity's search can `contains` real text instead of
+  // needing to re-derive the Indonesian display sentence per event type at
+  // query time. Nullable (no NOT NULL backfill requirement) - a
+  // not-yet-backfilled pre-existing row just never matches a search, which
+  // is the correct degrade, not a bug. title is the fixed action phrase
+  // ("Video diunggah"), description is the variable part (a video title,
+  // an email, a workspace name) - null when the event type has none.
+  title       String?
+  description String?
   createdAt DateTime          @default(now())
+
+  @@index([userId, createdAt])
+}
+
+// Activity Timeline v2 - an internal-only (no DTO, no controller route)
+// traceability trail for a user deleting their OWN activity history.
+// Deliberately NOT AuditLogEntry (workspaceId-required, doesn't fit a
+// per-user action) and NOT a soft-delete flag on ActivityEvent itself (no
+// deletedAt precedent exists anywhere in this schema - see this codebase's
+// existing three purpose-built audit-adjacent models, AuditLogEntry/
+// SecurityEvent/VideoStatusEvent, for why a narrow fourth here is
+// consistent with, not a departure from, its own convention). "Delete one"
+// is just DELETE_SELECTED with a 1-element deletedIds array, not a 3rd
+// enum value - same reuse-over-new-enum-value posture as this codebase's
+// LOGOUT_ALL/LOGOUT_OTHERS precedent.
+enum ActivityDeletionAction {
+  DELETE_SELECTED
+  DELETE_ALL
+}
+
+model ActivityDeletionLog {
+  id         String                 @id @default(cuid())
+  userId     String
+  user       User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action     ActivityDeletionAction
+  // Set only for DELETE_SELECTED (bounded by whatever the user had
+  // selected in the UI); always null for DELETE_ALL - the rows are gone
+  // and an unbounded id array serves no purpose once `count` already
+  // captures the magnitude.
+  deletedIds Json?
+  count      Int
+  createdAt  DateTime               @default(now())
 
   @@index([userId, createdAt])
 }

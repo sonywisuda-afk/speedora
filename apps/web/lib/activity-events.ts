@@ -1,13 +1,18 @@
 import { Download, Film, Trash2, UploadCloud, UserPlus, type LucideIcon } from 'lucide-react';
-import { ActivityEventType, type ActivityEventDto } from '@speedora/shared';
+import {
+  ActivityEventType,
+  describeActivityEvent as sharedDescribeActivityEvent,
+  type ActivityEventDto,
+} from '@speedora/shared';
 
 // Dashboard Redesign Sprint 1-2 - the client-side half of the
 // ActivityEventType registry (icon needs lucide-react, so it can't live in
 // packages/shared) - same split as lib/notification-definitions.ts's
 // NOTIFICATION_ICONS. Record<ActivityEventType, ...> means the compiler
 // itself rejects a build that adds a new ActivityEventType without an entry
-// here - see describeActivityEvent's assertNever below for the matching
-// guarantee on the dynamic-text side, which a plain Record can't express.
+// here - see describeActivityEvent's assertNever (now in packages/shared)
+// for the matching guarantee on the dynamic-text side, which a plain
+// Record can't express.
 export const ACTIVITY_ICONS: Record<ActivityEventType, LucideIcon> = {
   [ActivityEventType.VIDEO_UPLOADED]: UploadCloud,
   [ActivityEventType.CLIP_GENERATED]: Film,
@@ -16,39 +21,38 @@ export const ACTIVITY_ICONS: Record<ActivityEventType, LucideIcon> = {
   [ActivityEventType.WORKSPACE_DELETED]: Trash2,
 };
 
-function assertNever(value: never): never {
-  throw new Error(`Unhandled ActivityEventType: ${JSON.stringify(value)}`);
+// Activity Timeline v2 - default/SSR page size, shared between
+// DashboardSummary.tsx's server-side seed fetch and useActivityTimeline's
+// client-side PAGE_LIMIT so the two stay in lockstep (matches today's
+// DEFAULT_ACTIVITY_LIMIT on the backend).
+export const ACTIVITY_PAGE_LIMIT = 20;
+
+// Activity Timeline v2 - title/description are now denormalized on
+// ActivityEventDto itself (computed server-side at write time - see
+// ActivityEvent.title's own schema comment), so this just reads them
+// straight off the DTO instead of recomputing from `type`+`metadata`. Falls
+// back to the shared describeActivityEvent (the same function the backend
+// used to compute them) only for pre-migration rows that haven't been
+// backfilled yet (title/description both null) - keeps old rows rendering
+// something sensible instead of a blank row.
+export function describeActivityEventDto(event: ActivityEventDto): {
+  title: string;
+  description: string | null;
+} {
+  if (event.title !== null) return { title: event.title, description: event.description };
+  return sharedDescribeActivityEvent(event.type, event.metadata);
 }
 
-// One free-form sentence per event, built from metadata - unlike
-// NotificationDto (server-generated title/body), ActivityEventDto only
-// carries structured metadata, so the sentence is assembled client-side. The
-// switch below has no `default` case - a new ActivityEventType member that
-// falls through to the bottom without a `case` fails to compile at the
-// assertNever call (its argument stops being `never`), instead of silently
-// returning undefined at runtime the way a bare switch without
-// noImplicitReturns would.
+// Single-string convenience wrapper (legacy shape, still used by a couple
+// of call sites/tests that want one sentence rather than a title/
+// description pair) - reproduces the exact same text the pre-v2 UI showed,
+// including MEMBER_INVITED's plain-space join (no colon) vs. every other
+// type's ": " join.
 export function describeActivityEvent(event: ActivityEventDto): string {
-  const title =
-    typeof event.metadata?.title === 'string' ? event.metadata.title : 'video tanpa judul';
-  switch (event.type) {
-    case ActivityEventType.VIDEO_UPLOADED:
-      return `Video diunggah: ${title}`;
-    case ActivityEventType.CLIP_GENERATED:
-      return 'Klip baru berhasil dibuat';
-    case ActivityEventType.CLIP_EXPORTED:
-      return 'Klip diunduh';
-    case ActivityEventType.MEMBER_INVITED: {
-      const email = typeof event.metadata?.email === 'string' ? event.metadata.email : '';
-      return `Mengundang ${email}`;
-    }
-    case ActivityEventType.WORKSPACE_DELETED: {
-      const name = typeof event.metadata?.name === 'string' ? event.metadata.name : 'workspace';
-      return `Menghapus workspace: ${name}`;
-    }
-    default:
-      return assertNever(event.type);
-  }
+  const { title, description } = describeActivityEventDto(event);
+  if (description === null) return title;
+  const separator = event.type === ActivityEventType.MEMBER_INVITED ? ' ' : ': ';
+  return `${title}${separator}${description}`;
 }
 
 // Runtime-only safety net for a live frontend/backend version skew (e.g. the

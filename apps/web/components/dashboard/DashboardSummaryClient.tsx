@@ -8,7 +8,7 @@ import type {
 import { AlertTriangle } from 'lucide-react';
 import useSWR from 'swr';
 import { Button } from '@/components/ui/button';
-import { getDashboardActivity, getDashboardExports, getDashboardStats } from '@/lib/api';
+import { getDashboardExports, getDashboardStats } from '@/lib/api';
 import { ActivityTimeline } from './ActivityTimeline';
 import { ExportActivityPanel } from './ExportActivityPanel';
 import { StatisticsRow } from './StatisticsRow';
@@ -61,14 +61,6 @@ export function DashboardSummaryClient({
     refreshInterval: POLL_INTERVAL_MS,
   });
   const {
-    data: activity,
-    error: activityError,
-    mutate: mutateActivity,
-  } = useSWR('dashboard-activity', () => getDashboardActivity(), {
-    fallbackData: initialActivity,
-    refreshInterval: POLL_INTERVAL_MS,
-  });
-  const {
     data: exports,
     error: exportsError,
     mutate: mutateExports,
@@ -84,11 +76,7 @@ export function DashboardSummaryClient({
       ) : (
         stats && <StatisticsRow stats={stats} />
       )}
-      {activityError ? (
-        <SectionError label="aktivitas" onRetry={() => mutateActivity()} />
-      ) : (
-        activity && <ActivityTimeline events={activity.events} />
-      )}
+      <ActivityTimeline initialActivity={initialActivity} />
       {exportsError ? (
         <SectionError label="aktivitas export" onRetry={() => mutateExports()} />
       ) : (

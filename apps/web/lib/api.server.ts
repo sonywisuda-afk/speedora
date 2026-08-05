@@ -53,8 +53,12 @@ export async function getServerDashboardStats(): Promise<DashboardStatsDto> {
   return parseJsonOrThrow<DashboardStatsDto>(res);
 }
 
-export async function getServerDashboardActivity(): Promise<DashboardActivityDto> {
-  const res = await serverApiFetch('/dashboard/activity');
+// Activity Timeline v2 - SSR only ever seeds the unfiltered first page
+// (limit matches useActivityTimeline's own PAGE_LIMIT, see
+// ACTIVITY_PAGE_LIMIT) - cursor/type/q are client-only filter state, never
+// part of the server-rendered request.
+export async function getServerDashboardActivity(limit?: number): Promise<DashboardActivityDto> {
+  const res = await serverApiFetch(`/dashboard/activity${limit ? `?limit=${limit}` : ''}`);
   return parseJsonOrThrow<DashboardActivityDto>(res);
 }
 

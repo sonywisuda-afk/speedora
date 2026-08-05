@@ -19,7 +19,8 @@
     "test:cov": "jest --coverage",
     "test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
     "test:e2e": "jest --config ./test/jest-e2e.json",
-    "grant-role": "ts-node -T src/scripts/grant-role.ts"
+    "grant-role": "ts-node -T src/scripts/grant-role.ts",
+    "backfill-activity-descriptions": "ts-node -T src/scripts/backfill-activity-event-descriptions.ts"
   },
   "dependencies": {
     "@nestjs/bullmq": "11.0.4",

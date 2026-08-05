@@ -1222,7 +1222,10 @@ describe('render-clip worker', () => {
       where: { id: 'video-1' },
       data: { status: VideoStatus.RENDERED },
     });
-    // Sprint 1-2 (Dashboard Redesign) - Activity Timeline entry.
+    // Sprint 1-2 (Dashboard Redesign) - Activity Timeline entry. title/
+    // description are denormalized by recordActivityEvent itself (Activity
+    // Timeline v2 - see ActivityEvent.title's own schema comment);
+    // CLIP_GENERATED has no variable description.
     expect(activityEventCreateMock).toHaveBeenCalledWith({
       data: {
         userId: 'user-1',
@@ -1230,6 +1233,8 @@ describe('render-clip worker', () => {
         videoId: 'video-1',
         clipId: 'clip-1',
         metadata: undefined,
+        title: 'Klip baru berhasil dibuat',
+        description: null,
       },
     });
     // Notification Center Sprint 4A - Clip Ready.
