@@ -74,6 +74,7 @@ import {
   toSharedSemanticEvents,
   toSharedNarrativeGraph,
   toSharedContextualMomentum,
+  toSharedEmotionalArc,
   toSharedLipSyncVerifications,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
@@ -1854,6 +1855,7 @@ export class VideosService {
           semanticEvents,
           narrativeGraph,
           contextualMomentum,
+          emotionalArc,
           thumbnailSelectionBreakdown,
           thumbnailSelectionFallback,
           ...clip
@@ -1914,6 +1916,7 @@ export class VideosService {
           semanticEvents: toSharedSemanticEvents(semanticEvents),
           narrativeGraph: toSharedNarrativeGraph(narrativeGraph),
           contextualMomentum: toSharedContextualMomentum(contextualMomentum),
+          emotionalArc: toSharedEmotionalArc(emotionalArc),
           thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
             thumbnailSelectionBreakdown,
           ),

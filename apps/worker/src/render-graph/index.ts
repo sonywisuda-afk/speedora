@@ -5,6 +5,7 @@ import type {
   CameraMotionSample,
   CompositionFeatures,
   EditingRhythmFeatures,
+  EmotionalArc,
   FaceLandmarkFeatures,
   FaceTrackingQualityMetrics,
   FacialEmotionFeatures,
@@ -41,6 +42,7 @@ import type { RenderGraphContext } from './context';
 import { audioEditingNodes } from './nodes/audio-editing';
 import { compositionNodes } from './nodes/composition';
 import { contextualMomentumNodes } from './nodes/contextual-momentum';
+import { emotionalArcNodes } from './nodes/emotional-arc';
 import { facialGestureNodes } from './nodes/facial-gesture';
 import { faceSpeakerNodes } from './nodes/face-speaker';
 import { hookPredictionNodes } from './nodes/hook-prediction';
@@ -75,6 +77,7 @@ export const renderClipGraph: GraphNode<RenderGraphContext, unknown>[] = [
   ...semanticEventNodes,
   ...narrativeGraphNodes,
   ...contextualMomentumNodes,
+  ...emotionalArcNodes,
   ...thumbnailSelectionNodes,
 ];
 
@@ -118,5 +121,6 @@ export interface RenderGraphResult {
   semanticEvents: SemanticEvent[] | null;
   narrativeGraph: NarrativeGraph | null;
   contextualMomentum: MomentumCurve;
+  emotionalArc: EmotionalArc;
   thumbnailSelection: SelectThumbnailTimestampOutput;
 }

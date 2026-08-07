@@ -38,6 +38,7 @@
     "@speedora/dataset-quality": "workspace:*",
     "@speedora/editing-rhythm": "workspace:*",
     "@speedora/emoji-suggester": "workspace:*",
+    "@speedora/emotional-arc": "workspace:*",
     "@speedora/facial-intelligence": "workspace:*",
     "@speedora/fusion-engine": "workspace:*",
     "@speedora/fusion-ml": "workspace:*",

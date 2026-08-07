@@ -17,7 +17,11 @@
 - **Phase 3 (Narrative Graph)**: shipped, flag-off (`NARRATIVE_GRAPH_ENABLED=false`).
 - **Phase 4 (Contextual Momentum)**: shipped, flag-off (`CONTEXTUAL_MOMENTUM_ENABLED=false`). First
   v4 module with no LLM call at all — a pure composition over already-computed signals.
-- **Phases 5-14**: documented roadmap only, not built. See "Roadmap" below.
+- **Phase 5 (Emotional Arc)**: shipped, flag-off (`EMOTIONAL_ARC_ENABLED=false`). Same no-LLM
+  shape as Phase 4 — a pure composition over already-persisted `TranscriptSegment.emotion` labels
+  plus Phase 2's `SemanticEvent[]` as optional context. Also satisfies the roadmap's "vocal-emotion
+  rescue" prerequisite (see Track B below) without relocating `apps/worker/src/vocalEmotion.ts`.
+- **Phases 6-14**: documented roadmap only, not built. See "Roadmap" below.
 
 ## Why this exists
 
@@ -101,7 +105,7 @@ Revisit at Track A Phase 11.
 (`FeatureVector`, `TrainingSample`, `Predictor`, `DatasetBuilder`, `ModelEvaluator`) rather than
 inventing v4-specific ones.
 
-## Dependency graph (Phase 1-4, as shipped)
+## Dependency graph (Phase 1-5, as shipped)
 
 ```
 TranscriptSegment (words, rmsDb, peakDb, speakingRateWordsPerSecond, emotion)
@@ -192,6 +196,26 @@ narrativeGraph (existing, Phase 3 - optional context, degrades ──┘   (@spe
                                                                     ▼
                                        GET /clips/:id/intelligence (flag-gated exposure,
                                                                      own independent flag)
+
+TranscriptSegment.emotion (existing, persisted at transcribe time by ─┐
+  apps/worker/src/vocalEmotion.ts's detectVocalEmotions - see the      │
+  "vocal-emotion rescue" note under Track B below)                     │
+                                                                        ├──▶ computeEmotionalArc()
+semanticEvents (existing, Phase 2 - optional context, degrades ───────┘   (@speedora/emotional-
+  gracefully to no boost when null/empty)                                 arc, PURE - no LLM
+                                                                            call, no `deps` param)
+                                                                    │
+                                                                    ▼
+                                                            EmotionalArc
+                                        EmotionalArcSample[] { t, emotion, intensity }
+                                                                    │
+                                                                    ▼
+                                             Clip.emotionalArc (new Json? column - null means
+                                                        "predates this migration," not "failed")
+                                                                    │
+                                                                    ▼
+                                       GET /clips/:id/intelligence (flag-gated exposure,
+                                                                     own independent flag)
 ```
 
 ## Roadmap (Parts 2-14 — documented, not built)
@@ -208,7 +232,7 @@ until its own later calibration sub-phase.
 | 2 | Semantic Event Detection (2) — **shipped** | Phase 0/1; pulled forward Multimodal Reasoning (6) as `packages/multimodal-reasoning` | L | 22-value taxonomy governance (satisfied via `describeEventType()`'s exhaustive switch); +1 LLM call/clip |
 | 3 | Narrative Graph (3) — **shipped** | Phase 2 | L | Hardest LLM-reasoning task; needs an "unsegmented" fallback (satisfied via `validateGraph()`'s structural collapse) |
 | 4 | Contextual Momentum (new, part of 5) — **shipped** | Phase 3 + `EditingRhythmFeatures.accelerationScore` | M | No ground truth for curve *shape* yet (still true post-ship — heuristic weights, undocumented as calibrated) |
-| 5 | Emotional Arc (new, part of 5) | vocal-emotion rescue (see below) + Phase 2 | M | Vocal-emotion classifier trained on acted, not natural, speech |
+| 5 | Emotional Arc (new, part of 5) — **shipped** | vocal-emotion rescue (see below) + Phase 2 | M | Vocal-emotion classifier trained on acted, not natural, speech (still true post-ship — a documented heuristic caveat, not a solved problem) |
 | 6 | Multi-speaker Reasoning (extends 6) | Phases 1, 4, 5 | M | Must not affect single-speaker clips (the majority case) |
 | 7 | Cross-module Fusion (4, Virality Engine) | Phases 1, 3, 4, 5 | M | Labeling discipline (8 heuristic probabilities reading as "trained") |
 | 8 | Confidence Calibration (cross-cutting) | Phases 1-7 | S-M | Hygiene pass, low risk |
@@ -221,9 +245,19 @@ until its own later calibration sub-phase.
 
 ### Track B — Editorial Intelligence (parallel, non-blocking)
 
-**Prerequisite**: rescue Vocal Emotion Detection (`apps/worker/src/vocalEmotion.ts`) — fully
-implemented but stranded outside `@speedora/audio-intelligence`, no derive function, no Fusion
-signal, invisible to the render-graph. Small relocation, no new detection logic.
+**Prerequisite — satisfied by Phase 5, not as separate work**: rescue Vocal Emotion Detection
+(`apps/worker/src/vocalEmotion.ts`) — was fully implemented but stranded outside
+`@speedora/audio-intelligence`, no derive function, no Fusion signal, invisible to the
+render-graph. Investigated directly: `vocalEmotion.ts` shells out to a Python subprocess using
+`apps/worker`-local infra (scratch-file helpers, subprocess limiter) — the exact same shape as
+`apps/worker/src/diarization.ts` (Speaker Intelligence's own subprocess caller), which was
+deliberately never relocated into `packages/speaker-diarization` either; only pure derive
+functions belong in `packages/*` (JSON-contract pattern's "zero DB/subprocess access" rule).
+Literally relocating `vocalEmotion.ts` would break that convention. Phase 5's own
+`packages/emotional-arc` (a pure derive function over already-persisted
+`TranscriptSegment.emotion` labels) **is** the missing derive function, and its render-graph node
+**is** what makes vocal emotion visible in the render-graph for the first time — closing the gap
+without a literal file move. `vocalEmotion.ts` itself is untouched.
 
 | Phase | Name (spec Part) | Depends on | Complexity | Primary risk |
 |---|---|---|---|---|
@@ -445,13 +479,92 @@ packages/shared/src/types/
   intelligence-v4.ts                        ClipIntelligenceDto.contextualMomentum
 ```
 
-`Clip.highlightScore` and every existing Fusion Engine v2 output are unchanged by all four
-phases — verified by regression tests in `sinks.spec.ts` (extended to cover `contextualMomentum`
-alongside `hookPrediction`/`semanticEvents`/`narrativeGraph`) plus a full, green run of every
-existing test suite after each phase's changes. Phase 3 was the first to run the full `pnpm
-verify` (added between Phase 2 and Phase 3) locally before pushing; Phase 4 continued that
-practice - `apps/worker`: 571/571, 22 new unit tests in `packages/contextual-momentum`, every
-`apps/api` suite green (one, `mfa.service.spec.ts`, hit a QR-render timeout under local system
-load during the full run and was re-verified passing in isolation - a flake, not a regression;
-same for two `ffmpeg.brand-segment-concat.integration.spec.ts` cases, also re-verified passing in
-isolation - neither file touches anything Phase 4 changed).
+## Phase 5 architecture (as shipped)
+
+```
+packages/contracts/src/emotional-arc.ts
+                                             emotionalArcSampleSchema, emotionalArcSchema,
+                                             emotionalArcSegmentSchema,
+                                             computeEmotionalArcInputSchema (imports
+                                             semanticEventSchema from ./semantic-events and
+                                             VOCAL_EMOTIONS from ./vocal-emotion - same
+                                             cross-contract-file-import precedent
+                                             contextual-momentum.ts already set)
+
+packages/emotional-arc/src/
+  emotional-event-boost.ts                  emotionalBoostForSemanticEventType() - exhaustive
+                                             switch/assertNever over all 22 SEMANTIC_EVENT_TYPES
+                                             (Contract Governance rule 1), reusing Phase 2's
+                                             taxonomy rather than introducing a new one - same
+                                             "govern an existing enum being consumed for the
+                                             first time" pattern Phase 4's
+                                             momentumMultiplierForSegmentType() established
+  compute-emotional-arc.ts                  computeEmotionalArc() - the module's single entry
+                                             point, PURE and synchronous (no `deps` param) - same
+                                             zero-LLM shape as Phase 4, since the classifier
+                                             itself already ran at transcribe time. Per-segment
+                                             formula: a fixed base-intensity weight over the
+                                             model's own 4-class taxonomy + the largest (not
+                                             summed) semantic-event boost among any Phase 2
+                                             SemanticEvent landing inside the segment's own
+                                             window, tiered by event type
+  feature-flags.ts                          isEmotionalArcEnabled()
+
+apps/worker/src/render-graph/nodes/emotional-arc.ts
+                                             emotionalArcNode (optional: false, no fallback -
+                                             same reasoning as Phase 4's contextualMomentumNode:
+                                             reads only already-resolved upstream data
+                                             (ctx.transcript's own emotion labels + the
+                                             semanticEvents node's output) and can't hit real
+                                             I/O failure; deps: semanticEvents, an
+                                             already-existing node id read purely as optional
+                                             context, same degrade-gracefully pattern
+                                             narrativeGraphNode already uses for it)
+
+apps/worker/src/render-graph/sinks.ts       CLIP_UPDATE_MAP['emotionalArc'] entry - deliberately
+                                             NOT added to FUSION_INPUT_MAP (D1); cast through as
+                                             InputJsonValue like contextualMomentum/motionEnergy
+                                             (a closed array type), never Prisma.JsonNull even
+                                             when empty - guarded by the same extended
+                                             regression test as prior phases
+
+apps/api/src/videos/transcript-segment.util.ts
+                                             toSharedEmotionalArc() - the TS2742 fix (D7). Same
+                                             null-semantics as toSharedContextualMomentum: null
+                                             here can ONLY mean "this Clip row predates this
+                                             phase's migration," not "the node failed"
+
+apps/api/src/clips/clips.service.ts         GET /clips/:id/intelligence extended with
+                                             `emotionalArc`, gated by its OWN independent flag
+                                             (D9 - the 5th field on the same DTO)
+
+packages/database/prisma/schema.prisma      Clip.emotionalArc Json? (new column, real-Postgres
+                                             round trip manually verified)
+
+packages/shared/src/types/
+  video.ts                                  VocalEmotion/EmotionalArcSample/EmotionalArc
+                                             mirrored (not imported), same duplication
+                                             precedent as MomentumSample/NarrativeGraph/
+                                             SemanticEvent/HookPredictionOutput;
+                                             Clip.emotionalArc field
+  intelligence-v4.ts                        ClipIntelligenceDto.emotionalArc
+```
+
+`apps/worker/src/vocalEmotion.ts` (the classifier itself) is untouched by this phase - Phase 5
+only adds a new consumer of its already-persisted `TranscriptSegment.emotion` output. See the
+"vocal-emotion rescue" note under Track B above for why this satisfies that prerequisite without
+relocating the file.
+
+`Clip.highlightScore` and every existing Fusion Engine v2 output are unchanged by all five
+phases — verified by regression tests in `sinks.spec.ts` (extended to cover `emotionalArc`
+alongside `hookPrediction`/`semanticEvents`/`narrativeGraph`/`contextualMomentum`) plus a full,
+green run of every existing test suite after each phase's changes. Phase 3 was the first to run
+the full `pnpm verify` (added between Phase 2 and Phase 3) locally before pushing; Phase 4 and
+Phase 5 continued that practice. Phase 5: `apps/worker`: 571/571, `apps/api`: 1268/1268, `apps/web`:
+313/313, plus 36 new unit tests in `packages/emotional-arc` (including a real
+floating-point-precision fix caught by the test run itself - `0.1 + 0.2` summed via `toEqual`
+rather than `toBeCloseTo`, fixed before this phase's commit). Two
+`ffmpeg.brand-segment-concat.integration.spec.ts` cases hit a system-load-induced timeout during
+the combined `pnpm verify` run (unrelated to anything this phase changed) and were re-verified
+passing cleanly in isolation before being treated as green. Real-Postgres round trip verified
+manually for the new column.

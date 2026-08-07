@@ -138,25 +138,25 @@ enum PublishStatus {
 }
 
 model User {
-  id                             String    @id @default(cuid())
-  email                          String    @unique
+  id                              String    @id @default(cuid())
+  email                           String    @unique
   // bcrypt hash - never the plaintext password. Nullable since Tahap 2
   // (OAuth Login) - an account created via "Continue with Google/GitHub"
   // may never set one; AuthService.validateUser()/changePassword() both
   // null-check before comparing, same generic "Invalid email or password"
   // failure as any other credential mismatch (never a distinct error that
   // would confirm "this account has no password").
-  password                       String?
+  password                        String?
   // Milestone 5C-B - see UserRole above. Every normal signup gets CREATOR.
-  role                           UserRole  @default(CREATOR)
+  role                            UserRole  @default(CREATOR)
   // Forgot-password (Fase 8) - SHA-256 hash of a random token, never the raw
   // token itself (that only ever exists in the emailed reset link) - a DB
   // leak alone shouldn't be enough to reset anyone's password, same
   // reasoning as bcrypt-hashing the login password above. A new
   // forgot-password request overwrites both fields, implicitly invalidating
   // any earlier unused request - only the most recent one is ever honored.
-  resetPasswordTokenHash         String?   @unique
-  resetPasswordTokenExpiresAt    DateTime?
+  resetPasswordTokenHash          String?   @unique
+  resetPasswordTokenExpiresAt     DateTime?
   // Authentication Foundation Sprint 2 (Account Trust) - defaults false for
   // every new registration; pre-existing rows also become false post-
   // migration (no way to know if an existing account's email was ever
@@ -194,9 +194,9 @@ model User {
   // styling when unset rather than blocking creation - same graceful-
   // degradation posture as a missing SMTP_HOST just logging a warning
   // elsewhere in this codebase.
-  brandLogoUrl                   String?
-  brandPrimaryColor              String?
-  brandSecondaryColor            String?
+  brandLogoUrl                    String?
+  brandPrimaryColor               String?
+  brandSecondaryColor             String?
   // Brand Kit roadmap (P3a) - one of packages/contracts's curated
   // FONT_FAMILIES keys (e.g. "Inter", "Open Sans"), not an arbitrary string -
   // enforced by BrandKitService/UpdateBrandKitDto, not a DB-level enum (same
@@ -205,7 +205,7 @@ model User {
   // until set; render-enqueue time falls back to build-ass.ts's own default
   // ('Inter') when null, same as an unset Clip.captionLanguage falling back
   // to the original (untranslated) transcript text.
-  brandFontFamily                String?
+  brandFontFamily                 String?
   // Watermark roadmap (P3c) - brandWatermarkUrl is a raw storage key
   // (watermarks/<uuid>.png, same convention as brandLogoUrl - SVG uploads
   // are rasterized to PNG at upload time since ffmpeg can't decode SVG
@@ -217,11 +217,11 @@ model User {
   // defaults (opacity 0.8, scale 0.15, margin 0.03, position BOTTOM_RIGHT)
   // - same "null means use the sensible default" posture brandFontFamily
   // above already uses.
-  brandWatermarkUrl              String?
-  brandWatermarkOpacity          Float?
-  brandWatermarkScale            Float?
-  brandWatermarkMargin           Float?
-  brandWatermarkPosition         String?
+  brandWatermarkUrl               String?
+  brandWatermarkOpacity           Float?
+  brandWatermarkScale             Float?
+  brandWatermarkMargin            Float?
+  brandWatermarkPosition          String?
   // Intro roadmap (P3d) - brandIntroUrl is a raw storage key
   // (intros/<uuid><ext>, same convention as brandWatermarkUrl). brandIntroType
   // is 'video' | 'image', set at upload time from the validated mimetype
@@ -235,24 +235,24 @@ model User {
   // fresh at every render via ffprobe, since apps/api has no ffmpeg/ffprobe
   // dependency to compute it at upload time (see concatIntro()'s own
   // comment).
-  brandIntroUrl                  String?
-  brandIntroType                 String?
-  brandIntroImageDurationSeconds Float?
+  brandIntroUrl                   String?
+  brandIntroType                  String?
+  brandIntroImageDurationSeconds  Float?
   // Outro roadmap (P3e) - same shape as brandIntro* above, applied at the
   // end of the render instead of the start (see ffmpeg.ts's
   // concatBrandSegment, generalized from P3d's concatIntro to take a
   // 'start' | 'end' position rather than duplicating the whole pipeline).
-  brandOutroUrl                  String?
-  brandOutroType                 String?
-  brandOutroImageDurationSeconds Float?
-  createdAt                      DateTime  @default(now())
-  updatedAt                      DateTime  @updatedAt
+  brandOutroUrl                   String?
+  brandOutroType                  String?
+  brandOutroImageDurationSeconds  Float?
+  createdAt                       DateTime  @default(now())
+  updatedAt                       DateTime  @updatedAt
 
   videos                          Video[]
   socialAccounts                  SocialAccount[]
   premiumCredits                  PremiumCredit[]
   activityEvents                  ActivityEvent[]
-  activityDeletionLogs             ActivityDeletionLog[]
+  activityDeletionLogs            ActivityDeletionLog[]
   sentInvites                     PendingInvite[]
   exportJobs                      ExportJob[]
   notifications                   Notification[]
@@ -1050,7 +1050,7 @@ model Clip {
   // exposure, not computation - see isHookPredictionEnabled()); null only
   // when the render-graph node's own LLM call failed (optional: true,
   // fallback: null - never fails the render job).
-  hookPrediction               Json?
+  hookPrediction              Json?
   // AI Intelligence v4, Phase 2 (Semantic Event Detection - see docs/ai/
   // intelligence-v4.md). @speedora/semantic-events' SemanticEvent[] -
   // narrative events (confession/mistake/failure/... 22-value taxonomy)
@@ -1061,7 +1061,7 @@ model Clip {
   // a failure. Computed on every render regardless of the
   // SEMANTIC_EVENT_DETECTION_ENABLED flag (gates API exposure only - see
   // isSemanticEventDetectionEnabled()).
-  semanticEvents               Json?
+  semanticEvents              Json?
   // AI Intelligence v4, Phase 3 (Narrative Graph - see docs/ai/
   // intelligence-v4.md). @speedora/narrative-graph's NarrativeGraph -
   // segments (hook/setup/context/problem/conflict/escalation/peak/
@@ -1073,7 +1073,7 @@ model Clip {
   // successfully, a real result, not a failure. Computed on every render
   // regardless of the NARRATIVE_GRAPH_ENABLED flag (gates API exposure
   // only - see isNarrativeGraphEnabled()).
-  narrativeGraph               Json?
+  narrativeGraph              Json?
   // AI Intelligence v4, Phase 4 (Contextual Momentum - see docs/ai/
   // intelligence-v4.md). @speedora/contextual-momentum's MomentumCurve - a
   // per-instant timeline of RELATIVE (within-clip-only) momentum scores,
@@ -1087,7 +1087,21 @@ model Clip {
   // has). Computed on every render regardless of the
   // CONTEXTUAL_MOMENTUM_ENABLED flag (gates API exposure only - see
   // isContextualMomentumEnabled()).
-  contextualMomentum           Json?
+  contextualMomentum          Json?
+  // AI Intelligence v4, Phase 5 (Emotional Arc - see docs/ai/
+  // intelligence-v4.md). @speedora/emotional-arc's EmotionalArc - a
+  // per-segment timeline of RELATIVE (within-clip-only) emotional
+  // intensity, composed from already-persisted TranscriptSegment.emotion
+  // labels plus Phase 2's semanticEvents as optional context via a pure
+  // computation, no LLM call. Same null-semantics as contextualMomentum
+  // (not Phases 1-3's): this node can't fail in the "LLM call failed"
+  // sense (optional: false, no fallback) - null here can only mean this
+  // Clip row predates this phase's migration; once computed, the value is
+  // always a real array (possibly empty, if the clip has no transcript
+  // segments). Computed on every render regardless of the
+  // EMOTIONAL_ARC_ENABLED flag (gates API exposure only - see
+  // isEmotionalArcEnabled()).
+  emotionalArc                Json?
   // AI Clip Library roadmap, Phase P1 - denormalized endTime - startTime,
   // set alongside them at every write site (detect-clips.worker.ts's
   // initial prisma.clip.create, and ClipsService.update's manual trim) -
@@ -1455,17 +1469,17 @@ enum ActivityEventType {
 }
 
 model ActivityEvent {
-  id        String            @id @default(cuid())
-  userId    String
-  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      ActivityEventType
-  videoId   String?
-  clipId    String?
+  id          String            @id @default(cuid())
+  userId      String
+  user        User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type        ActivityEventType
+  videoId     String?
+  clipId      String?
   // Free-form display context (e.g. { title } for a video/clip that may
   // since have been deleted) - kept as JSON rather than a live relation
   // read at feed-render time so a deleted video/clip doesn't blank out its
   // own history entry.
-  metadata  Json?
+  metadata    Json?
   // Activity Timeline v2 - denormalized at write time (recordActivityEvent,
   // via packages/shared's describeActivityEvent) from type+metadata, so
   // GET /dashboard/activity's search can `contains` real text instead of
@@ -1477,7 +1491,7 @@ model ActivityEvent {
   // an email, a workspace name) - null when the event type has none.
   title       String?
   description String?
-  createdAt DateTime          @default(now())
+  createdAt   DateTime          @default(now())
 
   @@index([userId, createdAt])
 }
@@ -2259,7 +2273,7 @@ model Project {
   // Project stays fully intact (folders/videos untouched) and is just
   // excluded from the default list, not soft-deleted - permanent removal is
   // still the separate, ADMIN-gated remove().
-  archivedAt DateTime?
+  archivedAt  DateTime?
 
   folders Folder[]
   videos  Video[]
@@ -2478,10 +2492,10 @@ model ShareLink {
 // shipped - GET/DELETE /auth/sessions, POST /auth/logout-others) only
 // needed to add endpoints/UI, not another migration.
 model Session {
-  id               String    @id @default(cuid())
+  id               String @id @default(cuid())
   userId           String
-  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  refreshTokenHash String    @unique
+  user             User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  refreshTokenHash String @unique
 
   // Tahap 3.5 (Passkey UX & Observability) - 'password' | 'google' |
   // 'github' | 'passkey', app-level string not a Postgres enum (same
@@ -2498,18 +2512,18 @@ model Session {
   // even captured anywhere. Null only for sessions created before this
   // column existed (never backfilled, same posture as every other
   // introduced-later nullable column in this schema).
-  createdVia       String?
+  createdVia String?
 
-  userAgent        String?
-  browser          String?
-  os               String?
-  deviceName       String?
-  ipAddress        String?
+  userAgent  String?
+  browser    String?
+  os         String?
+  deviceName String?
+  ipAddress  String?
 
-  createdAt        DateTime  @default(now())
-  lastSeenAt       DateTime  @default(now())
-  expiresAt        DateTime
-  revokedAt        DateTime?
+  createdAt     DateTime  @default(now())
+  lastSeenAt    DateTime  @default(now())
+  expiresAt     DateTime
+  revokedAt     DateTime?
   // 'logout' | 'logout_all' | 'user_revoked' | 'logout_others' - app-level
   // enum, not a Postgres one, same posture CaptionStyle/brandFontFamily
   // already use elsewhere in this schema. 'user_revoked' (Sprint 3 - a
@@ -2518,7 +2532,7 @@ model Session {
   // Sprint 1's original two. Never written as 'expired' - that's inferred
   // at read time (expiresAt < now() with revokedAt still null), not
   // swept/persisted.
-  revokedReason    String?
+  revokedReason String?
   // Tahap 2 Step 2 Sprint 2b (Session Elevation) - set by POST /auth/elevate
   // once the caller re-proves their identity (a TOTP/recovery code if MFA
   // is enabled, their current password otherwise). RecentMfaGuard reads
@@ -2527,7 +2541,7 @@ model Session {
   // expired once now() - elevatedAt exceeds the elevation window - computed
   // at read time, never swept/persisted as a separate state, same
   // "expiry computed at read time" convention expiresAt above already uses.
-  elevatedAt       DateTime?
+  elevatedAt    DateTime?
 
   @@index([userId])
 }
@@ -2597,10 +2611,10 @@ model MfaRecoveryCode {
 // mirror Session's own device-metadata fields exactly, captured once at
 // creation time via ua-parser-js (see AuthService.createTrustedDevice).
 model TrustedDevice {
-  id         String    @id @default(cuid())
-  userId     String
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  tokenHash  String    @unique
+  id        String @id @default(cuid())
+  userId    String
+  user      User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String @unique
 
   deviceName String?
   browser    String?
@@ -2671,8 +2685,8 @@ model Passkey {
   name               String
   createdDeviceLabel String?
 
-  createdAt          DateTime @default(now())
-  lastUsedAt         DateTime @default(now())
+  createdAt  DateTime @default(now())
+  lastUsedAt DateTime @default(now())
 
   @@index([userId])
 }

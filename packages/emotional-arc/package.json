@@ -1,0 +1,38 @@
+{
+  "name": "@speedora/emotional-arc",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stateless module (JSON-in/JSON-out): AI Intelligence v4 Phase 5 - a pure, synchronous composition (no LLM call) over already-persisted TranscriptSegment.emotion labels plus Phase 2's SemanticEvent[] as optional context, into a per-clip emotional-intensity timeline. Pairs with Phase 4's MomentumCurve to fulfill spec Part 5 (Retention Curve Prediction). See docs/ai/intelligence-v4.md. No DB/queue/subprocess access at all; see root ARCHITECTURE.md. Consumed by apps/worker's render-graph emotional-arc node.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@speedora/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.2",
+    "@types/node": "^22.20.1",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.9.3"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "testEnvironment": "node"
+  }
+}

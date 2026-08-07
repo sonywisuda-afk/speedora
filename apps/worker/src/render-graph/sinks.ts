@@ -134,6 +134,16 @@ const CLIP_UPDATE_MAP: {
   contextualMomentum: (r) => ({
     contextualMomentum: r.contextualMomentum as unknown as Prisma.InputJsonValue,
   }),
+  // AI Intelligence v4, Phase 5 (Emotional Arc - see docs/ai/
+  // intelligence-v4.md) - same "NOT added to FUSION_INPUT_MAP" posture as
+  // every prior v4 output. Unlike Phases 1-3, this node is optional: false
+  // and can't produce null - always a plain JSON array (never
+  // Prisma.JsonNull, even when empty), same cast reasoning as
+  // contextualMomentum/motionEnergy above (a closed array type with no
+  // index signature).
+  emotionalArc: (r) => ({
+    emotionalArc: r.emotionalArc as unknown as Prisma.InputJsonValue,
+  }),
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // never added to FUSION_INPUT_MAP above: per this module's own policy
   // (see @speedora/contracts' thumbnail-selection.ts), this output must
