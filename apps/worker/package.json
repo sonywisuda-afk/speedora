@@ -41,6 +41,7 @@
     "@speedora/fusion-engine": "workspace:*",
     "@speedora/fusion-ml": "workspace:*",
     "@speedora/gesture-intelligence": "workspace:*",
+    "@speedora/hook-prediction": "workspace:*",
     "@speedora/object-intelligence": "workspace:*",
     "@speedora/ocr-intelligence": "workspace:*",
     "@speedora/primary-subject": "workspace:*",

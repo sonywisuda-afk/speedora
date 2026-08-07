@@ -268,6 +268,17 @@ export class ClipsController {
     return this.clipsService.getExplainability(id, user.id);
   }
 
+  // AI Intelligence v4, Phase 1 (see docs/ai/intelligence-v4.md) - a
+  // read-only view of this clip's v4 predictions (hook probability today,
+  // more Track A fields in later phases), separate from getExplainability
+  // above (that endpoint is scoped to alternate highlightScore ENGINES; v4
+  // is a growing family of unrelated predictions - ADR D9). See
+  // ClipsService.getIntelligence.
+  @Get(':id/intelligence')
+  getIntelligence(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    return this.clipsService.getIntelligence(id, user.id);
+  }
+
   // Sprint 6C (Analytics Dashboard Expansion) - a read-only, single-clip
   // view of real per-platform engagement history, distribution metadata,
   // and the same frozen AI score getExplainability returns - never an

@@ -36,6 +36,7 @@ const noCompositionFeatures = {
   compositionStability: null,
   framingConsistency: null,
 };
+const noHookPauseFeatures = { pauseCount: 0, longestPauseSeconds: 0, pauseBeforeHookRatio: 0 };
 const midpointThumbnailSelection = {
   timestampSeconds: 5,
   confidence: 0,
@@ -77,6 +78,8 @@ function baseResult(overrides: Partial<RenderGraphResult> = {}): RenderGraphResu
     compositionFeatures: noCompositionFeatures,
     audioFeatures: noAudioFeatures,
     editingRhythmFeatures: noEditingRhythmFeatures,
+    hookPauseFeatures: noHookPauseFeatures,
+    hookPrediction: null,
     thumbnailSelection: midpointThumbnailSelection,
     ...overrides,
   };
@@ -131,6 +134,16 @@ describe('toFusionInput', () => {
     const input = toFusionInput(baseResult(), 'clip-1', null);
     expect(input.llm).toBeUndefined();
   });
+
+  // AI Intelligence v4 (ADR D1, docs/ai/intelligence-v4.md) - v4 predictions
+  // sit BESIDE the Fusion Engine, they never feed computeHighlightScore.
+  // Regression guard: a present hookPrediction must never leak into
+  // FusionInput under any key.
+  it('never includes hookPrediction/hookPauseFeatures in FusionInput', () => {
+    const hookPrediction = { clipId: 'clip-1', hookProbability: 90 } as never;
+    const input = toFusionInput(baseResult({ hookPrediction }), 'clip-1', null);
+    expect(Object.values(input)).not.toContain(hookPrediction);
+  });
 });
 
 describe('toClipUpdateData', () => {
@@ -144,6 +157,16 @@ describe('toClipUpdateData', () => {
     expect(data.cameraMotion).toBe(Prisma.JsonNull);
     expect(data.faceLandmarks).toBe(Prisma.JsonNull);
     expect(data.objectFeatures).toBe(Prisma.JsonNull);
+    expect(data.hookPrediction).toBe(Prisma.JsonNull);
+  });
+
+  it('writes a present hookPrediction through directly (no hookPauseFeatures column of its own)', () => {
+    const hookPrediction = { clipId: 'clip-1', hookProbability: 77 } as never;
+    const data = toClipUpdateData(baseResult({ hookPrediction }), {
+      outputUrl: 'renders/clip-1.mp4',
+    });
+    expect(data.hookPrediction).toBe(hookPrediction);
+    expect(data).not.toHaveProperty('hookPauseFeatures');
   });
 
   it('writes an always-present object directly, with no JsonNull wrapping', () => {
