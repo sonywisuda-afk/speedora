@@ -75,6 +75,7 @@ import {
   toSharedNarrativeGraph,
   toSharedContextualMomentum,
   toSharedEmotionalArc,
+  toSharedMultiSpeakerBreakdown,
   toSharedLipSyncVerifications,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
@@ -1856,6 +1857,7 @@ export class VideosService {
           narrativeGraph,
           contextualMomentum,
           emotionalArc,
+          multiSpeakerBreakdown,
           thumbnailSelectionBreakdown,
           thumbnailSelectionFallback,
           ...clip
@@ -1917,6 +1919,7 @@ export class VideosService {
           narrativeGraph: toSharedNarrativeGraph(narrativeGraph),
           contextualMomentum: toSharedContextualMomentum(contextualMomentum),
           emotionalArc: toSharedEmotionalArc(emotionalArc),
+          multiSpeakerBreakdown: toSharedMultiSpeakerBreakdown(multiSpeakerBreakdown),
           thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
             thumbnailSelectionBreakdown,
           ),

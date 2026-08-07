@@ -44,6 +44,7 @@ import { isSemanticEventDetectionEnabled } from '@speedora/semantic-events';
 import { isNarrativeGraphEnabled } from '@speedora/narrative-graph';
 import { isContextualMomentumEnabled } from '@speedora/contextual-momentum';
 import { isEmotionalArcEnabled } from '@speedora/emotional-arc';
+import { isMultiSpeakerReasoningEnabled } from '@speedora/multi-speaker-reasoning';
 import { computePlatformFit } from '@speedora/platform-fit';
 import type { Queue } from 'bullmq';
 import type { ClipPlatformCopy } from '@speedora/database';
@@ -74,6 +75,7 @@ import {
   toSharedNarrativeGraph,
   toSharedContextualMomentum,
   toSharedEmotionalArc,
+  toSharedMultiSpeakerBreakdown,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
   toSharedOcrText,
@@ -541,6 +543,9 @@ export class ClipsService {
         ? toSharedContextualMomentum(clip.contextualMomentum)
         : null,
       emotionalArc: isEmotionalArcEnabled() ? toSharedEmotionalArc(clip.emotionalArc) : null,
+      multiSpeakerBreakdown: isMultiSpeakerReasoningEnabled()
+        ? toSharedMultiSpeakerBreakdown(clip.multiSpeakerBreakdown)
+        : null,
     };
   }
 
@@ -1212,6 +1217,7 @@ export class ClipsService {
     narrativeGraph: unknown;
     contextualMomentum: unknown;
     emotionalArc: unknown;
+    multiSpeakerBreakdown: unknown;
     thumbnailSelectionTimestamp: number | null;
     thumbnailSelectionBreakdown: unknown;
     thumbnailSelectionFallback: string | null;
@@ -1298,6 +1304,7 @@ export class ClipsService {
       narrativeGraph: toSharedNarrativeGraph(clip.narrativeGraph),
       contextualMomentum: toSharedContextualMomentum(clip.contextualMomentum),
       emotionalArc: toSharedEmotionalArc(clip.emotionalArc),
+      multiSpeakerBreakdown: toSharedMultiSpeakerBreakdown(clip.multiSpeakerBreakdown),
       thumbnailSelectionTimestamp: clip.thumbnailSelectionTimestamp,
       thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
         clip.thumbnailSelectionBreakdown,

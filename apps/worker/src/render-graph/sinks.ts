@@ -144,6 +144,16 @@ const CLIP_UPDATE_MAP: {
   emotionalArc: (r) => ({
     emotionalArc: r.emotionalArc as unknown as Prisma.InputJsonValue,
   }),
+  // AI Intelligence v4, Phase 6 (Multi-speaker Reasoning - see docs/ai/
+  // intelligence-v4.md) - same "NOT added to FUSION_INPUT_MAP" posture as
+  // every prior v4 output. Unlike Phase 4/5's own always-array outputs,
+  // this node's result is genuinely `T[] | null` even on success (null for
+  // the majority single-speaker case, by design) - so this uses the
+  // Phase 1-3 `?? Prisma.JsonNull` sink pattern, not the plain-cast-
+  // never-JsonNull pattern Phase 4/5 used for their always-array outputs.
+  multiSpeakerBreakdown: (r) => ({
+    multiSpeakerBreakdown: r.multiSpeakerBreakdown ?? Prisma.JsonNull,
+  }),
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // never added to FUSION_INPUT_MAP above: per this module's own policy
   // (see @speedora/contracts' thumbnail-selection.ts), this output must

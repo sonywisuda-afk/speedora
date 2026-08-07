@@ -598,6 +598,7 @@ describe('VideosService', () => {
           narrativeGraph: null,
           contextualMomentum: null,
           emotionalArc: null,
+          multiSpeakerBreakdown: null,
           publishRecords: [],
         },
         {
@@ -651,6 +652,7 @@ describe('VideosService', () => {
           narrativeGraph: null,
           contextualMomentum: null,
           emotionalArc: null,
+          multiSpeakerBreakdown: null,
           publishRecords: [],
         },
       ]);
