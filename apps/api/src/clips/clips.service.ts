@@ -41,6 +41,7 @@ import {
 } from '@speedora/shared';
 import { isHookPredictionEnabled } from '@speedora/hook-prediction';
 import { isSemanticEventDetectionEnabled } from '@speedora/semantic-events';
+import { isNarrativeGraphEnabled } from '@speedora/narrative-graph';
 import { computePlatformFit } from '@speedora/platform-fit';
 import type { Queue } from 'bullmq';
 import type { ClipPlatformCopy } from '@speedora/database';
@@ -68,6 +69,7 @@ import {
   toSharedHighlightRecommendation,
   toSharedHookPrediction,
   toSharedSemanticEvents,
+  toSharedNarrativeGraph,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
   toSharedOcrText,
@@ -527,6 +529,9 @@ export class ClipsService {
         : null,
       semanticEvents: isSemanticEventDetectionEnabled()
         ? toSharedSemanticEvents(clip.semanticEvents)
+        : null,
+      narrativeGraph: isNarrativeGraphEnabled()
+        ? toSharedNarrativeGraph(clip.narrativeGraph)
         : null,
     };
   }
@@ -1196,6 +1201,7 @@ export class ClipsService {
     compositionFeatures: unknown;
     hookPrediction: unknown;
     semanticEvents: unknown;
+    narrativeGraph: unknown;
     thumbnailSelectionTimestamp: number | null;
     thumbnailSelectionBreakdown: unknown;
     thumbnailSelectionFallback: string | null;
@@ -1279,6 +1285,7 @@ export class ClipsService {
       compositionFeatures: toSharedCompositionFeatures(clip.compositionFeatures),
       hookPrediction: toSharedHookPrediction(clip.hookPrediction),
       semanticEvents: toSharedSemanticEvents(clip.semanticEvents),
+      narrativeGraph: toSharedNarrativeGraph(clip.narrativeGraph),
       thumbnailSelectionTimestamp: clip.thumbnailSelectionTimestamp,
       thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
         clip.thumbnailSelectionBreakdown,

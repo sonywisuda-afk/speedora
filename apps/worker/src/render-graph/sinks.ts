@@ -115,6 +115,13 @@ const CLIP_UPDATE_MAP: {
   // posture as hookPrediction above; both v4 outputs sit beside the Fusion
   // Engine, never feed it.
   semanticEvents: (r) => ({ semanticEvents: r.semanticEvents ?? Prisma.JsonNull }),
+  // AI Intelligence v4, Phase 3 (Narrative Graph - see docs/ai/
+  // intelligence-v4.md, ADR D1) - same "NOT added to FUSION_INPUT_MAP"
+  // posture as hookPrediction/semanticEvents above. A present value
+  // (including the `unsegmented: true` case) is written through directly,
+  // never coerced to JsonNull - only a genuinely failed/never-run node
+  // (null) becomes Prisma.JsonNull.
+  narrativeGraph: (r) => ({ narrativeGraph: r.narrativeGraph ?? Prisma.JsonNull }),
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // never added to FUSION_INPUT_MAP above: per this module's own policy
   // (see @speedora/contracts' thumbnail-selection.ts), this output must

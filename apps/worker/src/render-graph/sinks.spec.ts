@@ -81,6 +81,7 @@ function baseResult(overrides: Partial<RenderGraphResult> = {}): RenderGraphResu
     hookPauseFeatures: noHookPauseFeatures,
     hookPrediction: null,
     semanticEvents: null,
+    narrativeGraph: null,
     thumbnailSelection: midpointThumbnailSelection,
     ...overrides,
   };
@@ -140,12 +141,18 @@ describe('toFusionInput', () => {
   // sit BESIDE the Fusion Engine, they never feed computeHighlightScore.
   // Regression guard: a present hookPrediction must never leak into
   // FusionInput under any key.
-  it('never includes hookPrediction/hookPauseFeatures/semanticEvents in FusionInput', () => {
+  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph in FusionInput', () => {
     const hookPrediction = { clipId: 'clip-1', hookProbability: 90 } as never;
     const semanticEvents = [{ type: 'money', t: 5 }] as never;
-    const input = toFusionInput(baseResult({ hookPrediction, semanticEvents }), 'clip-1', null);
+    const narrativeGraph = { segments: [], relations: [], unsegmented: true } as never;
+    const input = toFusionInput(
+      baseResult({ hookPrediction, semanticEvents, narrativeGraph }),
+      'clip-1',
+      null,
+    );
     expect(Object.values(input)).not.toContain(hookPrediction);
     expect(Object.values(input)).not.toContain(semanticEvents);
+    expect(Object.values(input)).not.toContain(narrativeGraph);
   });
 });
 
@@ -162,6 +169,7 @@ describe('toClipUpdateData', () => {
     expect(data.objectFeatures).toBe(Prisma.JsonNull);
     expect(data.hookPrediction).toBe(Prisma.JsonNull);
     expect(data.semanticEvents).toBe(Prisma.JsonNull);
+    expect(data.narrativeGraph).toBe(Prisma.JsonNull);
   });
 
   it('writes a present hookPrediction through directly (no hookPauseFeatures column of its own)', () => {
@@ -180,6 +188,15 @@ describe('toClipUpdateData', () => {
     });
     expect(data.semanticEvents).toBe(emptyEvents);
     expect(data.semanticEvents).not.toBe(Prisma.JsonNull);
+  });
+
+  it('writes a present narrativeGraph through directly (including the unsegmented case), never JsonNull', () => {
+    const narrativeGraph = { segments: [], relations: [], unsegmented: true } as never;
+    const data = toClipUpdateData(baseResult({ narrativeGraph }), {
+      outputUrl: 'renders/clip-1.mp4',
+    });
+    expect(data.narrativeGraph).toBe(narrativeGraph);
+    expect(data.narrativeGraph).not.toBe(Prisma.JsonNull);
   });
 
   it('writes an always-present object directly, with no JsonNull wrapping', () => {

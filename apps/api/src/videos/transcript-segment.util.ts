@@ -29,6 +29,7 @@ import type {
   OcrSample,
   MotionEnergyFeatures,
   MotionEnergySample,
+  NarrativeGraph,
   ObjectFeatures,
   ObjectSample,
   ObjectTrack,
@@ -449,4 +450,13 @@ export function toSharedHookPrediction(hookPrediction: unknown): HookPredictionO
 // null - same "array vs null" convention as toSharedSceneCutEvents.
 export function toSharedSemanticEvents(semanticEvents: unknown): SemanticEvent[] | null {
   return (semanticEvents as SemanticEvent[] | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.narrativeGraph (AI Intelligence v4, Phase 3). Null when the
+// render-graph node's own LLM call failed/never ran; a present object
+// (including the `unsegmented: true` case) passes through unchanged - a
+// real, successful result, not coerced to null.
+export function toSharedNarrativeGraph(narrativeGraph: unknown): NarrativeGraph | null {
+  return (narrativeGraph as NarrativeGraph | null) ?? null;
 }

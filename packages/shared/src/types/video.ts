@@ -685,6 +685,55 @@ export interface SemanticEvent {
   reason: string;
 }
 
+// AI Intelligence v4, Phase 3 (Narrative Graph - see docs/ai/
+// intelligence-v4.md). Mirrors @speedora/contracts' narrativeSegmentSchema/
+// narrativeRelationSchema/narrativeGraphSchema rather than importing them -
+// same duplication precedent as SemanticEvent/HookPredictionOutput above.
+export type NarrativeSegmentType =
+  | 'hook'
+  | 'setup'
+  | 'context'
+  | 'problem'
+  | 'conflict'
+  | 'escalation'
+  | 'peak'
+  | 'resolution'
+  | 'takeaway'
+  | 'cta';
+
+// Every numeric field below is a documented HEURISTIC, same "scale
+// honesty" caveat as SemanticEvent above.
+export interface NarrativeSegment {
+  id: number;
+  type: NarrativeSegmentType;
+  startTime: number;
+  endTime: number;
+  confidence: number;
+  reason: string;
+}
+
+// `resolves` edges may connect NON-ADJACENT segments - the concrete thing
+// that makes this a graph, not a sliding window (see
+// @speedora/contracts' narrative-graph.ts for the full reasoning).
+export type NarrativeRelationType = 'leads_to' | 'resolves';
+
+export interface NarrativeRelation {
+  fromSegmentId: number;
+  toSegmentId: number;
+  type: NarrativeRelationType;
+}
+
+// `unsegmented: true` (segments/relations both empty) is a REAL,
+// SUCCESSFUL result - the clip genuinely doesn't decompose into this
+// taxonomy - not a failure. See @speedora/contracts' narrativeGraphSchema
+// doc comment for the full reasoning (this phase's required risk
+// mitigation: never force a graph onto content that doesn't have one).
+export interface NarrativeGraph {
+  segments: NarrativeSegment[];
+  relations: NarrativeRelation[];
+  unsegmented: boolean;
+}
+
 // AI Fusion roadmap's Face Intelligence initiative, Batch 2 - a per-sample
 // looking-direction bucket, 'center' meaning both iris position and head
 // rotation roughly face the camera. Mirrors @speedora/contracts'
@@ -1304,6 +1353,13 @@ export interface Clip {
   // zero events - a real result, same "array vs null" convention as
   // sceneCutEvents above.
   semanticEvents: SemanticEvent[] | null;
+  // AI Intelligence v4, Phase 3 (Narrative Graph) - computed on every
+  // render regardless of NARRATIVE_GRAPH_ENABLED (the flag gates API
+  // exposure, not computation - see isNarrativeGraphEnabled()). Null when
+  // the render-graph node's own LLM call failed/never ran; a present
+  // object (including the `unsegmented: true` case) means it ran
+  // successfully - a real result, not a failure.
+  narrativeGraph: NarrativeGraph | null;
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // @speedora/thumbnail-selection's chosen in-clip timestamp, replacing the
   // naive clip-midpoint thumbnailUrl/thumbnailBlurDataUrl are extracted at,

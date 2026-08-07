@@ -18,6 +18,7 @@ export * from './hook-prediction';
 export * from './intelligence-signal';
 export * from './llm-client';
 export * from './multimodal-reasoning';
+export * from './narrative-graph';
 export * from './object-intelligence';
 export * from './ocr';
 export * from './platform-fit';
