@@ -42,6 +42,7 @@
     "@speedora/emotional-arc": "workspace:*",
     "@speedora/fusion-engine": "workspace:*",
     "@speedora/hook-prediction": "workspace:*",
+    "@speedora/multi-speaker-reasoning": "workspace:*",
     "@speedora/narrative-graph": "workspace:*",
     "@speedora/platform-fit": "workspace:*",
     "@speedora/report-builder": "workspace:*",

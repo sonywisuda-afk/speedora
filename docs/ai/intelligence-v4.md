@@ -21,7 +21,12 @@
   shape as Phase 4 — a pure composition over already-persisted `TranscriptSegment.emotion` labels
   plus Phase 2's `SemanticEvent[]` as optional context. Also satisfies the roadmap's "vocal-emotion
   rescue" prerequisite (see Track B below) without relocating `apps/worker/src/vocalEmotion.ts`.
-- **Phases 6-14**: documented roadmap only, not built. See "Roadmap" below.
+- **Phase 6 (Multi-speaker Reasoning)**: shipped, flag-off
+  (`MULTI_SPEAKER_REASONING_ENABLED=false`). Same no-LLM shape as Phase 4/5 — a pure, post-hoc
+  attribution of Phase 4's `MomentumCurve` and Phase 5's `EmotionalArc` to individual speakers via
+  Speaker Intelligence's `SpeakerTimelineEntry[]`. Returns `null` for the majority single-speaker
+  case, by design.
+- **Phases 7-14**: documented roadmap only, not built. See "Roadmap" below.
 
 ## Why this exists
 
@@ -105,7 +110,7 @@ Revisit at Track A Phase 11.
 (`FeatureVector`, `TrainingSample`, `Predictor`, `DatasetBuilder`, `ModelEvaluator`) rather than
 inventing v4-specific ones.
 
-## Dependency graph (Phase 1-5, as shipped)
+## Dependency graph (Phase 1-6, as shipped)
 
 ```
 TranscriptSegment (words, rmsDb, peakDb, speakingRateWordsPerSecond, emotion)
@@ -216,6 +221,33 @@ semanticEvents (existing, Phase 2 - optional context, degrades ─────�
                                                                     ▼
                                        GET /clips/:id/intelligence (flag-gated exposure,
                                                                      own independent flag)
+
+speakerTimeline (existing, Speaker Intelligence's SpeakerTimelineEntry[] - ┐
+  already-existing node id, unmodified by this phase)                     │
+contextualMomentum (existing, Phase 4 - MomentumCurve, unmodified) ────────┼──▶ computeMultiSpeaker
+emotionalArc (existing, Phase 5 - EmotionalArc, unmodified) ───────────────┘   Breakdown()
+                                                                                (@speedora/multi-
+                                                                                 speaker-reasoning,
+                                                                                 PURE - no LLM
+                                                                                 call, no `deps`
+                                                                                 param)
+                                                                    │
+                                                                    ▼
+                                                     MultiSpeakerBreakdown | null
+                                          SpeakerAttribution[] { speaker, talkTimeRatio,
+                                       hookWindowTalkTimeRatio, averageMomentumScore,
+                                       peakMomentumScore, dominantEmotion,
+                                       averageEmotionalIntensity } - null for the majority
+                                       single-speaker case (< 2 distinct speakers), BY DESIGN
+                                                                    │
+                                                                    ▼
+                                    Clip.multiSpeakerBreakdown (new Json? column - null means
+                                     "predates this migration" OR "< 2 distinct speakers," not
+                                                        distinguished at the column level)
+                                                                    │
+                                                                    ▼
+                                       GET /clips/:id/intelligence (flag-gated exposure,
+                                                                     own independent flag)
 ```
 
 ## Roadmap (Parts 2-14 — documented, not built)
@@ -233,7 +265,7 @@ until its own later calibration sub-phase.
 | 3 | Narrative Graph (3) — **shipped** | Phase 2 | L | Hardest LLM-reasoning task; needs an "unsegmented" fallback (satisfied via `validateGraph()`'s structural collapse) |
 | 4 | Contextual Momentum (new, part of 5) — **shipped** | Phase 3 + `EditingRhythmFeatures.accelerationScore` | M | No ground truth for curve *shape* yet (still true post-ship — heuristic weights, undocumented as calibrated) |
 | 5 | Emotional Arc (new, part of 5) — **shipped** | vocal-emotion rescue (see below) + Phase 2 | M | Vocal-emotion classifier trained on acted, not natural, speech (still true post-ship — a documented heuristic caveat, not a solved problem) |
-| 6 | Multi-speaker Reasoning (extends 6) | Phases 1, 4, 5 | M | Must not affect single-speaker clips (the majority case) |
+| 6 | Multi-speaker Reasoning (extends 6) — **shipped** | Phases 1, 4, 5 | M | Must not affect single-speaker clips (the majority case) - addressed by design: `computeMultiSpeakerBreakdown()` returns `null` for any clip with fewer than 2 distinct speakers |
 | 7 | Cross-module Fusion (4, Virality Engine) | Phases 1, 3, 4, 5 | M | Labeling discipline (8 heuristic probabilities reading as "trained") |
 | 8 | Confidence Calibration (cross-cutting) | Phases 1-7 | S-M | Hygiene pass, low risk |
 | 9 | Explainability (13) | Phases 1-7 | M | UI copy is where "scale honesty" holds or breaks |
@@ -242,6 +274,15 @@ until its own later calibration sub-phase.
 | 12 | Learning Pipeline (12) | Phases 1-11 | S | Interfaces only, no training, by design |
 | 13 | Evaluation Suite (new) | Phases 10-12 | M | Gated on real engagement samples, same as Fusion v3 |
 | 14 | Production Hardening (final) | all | M | Real go/no-go gate on cost + rollout |
+
+**Adjacent opportunity flagged, not built in Phase 6**: `packages/contracts/src/
+conversation-intelligence.ts` (Conversation Type Classification — monologue/interview/discussion/
+debate/presentation/podcast) is fully spec'd (`CONVERSATION_TYPES`,
+`classifyConversationTypeInputSchema`, `conversationTypeResultSchema`) with zero implementation.
+Investigated during Phase 6 planning: its own input shape
+(`speakerCount`/`turnCount`/`switchCount`/`averageTurnDurationSeconds`) comes from
+`DiarizationFeatures`, not from Phases 1/4/5 — it doesn't match Phase 6's stated dependency chain,
+so it was left as a well-scoped candidate for a future phase rather than folded in here.
 
 ### Track B — Editorial Intelligence (parallel, non-blocking)
 
@@ -555,16 +596,101 @@ only adds a new consumer of its already-persisted `TranscriptSegment.emotion` ou
 "vocal-emotion rescue" note under Track B above for why this satisfies that prerequisite without
 relocating the file.
 
-`Clip.highlightScore` and every existing Fusion Engine v2 output are unchanged by all five
-phases — verified by regression tests in `sinks.spec.ts` (extended to cover `emotionalArc`
-alongside `hookPrediction`/`semanticEvents`/`narrativeGraph`/`contextualMomentum`) plus a full,
-green run of every existing test suite after each phase's changes. Phase 3 was the first to run
-the full `pnpm verify` (added between Phase 2 and Phase 3) locally before pushing; Phase 4 and
-Phase 5 continued that practice. Phase 5: `apps/worker`: 571/571, `apps/api`: 1268/1268, `apps/web`:
-313/313, plus 36 new unit tests in `packages/emotional-arc` (including a real
-floating-point-precision fix caught by the test run itself - `0.1 + 0.2` summed via `toEqual`
-rather than `toBeCloseTo`, fixed before this phase's commit). Two
-`ffmpeg.brand-segment-concat.integration.spec.ts` cases hit a system-load-induced timeout during
-the combined `pnpm verify` run (unrelated to anything this phase changed) and were re-verified
-passing cleanly in isolation before being treated as green. Real-Postgres round trip verified
-manually for the new column.
+## Phase 6 architecture (as shipped)
+
+```
+packages/contracts/src/multi-speaker-reasoning.ts
+                                             speakerAttributionSchema (imports
+                                             VOCAL_EMOTIONS from ./vocal-emotion),
+                                             multiSpeakerBreakdownSchema,
+                                             computeMultiSpeakerBreakdownInputSchema (imports
+                                             speakerTimelineEntrySchema from ./speaker-timeline
+                                             and momentumSampleSchema from
+                                             ./contextual-momentum - same cross-contract-file-
+                                             import precedent contextual-momentum.ts already set)
+
+packages/multi-speaker-reasoning/src/
+  compute-multi-speaker-breakdown.ts        computeMultiSpeakerBreakdown() - the module's single
+                                             entry point, PURE and synchronous (no `deps` param) -
+                                             same zero-LLM shape as Phase 4/5, since this is a
+                                             post-hoc ATTRIBUTION pass over already-computed data,
+                                             not a fresh detection step. Returns null whenever the
+                                             clip has fewer than 2 distinct speakers in its
+                                             speakerTimeline (checked via a cheap Set-size check) -
+                                             the majority single-speaker case, addressed by
+                                             design, not an afterthought. For each distinct
+                                             speaker: talkTimeRatio (share of total speaking
+                                             time), hookWindowTalkTimeRatio (share of the opening
+                                             5-second window's speaking time, reusing hook-
+                                             prediction's own HOOK_WINDOW_SECONDS value, Phase 1
+                                             tie-in), average/peak MomentumCurve samples within
+                                             their turns (Phase 4 tie-in), dominant emotion +
+                                             average intensity from EmotionalArc samples within
+                                             their turns (Phase 5 tie-in)
+  feature-flags.ts                          isMultiSpeakerReasoningEnabled()
+
+apps/worker/src/render-graph/nodes/multi-speaker-reasoning.ts
+                                             multiSpeakerReasoningNode, id: 'multiSpeakerBreakdown'
+                                             (optional: false, no fallback - same reasoning as
+                                             Phase 4/5's own pure-derive nodes; deps:
+                                             speakerTimeline (Speaker Intelligence's own
+                                             already-existing node id), contextualMomentum,
+                                             emotionalArc - all already-existing node ids, none
+                                             touched or modified by this phase)
+
+apps/worker/src/render-graph/sinks.ts       CLIP_UPDATE_MAP['multiSpeakerBreakdown'] entry -
+                                             deliberately NOT added to FUSION_INPUT_MAP (D1).
+                                             BREAKS FROM Phase 4/5's sink-casting precedent: since
+                                             a real, successful computation can genuinely produce
+                                             null (the majority single-speaker case), this uses
+                                             the Phase 1-3 `?? Prisma.JsonNull` pattern, not the
+                                             plain-cast-never-JsonNull pattern Phase 4/5 used for
+                                             their always-array outputs - the first optional:
+                                             false, no-LLM node whose result needs Prisma.JsonNull
+                                             casting
+
+apps/api/src/videos/transcript-segment.util.ts
+                                             toSharedMultiSpeakerBreakdown() - the TS2742 fix (D7).
+                                             Null-semantics are a THIRD pattern, different from
+                                             both established ones: null means EITHER "this row
+                                             predates the migration" (Phase 4/5's meaning) OR
+                                             "this clip doesn't have 2+ distinct speakers" (this
+                                             module's own genuine, by-design result) - not
+                                             distinguished at the column level
+
+apps/api/src/clips/clips.service.ts         GET /clips/:id/intelligence extended with
+                                             `multiSpeakerBreakdown`, gated by its OWN independent
+                                             flag (D9 - the 6th field on the same DTO)
+
+packages/database/prisma/schema.prisma      Clip.multiSpeakerBreakdown Json? (new column,
+                                             real-Postgres round trip manually verified)
+
+packages/shared/src/types/
+  video.ts                                  SpeakerAttribution/MultiSpeakerBreakdown mirrored
+                                             (not imported), same duplication precedent as
+                                             EmotionalArcSample/MomentumSample/NarrativeGraph/
+                                             SemanticEvent/HookPredictionOutput;
+                                             Clip.multiSpeakerBreakdown field
+  intelligence-v4.ts                        ClipIntelligenceDto.multiSpeakerBreakdown
+```
+
+`packages/multimodal-reasoning` (Phase 2's Part 6 package) is untouched by this phase -
+investigated directly and confirmed `findConcurrentEvidence()`'s schema is OCR/object-track-
+specific with no speaker field anywhere, and its own doc comment never names Multi-speaker
+Reasoning as an anticipated consumer. Phase 6 extends spec Part 6's *spirit* (cross-modal
+reasoning) along a speaker-identity axis via a new sibling package, not by modifying Part 6's own
+code - same precedent Phase 4/5 already set for spec Part 5.
+
+`Clip.highlightScore` and every existing Fusion Engine v2 output are unchanged by all six phases —
+verified by regression tests in `sinks.spec.ts` (extended to cover `multiSpeakerBreakdown`
+alongside `hookPrediction`/`semanticEvents`/`narrativeGraph`/`contextualMomentum`/`emotionalArc`)
+plus a full, green run of every existing test suite after each phase's changes. Phase 3 was the
+first to run the full `pnpm verify` (added between Phase 2 and Phase 3) locally before pushing;
+Phase 4, 5, and 6 continued that practice. Phase 6: `apps/worker`: 575/575, `apps/api`: 1268/1268,
+`apps/web`: 313/313, plus 14 new unit tests in `packages/multi-speaker-reasoning` covering the
+core "must not affect single-speaker clips" guarantee as a dedicated regression test, along with
+talk-time-ratio/hook-window/momentum/emotion attribution scoping. One
+`ffmpeg.brand-segment-concat.integration.spec.ts` case hit a system-load-induced timeout during
+the combined `pnpm verify` run (unrelated to anything this phase changed) and was re-verified
+passing cleanly in isolation (4/4) before being treated as green. Real-Postgres round trip
+verified manually for the new column.

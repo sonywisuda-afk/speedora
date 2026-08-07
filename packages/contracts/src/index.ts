@@ -20,6 +20,7 @@ export * from './hook-prediction';
 export * from './intelligence-signal';
 export * from './llm-client';
 export * from './multimodal-reasoning';
+export * from './multi-speaker-reasoning';
 export * from './narrative-graph';
 export * from './object-intelligence';
 export * from './ocr';

@@ -27,6 +27,7 @@ import type {
   HookPredictionOutput,
   LipSyncVerification,
   MomentumCurve,
+  MultiSpeakerBreakdown,
   OcrFeatures,
   OcrSample,
   MotionEnergyFeatures,
@@ -484,4 +485,18 @@ export function toSharedContextualMomentum(contextualMomentum: unknown): Momentu
 // unchanged, not coerced to null.
 export function toSharedEmotionalArc(emotionalArc: unknown): EmotionalArc | null {
   return (emotionalArc as EmotionalArc | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.multiSpeakerBreakdown (AI Intelligence v4, Phase 6). Null-semantics
+// are a THIRD pattern, different from both Phases 1-3 and Phase 4/5: null
+// means EITHER "this Clip row predates this phase's migration" OR "this
+// clip doesn't have 2+ distinct speakers" (the render-graph node's own
+// genuine, by-design result for the majority single-speaker case) - the
+// two are not distinguished here, same as the underlying Json column
+// itself. A present array (length >= 2) passes through unchanged.
+export function toSharedMultiSpeakerBreakdown(
+  multiSpeakerBreakdown: unknown,
+): MultiSpeakerBreakdown | null {
+  return (multiSpeakerBreakdown as MultiSpeakerBreakdown | null) ?? null;
 }

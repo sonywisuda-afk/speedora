@@ -1102,6 +1102,22 @@ model Clip {
   // EMOTIONAL_ARC_ENABLED flag (gates API exposure only - see
   // isEmotionalArcEnabled()).
   emotionalArc                Json?
+  // AI Intelligence v4, Phase 6 (Multi-speaker Reasoning - see docs/ai/
+  // intelligence-v4.md). @speedora/multi-speaker-reasoning's
+  // MultiSpeakerBreakdown - a per-speaker attribution of Phase 4's
+  // MomentumCurve and Phase 5's EmotionalArc via Speaker Intelligence's
+  // SpeakerTimelineEntry[], via a pure computation, no LLM call. Null
+  // semantics are a THIRD pattern, different from both established ones:
+  // null means EITHER "this row predates the migration" (Phase 4/5's
+  // meaning) OR "this clip doesn't have 2+ distinct speakers" (this
+  // module's own genuine, by-design result for the majority
+  // single-speaker case - see computeMultiSpeakerBreakdown()'s own doc
+  // comment) - the two are not distinguished at the column level, same as
+  // cameraMotion/sceneCutEvents not distinguishing "didn't run" from "ran
+  // and found nothing." Computed on every render regardless of the
+  // MULTI_SPEAKER_REASONING_ENABLED flag (gates API exposure only - see
+  // isMultiSpeakerReasoningEnabled()).
+  multiSpeakerBreakdown       Json?
   // AI Clip Library roadmap, Phase P1 - denormalized endTime - startTime,
   // set alongside them at every write site (detect-clips.worker.ts's
   // initial prisma.clip.create, and ClipsService.update's manual trim) -

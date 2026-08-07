@@ -2,6 +2,7 @@ import type {
   EmotionalArc,
   HookPredictionOutput,
   MomentumCurve,
+  MultiSpeakerBreakdown,
   NarrativeGraph,
   SemanticEvent,
 } from './video';
@@ -14,9 +15,10 @@ import type {
 // retention/narrative scores in future phases) that don't collapse into one
 // number, so reusing that array would force a false equivalence. Phase 1
 // shipped `hookPrediction`; Phase 2 added `semanticEvents`; Phase 3 added
-// `narrativeGraph`; Phase 4 added `contextualMomentum`; Phase 5 adds
-// `emotionalArc` to this same DTO rather than growing a new endpoint per
-// part; later Track A phases follow the same pattern.
+// `narrativeGraph`; Phase 4 added `contextualMomentum`; Phase 5 added
+// `emotionalArc`; Phase 6 adds `multiSpeakerBreakdown` to this same DTO
+// rather than growing a new endpoint per part; later Track A phases follow
+// the same pattern.
 export interface ClipIntelligenceDto {
   clipId: string;
   // Null when HOOK_PREDICTION_ENABLED is off (the flag gates this field's
@@ -46,4 +48,13 @@ export interface ClipIntelligenceDto {
   // An empty array (flag on, node ran) means the clip had no transcript
   // segments to build an arc from - a real result.
   emotionalArc: EmotionalArc | null;
+  // Null when MULTI_SPEAKER_REASONING_ENABLED is off (same exposure-only
+  // gate, see isMultiSpeakerReasoningEnabled()), OR when this Clip row
+  // predates the phase's migration, OR when the clip genuinely doesn't
+  // have 2+ distinct speakers (the majority case, by design - see
+  // computeMultiSpeakerBreakdown()'s own doc comment). These three causes
+  // are not distinguished at this field's level. A present array (length
+  // >= 2, sorted by talkTimeRatio descending) means the clip genuinely has
+  // multiple speakers and was attributed successfully.
+  multiSpeakerBreakdown: MultiSpeakerBreakdown | null;
 }

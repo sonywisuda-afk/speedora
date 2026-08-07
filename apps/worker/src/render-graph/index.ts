@@ -18,6 +18,7 @@ import type {
   MomentumCurve,
   MotionEnergyFeatures,
   MotionEnergySample,
+  MultiSpeakerBreakdown,
   NarrativeGraph,
   ObjectFeatures,
   ObjectSample,
@@ -46,6 +47,7 @@ import { emotionalArcNodes } from './nodes/emotional-arc';
 import { facialGestureNodes } from './nodes/facial-gesture';
 import { faceSpeakerNodes } from './nodes/face-speaker';
 import { hookPredictionNodes } from './nodes/hook-prediction';
+import { multiSpeakerReasoningNodes } from './nodes/multi-speaker-reasoning';
 import { narrativeGraphNodes } from './nodes/narrative-graph';
 import { objectNodes } from './nodes/object';
 import { ocrNodes } from './nodes/ocr';
@@ -78,6 +80,7 @@ export const renderClipGraph: GraphNode<RenderGraphContext, unknown>[] = [
   ...narrativeGraphNodes,
   ...contextualMomentumNodes,
   ...emotionalArcNodes,
+  ...multiSpeakerReasoningNodes,
   ...thumbnailSelectionNodes,
 ];
 
@@ -122,5 +125,6 @@ export interface RenderGraphResult {
   narrativeGraph: NarrativeGraph | null;
   contextualMomentum: MomentumCurve;
   emotionalArc: EmotionalArc;
+  multiSpeakerBreakdown: MultiSpeakerBreakdown | null;
   thumbnailSelection: SelectThumbnailTimestampOutput;
 }

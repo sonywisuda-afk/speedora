@@ -777,6 +777,40 @@ export interface EmotionalArcSample {
 
 export type EmotionalArc = EmotionalArcSample[];
 
+// AI Intelligence v4, Phase 6 (Multi-speaker Reasoning - see docs/ai/
+// intelligence-v4.md). Mirrors @speedora/contracts' speakerAttributionSchema
+// rather than importing it - same duplication precedent as EmotionalArcSample
+// above. One entry per distinct speaker with any turn in the clip (not a
+// per-instant timeline) - a post-hoc attribution of Phase 4's MomentumCurve
+// and Phase 5's EmotionalArc to whichever speaker was talking, via Speaker
+// Intelligence's SpeakerTimelineEntry[].
+export interface SpeakerAttribution {
+  // SpeakerTimelineEntry's own label ("Speaker A", "Speaker B", ...).
+  speaker: string;
+  // 0-1 - this speaker's share of the clip's total speaking time.
+  talkTimeRatio: number;
+  // 0-1 - this speaker's share of the opening hook window's speaking time
+  // (Phase 1 tie-in).
+  hookWindowTalkTimeRatio: number;
+  // 0-1, RELATIVE within this clip's own samples only (Phase 4 tie-in).
+  // Null when this speaker has zero overlapping momentum samples.
+  averageMomentumScore: number | null;
+  peakMomentumScore: number | null;
+  // The model's own 4-class label (Phase 5 tie-in) - the most frequent
+  // non-null emotion among this speaker's overlapping samples. Null when
+  // this speaker has zero overlapping classified samples.
+  dominantEmotion: VocalEmotion | null;
+  averageEmotionalIntensity: number | null;
+}
+
+// Null for the majority single-speaker case (see the module's own doc
+// comment) - a genuinely different null-meaning than Phase 4/5's "predates
+// migration" null; it's this field's own correct, honest "not applicable"
+// result. A present array (length >= 2, sorted by talkTimeRatio descending)
+// means the clip genuinely has multiple speakers and was attributed
+// successfully.
+export type MultiSpeakerBreakdown = SpeakerAttribution[];
+
 // AI Fusion roadmap's Face Intelligence initiative, Batch 2 - a per-sample
 // looking-direction bucket, 'center' meaning both iris position and head
 // rotation roughly face the camera. Mirrors @speedora/contracts'
@@ -1418,6 +1452,15 @@ export interface Clip {
   // mean this Clip row predates this phase's migration; once computed,
   // always a real (possibly empty) array.
   emotionalArc: EmotionalArc | null;
+  // AI Intelligence v4, Phase 6 (Multi-speaker Reasoning) - computed on
+  // every render regardless of MULTI_SPEAKER_REASONING_ENABLED (the flag
+  // gates API exposure, not computation - see
+  // isMultiSpeakerReasoningEnabled()). Null-semantics are a THIRD pattern,
+  // different from both Phase 4/5's "predates migration" null: it also
+  // means "this clip doesn't have 2+ distinct speakers" - the module's own
+  // genuine, by-design result for the majority single-speaker case, not
+  // distinguished from "predates migration" at this field's level.
+  multiSpeakerBreakdown: MultiSpeakerBreakdown | null;
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // @speedora/thumbnail-selection's chosen in-clip timestamp, replacing the
   // naive clip-midpoint thumbnailUrl/thumbnailBlurDataUrl are extracted at,

@@ -84,6 +84,7 @@ function baseResult(overrides: Partial<RenderGraphResult> = {}): RenderGraphResu
     narrativeGraph: null,
     contextualMomentum: [],
     emotionalArc: [],
+    multiSpeakerBreakdown: null,
     thumbnailSelection: midpointThumbnailSelection,
     ...overrides,
   };
@@ -143,12 +144,13 @@ describe('toFusionInput', () => {
   // sit BESIDE the Fusion Engine, they never feed computeHighlightScore.
   // Regression guard: a present hookPrediction must never leak into
   // FusionInput under any key.
-  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph/contextualMomentum/emotionalArc in FusionInput', () => {
+  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph/contextualMomentum/emotionalArc/multiSpeakerBreakdown in FusionInput', () => {
     const hookPrediction = { clipId: 'clip-1', hookProbability: 90 } as never;
     const semanticEvents = [{ type: 'money', t: 5 }] as never;
     const narrativeGraph = { segments: [], relations: [], unsegmented: true } as never;
     const contextualMomentum = [{ t: 0, momentumScore: 0.5 }] as never;
     const emotionalArc = [{ t: 0, emotion: 'neu', intensity: 0.1 }] as never;
+    const multiSpeakerBreakdown = [{ speaker: 'Speaker A', talkTimeRatio: 1 } as never] as never;
     const input = toFusionInput(
       baseResult({
         hookPrediction,
@@ -156,6 +158,7 @@ describe('toFusionInput', () => {
         narrativeGraph,
         contextualMomentum,
         emotionalArc,
+        multiSpeakerBreakdown,
       }),
       'clip-1',
       null,
@@ -165,6 +168,7 @@ describe('toFusionInput', () => {
     expect(Object.values(input)).not.toContain(narrativeGraph);
     expect(Object.values(input)).not.toContain(contextualMomentum);
     expect(Object.values(input)).not.toContain(emotionalArc);
+    expect(Object.values(input)).not.toContain(multiSpeakerBreakdown);
   });
 });
 
@@ -182,6 +186,7 @@ describe('toClipUpdateData', () => {
     expect(data.hookPrediction).toBe(Prisma.JsonNull);
     expect(data.semanticEvents).toBe(Prisma.JsonNull);
     expect(data.narrativeGraph).toBe(Prisma.JsonNull);
+    expect(data.multiSpeakerBreakdown).toBe(Prisma.JsonNull);
   });
 
   it('writes a present hookPrediction through directly (no hookPauseFeatures column of its own)', () => {
@@ -284,5 +289,19 @@ describe('toClipUpdateData', () => {
       outputUrl: 'renders/clip-1.mp4',
     });
     expect(data.emotionalArc).toBe(emotionalArc);
+  });
+
+  it('writes Prisma.JsonNull (not plain null) for a null multiSpeakerBreakdown - the majority single-speaker case', () => {
+    const data = toClipUpdateData(baseResult(), { outputUrl: 'renders/clip-1.mp4' });
+    expect(data.multiSpeakerBreakdown).toBe(Prisma.JsonNull);
+  });
+
+  it('writes a present multiSpeakerBreakdown through directly, never Prisma.JsonNull', () => {
+    const multiSpeakerBreakdown = [{ speaker: 'Speaker A', talkTimeRatio: 1 }] as never;
+    const data = toClipUpdateData(baseResult({ multiSpeakerBreakdown }), {
+      outputUrl: 'renders/clip-1.mp4',
+    });
+    expect(data.multiSpeakerBreakdown).toBe(multiSpeakerBreakdown);
+    expect(data.multiSpeakerBreakdown).not.toBe(Prisma.JsonNull);
   });
 });
