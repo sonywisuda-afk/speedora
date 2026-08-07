@@ -21,6 +21,7 @@
     "test": "pnpm -r --if-present test",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm build && pnpm test",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down"
   },
