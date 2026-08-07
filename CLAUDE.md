@@ -51,8 +51,8 @@ packages/
                                                          # calibration + M1's correlation math -
                                                          # shared by apps/worker's CLI report and
                                                          # apps/api's GET /ops/ai/* (M5C-B)
-  llm-client/, hook-prediction/                         # AI Intelligence v4 Phase 0-1 - see
-                                                         # ai/intelligence-v4.md
+  llm-client/, hook-prediction/,                        # AI Intelligence v4 Phase 0-2 - see
+  multimodal-reasoning/, semantic-events/                # ai/intelligence-v4.md
 ```
 
 `apps/web` and `apps/api` only communicate over HTTP. `apps/worker` has no HTTP server — it only
@@ -102,7 +102,7 @@ pattern itself and its "add a new module" checklist.
 | [`docs/ai/composition-intelligence.md`](docs/ai/composition-intelligence.md) | Composition Intelligence roadmap (rule of thirds, headroom, lead room, centering, composition stability, framing consistency, subject loss ratio) — reclassifies an earlier 15-batch "Camera Intelligence" proposal, most of which turned out to already be Scene/Motion/Object Intelligence; **complete** — contract, `packages/composition-intelligence` derive functions, the standalone `packages/primary-subject` selection package, worker adapter, and Fusion Engine wiring (RB-1/RB-2) are all done at weight 0, pending calibration |
 | [`docs/ai/dataset-feedback-loop.md`](docs/ai/dataset-feedback-loop.md) | Dataset & Feedback Loop (post-hardening roadmap Milestone 1) — `PublishRecordStatsSnapshot` engagement history, the `engagementScore` heuristic, and `export-training-dataset.ts`'s feature/outcome join + correlation read, the prerequisite for Fusion Engine v3's ML-based weighting |
 | [`docs/ai/dataset-validation-calibration.md`](docs/ai/dataset-validation-calibration.md) | Dataset Validation & Calibration (post-hardening roadmap Milestone 1.5, between Milestone 1 and Fusion Engine v3) — `generate-dataset-report.ts`'s Dataset Health Report (Missing Data, Feature Distribution, Feature Drift Detection, Correlation Dashboard, Weight Calibration Report), and the two-tier `dataset-lib.ts` data model that makes most of it useful ahead of real engagement data |
-| [`docs/ai/intelligence-v4.md`](docs/ai/intelligence-v4.md) | AI Intelligence v4 — the ADR (D1-D11), dependency graph, and 14-part phased roadmap for a new additive prediction layer (Hook Prediction, Virality, Retention Curve, Narrative Graph, Personalization, ...) that sits beside `highlightScore`, not instead of it; Phase 0 (`packages/llm-client`) and Phase 1 (Hook Prediction Engine) are shipped, Parts 2-14 are roadmap only |
+| [`docs/ai/intelligence-v4.md`](docs/ai/intelligence-v4.md) | AI Intelligence v4 — the ADR (D1-D11), dependency graph, and 14-part phased roadmap for a new additive prediction layer (Hook Prediction, Virality, Retention Curve, Narrative Graph, Personalization, ...) that sits beside `highlightScore`, not instead of it; Phase 0 (`packages/llm-client`), Phase 1 (Hook Prediction Engine), and Phase 2 (Semantic Event Detection + `packages/multimodal-reasoning`) are shipped, Parts 3-14 are roadmap only |
 
 ## Status
 
@@ -333,11 +333,17 @@ High-level state of each major initiative (see the linked docs for what's actual
   controversy/keyword rarity/topic shift/question density/numeric facts/named entities) —
   `Clip.hookPrediction`, wired into the render-graph, exposed at `GET /clips/:id/intelligence`
   behind `HOOK_PREDICTION_ENABLED` (default off; the flag gates API exposure only, computation
-  always runs so no backfill is needed later). Parts 2-14 (Semantic Event Detection, Narrative
-  Graph, Virality Engine, Retention Curve, Multimodal Reasoning, Subtitle/Caption/Visual Emphasis
-  editorial features, Clip Ranking, Personalization, Online Learning readiness, Evaluation Suite,
-  Production Hardening) are a documented, estimated, dependency-ordered roadmap only — not built.
-  See `ai/intelligence-v4.md`.
+  always runs so no backfill is needed later). **Phase 2 (Semantic Event Detection)**:
+  `packages/semantic-events` detects narrative events (a 22-value taxonomy — confession/mistake/
+  failure/success/secret/warning/prediction/tutorial/breaking_news/conflict/lawsuit/money/ai/
+  business/career/health/fear/urgency/controversy/achievement/transformation/life_lesson) from
+  transcript text via one LLM call, then grounds each with on-screen evidence via a new standalone
+  `packages/multimodal-reasoning` (pulled forward from spec Part 6, since the roadmap already names
+  further future consumers) — `Clip.semanticEvents`, same render-graph/flag-gate/DTO-extension
+  pattern as Phase 1, behind its own `SEMANTIC_EVENT_DETECTION_ENABLED` flag. Parts 3-14 (Narrative
+  Graph, Virality Engine, Retention Curve, Subtitle/Caption/Visual Emphasis editorial features, Clip
+  Ranking, Personalization, Online Learning readiness, Evaluation Suite, Production Hardening) are a
+  documented, estimated, dependency-ordered roadmap only — not built. See `ai/intelligence-v4.md`.
 
 For new feature work: check whether it's an extension of an existing signal/module first (extend,
 don't rebuild — this has been an explicit recurring instruction across the AI Fusion roadmap), and

@@ -110,6 +110,11 @@ const CLIP_UPDATE_MAP: {
   // computeHighlightScore. hookPauseFeatures (the node id) has no column of
   // its own - only the final hookPrediction output is persisted.
   hookPrediction: (r) => ({ hookPrediction: r.hookPrediction ?? Prisma.JsonNull }),
+  // AI Intelligence v4, Phase 2 (Semantic Event Detection - see docs/ai/
+  // intelligence-v4.md, ADR D1) - same "NOT added to FUSION_INPUT_MAP"
+  // posture as hookPrediction above; both v4 outputs sit beside the Fusion
+  // Engine, never feed it.
+  semanticEvents: (r) => ({ semanticEvents: r.semanticEvents ?? Prisma.JsonNull }),
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // never added to FUSION_INPUT_MAP above: per this module's own policy
   // (see @speedora/contracts' thumbnail-selection.ts), this output must

@@ -36,6 +36,7 @@ import type {
   ProcessingOptions,
   SceneCutEvent,
   SceneFeatures,
+  SemanticEvent,
   SpeakerConfidenceScore,
   SpeakerEngagementScore,
   SpeakerFaceAssociation,
@@ -439,4 +440,13 @@ export function toSharedHighlightRecommendation(
 // failed (optional: true, fallback: null), not fabricated.
 export function toSharedHookPrediction(hookPrediction: unknown): HookPredictionOutput | null {
   return (hookPrediction as HookPredictionOutput | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.semanticEvents (AI Intelligence v4, Phase 2). Null when the
+// render-graph node's own LLM call failed/never ran; an empty array
+// (genuinely found zero events) passes through unchanged, not coerced to
+// null - same "array vs null" convention as toSharedSceneCutEvents.
+export function toSharedSemanticEvents(semanticEvents: unknown): SemanticEvent[] | null {
+  return (semanticEvents as SemanticEvent[] | null) ?? null;
 }

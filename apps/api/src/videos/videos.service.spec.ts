@@ -594,6 +594,7 @@ describe('VideosService', () => {
           highlightRecommendation: null,
           compositionFeatures: null,
           hookPrediction: null,
+          semanticEvents: null,
           publishRecords: [],
         },
         {
@@ -643,6 +644,7 @@ describe('VideosService', () => {
           highlightRecommendation: null,
           compositionFeatures: null,
           hookPrediction: null,
+          semanticEvents: null,
           publishRecords: [],
         },
       ]);

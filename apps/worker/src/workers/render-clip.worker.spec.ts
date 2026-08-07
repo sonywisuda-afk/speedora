@@ -168,6 +168,17 @@ jest.mock('@speedora/hook-prediction', () => ({
   predictHook: (...args: unknown[]) => predictHookMock(...args),
 }));
 
+// AI Intelligence v4, Phase 2 - detectSemanticEvents is the module's one
+// I/O-touching entry point (it makes the LLM call); everything it
+// internally orchestrates (extractRawEvents, groundEvents,
+// describeEventType) is left real via requireActual, same "mock only the
+// seam" convention as predictHook above.
+const detectSemanticEventsMock = jest.fn();
+jest.mock('@speedora/semantic-events', () => ({
+  ...jest.requireActual('@speedora/semantic-events'),
+  detectSemanticEvents: (...args: unknown[]) => detectSemanticEventsMock(...args),
+}));
+
 const detectFacesMock = jest.fn();
 const computeCropDimensionsMock = jest.fn();
 const buildCropPathMock = jest.fn();
@@ -1226,6 +1237,7 @@ describe('render-clip worker', () => {
         objectFeatures: noObjectFeatures,
         compositionFeatures: noCompositionFeatures,
         hookPrediction: Prisma.JsonNull,
+        semanticEvents: Prisma.JsonNull,
         thumbnailSelectionTimestamp: expect.any(Number),
         thumbnailSelectionBreakdown: expect.any(Array),
         thumbnailSelectionFallback: expect.any(String),
@@ -2102,6 +2114,7 @@ describe('render-clip worker', () => {
           objectFeatures: noObjectFeatures,
           compositionFeatures: noCompositionFeatures,
           hookPrediction: Prisma.JsonNull,
+          semanticEvents: Prisma.JsonNull,
           thumbnailSelectionTimestamp: expect.any(Number),
           thumbnailSelectionBreakdown: expect.any(Array),
           thumbnailSelectionFallback: expect.any(String),
@@ -2236,6 +2249,7 @@ describe('render-clip worker', () => {
           objectFeatures: noObjectFeatures,
           compositionFeatures: noCompositionFeatures,
           hookPrediction: Prisma.JsonNull,
+          semanticEvents: Prisma.JsonNull,
           thumbnailSelectionTimestamp: expect.any(Number),
           thumbnailSelectionBreakdown: expect.any(Array),
           thumbnailSelectionFallback: expect.any(String),
@@ -2536,6 +2550,7 @@ describe('render-clip worker', () => {
           objectFeatures: noObjectFeatures,
           compositionFeatures: noCompositionFeatures,
           hookPrediction: Prisma.JsonNull,
+          semanticEvents: Prisma.JsonNull,
           thumbnailSelectionTimestamp: expect.any(Number),
           thumbnailSelectionBreakdown: expect.any(Array),
           thumbnailSelectionFallback: expect.any(String),
@@ -2670,6 +2685,7 @@ describe('render-clip worker', () => {
           objectFeatures: noObjectFeatures,
           compositionFeatures: noCompositionFeatures,
           hookPrediction: Prisma.JsonNull,
+          semanticEvents: Prisma.JsonNull,
           thumbnailSelectionTimestamp: expect.any(Number),
           thumbnailSelectionBreakdown: expect.any(Array),
           thumbnailSelectionFallback: expect.any(String),

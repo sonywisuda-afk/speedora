@@ -42,6 +42,7 @@
     "@speedora/hook-prediction": "workspace:*",
     "@speedora/platform-fit": "workspace:*",
     "@speedora/report-builder": "workspace:*",
+    "@speedora/semantic-events": "workspace:*",
     "@speedora/shared": "workspace:*",
     "@speedora/social": "workspace:*",
     "@speedora/storage": "workspace:^",

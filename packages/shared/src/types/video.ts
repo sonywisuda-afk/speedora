@@ -634,6 +634,57 @@ export interface HookPredictionOutput {
   };
 }
 
+// AI Intelligence v4, Phase 2 (Semantic Event Detection - see docs/ai/
+// intelligence-v4.md). Mirrors @speedora/contracts' groundedFactSchema/
+// semanticEventSchema rather than importing them - same duplication
+// precedent as HookLinguisticFeatures/HookPredictionOutput above.
+export type GroundedFactSource = 'ocr' | 'object';
+
+export interface GroundedFact {
+  source: GroundedFactSource;
+  text: string;
+  t: number;
+}
+
+// The exact 22-value taxonomy from packages/contracts' SEMANTIC_EVENT_TYPES -
+// kept as a plain union (not re-derived) since packages/shared doesn't
+// import packages/contracts (see ARCHITECTURE.md's layer separation).
+export type SemanticEventType =
+  | 'confession'
+  | 'mistake'
+  | 'failure'
+  | 'success'
+  | 'secret'
+  | 'warning'
+  | 'prediction'
+  | 'tutorial'
+  | 'breaking_news'
+  | 'conflict'
+  | 'lawsuit'
+  | 'money'
+  | 'ai'
+  | 'business'
+  | 'career'
+  | 'health'
+  | 'fear'
+  | 'urgency'
+  | 'controversy'
+  | 'achievement'
+  | 'transformation'
+  | 'life_lesson';
+
+// Every numeric field below is a documented HEURISTIC, same "scale
+// honesty" caveat as HookPredictionOutput above - no engagement data
+// exists yet to calibrate confidence/importance against.
+export interface SemanticEvent {
+  type: SemanticEventType;
+  t: number;
+  confidence: number;
+  importance: number;
+  evidence: GroundedFact[];
+  reason: string;
+}
+
 // AI Fusion roadmap's Face Intelligence initiative, Batch 2 - a per-sample
 // looking-direction bucket, 'center' meaning both iris position and head
 // rotation roughly face the camera. Mirrors @speedora/contracts'
@@ -1245,6 +1296,14 @@ export interface Clip {
   // when the render-graph node's own LLM call failed (optional: true,
   // fallback: null - never fails the render job).
   hookPrediction: HookPredictionOutput | null;
+  // AI Intelligence v4, Phase 2 (Semantic Event Detection) - computed on
+  // every render regardless of SEMANTIC_EVENT_DETECTION_ENABLED (the flag
+  // gates API exposure, not computation - see
+  // isSemanticEventDetectionEnabled()). Null when the render-graph node's
+  // own LLM call failed/never ran; an empty array means it ran and found
+  // zero events - a real result, same "array vs null" convention as
+  // sceneCutEvents above.
+  semanticEvents: SemanticEvent[] | null;
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // @speedora/thumbnail-selection's chosen in-clip timestamp, replacing the
   // naive clip-midpoint thumbnailUrl/thumbnailBlurDataUrl are extracted at,

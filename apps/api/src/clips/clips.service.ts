@@ -40,6 +40,7 @@ import {
   type WatermarkPosition,
 } from '@speedora/shared';
 import { isHookPredictionEnabled } from '@speedora/hook-prediction';
+import { isSemanticEventDetectionEnabled } from '@speedora/semantic-events';
 import { computePlatformFit } from '@speedora/platform-fit';
 import type { Queue } from 'bullmq';
 import type { ClipPlatformCopy } from '@speedora/database';
@@ -66,6 +67,7 @@ import {
   toSharedHighlightPrediction,
   toSharedHighlightRecommendation,
   toSharedHookPrediction,
+  toSharedSemanticEvents,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
   toSharedOcrText,
@@ -507,13 +509,14 @@ export class ClipsService {
     };
   }
 
-  // AI Intelligence v4, Phase 1 (see docs/ai/intelligence-v4.md, ADR D9) - a
-  // separate endpoint from getExplainability above, not a second `results`
-  // entry there (see ClipIntelligenceDto's own doc comment for why). Same
-  // ownership-check pattern as getExplainability. isHookPredictionEnabled()
-  // gates this field's EXPOSURE, not computation (ADR D8) - the render-graph
-  // node always runs and Clip.hookPrediction is always persisted when it
-  // succeeds, so flipping the flag on later needs no backfill.
+  // AI Intelligence v4, Phase 1/2 (see docs/ai/intelligence-v4.md, ADR D9) -
+  // a separate endpoint from getExplainability above, not a second
+  // `results` entry there (see ClipIntelligenceDto's own doc comment for
+  // why). Same ownership-check pattern as getExplainability. Each v4
+  // field has its OWN independent flag gating its exposure, not
+  // computation (ADR D8) - the render-graph nodes always run and their
+  // Clip.* columns are always persisted when they succeed, so flipping
+  // either flag on later needs no backfill.
   async getIntelligence(id: string, requesterId: string): Promise<ClipIntelligenceDto> {
     const clip = await this.findOwnedOrThrow(id, requesterId);
 
@@ -521,6 +524,9 @@ export class ClipsService {
       clipId: clip.id,
       hookPrediction: isHookPredictionEnabled()
         ? toSharedHookPrediction(clip.hookPrediction)
+        : null,
+      semanticEvents: isSemanticEventDetectionEnabled()
+        ? toSharedSemanticEvents(clip.semanticEvents)
         : null,
     };
   }
@@ -1189,6 +1195,7 @@ export class ClipsService {
     highlightRank: number | null;
     compositionFeatures: unknown;
     hookPrediction: unknown;
+    semanticEvents: unknown;
     thumbnailSelectionTimestamp: number | null;
     thumbnailSelectionBreakdown: unknown;
     thumbnailSelectionFallback: string | null;
@@ -1271,6 +1278,7 @@ export class ClipsService {
       highlightRank: clip.highlightRank,
       compositionFeatures: toSharedCompositionFeatures(clip.compositionFeatures),
       hookPrediction: toSharedHookPrediction(clip.hookPrediction),
+      semanticEvents: toSharedSemanticEvents(clip.semanticEvents),
       thumbnailSelectionTimestamp: clip.thumbnailSelectionTimestamp,
       thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
         clip.thumbnailSelectionBreakdown,

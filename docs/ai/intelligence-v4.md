@@ -11,7 +11,10 @@
 
 - **Phase 0 (Foundation)**: shipped — `packages/llm-client`, this document.
 - **Phase 1 (Hook Prediction Engine)**: shipped, flag-off (`HOOK_PREDICTION_ENABLED=false`).
-- **Phases 2-14**: documented roadmap only, not built. See "Roadmap" below.
+- **Phase 2 (Semantic Event Detection)**: shipped, flag-off
+  (`SEMANTIC_EVENT_DETECTION_ENABLED=false`). Also pulled forward Multimodal Reasoning (spec Part 6)
+  as its own standalone package, `packages/multimodal-reasoning`.
+- **Phases 3-14**: documented roadmap only, not built. See "Roadmap" below.
 
 ## Why this exists
 
@@ -95,7 +98,7 @@ Revisit at Track A Phase 11.
 (`FeatureVector`, `TrainingSample`, `Predictor`, `DatasetBuilder`, `ModelEvaluator`) rather than
 inventing v4-specific ones.
 
-## Dependency graph (Phase 1, as shipped)
+## Dependency graph (Phase 1-2, as shipped)
 
 ```
 TranscriptSegment (words, rmsDb, peakDb, speakingRateWordsPerSecond, emotion)
@@ -119,6 +122,28 @@ extractLinguisticFeatures() [NEW LLM call, via @speedora/llm-client] ┘
                                                                     │
                                                                     ▼
                                        GET /clips/:id/intelligence (flag-gated exposure)
+
+TranscriptSegment (text) ──▶ extractRawEvents() [NEW LLM call, via @speedora/llm-client]
+                                                                    │
+                                                                    ▼
+                                                        RawSemanticEvent[]
+                                                  { type, t, confidence, importance, reason }
+                                                                    │
+ocrTracks (existing) ───────────────────────────────────────────┐  │
+objectTracks (existing) ─────────────────────────────────────────┼──▶ groundEvents()
+                                                                    │   (@speedora/multimodal-
+                                                                    │    reasoning's
+                                                                    │    findConcurrentEvidence)
+                                                                    ▼
+                                                          SemanticEvent[]
+                                              { ...RawSemanticEvent, evidence: GroundedFact[] }
+                                                                    │
+                                                                    ▼
+                                            Clip.semanticEvents (new Json? column)
+                                                                    │
+                                                                    ▼
+                                       GET /clips/:id/intelligence (flag-gated exposure,
+                                                                     own independent flag)
 ```
 
 ## Roadmap (Parts 2-14 — documented, not built)
@@ -132,7 +157,7 @@ until its own later calibration sub-phase.
 
 | Phase | Name (spec Part) | Depends on | Complexity | Primary risk |
 |---|---|---|---|---|
-| 2 | Semantic Event Detection (2) | Phase 0/1; pulls forward Multimodal Reasoning (6) as a prerequisite correlation utility | L | 23-value taxonomy governance; +1 LLM call/clip |
+| 2 | Semantic Event Detection (2) — **shipped** | Phase 0/1; pulled forward Multimodal Reasoning (6) as `packages/multimodal-reasoning` | L | 22-value taxonomy governance (satisfied via `describeEventType()`'s exhaustive switch); +1 LLM call/clip |
 | 3 | Narrative Graph (3) | Phase 2 | L | Hardest LLM-reasoning task; needs an "unsegmented" fallback |
 | 4 | Contextual Momentum (new, part of 5) | Phase 3 + `EditingRhythmFeatures.accelerationScore` | M | No ground truth for curve *shape* yet |
 | 5 | Emotional Arc (new, part of 5) | vocal-emotion rescue (see below) + Phase 2 | M | Vocal-emotion classifier trained on acted, not natural, speech |
@@ -199,7 +224,64 @@ packages/shared/src/types/
   intelligence-v4.ts                        ClipIntelligenceDto (D9)
 ```
 
-`Clip.highlightScore` and every existing Fusion Engine v2 output are unchanged by this phase —
-verified by a new regression test (sinks.spec.ts's "never includes hookPrediction/
-hookPauseFeatures in FusionInput") plus a full, green run of every existing test suite
-(worker: 567/567, api: 1268/1268, web: 313/313) after this phase's changes.
+## Phase 2 architecture (as shipped)
+
+```
+packages/contracts/src/
+  multimodal-reasoning.ts                   groundedFactSchema (GroundedFact)
+  semantic-events.ts                        SEMANTIC_EVENT_TYPES (22 values),
+                                             semanticEventDetectionSegmentSchema,
+                                             semanticEventSchema
+
+packages/multimodal-reasoning/src/
+  find-concurrent-evidence.ts               findConcurrentEvidence(t, windowSeconds, ocrTracks,
+                                             objectTracks) - pure, synchronous, no LLM/DB access.
+                                             Extracted standalone (not buried inside
+                                             semantic-events) since this roadmap already names two
+                                             more future consumers (Emotional Arc/Retention Curve,
+                                             Virality Engine) - same precedent as
+                                             packages/primary-subject.
+
+packages/semantic-events/src/
+  extract-raw-events.ts                     extractRawEvents() - the one new LLM call, over
+                                             transcript text ALONE (no OCR/object context in the
+                                             prompt)
+  ground-events.ts                          groundEvents() - pure post-processing: attaches
+                                             on-screen evidence via findConcurrentEvidence, falls
+                                             back to describeEventType() when the LLM's own reason
+                                             is empty
+  describe-event-type.ts                    describeEventType() - exhaustive switch/assertNever
+                                             over all 22 SEMANTIC_EVENT_TYPES (Contract Governance
+                                             rule 1), the concrete "enum governance from day 1"
+                                             this roadmap flagged as Phase 2's risk
+  detect-semantic-events.ts                 detectSemanticEvents() - the module's single entry
+                                             point, orchestrates extractRawEvents + groundEvents
+  feature-flags.ts                          isSemanticEventDetectionEnabled()
+
+apps/worker/src/render-graph/nodes/semantic-events.ts
+                                             semanticEventsNode (optional: true, fallback: null -
+                                             deps: ocrTracks/objectTracks, already-existing node
+                                             ids, purely for grounding)
+
+apps/worker/src/render-graph/sinks.ts       CLIP_UPDATE_MAP['semanticEvents'] entry - deliberately
+                                             NOT added to FUSION_INPUT_MAP (D1), guarded by the
+                                             same extended regression test as hookPrediction
+
+apps/api/src/videos/transcript-segment.util.ts
+                                             toSharedSemanticEvents() - the TS2742 fix (D7)
+
+apps/api/src/clips/clips.service.ts         GET /clips/:id/intelligence extended with
+                                             `semanticEvents`, gated by its OWN independent flag
+                                             (D9 - later phases add fields to the same DTO)
+
+packages/shared/src/types/
+  video.ts                                  GroundedFact/SemanticEvent/SemanticEventType mirrored
+                                             (not imported), same duplication precedent as
+                                             HookPredictionOutput; Clip.semanticEvents field
+  intelligence-v4.ts                        ClipIntelligenceDto.semanticEvents
+```
+
+`Clip.highlightScore` and every existing Fusion Engine v2 output are unchanged by both phases —
+verified by regression tests in `sinks.spec.ts` (extended to cover `semanticEvents` alongside
+`hookPrediction`) plus a full, green run of every existing test suite after each phase's changes
+(worker: 568/568, api: 1268/1268, web: 313/313 as of Phase 2).
