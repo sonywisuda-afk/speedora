@@ -39,6 +39,7 @@
     "@speedora/database": "workspace:*",
     "@speedora/dataset-quality": "workspace:*",
     "@speedora/fusion-engine": "workspace:*",
+    "@speedora/hook-prediction": "workspace:*",
     "@speedora/platform-fit": "workspace:*",
     "@speedora/report-builder": "workspace:*",
     "@speedora/shared": "workspace:*",

@@ -24,6 +24,7 @@ import {
   SocialPlatform,
   type BrandKitFields,
   type ClipExplainabilityDto,
+  type ClipIntelligenceDto,
   type ClipPerformanceDto,
   type ClipPlatformCopyDto,
   type ClipPlatformCopyListDto,
@@ -38,6 +39,7 @@ import {
   type ThumbnailFallbackLevel,
   type WatermarkPosition,
 } from '@speedora/shared';
+import { isHookPredictionEnabled } from '@speedora/hook-prediction';
 import { computePlatformFit } from '@speedora/platform-fit';
 import type { Queue } from 'bullmq';
 import type { ClipPlatformCopy } from '@speedora/database';
@@ -63,6 +65,7 @@ import {
   toSharedHighlightExplainability,
   toSharedHighlightPrediction,
   toSharedHighlightRecommendation,
+  toSharedHookPrediction,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
   toSharedOcrText,
@@ -501,6 +504,24 @@ export class ClipsService {
           highlightRank: clip.highlightRank,
         },
       ],
+    };
+  }
+
+  // AI Intelligence v4, Phase 1 (see docs/ai/intelligence-v4.md, ADR D9) - a
+  // separate endpoint from getExplainability above, not a second `results`
+  // entry there (see ClipIntelligenceDto's own doc comment for why). Same
+  // ownership-check pattern as getExplainability. isHookPredictionEnabled()
+  // gates this field's EXPOSURE, not computation (ADR D8) - the render-graph
+  // node always runs and Clip.hookPrediction is always persisted when it
+  // succeeds, so flipping the flag on later needs no backfill.
+  async getIntelligence(id: string, requesterId: string): Promise<ClipIntelligenceDto> {
+    const clip = await this.findOwnedOrThrow(id, requesterId);
+
+    return {
+      clipId: clip.id,
+      hookPrediction: isHookPredictionEnabled()
+        ? toSharedHookPrediction(clip.hookPrediction)
+        : null,
     };
   }
 
@@ -1167,6 +1188,7 @@ export class ClipsService {
     highlightRecommendation: unknown;
     highlightRank: number | null;
     compositionFeatures: unknown;
+    hookPrediction: unknown;
     thumbnailSelectionTimestamp: number | null;
     thumbnailSelectionBreakdown: unknown;
     thumbnailSelectionFallback: string | null;
@@ -1248,6 +1270,7 @@ export class ClipsService {
       highlightRecommendation: toSharedHighlightRecommendation(clip.highlightRecommendation),
       highlightRank: clip.highlightRank,
       compositionFeatures: toSharedCompositionFeatures(clip.compositionFeatures),
+      hookPrediction: toSharedHookPrediction(clip.hookPrediction),
       thumbnailSelectionTimestamp: clip.thumbnailSelectionTimestamp,
       thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
         clip.thumbnailSelectionBreakdown,

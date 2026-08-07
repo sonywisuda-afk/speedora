@@ -104,6 +104,12 @@ const CLIP_UPDATE_MAP: {
   objectTracks: (r) => ({ objectTracks: r.objectTracks ?? Prisma.JsonNull }),
   objectFeatures: (r) => ({ objectFeatures: r.objectFeatures ?? Prisma.JsonNull }),
   compositionFeatures: (r) => ({ compositionFeatures: r.compositionFeatures }),
+  // AI Intelligence v4, Phase 1 (Hook Prediction Engine - see docs/ai/
+  // intelligence-v4.md, ADR D1) - deliberately NOT added to FUSION_INPUT_MAP
+  // above: v4 predictions sit BESIDE the Fusion Engine, they don't feed
+  // computeHighlightScore. hookPauseFeatures (the node id) has no column of
+  // its own - only the final hookPrediction output is persisted.
+  hookPrediction: (r) => ({ hookPrediction: r.hookPrediction ?? Prisma.JsonNull }),
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // never added to FUSION_INPUT_MAP above: per this module's own policy
   // (see @speedora/contracts' thumbnail-selection.ts), this output must

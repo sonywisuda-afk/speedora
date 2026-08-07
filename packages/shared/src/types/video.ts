@@ -598,6 +598,42 @@ export interface ObjectFeatures {
   averageAttentionConfidence: number | null;
 }
 
+// AI Intelligence v4, Phase 1 (Hook Prediction Engine - see docs/ai/
+// intelligence-v4.md). Mirrors @speedora/contracts' hookLinguisticFeaturesSchema/
+// hookPredictionOutputSchema rather than importing them - same duplication
+// precedent as LookingDirection/AffectLabel above (packages/shared and
+// packages/contracts are deliberately separate layers - see ARCHITECTURE.md).
+export type HookSentiment = 'positive' | 'negative' | 'neutral' | 'mixed';
+
+export interface HookLinguisticFeatures {
+  sentiment: HookSentiment;
+  dominantEmotion: string;
+  surpriseScore: number;
+  controversyScore: number;
+  keywordRarityScore: number;
+  topicShiftScore: number;
+  questionDensity: number;
+  numericFactCount: number;
+  namedEntities: string[];
+}
+
+// Every numeric field below is a documented HEURISTIC, not a trained/
+// calibrated prediction ("scale honesty" - docs/coding-standards.md).
+// Production has 0 usable engagement samples to validate any of this
+// against yet, same blocker Fusion Engine v3 has.
+export interface HookPredictionOutput {
+  clipId: string;
+  hookProbability: number;
+  reason: string;
+  confidence: number;
+  linguisticFeatures: HookLinguisticFeatures;
+  predictionFeatures: {
+    expectedScrollStopRate: number;
+    expectedRetentionLift: number;
+    expectedReplayPotential: number;
+  };
+}
+
 // AI Fusion roadmap's Face Intelligence initiative, Batch 2 - a per-sample
 // looking-direction bucket, 'center' meaning both iris position and head
 // rotation roughly face the camera. Mirrors @speedora/contracts'
@@ -1203,6 +1239,12 @@ export interface Clip {
   // samples for this clip, same nullability convention as
   // motionEnergyFeatures/sceneFeatures above.
   compositionFeatures: CompositionFeatures | null;
+  // AI Intelligence v4, Phase 1 (Hook Prediction Engine) - computed on every
+  // render regardless of HOOK_PREDICTION_ENABLED (the flag gates API
+  // exposure, not computation - see isHookPredictionEnabled()). Null only
+  // when the render-graph node's own LLM call failed (optional: true,
+  // fallback: null - never fails the render job).
+  hookPrediction: HookPredictionOutput | null;
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // @speedora/thumbnail-selection's chosen in-clip timestamp, replacing the
   // naive clip-midpoint thumbnailUrl/thumbnailBlurDataUrl are extracted at,

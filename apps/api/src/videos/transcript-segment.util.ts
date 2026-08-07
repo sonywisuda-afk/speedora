@@ -23,6 +23,7 @@ import type {
   FusionRecommendation,
   GestureFeatures,
   GestureSample,
+  HookPredictionOutput,
   LipSyncVerification,
   OcrFeatures,
   OcrSample,
@@ -430,4 +431,12 @@ export function toSharedHighlightRecommendation(
   highlightRecommendation: unknown,
 ): FusionRecommendation | null {
   return (highlightRecommendation as FusionRecommendation | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.hookPrediction (AI Intelligence v4, Phase 1 - see docs/ai/
+// intelligence-v4.md). Null when the render-graph node's own LLM call
+// failed (optional: true, fallback: null), not fabricated.
+export function toSharedHookPrediction(hookPrediction: unknown): HookPredictionOutput | null {
+  return (hookPrediction as HookPredictionOutput | null) ?? null;
 }

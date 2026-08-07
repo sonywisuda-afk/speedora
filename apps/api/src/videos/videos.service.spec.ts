@@ -593,6 +593,7 @@ describe('VideosService', () => {
           highlightPrediction: null,
           highlightRecommendation: null,
           compositionFeatures: null,
+          hookPrediction: null,
           publishRecords: [],
         },
         {
@@ -641,6 +642,7 @@ describe('VideosService', () => {
           highlightPrediction: null,
           highlightRecommendation: null,
           compositionFeatures: null,
+          hookPrediction: null,
           publishRecords: [],
         },
       ]);

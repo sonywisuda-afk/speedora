@@ -11,6 +11,11 @@ jest.mock('bullmq', () => ({
   Worker: jest.fn(),
 }));
 jest.mock('../redis', () => ({ createRedisConnection: jest.fn() }));
+// AI Intelligence v4, Phase 1 - the render-graph now transitively imports
+// '../openai' (nodes/hook-prediction.ts), same reason detect-clips.worker.spec.ts
+// already mocks it: constructing a real OpenAI client at module load time
+// throws without a real OPENAI_API_KEY in the test environment.
+jest.mock('../openai', () => ({ openai: {} }));
 
 // Pre-Processing Settings roadmap (Phase 3) - render-clip.worker.ts is now
 // also a producer for generate-platform-copy (see queues.ts's own comment);
@@ -151,6 +156,16 @@ const detectObjectsMock = jest.fn();
 jest.mock('@speedora/object-intelligence', () => ({
   ...jest.requireActual('@speedora/object-intelligence'),
   detectObjects: (...args: unknown[]) => detectObjectsMock(...args),
+}));
+
+// AI Intelligence v4, Phase 1 - predictHook is the module's one I/O-touching
+// entry point (it makes the LLM call); derivePauseFeatures/
+// computeHookPrediction are pure and left real, same "mock only the seam"
+// convention as every other detector above.
+const predictHookMock = jest.fn();
+jest.mock('@speedora/hook-prediction', () => ({
+  ...jest.requireActual('@speedora/hook-prediction'),
+  predictHook: (...args: unknown[]) => predictHookMock(...args),
 }));
 
 const detectFacesMock = jest.fn();
@@ -1210,6 +1225,7 @@ describe('render-clip worker', () => {
         objectTracks: [],
         objectFeatures: noObjectFeatures,
         compositionFeatures: noCompositionFeatures,
+        hookPrediction: Prisma.JsonNull,
         thumbnailSelectionTimestamp: expect.any(Number),
         thumbnailSelectionBreakdown: expect.any(Array),
         thumbnailSelectionFallback: expect.any(String),
@@ -2085,6 +2101,7 @@ describe('render-clip worker', () => {
           objectTracks: [],
           objectFeatures: noObjectFeatures,
           compositionFeatures: noCompositionFeatures,
+          hookPrediction: Prisma.JsonNull,
           thumbnailSelectionTimestamp: expect.any(Number),
           thumbnailSelectionBreakdown: expect.any(Array),
           thumbnailSelectionFallback: expect.any(String),
@@ -2218,6 +2235,7 @@ describe('render-clip worker', () => {
           objectTracks: [],
           objectFeatures: noObjectFeatures,
           compositionFeatures: noCompositionFeatures,
+          hookPrediction: Prisma.JsonNull,
           thumbnailSelectionTimestamp: expect.any(Number),
           thumbnailSelectionBreakdown: expect.any(Array),
           thumbnailSelectionFallback: expect.any(String),
@@ -2517,6 +2535,7 @@ describe('render-clip worker', () => {
           objectTracks: [],
           objectFeatures: noObjectFeatures,
           compositionFeatures: noCompositionFeatures,
+          hookPrediction: Prisma.JsonNull,
           thumbnailSelectionTimestamp: expect.any(Number),
           thumbnailSelectionBreakdown: expect.any(Array),
           thumbnailSelectionFallback: expect.any(String),
@@ -2650,6 +2669,7 @@ describe('render-clip worker', () => {
           objectTracks: [],
           objectFeatures: noObjectFeatures,
           compositionFeatures: noCompositionFeatures,
+          hookPrediction: Prisma.JsonNull,
           thumbnailSelectionTimestamp: expect.any(Number),
           thumbnailSelectionBreakdown: expect.any(Array),
           thumbnailSelectionFallback: expect.any(String),

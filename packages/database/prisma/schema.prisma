@@ -1041,6 +1041,16 @@ model Clip {
   // persist here. Null when there were zero usable primary-subject samples
   // for this clip (not a fabricated all-null features object).
   compositionFeatures         Json?
+  // AI Intelligence v4, Phase 1 (Hook Prediction Engine - see docs/ai/
+  // intelligence-v4.md). @speedora/hook-prediction's HookPredictionOutput -
+  // hookProbability/reason/confidence/linguisticFeatures/predictionFeatures,
+  // read/written as one unit (same "one JSON blob per signal" convention as
+  // llmFeatures/highlightBreakdown above). Computed on every render
+  // regardless of the HOOK_PREDICTION_ENABLED flag (the flag gates API
+  // exposure, not computation - see isHookPredictionEnabled()); null only
+  // when the render-graph node's own LLM call failed (optional: true,
+  // fallback: null - never fails the render job).
+  hookPrediction               Json?
   // AI Clip Library roadmap, Phase P1 - denormalized endTime - startTime,
   // set alongside them at every write site (detect-clips.worker.ts's
   // initial prisma.clip.create, and ClipsService.update's manual trim) -
