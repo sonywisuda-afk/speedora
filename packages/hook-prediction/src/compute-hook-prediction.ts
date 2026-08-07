@@ -99,7 +99,11 @@ export function computeHookPrediction(
   linguisticFeatures: HookLinguisticFeatures,
 ): HookPredictionOutput {
   const contributions: WeightedContribution[] = [
-    { feature: 'surpriseScore', value: linguisticFeatures.surpriseScore, weight: WEIGHTS.surpriseScore },
+    {
+      feature: 'surpriseScore',
+      value: linguisticFeatures.surpriseScore,
+      weight: WEIGHTS.surpriseScore,
+    },
     {
       feature: 'controversyScore',
       value: linguisticFeatures.controversyScore,
@@ -133,13 +137,19 @@ export function computeHookPrediction(
       ),
       weight: WEIGHTS.numericFactDensity,
     },
-    { feature: 'pauseBeforeHook', value: input.pauseFeatures.pauseBeforeHookRatio, weight: WEIGHTS.pauseBeforeHook },
+    {
+      feature: 'pauseBeforeHook',
+      value: input.pauseFeatures.pauseBeforeHookRatio,
+      weight: WEIGHTS.pauseBeforeHook,
+    },
   ];
 
   if (input.audioFeatures.averageRmsDb !== null) {
     contributions.push({
       feature: 'audioEnergy',
-      value: clamp01(mapRange(input.audioFeatures.averageRmsDb, AUDIO_QUIET_DB, AUDIO_LOUD_DB, 0, 1)),
+      value: clamp01(
+        mapRange(input.audioFeatures.averageRmsDb, AUDIO_QUIET_DB, AUDIO_LOUD_DB, 0, 1),
+      ),
       weight: WEIGHTS.audioEnergy,
     });
   }

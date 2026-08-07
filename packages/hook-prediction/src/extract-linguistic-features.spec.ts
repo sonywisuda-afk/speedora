@@ -22,7 +22,13 @@ const RAW: Record<string, unknown> = {
 };
 
 const SEGMENTS: HookPredictionSegment[] = [
-  { start: 0, end: 3, text: 'Did you know Acme Corp made $500 million?', emotion: null, words: null },
+  {
+    start: 0,
+    end: 3,
+    text: 'Did you know Acme Corp made $500 million?',
+    emotion: null,
+    words: null,
+  },
 ];
 
 describe('extractLinguisticFeatures', () => {

@@ -519,7 +519,9 @@ export class ClipsService {
 
     return {
       clipId: clip.id,
-      hookPrediction: isHookPredictionEnabled() ? toSharedHookPrediction(clip.hookPrediction) : null,
+      hookPrediction: isHookPredictionEnabled()
+        ? toSharedHookPrediction(clip.hookPrediction)
+        : null,
     };
   }
 
