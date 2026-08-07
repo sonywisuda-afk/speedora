@@ -14,7 +14,8 @@
 - **Phase 2 (Semantic Event Detection)**: shipped, flag-off
   (`SEMANTIC_EVENT_DETECTION_ENABLED=false`). Also pulled forward Multimodal Reasoning (spec Part 6)
   as its own standalone package, `packages/multimodal-reasoning`.
-- **Phases 3-14**: documented roadmap only, not built. See "Roadmap" below.
+- **Phase 3 (Narrative Graph)**: shipped, flag-off (`NARRATIVE_GRAPH_ENABLED=false`).
+- **Phases 4-14**: documented roadmap only, not built. See "Roadmap" below.
 
 ## Why this exists
 
@@ -98,7 +99,7 @@ Revisit at Track A Phase 11.
 (`FeatureVector`, `TrainingSample`, `Predictor`, `DatasetBuilder`, `ModelEvaluator`) rather than
 inventing v4-specific ones.
 
-## Dependency graph (Phase 1-2, as shipped)
+## Dependency graph (Phase 1-3, as shipped)
 
 ```
 TranscriptSegment (words, rmsDb, peakDb, speakingRateWordsPerSecond, emotion)
@@ -144,6 +145,32 @@ objectTracks (existing) ──────────────────�
                                                                     ▼
                                        GET /clips/:id/intelligence (flag-gated exposure,
                                                                      own independent flag)
+
+TranscriptSegment (text) ──▶ extractRawGraph() [NEW LLM call, via @speedora/llm-client]
+                                                                    ▲
+semanticEvents (existing, Phase 2 - optional context, degrades ────┘
+  gracefully to null when its own flag is off or detection failed)
+                                                                    │
+                                                                    ▼
+                                                          RawNarrativeGraph
+                                            { segments, relations, unsegmented }
+                                                                    │
+                                                                    ▼
+                                                           validateGraph()
+                                              (pure - structural sanity check, collapses
+                                               to `unsegmented: true` on ANY failure)
+                                                                    │
+                                                                    ▼
+                                                          NarrativeGraph
+                                            { segments: NarrativeSegment[],
+                                              relations: NarrativeRelation[], unsegmented }
+                                                                    │
+                                                                    ▼
+                                           Clip.narrativeGraph (new Json? column)
+                                                                    │
+                                                                    ▼
+                                       GET /clips/:id/intelligence (flag-gated exposure,
+                                                                     own independent flag)
 ```
 
 ## Roadmap (Parts 2-14 — documented, not built)
@@ -158,7 +185,7 @@ until its own later calibration sub-phase.
 | Phase | Name (spec Part) | Depends on | Complexity | Primary risk |
 |---|---|---|---|---|
 | 2 | Semantic Event Detection (2) — **shipped** | Phase 0/1; pulled forward Multimodal Reasoning (6) as `packages/multimodal-reasoning` | L | 22-value taxonomy governance (satisfied via `describeEventType()`'s exhaustive switch); +1 LLM call/clip |
-| 3 | Narrative Graph (3) | Phase 2 | L | Hardest LLM-reasoning task; needs an "unsegmented" fallback |
+| 3 | Narrative Graph (3) — **shipped** | Phase 2 | L | Hardest LLM-reasoning task; needs an "unsegmented" fallback (satisfied via `validateGraph()`'s structural collapse) |
 | 4 | Contextual Momentum (new, part of 5) | Phase 3 + `EditingRhythmFeatures.accelerationScore` | M | No ground truth for curve *shape* yet |
 | 5 | Emotional Arc (new, part of 5) | vocal-emotion rescue (see below) + Phase 2 | M | Vocal-emotion classifier trained on acted, not natural, speech |
 | 6 | Multi-speaker Reasoning (extends 6) | Phases 1, 4, 5 | M | Must not affect single-speaker clips (the majority case) |
@@ -281,7 +308,61 @@ packages/shared/src/types/
   intelligence-v4.ts                        ClipIntelligenceDto.semanticEvents
 ```
 
-`Clip.highlightScore` and every existing Fusion Engine v2 output are unchanged by both phases —
-verified by regression tests in `sinks.spec.ts` (extended to cover `semanticEvents` alongside
-`hookPrediction`) plus a full, green run of every existing test suite after each phase's changes
-(worker: 568/568, api: 1268/1268, web: 313/313 as of Phase 2).
+## Phase 3 architecture (as shipped)
+
+```
+packages/contracts/src/narrative-graph.ts   NARRATIVE_SEGMENT_TYPES (10 values), NARRATIVE_
+                                             RELATION_TYPES (leads_to, resolves),
+                                             narrativeSegmentSchema, narrativeRelationSchema,
+                                             narrativeGraphSchema, narrativeGraphDetection
+                                             SegmentSchema
+
+packages/narrative-graph/src/
+  extract-raw-graph.ts                      extractRawGraph() - the one new LLM call, over
+                                             transcript text, with Phase 2's SemanticEvent[] as
+                                             OPTIONAL context (degrades gracefully to null)
+  validate-graph.ts                         validateGraph() - pure structural validation
+                                             (>=2 segments, in-bounds timing, valid relation
+                                             references), collapses to `unsegmented: true` on
+                                             ANY failure rather than a partial repair - this
+                                             phase's required risk mitigation
+  describe-segment-type.ts                  describeSegmentType() - exhaustive switch/
+                                             assertNever over all 10 NARRATIVE_SEGMENT_TYPES
+                                             (Contract Governance rule 1)
+  build-narrative-graph.ts                  buildNarrativeGraph() - the module's single entry
+                                             point, orchestrates extractRawGraph + validateGraph
+  feature-flags.ts                          isNarrativeGraphEnabled()
+
+apps/worker/src/render-graph/nodes/narrative-graph.ts
+                                             narrativeGraphNode (optional: true, fallback: null -
+                                             deps: semanticEvents, already-existing node id,
+                                             purely for optional grounding context)
+
+apps/worker/src/render-graph/sinks.ts       CLIP_UPDATE_MAP['narrativeGraph'] entry -
+                                             deliberately NOT added to FUSION_INPUT_MAP (D1); a
+                                             present value (including `unsegmented: true`) is
+                                             written through directly, never coerced to JsonNull
+
+apps/api/src/videos/transcript-segment.util.ts
+                                             toSharedNarrativeGraph() - the TS2742 fix (D7)
+
+apps/api/src/clips/clips.service.ts         GET /clips/:id/intelligence extended with
+                                             `narrativeGraph`, gated by its OWN independent flag
+                                             (D9 - the 3rd field on the same DTO)
+
+packages/shared/src/types/
+  video.ts                                  NarrativeSegmentType/NarrativeSegment/
+                                             NarrativeRelationType/NarrativeRelation/
+                                             NarrativeGraph mirrored (not imported), same
+                                             duplication precedent as SemanticEvent/
+                                             HookPredictionOutput; Clip.narrativeGraph field
+  intelligence-v4.ts                        ClipIntelligenceDto.narrativeGraph
+```
+
+`Clip.highlightScore` and every existing Fusion Engine v2 output are unchanged by all three
+phases — verified by regression tests in `sinks.spec.ts` (extended to cover `narrativeGraph`
+alongside `hookPrediction`/`semanticEvents`) plus a full, green run of every existing test suite
+after each phase's changes (worker: 569/569, api: 1268/1268, web: 313/313 as of Phase 3). Phase 3
+was the first to run the full `pnpm verify` (added between Phase 2 and Phase 3) locally before
+pushing - PR went green on the first CI run after one local `format:check` fix it caught before
+push.

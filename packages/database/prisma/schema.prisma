@@ -1062,6 +1062,18 @@ model Clip {
   // SEMANTIC_EVENT_DETECTION_ENABLED flag (gates API exposure only - see
   // isSemanticEventDetectionEnabled()).
   semanticEvents               Json?
+  // AI Intelligence v4, Phase 3 (Narrative Graph - see docs/ai/
+  // intelligence-v4.md). @speedora/narrative-graph's NarrativeGraph -
+  // segments (hook/setup/context/problem/conflict/escalation/peak/
+  // resolution/takeaway/cta) plus relations (leads_to/resolves) between
+  // them. Null when the render-graph node's own LLM call failed/never ran
+  // (optional: true, fallback: null); a PRESENT object - including the
+  // `{ segments: [], relations: [], unsegmented: true }` case, when the
+  // clip genuinely doesn't decompose into this taxonomy - means it ran
+  // successfully, a real result, not a failure. Computed on every render
+  // regardless of the NARRATIVE_GRAPH_ENABLED flag (gates API exposure
+  // only - see isNarrativeGraphEnabled()).
+  narrativeGraph               Json?
   // AI Clip Library roadmap, Phase P1 - denormalized endTime - startTime,
   // set alongside them at every write site (detect-clips.worker.ts's
   // initial prisma.clip.create, and ClipsService.update's manual trim) -

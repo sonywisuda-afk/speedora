@@ -595,6 +595,7 @@ describe('VideosService', () => {
           compositionFeatures: null,
           hookPrediction: null,
           semanticEvents: null,
+          narrativeGraph: null,
           publishRecords: [],
         },
         {
@@ -645,6 +646,7 @@ describe('VideosService', () => {
           compositionFeatures: null,
           hookPrediction: null,
           semanticEvents: null,
+          narrativeGraph: null,
           publishRecords: [],
         },
       ]);

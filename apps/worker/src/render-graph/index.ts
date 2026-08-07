@@ -16,6 +16,7 @@ import type {
   LipSyncVerification,
   MotionEnergyFeatures,
   MotionEnergySample,
+  NarrativeGraph,
   ObjectFeatures,
   ObjectSample,
   ObjectTrack,
@@ -41,6 +42,7 @@ import { compositionNodes } from './nodes/composition';
 import { facialGestureNodes } from './nodes/facial-gesture';
 import { faceSpeakerNodes } from './nodes/face-speaker';
 import { hookPredictionNodes } from './nodes/hook-prediction';
+import { narrativeGraphNodes } from './nodes/narrative-graph';
 import { objectNodes } from './nodes/object';
 import { ocrNodes } from './nodes/ocr';
 import { sceneNodes } from './nodes/scene';
@@ -69,6 +71,7 @@ export const renderClipGraph: GraphNode<RenderGraphContext, unknown>[] = [
   ...audioEditingNodes,
   ...hookPredictionNodes,
   ...semanticEventNodes,
+  ...narrativeGraphNodes,
   ...thumbnailSelectionNodes,
 ];
 
@@ -110,5 +113,6 @@ export interface RenderGraphResult {
   hookPauseFeatures: HookPauseFeatures;
   hookPrediction: HookPredictionOutput | null;
   semanticEvents: SemanticEvent[] | null;
+  narrativeGraph: NarrativeGraph | null;
   thumbnailSelection: SelectThumbnailTimestampOutput;
 }

@@ -72,6 +72,7 @@ import {
   toSharedHighlightRecommendation,
   toSharedHookPrediction,
   toSharedSemanticEvents,
+  toSharedNarrativeGraph,
   toSharedLipSyncVerifications,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
@@ -1850,6 +1851,7 @@ export class VideosService {
           compositionFeatures,
           hookPrediction,
           semanticEvents,
+          narrativeGraph,
           thumbnailSelectionBreakdown,
           thumbnailSelectionFallback,
           ...clip
@@ -1908,6 +1910,7 @@ export class VideosService {
           compositionFeatures: toSharedCompositionFeatures(compositionFeatures),
           hookPrediction: toSharedHookPrediction(hookPrediction),
           semanticEvents: toSharedSemanticEvents(semanticEvents),
+          narrativeGraph: toSharedNarrativeGraph(narrativeGraph),
           thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
             thumbnailSelectionBreakdown,
           ),
