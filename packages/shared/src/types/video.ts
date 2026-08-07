@@ -751,6 +751,32 @@ export interface MomentumSample {
 
 export type MomentumCurve = MomentumSample[];
 
+// AI Intelligence v4, Phase 5 (Emotional Arc - see docs/ai/
+// intelligence-v4.md). Mirrors @speedora/contracts' VOCAL_EMOTIONS - the
+// model's own 4-class IEMOCAP taxonomy (superb/wav2vec2-base-superb-er),
+// NOT expanded to full words, same "validate real data, not a prettified
+// guess" reasoning as the contract itself.
+export type VocalEmotion = 'neu' | 'hap' | 'ang' | 'sad';
+
+// Mirrors @speedora/contracts' emotionalArcSampleSchema rather than
+// importing it - same duplication precedent as MomentumSample above. One
+// sample per transcript segment (not resampled onto a fixed grid) - the
+// vocal-emotion half of spec Part 5 (Retention Curve Prediction), pairing
+// with Phase 4's MomentumCurve (the visual/structural half).
+export interface EmotionalArcSample {
+  t: number;
+  // null when the segment has no (or an unrecognized) classification - a
+  // real, distinct state from a low-intensity 'neu' result.
+  emotion: VocalEmotion | null;
+  // 0-1, RELATIVE within this clip's own samples only - not comparable
+  // across clips. A documented HEURISTIC (ADR D4), same "scale honesty"
+  // caveat as every other v4 numeric field - the underlying classifier is
+  // itself trained on IEMOCAP's *acted*, not natural, speech.
+  intensity: number;
+}
+
+export type EmotionalArc = EmotionalArcSample[];
+
 // AI Fusion roadmap's Face Intelligence initiative, Batch 2 - a per-sample
 // looking-direction bucket, 'center' meaning both iris position and head
 // rotation roughly face the camera. Mirrors @speedora/contracts'
@@ -1385,6 +1411,13 @@ export interface Clip {
   // Clip row predates this phase's migration; once computed, always a real
   // (possibly empty) array.
   contextualMomentum: MomentumCurve | null;
+  // AI Intelligence v4, Phase 5 (Emotional Arc) - computed on every render
+  // regardless of EMOTIONAL_ARC_ENABLED (the flag gates API exposure, not
+  // computation - see isEmotionalArcEnabled()). Same null-semantics as
+  // contextualMomentum above (pure, not LLM-backed) - null here can only
+  // mean this Clip row predates this phase's migration; once computed,
+  // always a real (possibly empty) array.
+  emotionalArc: EmotionalArc | null;
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // @speedora/thumbnail-selection's chosen in-clip timestamp, replacing the
   // naive clip-midpoint thumbnailUrl/thumbnailBlurDataUrl are extracted at,

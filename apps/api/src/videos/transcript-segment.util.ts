@@ -12,6 +12,7 @@ import type {
   CompositionFeatures,
   DiarizationFeatures,
   EditingRhythmFeatures,
+  EmotionalArc,
   FaceLandmarkFeatures,
   FaceLandmarkSample,
   FaceTrackingQualityMetrics,
@@ -471,4 +472,16 @@ export function toSharedNarrativeGraph(narrativeGraph: unknown): NarrativeGraph 
 // passes through unchanged, not coerced to null.
 export function toSharedContextualMomentum(contextualMomentum: unknown): MomentumCurve | null {
   return (contextualMomentum as MomentumCurve | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.emotionalArc (AI Intelligence v4, Phase 5). Same null-semantics as
+// toSharedContextualMomentum above (not Phases 1-3's): null here can ONLY
+// mean "this Clip row predates this phase's migration" - the render-graph
+// node itself is a pure derive (optional: false) and can't fail the way
+// the LLM-backed Phase 1-3 nodes can. A present value (including an empty
+// array, when the clip had no transcript segments) passes through
+// unchanged, not coerced to null.
+export function toSharedEmotionalArc(emotionalArc: unknown): EmotionalArc | null {
+  return (emotionalArc as EmotionalArc | null) ?? null;
 }

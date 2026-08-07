@@ -1,4 +1,10 @@
-import type { HookPredictionOutput, MomentumCurve, NarrativeGraph, SemanticEvent } from './video';
+import type {
+  EmotionalArc,
+  HookPredictionOutput,
+  MomentumCurve,
+  NarrativeGraph,
+  SemanticEvent,
+} from './video';
 
 // AI Intelligence v4 (see docs/ai/intelligence-v4.md, ADR D9) - a separate
 // DTO/endpoint from ClipExplainabilityDto (explainability.ts), deliberately.
@@ -8,9 +14,9 @@ import type { HookPredictionOutput, MomentumCurve, NarrativeGraph, SemanticEvent
 // retention/narrative scores in future phases) that don't collapse into one
 // number, so reusing that array would force a false equivalence. Phase 1
 // shipped `hookPrediction`; Phase 2 added `semanticEvents`; Phase 3 added
-// `narrativeGraph`; Phase 4 adds `contextualMomentum` to this same DTO
-// rather than growing a new endpoint per part; later Track A phases follow
-// the same pattern.
+// `narrativeGraph`; Phase 4 added `contextualMomentum`; Phase 5 adds
+// `emotionalArc` to this same DTO rather than growing a new endpoint per
+// part; later Track A phases follow the same pattern.
 export interface ClipIntelligenceDto {
   clipId: string;
   // Null when HOOK_PREDICTION_ENABLED is off (the flag gates this field's
@@ -34,4 +40,10 @@ export interface ClipIntelligenceDto {
   // means the clip had no motion-energy samples to build a curve from - a
   // real result.
   contextualMomentum: MomentumCurve | null;
+  // Null when EMOTIONAL_ARC_ENABLED is off (same exposure-only gate, see
+  // isEmotionalArcEnabled()) or when this Clip row predates the phase's
+  // migration (same pure-node null-semantics as contextualMomentum above).
+  // An empty array (flag on, node ran) means the clip had no transcript
+  // segments to build an arc from - a real result.
+  emotionalArc: EmotionalArc | null;
 }

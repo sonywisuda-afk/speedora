@@ -83,6 +83,7 @@ function baseResult(overrides: Partial<RenderGraphResult> = {}): RenderGraphResu
     semanticEvents: null,
     narrativeGraph: null,
     contextualMomentum: [],
+    emotionalArc: [],
     thumbnailSelection: midpointThumbnailSelection,
     ...overrides,
   };
@@ -142,13 +143,20 @@ describe('toFusionInput', () => {
   // sit BESIDE the Fusion Engine, they never feed computeHighlightScore.
   // Regression guard: a present hookPrediction must never leak into
   // FusionInput under any key.
-  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph/contextualMomentum in FusionInput', () => {
+  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph/contextualMomentum/emotionalArc in FusionInput', () => {
     const hookPrediction = { clipId: 'clip-1', hookProbability: 90 } as never;
     const semanticEvents = [{ type: 'money', t: 5 }] as never;
     const narrativeGraph = { segments: [], relations: [], unsegmented: true } as never;
     const contextualMomentum = [{ t: 0, momentumScore: 0.5 }] as never;
+    const emotionalArc = [{ t: 0, emotion: 'neu', intensity: 0.1 }] as never;
     const input = toFusionInput(
-      baseResult({ hookPrediction, semanticEvents, narrativeGraph, contextualMomentum }),
+      baseResult({
+        hookPrediction,
+        semanticEvents,
+        narrativeGraph,
+        contextualMomentum,
+        emotionalArc,
+      }),
       'clip-1',
       null,
     );
@@ -156,6 +164,7 @@ describe('toFusionInput', () => {
     expect(Object.values(input)).not.toContain(semanticEvents);
     expect(Object.values(input)).not.toContain(narrativeGraph);
     expect(Object.values(input)).not.toContain(contextualMomentum);
+    expect(Object.values(input)).not.toContain(emotionalArc);
   });
 });
 
@@ -261,5 +270,19 @@ describe('toClipUpdateData', () => {
       outputUrl: 'renders/clip-1.mp4',
     });
     expect(data.contextualMomentum).toBe(contextualMomentum);
+  });
+
+  it('casts emotionalArc through as an InputJsonValue, never Prisma.JsonNull, even when empty', () => {
+    const data = toClipUpdateData(baseResult(), { outputUrl: 'renders/clip-1.mp4' });
+    expect(data.emotionalArc).toEqual([]);
+    expect(data.emotionalArc).not.toBe(Prisma.JsonNull);
+  });
+
+  it('writes a present emotionalArc through directly', () => {
+    const emotionalArc = [{ t: 0, emotion: 'neu', intensity: 0.1 }] as never;
+    const data = toClipUpdateData(baseResult({ emotionalArc }), {
+      outputUrl: 'renders/clip-1.mp4',
+    });
+    expect(data.emotionalArc).toBe(emotionalArc);
   });
 });
