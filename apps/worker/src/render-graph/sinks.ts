@@ -122,6 +122,18 @@ const CLIP_UPDATE_MAP: {
   // never coerced to JsonNull - only a genuinely failed/never-run node
   // (null) becomes Prisma.JsonNull.
   narrativeGraph: (r) => ({ narrativeGraph: r.narrativeGraph ?? Prisma.JsonNull }),
+  // AI Intelligence v4, Phase 4 (Contextual Momentum - see docs/ai/
+  // intelligence-v4.md, ADR D1) - same "NOT added to FUSION_INPUT_MAP"
+  // posture as every prior v4 output, worth calling out explicitly since
+  // this signal structurally resembles editingRhythmFeatures (which DOES
+  // feed Fusion Engine v2) - v4 stays categorically separate regardless.
+  // Unlike Phases 1-3, this node is optional: false and can't produce
+  // null - always a plain JSON array (never Prisma.JsonNull, even when
+  // empty), same cast reasoning as motionEnergy above (a closed array type
+  // with no index signature).
+  contextualMomentum: (r) => ({
+    contextualMomentum: r.contextualMomentum as unknown as Prisma.InputJsonValue,
+  }),
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // never added to FUSION_INPUT_MAP above: per this module's own policy
   // (see @speedora/contracts' thumbnail-selection.ts), this output must

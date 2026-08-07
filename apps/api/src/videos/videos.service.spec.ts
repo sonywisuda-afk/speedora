@@ -596,6 +596,7 @@ describe('VideosService', () => {
           hookPrediction: null,
           semanticEvents: null,
           narrativeGraph: null,
+          contextualMomentum: null,
           publishRecords: [],
         },
         {
@@ -647,6 +648,7 @@ describe('VideosService', () => {
           hookPrediction: null,
           semanticEvents: null,
           narrativeGraph: null,
+          contextualMomentum: null,
           publishRecords: [],
         },
       ]);

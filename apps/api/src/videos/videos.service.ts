@@ -73,6 +73,7 @@ import {
   toSharedHookPrediction,
   toSharedSemanticEvents,
   toSharedNarrativeGraph,
+  toSharedContextualMomentum,
   toSharedLipSyncVerifications,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
@@ -1852,6 +1853,7 @@ export class VideosService {
           hookPrediction,
           semanticEvents,
           narrativeGraph,
+          contextualMomentum,
           thumbnailSelectionBreakdown,
           thumbnailSelectionFallback,
           ...clip
@@ -1911,6 +1913,7 @@ export class VideosService {
           hookPrediction: toSharedHookPrediction(hookPrediction),
           semanticEvents: toSharedSemanticEvents(semanticEvents),
           narrativeGraph: toSharedNarrativeGraph(narrativeGraph),
+          contextualMomentum: toSharedContextualMomentum(contextualMomentum),
           thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
             thumbnailSelectionBreakdown,
           ),

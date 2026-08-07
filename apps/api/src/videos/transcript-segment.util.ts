@@ -25,6 +25,7 @@ import type {
   GestureSample,
   HookPredictionOutput,
   LipSyncVerification,
+  MomentumCurve,
   OcrFeatures,
   OcrSample,
   MotionEnergyFeatures,
@@ -459,4 +460,15 @@ export function toSharedSemanticEvents(semanticEvents: unknown): SemanticEvent[]
 // real, successful result, not coerced to null.
 export function toSharedNarrativeGraph(narrativeGraph: unknown): NarrativeGraph | null {
   return (narrativeGraph as NarrativeGraph | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.contextualMomentum (AI Intelligence v4, Phase 4). Unlike Phases 1-3,
+// null here can ONLY mean "this Clip row predates this phase's migration" -
+// the render-graph node itself is a pure derive (optional: false) and can't
+// fail the way the LLM-backed Phase 1-3 nodes can. A present value
+// (including an empty array, when motionEnergySamples itself was empty)
+// passes through unchanged, not coerced to null.
+export function toSharedContextualMomentum(contextualMomentum: unknown): MomentumCurve | null {
+  return (contextualMomentum as MomentumCurve | null) ?? null;
 }

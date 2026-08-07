@@ -734,6 +734,23 @@ export interface NarrativeGraph {
   unsegmented: boolean;
 }
 
+// AI Intelligence v4, Phase 4 (Contextual Momentum - see docs/ai/
+// intelligence-v4.md). Mirrors @speedora/contracts' momentumSampleSchema
+// rather than importing it - same duplication precedent as
+// NarrativeGraph/SemanticEvent/HookPredictionOutput above. A per-instant
+// timeline (array), not a single per-clip object - same convention as
+// motionEnergy/semanticEvents.
+export interface MomentumSample {
+  t: number;
+  // 0-1, RELATIVE within this clip's own samples only - not comparable
+  // across clips (same caveat as the raw motionEnergy/cameraMotion
+  // signals it's built from). A documented HEURISTIC, same "scale
+  // honesty" caveat as every other v4 numeric field.
+  momentumScore: number;
+}
+
+export type MomentumCurve = MomentumSample[];
+
 // AI Fusion roadmap's Face Intelligence initiative, Batch 2 - a per-sample
 // looking-direction bucket, 'center' meaning both iris position and head
 // rotation roughly face the camera. Mirrors @speedora/contracts'
@@ -1360,6 +1377,14 @@ export interface Clip {
   // object (including the `unsegmented: true` case) means it ran
   // successfully - a real result, not a failure.
   narrativeGraph: NarrativeGraph | null;
+  // AI Intelligence v4, Phase 4 (Contextual Momentum) - computed on every
+  // render regardless of CONTEXTUAL_MOMENTUM_ENABLED (the flag gates API
+  // exposure, not computation - see isContextualMomentumEnabled()). Unlike
+  // hookPrediction/semanticEvents/narrativeGraph above, this node is pure
+  // (no LLM call, can't fail in that sense) - null here can only mean this
+  // Clip row predates this phase's migration; once computed, always a real
+  // (possibly empty) array.
+  contextualMomentum: MomentumCurve | null;
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // @speedora/thumbnail-selection's chosen in-clip timestamp, replacing the
   // naive clip-midpoint thumbnailUrl/thumbnailBlurDataUrl are extracted at,

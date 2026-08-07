@@ -15,7 +15,9 @@
   (`SEMANTIC_EVENT_DETECTION_ENABLED=false`). Also pulled forward Multimodal Reasoning (spec Part 6)
   as its own standalone package, `packages/multimodal-reasoning`.
 - **Phase 3 (Narrative Graph)**: shipped, flag-off (`NARRATIVE_GRAPH_ENABLED=false`).
-- **Phases 4-14**: documented roadmap only, not built. See "Roadmap" below.
+- **Phase 4 (Contextual Momentum)**: shipped, flag-off (`CONTEXTUAL_MOMENTUM_ENABLED=false`). First
+  v4 module with no LLM call at all — a pure composition over already-computed signals.
+- **Phases 5-14**: documented roadmap only, not built. See "Roadmap" below.
 
 ## Why this exists
 
@@ -99,7 +101,7 @@ Revisit at Track A Phase 11.
 (`FeatureVector`, `TrainingSample`, `Predictor`, `DatasetBuilder`, `ModelEvaluator`) rather than
 inventing v4-specific ones.
 
-## Dependency graph (Phase 1-3, as shipped)
+## Dependency graph (Phase 1-4, as shipped)
 
 ```
 TranscriptSegment (words, rmsDb, peakDb, speakingRateWordsPerSecond, emotion)
@@ -171,6 +173,25 @@ semanticEvents (existing, Phase 2 - optional context, degrades ────┘
                                                                     ▼
                                        GET /clips/:id/intelligence (flag-gated exposure,
                                                                      own independent flag)
+
+motionEnergy (existing) ────────────────────────────────────────┐
+cameraMotion (existing, optional) ───────────────────────────────┤
+EditingRhythmFeatures.accelerationScore (existing, optional) ────┼──▶ computeMomentumCurve()
+narrativeGraph (existing, Phase 3 - optional context, degrades ──┘   (@speedora/contextual-
+  gracefully to no modifier when null or unsegmented: true)          momentum, PURE - no LLM
+                                                                       call, no `deps` param)
+                                                                    │
+                                                                    ▼
+                                                          MomentumCurve
+                                                    MomentumSample[] { t, momentumScore }
+                                                                    │
+                                                                    ▼
+                                        Clip.contextualMomentum (new Json? column - null means
+                                                        "predates this migration," not "failed")
+                                                                    │
+                                                                    ▼
+                                       GET /clips/:id/intelligence (flag-gated exposure,
+                                                                     own independent flag)
 ```
 
 ## Roadmap (Parts 2-14 — documented, not built)
@@ -186,7 +207,7 @@ until its own later calibration sub-phase.
 |---|---|---|---|---|
 | 2 | Semantic Event Detection (2) — **shipped** | Phase 0/1; pulled forward Multimodal Reasoning (6) as `packages/multimodal-reasoning` | L | 22-value taxonomy governance (satisfied via `describeEventType()`'s exhaustive switch); +1 LLM call/clip |
 | 3 | Narrative Graph (3) — **shipped** | Phase 2 | L | Hardest LLM-reasoning task; needs an "unsegmented" fallback (satisfied via `validateGraph()`'s structural collapse) |
-| 4 | Contextual Momentum (new, part of 5) | Phase 3 + `EditingRhythmFeatures.accelerationScore` | M | No ground truth for curve *shape* yet |
+| 4 | Contextual Momentum (new, part of 5) — **shipped** | Phase 3 + `EditingRhythmFeatures.accelerationScore` | M | No ground truth for curve *shape* yet (still true post-ship — heuristic weights, undocumented as calibrated) |
 | 5 | Emotional Arc (new, part of 5) | vocal-emotion rescue (see below) + Phase 2 | M | Vocal-emotion classifier trained on acted, not natural, speech |
 | 6 | Multi-speaker Reasoning (extends 6) | Phases 1, 4, 5 | M | Must not affect single-speaker clips (the majority case) |
 | 7 | Cross-module Fusion (4, Virality Engine) | Phases 1, 3, 4, 5 | M | Labeling discipline (8 heuristic probabilities reading as "trained") |
@@ -359,10 +380,78 @@ packages/shared/src/types/
   intelligence-v4.ts                        ClipIntelligenceDto.narrativeGraph
 ```
 
-`Clip.highlightScore` and every existing Fusion Engine v2 output are unchanged by all three
-phases — verified by regression tests in `sinks.spec.ts` (extended to cover `narrativeGraph`
-alongside `hookPrediction`/`semanticEvents`) plus a full, green run of every existing test suite
-after each phase's changes (worker: 569/569, api: 1268/1268, web: 313/313 as of Phase 3). Phase 3
-was the first to run the full `pnpm verify` (added between Phase 2 and Phase 3) locally before
-pushing - PR went green on the first CI run after one local `format:check` fix it caught before
-push.
+## Phase 4 architecture (as shipped)
+
+```
+packages/contracts/src/contextual-momentum.ts
+                                             momentumSampleSchema, momentumCurveSchema,
+                                             computeMomentumCurveInputSchema
+
+packages/contextual-momentum/src/
+  segment-type-multiplier.ts                momentumMultiplierForSegmentType() - exhaustive
+                                             switch/assertNever over all 10 NARRATIVE_SEGMENT_
+                                             TYPES (Contract Governance rule 1), reusing Phase 3's
+                                             taxonomy rather than introducing a new one
+  compute-momentum-curve.ts                 computeMomentumCurve() - the module's single entry
+                                             point, PURE and synchronous (no `deps` param) - first
+                                             v4 module with zero LLM dependency, matching
+                                             @speedora/editing-rhythm's own precedent for
+                                             composite/derived signals. Per-sample formula: base
+                                             motion-energy (min-max normalized within the clip's
+                                             own samples) + a smaller-weighted camera-motion
+                                             boost (nearest sample, optional) + a linear
+                                             acceleration-bias ramp (optional) x a narrative
+                                             segment-type multiplier (optional, degrades to
+                                             neutral when narrativeGraph is null or
+                                             unsegmented: true)
+  feature-flags.ts                          isContextualMomentumEnabled()
+
+apps/worker/src/render-graph/nodes/contextual-momentum.ts
+                                             contextualMomentumNode (optional: false, no
+                                             fallback - unlike every Phase 1-3 node, this one
+                                             reads only already-resolved upstream data and can't
+                                             hit real I/O failure; deps: motionEnergy,
+                                             cameraMotion, editingRhythmFeatures, narrativeGraph,
+                                             all already-existing node ids)
+
+apps/worker/src/render-graph/sinks.ts       CLIP_UPDATE_MAP['contextualMomentum'] entry -
+                                             deliberately NOT added to FUSION_INPUT_MAP (D1),
+                                             despite structurally resembling
+                                             editingRhythmFeatures (which DOES feed Fusion Engine
+                                             v2) closely enough to be worth calling out in code
+                                             comments; cast through as InputJsonValue like
+                                             motionEnergy (a closed array type), never
+                                             Prisma.JsonNull even when empty - guarded by the
+                                             same extended regression test as prior phases
+
+apps/api/src/videos/transcript-segment.util.ts
+                                             toSharedContextualMomentum() - the TS2742 fix (D7).
+                                             Unlike Phases 1-3, null here can ONLY mean "this Clip
+                                             row predates this phase's migration," not "the node
+                                             failed" (the node itself can't fail)
+
+apps/api/src/clips/clips.service.ts         GET /clips/:id/intelligence extended with
+                                             `contextualMomentum`, gated by its OWN independent
+                                             flag (D9 - the 4th field on the same DTO)
+
+packages/database/prisma/schema.prisma      Clip.contextualMomentum Json? (new column, real-
+                                             Postgres round trip manually verified)
+
+packages/shared/src/types/
+  video.ts                                  MomentumSample/MomentumCurve mirrored (not
+                                             imported), same duplication precedent as
+                                             NarrativeGraph/SemanticEvent/HookPredictionOutput;
+                                             Clip.contextualMomentum field
+  intelligence-v4.ts                        ClipIntelligenceDto.contextualMomentum
+```
+
+`Clip.highlightScore` and every existing Fusion Engine v2 output are unchanged by all four
+phases — verified by regression tests in `sinks.spec.ts` (extended to cover `contextualMomentum`
+alongside `hookPrediction`/`semanticEvents`/`narrativeGraph`) plus a full, green run of every
+existing test suite after each phase's changes. Phase 3 was the first to run the full `pnpm
+verify` (added between Phase 2 and Phase 3) locally before pushing; Phase 4 continued that
+practice - `apps/worker`: 571/571, 22 new unit tests in `packages/contextual-momentum`, every
+`apps/api` suite green (one, `mfa.service.spec.ts`, hit a QR-render timeout under local system
+load during the full run and was re-verified passing in isolation - a flake, not a regression;
+same for two `ffmpeg.brand-segment-concat.integration.spec.ts` cases, also re-verified passing in
+isolation - neither file touches anything Phase 4 changed).
