@@ -1074,6 +1074,20 @@ model Clip {
   // regardless of the NARRATIVE_GRAPH_ENABLED flag (gates API exposure
   // only - see isNarrativeGraphEnabled()).
   narrativeGraph               Json?
+  // AI Intelligence v4, Phase 4 (Contextual Momentum - see docs/ai/
+  // intelligence-v4.md). @speedora/contextual-momentum's MomentumCurve - a
+  // per-instant timeline of RELATIVE (within-clip-only) momentum scores,
+  // composed from already-computed motionEnergy/cameraMotion/
+  // editingRhythmFeatures/narrativeGraph signals via a pure computation, no
+  // LLM call. Unlike Phases 1-3, this node can't fail in the "LLM call
+  // failed" sense (optional: false, no fallback) - null here can only mean
+  // this Clip row predates this phase's migration; once computed, the
+  // value is always a real array (possibly empty, same "empty array from
+  // an optional upstream detector" convention motionEnergy itself already
+  // has). Computed on every render regardless of the
+  // CONTEXTUAL_MOMENTUM_ENABLED flag (gates API exposure only - see
+  // isContextualMomentumEnabled()).
+  contextualMomentum           Json?
   // AI Clip Library roadmap, Phase P1 - denormalized endTime - startTime,
   // set alongside them at every write site (detect-clips.worker.ts's
   // initial prisma.clip.create, and ClipsService.update's manual trim) -

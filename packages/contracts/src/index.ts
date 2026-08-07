@@ -3,6 +3,7 @@ export * from './analytics-report';
 export * from './audio-intelligence';
 export * from './clip-scoring';
 export * from './composition-intelligence';
+export * from './contextual-momentum';
 export * from './conversation-intelligence';
 export * from './cutlist';
 export * from './editing-rhythm';

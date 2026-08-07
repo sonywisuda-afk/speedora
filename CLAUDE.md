@@ -51,9 +51,9 @@ packages/
                                                          # calibration + M1's correlation math -
                                                          # shared by apps/worker's CLI report and
                                                          # apps/api's GET /ops/ai/* (M5C-B)
-  llm-client/, hook-prediction/,                        # AI Intelligence v4 Phase 0-3 - see
+  llm-client/, hook-prediction/,                        # AI Intelligence v4 Phase 0-4 - see
   multimodal-reasoning/, semantic-events/,               # ai/intelligence-v4.md
-  narrative-graph/
+  narrative-graph/, contextual-momentum/
 ```
 
 `apps/web` and `apps/api` only communicate over HTTP. `apps/worker` has no HTTP server — it only
@@ -103,7 +103,7 @@ pattern itself and its "add a new module" checklist.
 | [`docs/ai/composition-intelligence.md`](docs/ai/composition-intelligence.md) | Composition Intelligence roadmap (rule of thirds, headroom, lead room, centering, composition stability, framing consistency, subject loss ratio) — reclassifies an earlier 15-batch "Camera Intelligence" proposal, most of which turned out to already be Scene/Motion/Object Intelligence; **complete** — contract, `packages/composition-intelligence` derive functions, the standalone `packages/primary-subject` selection package, worker adapter, and Fusion Engine wiring (RB-1/RB-2) are all done at weight 0, pending calibration |
 | [`docs/ai/dataset-feedback-loop.md`](docs/ai/dataset-feedback-loop.md) | Dataset & Feedback Loop (post-hardening roadmap Milestone 1) — `PublishRecordStatsSnapshot` engagement history, the `engagementScore` heuristic, and `export-training-dataset.ts`'s feature/outcome join + correlation read, the prerequisite for Fusion Engine v3's ML-based weighting |
 | [`docs/ai/dataset-validation-calibration.md`](docs/ai/dataset-validation-calibration.md) | Dataset Validation & Calibration (post-hardening roadmap Milestone 1.5, between Milestone 1 and Fusion Engine v3) — `generate-dataset-report.ts`'s Dataset Health Report (Missing Data, Feature Distribution, Feature Drift Detection, Correlation Dashboard, Weight Calibration Report), and the two-tier `dataset-lib.ts` data model that makes most of it useful ahead of real engagement data |
-| [`docs/ai/intelligence-v4.md`](docs/ai/intelligence-v4.md) | AI Intelligence v4 — the ADR (D1-D11), dependency graph, and 14-part phased roadmap for a new additive prediction layer (Hook Prediction, Virality, Retention Curve, Narrative Graph, Personalization, ...) that sits beside `highlightScore`, not instead of it; Phase 0 (`packages/llm-client`), Phase 1 (Hook Prediction Engine), Phase 2 (Semantic Event Detection + `packages/multimodal-reasoning`), and Phase 3 (Narrative Graph) are shipped, Parts 4-14 are roadmap only |
+| [`docs/ai/intelligence-v4.md`](docs/ai/intelligence-v4.md) | AI Intelligence v4 — the ADR (D1-D11), dependency graph, and 14-part phased roadmap for a new additive prediction layer (Hook Prediction, Virality, Retention Curve, Narrative Graph, Personalization, ...) that sits beside `highlightScore`, not instead of it; Phase 0 (`packages/llm-client`), Phase 1 (Hook Prediction Engine), Phase 2 (Semantic Event Detection + `packages/multimodal-reasoning`), Phase 3 (Narrative Graph), and Phase 4 (Contextual Momentum, `packages/contextual-momentum` — the first v4 module with no LLM call, pure composition) are shipped, Parts 5-14 are roadmap only |
 
 ## Status
 
@@ -350,7 +350,15 @@ High-level state of each major initiative (see the linked docs for what's actual
   `unsegmented: true` fallback (a real, successful result, not a failure) on any structural
   problem, rather than a partial repair — this phase's required risk mitigation against a
   silently-wrong graph reading as authoritative. `Clip.narrativeGraph`, same pattern as Phases 1-2,
-  behind its own `NARRATIVE_GRAPH_ENABLED` flag. Parts 4-14 (Virality Engine, Retention Curve,
+  behind its own `NARRATIVE_GRAPH_ENABLED` flag. **Phase 4 (Contextual Momentum)**:
+  `packages/contextual-momentum` — the first v4 module with no LLM call at all, a pure/synchronous
+  composition over already-computed signals (motion energy, optional camera motion, optional
+  `EditingRhythmFeatures.accelerationScore`, optional Phase 3 `narrativeGraph` as a segment-type
+  multiplier) producing a per-instant `MomentumCurve` timeline. Its render-graph node is
+  `optional: false` (unlike Phases 1-3's LLM-backed nodes, it can't hit real I/O failure), so
+  `Clip.contextualMomentum` is null only when a row predates this phase's migration, never "the
+  node failed." Same DTO-extension pattern as Phases 1-3, behind its own
+  `CONTEXTUAL_MOMENTUM_ENABLED` flag. Parts 5-14 (Emotional Arc, Virality Engine, Retention Curve,
   Subtitle/Caption/Visual Emphasis editorial features, Clip Ranking, Personalization, Online
   Learning readiness, Evaluation Suite, Production Hardening) are a documented, estimated,
   dependency-ordered roadmap only — not built. See `ai/intelligence-v4.md`.

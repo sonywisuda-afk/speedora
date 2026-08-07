@@ -14,6 +14,7 @@ import type {
   HookPauseFeatures,
   HookPredictionOutput,
   LipSyncVerification,
+  MomentumCurve,
   MotionEnergyFeatures,
   MotionEnergySample,
   NarrativeGraph,
@@ -39,6 +40,7 @@ import type { GraphNode } from './executor';
 import type { RenderGraphContext } from './context';
 import { audioEditingNodes } from './nodes/audio-editing';
 import { compositionNodes } from './nodes/composition';
+import { contextualMomentumNodes } from './nodes/contextual-momentum';
 import { facialGestureNodes } from './nodes/facial-gesture';
 import { faceSpeakerNodes } from './nodes/face-speaker';
 import { hookPredictionNodes } from './nodes/hook-prediction';
@@ -72,6 +74,7 @@ export const renderClipGraph: GraphNode<RenderGraphContext, unknown>[] = [
   ...hookPredictionNodes,
   ...semanticEventNodes,
   ...narrativeGraphNodes,
+  ...contextualMomentumNodes,
   ...thumbnailSelectionNodes,
 ];
 
@@ -114,5 +117,6 @@ export interface RenderGraphResult {
   hookPrediction: HookPredictionOutput | null;
   semanticEvents: SemanticEvent[] | null;
   narrativeGraph: NarrativeGraph | null;
+  contextualMomentum: MomentumCurve;
   thumbnailSelection: SelectThumbnailTimestampOutput;
 }

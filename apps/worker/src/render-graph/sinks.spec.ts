@@ -82,6 +82,7 @@ function baseResult(overrides: Partial<RenderGraphResult> = {}): RenderGraphResu
     hookPrediction: null,
     semanticEvents: null,
     narrativeGraph: null,
+    contextualMomentum: [],
     thumbnailSelection: midpointThumbnailSelection,
     ...overrides,
   };
@@ -141,18 +142,20 @@ describe('toFusionInput', () => {
   // sit BESIDE the Fusion Engine, they never feed computeHighlightScore.
   // Regression guard: a present hookPrediction must never leak into
   // FusionInput under any key.
-  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph in FusionInput', () => {
+  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph/contextualMomentum in FusionInput', () => {
     const hookPrediction = { clipId: 'clip-1', hookProbability: 90 } as never;
     const semanticEvents = [{ type: 'money', t: 5 }] as never;
     const narrativeGraph = { segments: [], relations: [], unsegmented: true } as never;
+    const contextualMomentum = [{ t: 0, momentumScore: 0.5 }] as never;
     const input = toFusionInput(
-      baseResult({ hookPrediction, semanticEvents, narrativeGraph }),
+      baseResult({ hookPrediction, semanticEvents, narrativeGraph, contextualMomentum }),
       'clip-1',
       null,
     );
     expect(Object.values(input)).not.toContain(hookPrediction);
     expect(Object.values(input)).not.toContain(semanticEvents);
     expect(Object.values(input)).not.toContain(narrativeGraph);
+    expect(Object.values(input)).not.toContain(contextualMomentum);
   });
 });
 
@@ -244,5 +247,19 @@ describe('toClipUpdateData', () => {
   it('casts motionEnergy through as an InputJsonValue, never Prisma.JsonNull, even when empty', () => {
     const data = toClipUpdateData(baseResult(), { outputUrl: 'renders/clip-1.mp4' });
     expect(data.motionEnergy).toEqual([]);
+  });
+
+  it('casts contextualMomentum through as an InputJsonValue, never Prisma.JsonNull, even when empty', () => {
+    const data = toClipUpdateData(baseResult(), { outputUrl: 'renders/clip-1.mp4' });
+    expect(data.contextualMomentum).toEqual([]);
+    expect(data.contextualMomentum).not.toBe(Prisma.JsonNull);
+  });
+
+  it('writes a present contextualMomentum curve through directly', () => {
+    const contextualMomentum = [{ t: 0, momentumScore: 0.5 }] as never;
+    const data = toClipUpdateData(baseResult({ contextualMomentum }), {
+      outputUrl: 'renders/clip-1.mp4',
+    });
+    expect(data.contextualMomentum).toBe(contextualMomentum);
   });
 });
