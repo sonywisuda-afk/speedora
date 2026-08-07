@@ -15,6 +15,7 @@ export * from './fusion';
 export * from './fusion-ml';
 export * from './gesture-intelligence';
 export * from './intelligence-signal';
+export * from './llm-client';
 export * from './object-intelligence';
 export * from './ocr';
 export * from './platform-fit';
