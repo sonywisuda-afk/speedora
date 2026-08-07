@@ -86,7 +86,7 @@ pattern itself and its "add a new module" checklist.
 | [`docs/alerting.md`](docs/alerting.md) | Alert-condition foundation (thresholds, internal alert states) — no external integrations |
 | [`docs/operations-runbook.md`](docs/operations-runbook.md) | Backup, restore, disaster recovery, node/worker replacement, database/storage recovery procedures |
 | [`docs/production-hardening-report.md`](docs/production-hardening-report.md) | Final engineering report for the backup/rate-limiter/monitoring/alerting initiative — every change by phase, files touched, remaining tech debt, deferred items, roadmap, readiness score |
-| [`docs/testing.md`](docs/testing.md) | Module vs. adapter test split, real-Postgres verification, known verification gaps |
+| [`docs/testing.md`](docs/testing.md) | Module vs. adapter test split, real-Postgres verification, known verification gaps, `pnpm verify` pre-push convention |
 | [`docs/export-center-manual-verification.md`](docs/export-center-manual-verification.md) | Manual pre-merge checklist for Export Center download routes (Sprint 03b) — real-browser download behavior, Excel/VLC compatibility, UTF-8/BOM correctness; complements the automated suite, doesn't replace it |
 | [`docs/performance-evaluation.md`](docs/performance-evaluation.md) | Stabilization Pass Area 5 — real `EXPLAIN ANALYZE`/index review/N+1 audit, worker throughput, redirect latency, and frontend bundle impact of Recharts, evidence-backed at seeded scale |
 | [`docs/ai/llm.md`](docs/ai/llm.md) | The `detect-clips` LLM call — clip selection, `ClipScores`, hooks/hashtags, emoji suggestions |
@@ -347,4 +347,7 @@ High-level state of each major initiative (see the linked docs for what's actual
 
 For new feature work: check whether it's an extension of an existing signal/module first (extend,
 don't rebuild — this has been an explicit recurring instruction across the AI Fusion roadmap), and
-follow the JSON-contract checklist in `ARCHITECTURE.md` for anything new.
+follow the JSON-contract checklist in `ARCHITECTURE.md` for anything new. **Run `pnpm verify`
+before pushing** (`format:check` → `lint` → `typecheck` → `build` → `test`, the same checks CI
+runs) — see `docs/testing.md`'s "`pnpm verify` — run before every push" section for why this
+convention exists.

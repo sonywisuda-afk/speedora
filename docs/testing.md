@@ -98,3 +98,23 @@ build and test suite (`pnpm -r build`, `pnpm -r test`) after a shared-type chang
 app you meant to touch. See `coding-standards.md`'s TS2742 and `apps/web` exhaustive-map gotchas,
 both of which are specifically the kind of failure that only shows up in a package/app you didn't
 directly edit.
+
+## `pnpm verify` — run before every push
+
+**Run `pnpm verify` before pushing a branch.** It runs, in order, `format:check` → `lint` →
+`typecheck` → `build` → `test` across the whole repo — the same checks CI's 4 workflows run,
+composed from the existing root `format:check`/`lint`/`typecheck`/`build`/`test` scripts (no new
+logic). Cheapest checks first, so a trivial formatting/lint mistake fails fast instead of waiting
+through a full build first.
+
+This exists because AI Intelligence v4's Phase 0-1 PR (#52) needed 3 separate follow-up commits
+after CI caught things a local `pnpm --filter <package> build/test` pass had missed entirely: a
+package using `process.env` without declaring `@types/node` (worked locally only via node_modules
+hoisting, broke every CI workflow's shared "Build packages" step), and two rounds of
+`prettier`/`eslint` formatting CI's repo-wide `format:check`/per-package `lint` steps caught that a
+scoped local run didn't. Phase 2's PR (#53) ran `pnpm verify`'s equivalent manually before pushing
+and went fully green on the first try — no follow-up commits.
+
+`pnpm verify` does **not** replace CI (still the real gate; branch protection requires the 4 status
+checks regardless), and it isn't wired into a git hook — it's a manual step to run before pushing,
+the same way you'd run tests before committing.

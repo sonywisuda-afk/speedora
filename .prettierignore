@@ -7,3 +7,10 @@ coverage
 pnpm-lock.yaml
 *.md
 packages/database/src/generated
+# Next.js auto-regenerates this on every `next dev`/`next build`/`next
+# typecheck` run - gitignored (apps/web/.gitignore) but not previously
+# covered here, so any local dev who'd run apps/web at least once had a
+# spurious `pnpm format:check`/`pnpm verify` failure on a file they never
+# authored and can't fix by editing it (see docs/testing.md's `pnpm verify`
+# section).
+apps/web/next-env.d.ts
