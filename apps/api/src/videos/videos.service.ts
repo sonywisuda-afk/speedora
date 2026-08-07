@@ -71,6 +71,7 @@ import {
   toSharedHighlightPrediction,
   toSharedHighlightRecommendation,
   toSharedHookPrediction,
+  toSharedSemanticEvents,
   toSharedLipSyncVerifications,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
@@ -1848,6 +1849,7 @@ export class VideosService {
           highlightRecommendation,
           compositionFeatures,
           hookPrediction,
+          semanticEvents,
           thumbnailSelectionBreakdown,
           thumbnailSelectionFallback,
           ...clip
@@ -1905,6 +1907,7 @@ export class VideosService {
           highlightRecommendation: toSharedHighlightRecommendation(highlightRecommendation),
           compositionFeatures: toSharedCompositionFeatures(compositionFeatures),
           hookPrediction: toSharedHookPrediction(hookPrediction),
+          semanticEvents: toSharedSemanticEvents(semanticEvents),
           thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
             thumbnailSelectionBreakdown,
           ),

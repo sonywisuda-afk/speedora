@@ -1051,6 +1051,17 @@ model Clip {
   // when the render-graph node's own LLM call failed (optional: true,
   // fallback: null - never fails the render job).
   hookPrediction               Json?
+  // AI Intelligence v4, Phase 2 (Semantic Event Detection - see docs/ai/
+  // intelligence-v4.md). @speedora/semantic-events' SemanticEvent[] -
+  // narrative events (confession/mistake/failure/... 22-value taxonomy)
+  // with confidence/importance/evidence/reason. Same array-vs-null
+  // convention as sceneCutEvents: null when the render-graph node's own
+  // LLM call failed/never ran (optional: true, fallback: null); an empty
+  // array means it ran and genuinely found zero events, a real result, not
+  // a failure. Computed on every render regardless of the
+  // SEMANTIC_EVENT_DETECTION_ENABLED flag (gates API exposure only - see
+  // isSemanticEventDetectionEnabled()).
+  semanticEvents               Json?
   // AI Clip Library roadmap, Phase P1 - denormalized endTime - startTime,
   // set alongside them at every write site (detect-clips.worker.ts's
   // initial prisma.clip.create, and ClipsService.update's manual trim) -

@@ -80,6 +80,7 @@ function baseResult(overrides: Partial<RenderGraphResult> = {}): RenderGraphResu
     editingRhythmFeatures: noEditingRhythmFeatures,
     hookPauseFeatures: noHookPauseFeatures,
     hookPrediction: null,
+    semanticEvents: null,
     thumbnailSelection: midpointThumbnailSelection,
     ...overrides,
   };
@@ -139,10 +140,12 @@ describe('toFusionInput', () => {
   // sit BESIDE the Fusion Engine, they never feed computeHighlightScore.
   // Regression guard: a present hookPrediction must never leak into
   // FusionInput under any key.
-  it('never includes hookPrediction/hookPauseFeatures in FusionInput', () => {
+  it('never includes hookPrediction/hookPauseFeatures/semanticEvents in FusionInput', () => {
     const hookPrediction = { clipId: 'clip-1', hookProbability: 90 } as never;
-    const input = toFusionInput(baseResult({ hookPrediction }), 'clip-1', null);
+    const semanticEvents = [{ type: 'money', t: 5 }] as never;
+    const input = toFusionInput(baseResult({ hookPrediction, semanticEvents }), 'clip-1', null);
     expect(Object.values(input)).not.toContain(hookPrediction);
+    expect(Object.values(input)).not.toContain(semanticEvents);
   });
 });
 
@@ -158,6 +161,7 @@ describe('toClipUpdateData', () => {
     expect(data.faceLandmarks).toBe(Prisma.JsonNull);
     expect(data.objectFeatures).toBe(Prisma.JsonNull);
     expect(data.hookPrediction).toBe(Prisma.JsonNull);
+    expect(data.semanticEvents).toBe(Prisma.JsonNull);
   });
 
   it('writes a present hookPrediction through directly (no hookPauseFeatures column of its own)', () => {
@@ -167,6 +171,15 @@ describe('toClipUpdateData', () => {
     });
     expect(data.hookPrediction).toBe(hookPrediction);
     expect(data).not.toHaveProperty('hookPauseFeatures');
+  });
+
+  it('writes a present (including empty-array) semanticEvents through directly, never JsonNull', () => {
+    const emptyEvents: never[] = [];
+    const data = toClipUpdateData(baseResult({ semanticEvents: emptyEvents }), {
+      outputUrl: 'renders/clip-1.mp4',
+    });
+    expect(data.semanticEvents).toBe(emptyEvents);
+    expect(data.semanticEvents).not.toBe(Prisma.JsonNull);
   });
 
   it('writes an always-present object directly, with no JsonNull wrapping', () => {

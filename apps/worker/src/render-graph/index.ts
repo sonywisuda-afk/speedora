@@ -26,6 +26,7 @@ import type {
   SceneCutEvent,
   SceneFeatures,
   SelectThumbnailTimestampOutput,
+  SemanticEvent,
   SpeakerFaceAssociation,
   SpeakerFusionFeatures,
   SpeakerTimelineEntry,
@@ -43,6 +44,7 @@ import { hookPredictionNodes } from './nodes/hook-prediction';
 import { objectNodes } from './nodes/object';
 import { ocrNodes } from './nodes/ocr';
 import { sceneNodes } from './nodes/scene';
+import { semanticEventNodes } from './nodes/semantic-events';
 import { thumbnailSelectionNodes } from './nodes/thumbnail-selection';
 
 export { runGraph, GraphConfigError, GraphCycleError, type GraphNode } from './executor';
@@ -66,6 +68,7 @@ export const renderClipGraph: GraphNode<RenderGraphContext, unknown>[] = [
   ...compositionNodes,
   ...audioEditingNodes,
   ...hookPredictionNodes,
+  ...semanticEventNodes,
   ...thumbnailSelectionNodes,
 ];
 
@@ -106,5 +109,6 @@ export interface RenderGraphResult {
   editingRhythmFeatures: EditingRhythmFeatures;
   hookPauseFeatures: HookPauseFeatures;
   hookPrediction: HookPredictionOutput | null;
+  semanticEvents: SemanticEvent[] | null;
   thumbnailSelection: SelectThumbnailTimestampOutput;
 }
