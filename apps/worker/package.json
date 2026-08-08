@@ -61,6 +61,7 @@
     "@speedora/speaker-diarization": "workspace:*",
     "@speedora/speaker-scoring": "workspace:*",
     "@speedora/storage": "workspace:^",
+    "@speedora/subtitle-rewriter": "workspace:*",
     "@speedora/subtitle-translate": "workspace:*",
     "@speedora/subtitles": "workspace:*",
     "@speedora/thumbnail-selection": "workspace:*",

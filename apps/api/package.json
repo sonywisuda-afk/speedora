@@ -52,6 +52,7 @@
     "@speedora/shared": "workspace:*",
     "@speedora/social": "workspace:*",
     "@speedora/storage": "workspace:^",
+    "@speedora/subtitle-rewriter": "workspace:*",
     "@speedora/virality-engine": "workspace:*",
     "bcrypt": "^6.0.0",
     "bullmq": "^5.7.8",

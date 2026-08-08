@@ -76,6 +76,16 @@
   guard). See "Phase 11 architecture (as shipped)" below.
 - **Phases 12-17**: documented roadmap only, not built (renumbered from the original Phase 9-14 —
   see "Roadmap" below; Phases 0-8 above keep their original numbers/history unchanged).
+- **Track B, Phase A1 (Subtitle Rewriter, spec Part 7)**: shipped, flag-off
+  (`SUBTITLE_REWRITE_ENABLED=false`). A separate track from Phases 0-17 above (parallel,
+  non-blocking) — see "Roadmap" below and [`ai/subtitle-intelligence.md`](./subtitle-intelligence.md)
+  for its own full audit/ADR/dependency-graph/roadmap. STRUCTURAL re-chunking only (resolved via
+  `AskUserQuestion` before implementation): `@speedora/subtitle-rewriter` groups a clip's own
+  already-transcribed words into short, pause/rhythm/emotion/speaking-speed-aware caption lines with
+  precomputed emphasis, plus a derived `HighlightTimeline` of punch-worthy moments — every ASR word/
+  order/timestamp stays byte-for-byte unchanged, no LLM call. Does not yet touch the actual burned-in
+  captions (Phase A2's job, design-only). Phases A2/B1/B2 remain design-only pending their own
+  go-ahead.
 
 ## Why this exists
 
@@ -390,8 +400,29 @@ without a literal file move. `vocalEmotion.ts` itself is untouched.
 
 | Phase | Name (spec Part) | Depends on | Complexity | Primary risk |
 |---|---|---|---|---|
-| A | Subtitle Intelligence + Dynamic Caption (7, 8) | vocal-emotion rescue | M | Must never rewrite transcript *facts*, only phrasing |
-| B | Visual Emphasis Engine (9) | none — signals already exist | M | Unify `reframe`'s own face detector with `primary-subject`'s choice, don't layer a second opinion |
+| A1 | Subtitle Rewriter, data only (7) — **shipped, flag-off** (`SUBTITLE_REWRITE_ENABLED=false`), see [`ai/subtitle-intelligence.md`](./subtitle-intelligence.md) | vocal-emotion rescue | M | Re-chunking heuristic quality unvalidated; addressed by design: non-destructive, data-only (`Clip.subtitleIntelligence`), zero render-path risk |
+| A2 | Wire Subtitle Rewriter into `buildAss()` (7) — **design complete, not built** | A1 | M | First phase touching the production render path — karaoke word-sync must survive re-chunking |
+| B1 | Dynamic Caption Engine, data only (8) — **design complete, not built** | A1, Phase 5 | S-M | "Don't overuse animation" needs an explicit documented cooldown heuristic |
+| B2 | Wire Dynamic Caption treatment into `build-ass.ts`'s ASS emission (8) — **design complete, not built** | B1, A2 | L | New `\fscx`/`\fscy`/`\t`/`\alpha` ASS tag territory — needs real ffmpeg/libass verification before trusting in production |
+| C | Visual Emphasis Engine (9) | none — signals already exist | M | Unify `reframe`'s own face detector with `primary-subject`'s choice, don't layer a second opinion |
+
+**Update (2026-08-08)**: resolved a real product-shape ambiguity in Part 7's "rewrite subtitle" via
+`AskUserQuestion` before any code was written (same "ask, don't guess" precedent as v2.1's Practical
+Score/Prediction, OI-4's interactionConfidence redesign) — the spec's own illustrative example
+changes actual wording, which conflicts with karaoke word-sync and this table's own already-stated
+risk ("must never rewrite transcript facts"). User resolved: **structural re-chunking only for this
+phase** (every ASR word/order/timestamp stays verbatim; only line breaks/chunk boundaries/emphasis
+selection change), with lexical paraphrase explicitly deferred to its own future, separately-gated
+phase. Old single "Phase A" row above is now split into A1/A2 (Subtitle Rewriter) and B1/B2 (Dynamic
+Caption Engine, renamed from the old "Phase B" which is now **Phase C**) per the full audit/ADR/
+dependency-graph/roadmap in [`ai/subtitle-intelligence.md`](./subtitle-intelligence.md). **Update,
+same day**: Phase A1 is now shipped (flag-off) — a pure, non-destructive re-chunker
+(`@speedora/subtitle-rewriter`) producing `Clip.subtitleIntelligence` (`SubtitleTimeline` +
+`HighlightTimeline`), wired as a new `optional: false` render-graph node, exposed via
+`GET /clips/:id/intelligence`'s 9th field. Does not yet touch `buildAss()`/the actual burned-in
+captions (Phase A2's job). A2/B1/B2 remain design-only pending their own go-ahead — see
+`ai/subtitle-intelligence.md`'s "Phase A1 architecture (as shipped)" section for the full file list,
+a real bug caught during verification, and what was actually tested/built.
 
 ## Phase 1 architecture (as shipped)
 
