@@ -6,7 +6,9 @@ import { pipeline } from 'node:stream/promises';
 import * as Sentry from '@sentry/node';
 import type {
   CaptionStyleValue,
+  CropDimensions,
   FontFamily,
+  PrimarySubjectSample,
   SpeakerTurn,
   SubtitleLine,
   SubtitleSegment,
@@ -56,7 +58,6 @@ import {
   buildCropPath,
   buildSendCmdScript,
   computeCropDimensions,
-  detectFaces,
   findEmphasisWords,
   type FaceSample,
 } from '@speedora/reframe';
@@ -73,7 +74,6 @@ import {
   downloadStockAsset,
   findBRollMoments,
 } from '../broll';
-import { faceDetectionDeps } from '../faceDetectionDeps';
 import {
   concatBrandSegment,
   extractAnimatedPreview,
@@ -487,40 +487,74 @@ function computeClipCuts(
   ]);
 }
 
-// Runs face detection and builds the crop/zoom plan for a clip. Never
-// throws: a detection failure (missing/misbehaving Python subprocess, no
-// face found, anything else) falls back to a static center-crop rather than
-// failing the whole render - the same "don't fail the job just because
-// there's no face to track" requirement extended to "don't fail the job
-// because the face detector itself had a problem" (CLAUDE.md's Fase 2
-// fallback decision).
-async function buildReframePlan(
+// Visual Emphasis Engine Phase C2 (docs/ai/visual-emphasis-engine.md, ADR
+// DC3/Tech Debt #1) - the clip's constant output frame dimensions,
+// genuinely independent of face/subject detection (computeCropDimensions()
+// only looks at the SOURCE video's own width/height). Split out of the old
+// (pre-C2) buildReframePlan() so it can run BEFORE the render graph -
+// compositionFeaturesNode needs ctx.reframe.outputWidth/outputHeight for
+// its own aspect-ratio-aware thresholds, and the graph must exist before
+// buildReframePlan() below can consume its primarySubjectSamples output.
+async function computeReframeDimensions(
   sourcePath: string,
-  startTime: number,
-  endTime: number,
+): Promise<{ crop: CropDimensions; sourceWidth: number; sourceHeight: number }> {
+  const { width: sourceWidth, height: sourceHeight } = await getVideoDimensions(sourcePath);
+  return { crop: computeCropDimensions(sourceWidth, sourceHeight), sourceWidth, sourceHeight };
+}
+
+// Composition Intelligence's PrimarySubjectSample already shares
+// buildCropPath()'s FaceSample box shape byte-for-byte ({xCenter, yCenter,
+// width, height} | null) - ADR DC3's own finding, confirmed by reading
+// both contracts. No conversion beyond dropping the extra fields
+// (trackId/facingYaw/source) buildCropPath() has no use for.
+function toFaceSamples(samples: PrimarySubjectSample[]): FaceSample[] {
+  return samples.map((sample) => ({ t: sample.t, box: sample.box }));
+}
+
+// Builds the crop/zoom plan for a clip from the render graph's own
+// primarySubjectSamples (Composition Intelligence's already-built
+// selectPrimarySubject() chain: active speaker -> face -> tracked person ->
+// highest objectAttentionScore -> tracked object). Visual Emphasis Engine
+// Phase C2 (docs/ai/visual-emphasis-engine.md, ADR DC3/Tech Debt #1) -
+// UNIFIES what used to be two independent, disagreeing opinions about "who
+// is the subject": this function previously called packages/reframe's own
+// standalone detectFaces() (a SEPARATE MediaPipe Face Detector subprocess
+// from the one render-graph/nodes/face-speaker.ts's faceLandmarksNode
+// already runs via MediaPipe FaceLandmarker), producing a face-only,
+// object-blind answer that never saw Composition Intelligence's richer
+// selection. Now there is exactly one "who is the subject" answer for the
+// whole pipeline - this function only converts already-computed samples
+// into buildCropPath()'s existing input shape, it detects nothing new
+// itself (Tech Debt #2, "buildCropPath() has no object-track input", is
+// fixed as a free byproduct: PrimarySubjectSample can carry
+// object-sourced entries too, so a faceless clip with a tracked object now
+// pans toward it instead of staying static). Deliberately no try/catch
+// (unlike the old detectFaces() call, an external Python subprocess that
+// could genuinely fail): primarySubjectSamples always resolves to a real
+// (possibly empty) array once the render graph completes
+// (primarySubjectSamplesNode is optional: false and handles every
+// upstream null itself), so a thrown error here would be a real code bug,
+// not an expected I/O failure to swallow.
+async function buildReframePlan(
+  primarySubjectSamples: PrimarySubjectSample[],
   transcript: RenderClipJobData['transcript'],
+  startTime: number,
+  crop: CropDimensions,
+  sourceWidth: number,
+  sourceHeight: number,
+  clipDurationSeconds: number,
   // Pre-Processing Settings roadmap (Phase 2) - undefined lets
   // buildCropPath() fall back to its own MAX_ZOOM_IN_FRACTION default.
   zoomInFraction?: number,
 ): Promise<ReframeOptions> {
-  const { width: sourceWidth, height: sourceHeight } = await getVideoDimensions(sourcePath);
-  const crop = computeCropDimensions(sourceWidth, sourceHeight);
-
-  let samples: FaceSample[] = [];
-  try {
-    samples = await detectFaces({ sourcePath, startTime, endTime }, faceDetectionDeps);
-  } catch (error) {
-    logger.warn('face detection failed, falling back to center-crop', {}, error);
-  }
-
   const emphasisWords = findEmphasisWords(toClipRelativeWords(transcript, startTime));
   const cropPath = buildCropPath(
-    samples,
+    toFaceSamples(primarySubjectSamples),
     emphasisWords,
     crop,
     sourceWidth,
     sourceHeight,
-    endTime - startTime,
+    clipDurationSeconds,
     zoomInFraction,
   );
   if (!cropPath) {
@@ -818,17 +852,14 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             const sourceStream = await getObjectStream(sourceUrl);
             await pipeline(sourceStream, createWriteStream(sourcePath));
 
-            // Computed before captions - buildAss needs the final (post-crop,
-            // post-scale) output dimensions to size/position the subtitle text
-            // correctly.
-            const reframe = await buildReframePlan(
-              sourcePath,
-              startTime,
-              endTime,
-              transcript,
-              resolveZoomInFraction(processingOptions),
-            );
-            sendCmdPath = reframe.sendCmdPath;
+            // Computed before the render graph - compositionFeaturesNode needs
+            // the final (post-crop) output dimensions for its own aspect-ratio-
+            // aware thresholds, and buildAss() needs them too. Visual Emphasis
+            // Engine Phase C2 split the old buildReframePlan() in two exactly
+            // here: dimensions only need the source video's own width/height,
+            // genuinely independent of face/subject detection - see
+            // computeReframeDimensions()'s own comment.
+            const { crop, sourceWidth, sourceHeight } = await computeReframeDimensions(sourcePath);
 
             // Composing multiple modules: the render-clip Feature Orchestrator (see
             // ARCHITECTURE.md) - Scene Intelligence's sceneCuts/sceneCutEvents are the first
@@ -845,7 +876,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               scores,
               audioActivityWindows: toAudioActivityWindows(transcript, startTime),
               speakerTurns: toSpeakerTurns(transcript, startTime),
-              reframe: { outputWidth: reframe.outputWidth, outputHeight: reframe.outputHeight },
+              reframe: { outputWidth: crop.width, outputHeight: crop.height },
               sceneAnalysis: resolveSceneAnalysisFlags(processingOptions),
               thumbnailWeights: resolveThumbnailWeights(processingOptions),
             };
@@ -858,6 +889,24 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // compositionFeatures, editingRhythmFeatures, ...) now lives on `graphResult` alone - see
             // render-graph/nodes/*.ts for each one's derivation and render-graph/sinks.ts for how
             // `graphResult` reaches computeHighlightScore()/prisma.clip.update() below.
+
+            // Visual Emphasis Engine Phase C2 (docs/ai/visual-emphasis-engine.md,
+            // ADR DC3) - built AFTER the render graph specifically so it can
+            // consume graphResult.primarySubjectSamples (Composition
+            // Intelligence's own selectPrimarySubject() chain) instead of a
+            // second, disconnected face detector call - see buildReframePlan()'s
+            // own comment for the full "before/after" story.
+            const reframe = await buildReframePlan(
+              graphResult.primarySubjectSamples,
+              transcript,
+              startTime,
+              crop,
+              sourceWidth,
+              sourceHeight,
+              endTime - startTime,
+              resolveZoomInFraction(processingOptions),
+            );
+            sendCmdPath = reframe.sendCmdPath;
 
             // Composing multiple modules: the render-clip Feature Orchestrator (see
             // ARCHITECTURE.md) - toFusionInput() replaces this call's former hand-written object

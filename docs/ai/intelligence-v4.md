@@ -112,7 +112,7 @@
   frames were visually inspected to confirm correct scaling. See `ai/subtitle-intelligence.md`'s
   "Phase B2 architecture (as shipped)" section. **This completes the full Subtitle & Dynamic
   Caption Intelligence roadmap (Track B Phase A1/A2/B1/B2)** - see that doc's own status banner.
-- **Track B, Phase C (Visual Emphasis Engine, spec Part 9)**: Phase C1 shipped (flag-off), C2-C7
+- **Track B, Phase C (Visual Emphasis Engine, spec Part 9)**: Phases C1-C2 shipped, C3-C7
   remain design only - see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md). Real spec
   text obtained before any design started (unlike Phase 7's original Virality Engine) - "Generate
   editing suggestions" across Auto Zoom/Auto Crop/Face Priority/Object Priority/OCR Highlight/Focus
@@ -128,8 +128,14 @@
   Intelligence's `PrimarySubjectSample[]`, Phase 10's `emotionalPeaks`/`curiosityPeaks`/
   `dropPoints`, `@speedora/cutlist`'s silence-gap detection) into one chronological
   `EditingSuggestionTimeline` (`Clip.editingSuggestions`, `VISUAL_EMPHASIS_ENABLED`) naming which
-  of 5 techniques applies, when, and why - no new detector, no rendering-path change (that's C2-C7's
-  job).
+  of 5 techniques applies, when, and why - no new detector, no rendering-path change. **Phase C2**
+  is that rendering-path change, and unlike every other phase in this initiative ships with no
+  flag at all (a real behavior fix, not an opt-in): `render-clip.worker.ts`'s `buildReframePlan()`
+  no longer calls a second, disconnected `detectFaces()` subprocess - it now consumes the render
+  graph's own `primarySubjectSamples` (Composition Intelligence's `selectPrimarySubject()`) for
+  Smart Reframe's actual crop-path subject, closing Tech Debt #1 (the duplication) and #2
+  (`buildCropPath()` gaining real object-track input as a free byproduct) in one rewiring, with no
+  new package/contract/migration/DTO field needed.
 
 ## Why this exists
 
@@ -448,7 +454,7 @@ without a literal file move. `vocalEmotion.ts` itself is untouched.
 | A2 | Wire Subtitle Rewriter into `buildAss()` (7) — **shipped, flag-off** (`Clip.smartSegmentation`) | A1 | M | First phase touching the production render path — karaoke word-sync must survive re-chunking |
 | B1 | Dynamic Caption Engine, data only (8) — **shipped, flag-off** (`DYNAMIC_CAPTION_ENABLED=false`) | A1, Phase 5 | S-M | "Don't overuse animation" needs an explicit documented cooldown heuristic |
 | B2 | Wire Dynamic Caption treatment into `build-ass.ts`'s ASS emission (8) — **shipped, flag-off** (`Clip.dynamicCaptions`) | B1, A2 | L | New `\fscx`/`\fscy`/`\t` ASS tag territory — verified against real ffmpeg+libass, including a visual frame-extraction check |
-| C | Visual Emphasis Engine (9) — **C1 shipped, flag-off** (`Clip.editingSuggestions`), **C2-C7 design only**, see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md) | none — signals already exist | M (per original estimate; the real spec text splits into 7 sub-phases, S-L each) | Unify `reframe`'s own face detector with `primary-subject`'s choice, don't layer a second opinion (now Phase C2 specifically) |
+| C | Visual Emphasis Engine (9) — **C1 shipped, flag-off** (`Clip.editingSuggestions`), **C2 shipped, no flag** (real behavior change), **C3-C7 design only**, see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md) | none — signals already exist | M (per original estimate; the real spec text splits into 7 sub-phases, S-L each) | Unify `reframe`'s own face detector with `primary-subject`'s choice, don't layer a second opinion (Phase C2, shipped) |
 
 **Update (2026-08-08)**: resolved a real product-shape ambiguity in Part 7's "rewrite subtitle" via
 `AskUserQuestion` before any code was written (same "ask, don't guess" precedent as v2.1's Practical

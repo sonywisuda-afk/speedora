@@ -125,6 +125,12 @@ This order is encoded both as a comment on `compositionSampleSchema`/`primarySub
 and in `select-primary-subject.ts` itself, not just here, so the implementation and this doc can't
 silently drift apart.
 
+**Update**: Visual Emphasis Engine Phase C2 (`docs/ai/visual-emphasis-engine.md`, ADR DC3) gave
+this same selection a second consumer — `render-clip.worker.ts`'s `buildReframePlan()` now derives
+Smart Reframe's own crop-path subject from `selectPrimarySubject()`'s output too, retiring a
+previously separate, disconnected `detectFaces()` call that could disagree with this chain's own
+choice on the same clip. See `docs/worker.md`'s "Smart Reframe / Auto Zoom" section.
+
 ## Batch RB-1 — Composition Features
 
 No new detector or subprocess. Every feature below is a pure derive function over bounding-box

@@ -20,10 +20,14 @@ export interface RenderGraphContext {
   // section for why that's a deliberate, explicitly-flagged efficiency fix, not an accident).
   audioActivityWindows: AudioActivityWindow[];
   speakerTurns: SpeakerTurn[];
-  // Built by buildReframePlan() BEFORE the graph runs (captions/rendering need it regardless of
-  // any AI signal) - only the two dimensions compositionFeaturesNode needs for its aspect-ratio-
-  // aware thresholds are threaded through, not the full ReframeOptions shape (crop path, sendCmd
-  // script path, etc. are rendering-only concerns with no graph node that needs them).
+  // Built by computeReframeDimensions() BEFORE the graph runs (captions/rendering need it
+  // regardless of any AI signal) - only the two dimensions compositionFeaturesNode needs for its
+  // aspect-ratio-aware thresholds are threaded through, not the full ReframeOptions shape (crop
+  // path, sendCmd script path, etc. are rendering-only concerns with no graph node that needs
+  // them). Visual Emphasis Engine Phase C2 (docs/ai/visual-emphasis-engine.md, ADR DC3) moved the
+  // actual crop-PATH construction (buildReframePlan(), which now consumes this graph's own
+  // primarySubjectSamples output) to run AFTER the graph instead - only these two dimensions,
+  // genuinely independent of face/subject detection, still need to be available this early.
   reframe: { outputWidth: number; outputHeight: number };
   // Pre-Processing Settings roadmap (Phase 2) - resolved once from
   // Video.processingOptions.sceneAnalysis before the graph runs (see
