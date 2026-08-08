@@ -77,6 +77,7 @@ import {
   toSharedEmotionalArc,
   toSharedMultiSpeakerBreakdown,
   toSharedViralityPrediction,
+  toSharedRetentionCurveInsights,
   toSharedLipSyncVerifications,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
@@ -1860,6 +1861,7 @@ export class VideosService {
           emotionalArc,
           multiSpeakerBreakdown,
           viralityPrediction,
+          retentionCurveInsights,
           thumbnailSelectionBreakdown,
           thumbnailSelectionFallback,
           ...clip
@@ -1923,6 +1925,7 @@ export class VideosService {
           emotionalArc: toSharedEmotionalArc(emotionalArc),
           multiSpeakerBreakdown: toSharedMultiSpeakerBreakdown(multiSpeakerBreakdown),
           viralityPrediction: toSharedViralityPrediction(viralityPrediction),
+          retentionCurveInsights: toSharedRetentionCurveInsights(retentionCurveInsights),
           thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
             thumbnailSelectionBreakdown,
           ),

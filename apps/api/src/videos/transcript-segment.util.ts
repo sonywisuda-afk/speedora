@@ -38,6 +38,7 @@ import type {
   ObjectTrack,
   OcrTextTrack,
   ProcessingOptions,
+  RetentionCurveInsights,
   SceneCutEvent,
   SceneFeatures,
   SemanticEvent,
@@ -513,4 +514,18 @@ export function toSharedMultiSpeakerBreakdown(
 // docs/ai/scoring.md.
 export function toSharedViralityPrediction(viralityPrediction: unknown): ViralityPrediction | null {
   return (viralityPrediction as ViralityPrediction | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.retentionCurveInsights (AI Intelligence v4, Phase 10). Same
+// null-semantics as toSharedContextualMomentum/toSharedEmotionalArc/
+// toSharedViralityPrediction above (not toSharedMultiSpeakerBreakdown's
+// third pattern): null here can ONLY mean this Clip row predates this
+// phase's migration - the render-graph node always produces a real
+// object once it runs (each of its 4 array fields can be empty, but the
+// object itself is never null once computed).
+export function toSharedRetentionCurveInsights(
+  retentionCurveInsights: unknown,
+): RetentionCurveInsights | null {
+  return (retentionCurveInsights as RetentionCurveInsights | null) ?? null;
 }

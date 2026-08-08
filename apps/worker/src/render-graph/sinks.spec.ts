@@ -52,6 +52,13 @@ const noViralityPrediction = {
     followProbability: null,
   },
 };
+const noRetentionCurveInsights = {
+  clipId: 'clip-1',
+  dropPoints: [],
+  replayZones: [],
+  emotionalPeaks: [],
+  curiosityPeaks: [],
+};
 const midpointThumbnailSelection = {
   timestampSeconds: 5,
   confidence: 0,
@@ -101,6 +108,7 @@ function baseResult(overrides: Partial<RenderGraphResult> = {}): RenderGraphResu
     emotionalArc: [],
     multiSpeakerBreakdown: null,
     viralityPrediction: noViralityPrediction,
+    retentionCurveInsights: noRetentionCurveInsights,
     thumbnailSelection: midpointThumbnailSelection,
     ...overrides,
   };
@@ -160,7 +168,7 @@ describe('toFusionInput', () => {
   // sit BESIDE the Fusion Engine, they never feed computeHighlightScore.
   // Regression guard: a present hookPrediction must never leak into
   // FusionInput under any key.
-  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph/contextualMomentum/emotionalArc/multiSpeakerBreakdown/viralityPrediction in FusionInput', () => {
+  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph/contextualMomentum/emotionalArc/multiSpeakerBreakdown/viralityPrediction/retentionCurveInsights in FusionInput', () => {
     const hookPrediction = { clipId: 'clip-1', hookProbability: 90 } as never;
     const semanticEvents = [{ type: 'money', t: 5 }] as never;
     const narrativeGraph = { segments: [], relations: [], unsegmented: true } as never;
@@ -168,6 +176,10 @@ describe('toFusionInput', () => {
     const emotionalArc = [{ t: 0, emotion: 'neu', intensity: 0.1 }] as never;
     const multiSpeakerBreakdown = [{ speaker: 'Speaker A', talkTimeRatio: 1 } as never] as never;
     const viralityPrediction = { clipId: 'clip-1', overallViralScore: 0.5 } as never;
+    const retentionCurveInsights = {
+      clipId: 'clip-1',
+      dropPoints: [{ t: 0, score: 0.5 }],
+    } as never;
     const input = toFusionInput(
       baseResult({
         hookPrediction,
@@ -177,6 +189,7 @@ describe('toFusionInput', () => {
         emotionalArc,
         multiSpeakerBreakdown,
         viralityPrediction,
+        retentionCurveInsights,
       }),
       'clip-1',
       null,
@@ -188,6 +201,7 @@ describe('toFusionInput', () => {
     expect(Object.values(input)).not.toContain(emotionalArc);
     expect(Object.values(input)).not.toContain(multiSpeakerBreakdown);
     expect(Object.values(input)).not.toContain(viralityPrediction);
+    expect(Object.values(input)).not.toContain(retentionCurveInsights);
   });
 });
 
@@ -328,5 +342,11 @@ describe('toClipUpdateData', () => {
     const data = toClipUpdateData(baseResult(), { outputUrl: 'renders/clip-1.mp4' });
     expect(data.viralityPrediction).toBe(noViralityPrediction);
     expect(data.viralityPrediction).not.toBe(Prisma.JsonNull);
+  });
+
+  it('writes retentionCurveInsights through as a plain passthrough, never Prisma.JsonNull (always-computed object)', () => {
+    const data = toClipUpdateData(baseResult(), { outputUrl: 'renders/clip-1.mp4' });
+    expect(data.retentionCurveInsights).toBe(noRetentionCurveInsights);
+    expect(data.retentionCurveInsights).not.toBe(Prisma.JsonNull);
   });
 });

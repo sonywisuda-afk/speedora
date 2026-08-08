@@ -51,6 +51,7 @@
     "@speedora/primary-subject": "workspace:*",
     "@speedora/reframe": "workspace:*",
     "@speedora/report-builder": "workspace:*",
+    "@speedora/retention-curve-insights": "workspace:*",
     "@speedora/scene-intelligence": "workspace:*",
     "@speedora/semantic-events": "workspace:*",
     "@speedora/seo-copy": "workspace:*",

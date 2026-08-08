@@ -27,6 +27,7 @@ import type {
   OcrSample,
   OcrTextTrack,
   PrimarySubjectSample,
+  RetentionCurveInsights,
   SceneCutEvent,
   SceneFeatures,
   SelectThumbnailTimestampOutput,
@@ -52,6 +53,7 @@ import { multiSpeakerReasoningNodes } from './nodes/multi-speaker-reasoning';
 import { narrativeGraphNodes } from './nodes/narrative-graph';
 import { objectNodes } from './nodes/object';
 import { ocrNodes } from './nodes/ocr';
+import { retentionCurveInsightsNodes } from './nodes/retention-curve-insights';
 import { sceneNodes } from './nodes/scene';
 import { semanticEventNodes } from './nodes/semantic-events';
 import { thumbnailSelectionNodes } from './nodes/thumbnail-selection';
@@ -84,6 +86,7 @@ export const renderClipGraph: GraphNode<RenderGraphContext, unknown>[] = [
   ...emotionalArcNodes,
   ...multiSpeakerReasoningNodes,
   ...viralityEngineNodes,
+  ...retentionCurveInsightsNodes,
   ...thumbnailSelectionNodes,
 ];
 
@@ -130,5 +133,6 @@ export interface RenderGraphResult {
   emotionalArc: EmotionalArc;
   multiSpeakerBreakdown: MultiSpeakerBreakdown | null;
   viralityPrediction: ViralityPrediction;
+  retentionCurveInsights: RetentionCurveInsights;
   thumbnailSelection: SelectThumbnailTimestampOutput;
 }
