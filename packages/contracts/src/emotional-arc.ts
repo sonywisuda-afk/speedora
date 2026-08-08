@@ -10,10 +10,14 @@ import { VOCAL_EMOTIONS } from './vocal-emotion';
 // already-persisted TranscriptSegment.emotion labels (the classifier itself
 // already ran at transcribe time, see apps/worker/src/vocalEmotion.ts) plus
 // Phase 2's SemanticEvent[] as optional context. Every numeric field is a
-// documented HEURISTIC (ADR D4) - no engagement data exists to calibrate
-// against, and the underlying classifier is itself trained on IEMOCAP's
-// *acted*, not natural, speech (see vocal-emotion.ts's own caveat) - carried
-// forward into this module's doc comments too.
+// documented HEURISTIC (ADR D4, docs/coding-standards.md's "scale honesty")
+// - no engagement data exists to calibrate against, and the underlying
+// classifier is itself trained on IEMOCAP's *acted*, not natural, speech
+// (see vocal-emotion.ts's own caveat) - carried forward into this module's
+// doc comments too. Never present these as ML-model output downstream (UI
+// copy, API docs) without this caveat. No confidence field: a pure derive
+// with no natural weighted-budget/coverage concept the way Phase 1/7 have
+// (docs/ai/intelligence-v4.md's "Phase 8 architecture (as shipped)" section).
 
 // A per-instant timeline (array), one sample per transcript segment - not
 // resampled onto motionEnergy's fixed grid, since transcript segments are

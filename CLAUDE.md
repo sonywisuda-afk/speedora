@@ -105,7 +105,7 @@ pattern itself and its "add a new module" checklist.
 | [`docs/ai/composition-intelligence.md`](docs/ai/composition-intelligence.md) | Composition Intelligence roadmap (rule of thirds, headroom, lead room, centering, composition stability, framing consistency, subject loss ratio) — reclassifies an earlier 15-batch "Camera Intelligence" proposal, most of which turned out to already be Scene/Motion/Object Intelligence; **complete** — contract, `packages/composition-intelligence` derive functions, the standalone `packages/primary-subject` selection package, worker adapter, and Fusion Engine wiring (RB-1/RB-2) are all done at weight 0, pending calibration |
 | [`docs/ai/dataset-feedback-loop.md`](docs/ai/dataset-feedback-loop.md) | Dataset & Feedback Loop (post-hardening roadmap Milestone 1) — `PublishRecordStatsSnapshot` engagement history, the `engagementScore` heuristic, and `export-training-dataset.ts`'s feature/outcome join + correlation read, the prerequisite for Fusion Engine v3's ML-based weighting |
 | [`docs/ai/dataset-validation-calibration.md`](docs/ai/dataset-validation-calibration.md) | Dataset Validation & Calibration (post-hardening roadmap Milestone 1.5, between Milestone 1 and Fusion Engine v3) — `generate-dataset-report.ts`'s Dataset Health Report (Missing Data, Feature Distribution, Feature Drift Detection, Correlation Dashboard, Weight Calibration Report), and the two-tier `dataset-lib.ts` data model that makes most of it useful ahead of real engagement data |
-| [`docs/ai/intelligence-v4.md`](docs/ai/intelligence-v4.md) | AI Intelligence v4 — the ADR (D1-D11), dependency graph, and 14-part phased roadmap for a new additive prediction layer (Hook Prediction, Virality, Retention Curve, Narrative Graph, Personalization, ...) that sits beside `highlightScore`, not instead of it; Phase 0 (`packages/llm-client`), Phase 1 (Hook Prediction Engine), Phase 2 (Semantic Event Detection + `packages/multimodal-reasoning`), Phase 3 (Narrative Graph), Phase 4 (Contextual Momentum, `packages/contextual-momentum` — the first v4 module with no LLM call, pure composition), Phase 5 (Emotional Arc, `packages/emotional-arc` — same no-LLM shape as Phase 4, over already-persisted vocal-emotion labels), Phase 6 (Multi-speaker Reasoning, `packages/multi-speaker-reasoning` — a post-hoc attribution of Phases 1/4/5's signals to individual speakers, null by design for single-speaker clips), and Phase 7 (Cross-module Fusion, spec Part 4 - Virality Engine, `packages/virality-engine` — 8 heuristic sub-probabilities fused from Phases 1/3/4/5, deliberately distinct from the pre-existing `Clip.viralityScore`, see `ai/scoring.md`) are shipped, Parts 8-14 are roadmap only |
+| [`docs/ai/intelligence-v4.md`](docs/ai/intelligence-v4.md) | AI Intelligence v4 — the ADR (D1-D11), dependency graph, and 14-part phased roadmap for a new additive prediction layer (Hook Prediction, Virality, Retention Curve, Narrative Graph, Personalization, ...) that sits beside `highlightScore`, not instead of it; Phase 0 (`packages/llm-client`), Phase 1 (Hook Prediction Engine), Phase 2 (Semantic Event Detection + `packages/multimodal-reasoning`), Phase 3 (Narrative Graph), Phase 4 (Contextual Momentum, `packages/contextual-momentum` — the first v4 module with no LLM call, pure composition), Phase 5 (Emotional Arc, `packages/emotional-arc` — same no-LLM shape as Phase 4, over already-persisted vocal-emotion labels), Phase 6 (Multi-speaker Reasoning, `packages/multi-speaker-reasoning` — a post-hoc attribution of Phases 1/4/5's signals to individual speakers, null by design for single-speaker clips), Phase 7 (Cross-module Fusion, spec Part 4 - Virality Engine, `packages/virality-engine` — 8 heuristic sub-probabilities fused from Phases 1/3/4/5, deliberately distinct from the pre-existing `Clip.viralityScore`, see `ai/scoring.md`), and Phase 8 (Confidence Calibration, cross-cutting — a labeling/consistency hygiene pass with no new package/contract/migration/API field, since no engagement data exists yet to numerically calibrate against; standardizes "scale honesty" comments and confidence-field doc pointers across Phases 1-7, disambiguated from Milestone 1.5's unrelated Weight Calibration Report) are shipped, Parts 9-14 are roadmap only |
 
 ## Status
 
@@ -403,11 +403,24 @@ High-level state of each major initiative (see the linked docs for what's actual
   null` strict check threw when the render-graph handed back `undefined` rather than `null`; fixed
   to the `!= null` loose-inequality pattern `@speedora/contextual-momentum`'s own `segmentAt()`
   already established, with a dedicated regression test. Same DTO-extension pattern as Phases 1-6,
-  behind its own `VIRALITY_ENGINE_ENABLED` flag. Parts 8-14 (Confidence Calibration, Explainability,
-  Candidate Expansion, Ranking Refinement, Personalization, Online Learning readiness, Evaluation
-  Suite, Production Hardening, plus Track B's Subtitle/Caption/Visual Emphasis editorial features)
-  are a documented, estimated, dependency-ordered roadmap only — not built. See
-  `ai/intelligence-v4.md`.
+  behind its own `VIRALITY_ENGINE_ENABLED` flag. **Phase 8 (Confidence Calibration,
+  cross-cutting)**: a labeling/consistency hygiene pass, not a new module — the first phase since
+  Phase 0 to add no new package/contract/migration/API field, because real numeric calibration is
+  impossible (0 usable engagement samples, the same blocker every phase already documents). Filled
+  in `HookPredictionOutput.confidence`'s previously-missing field comment, standardized the "scale
+  honesty" module-level comment (ADR D4 phrase + the "never present as ML-model output downstream
+  without this caveat" instruction) across the 6 contract files that lacked it
+  (`semantic-events.ts`/`narrative-graph.ts`/`contextual-momentum.ts`/`emotional-arc.ts`/
+  `multi-speaker-reasoning.ts`/`virality-engine.ts`), and added "kind of confidence" pointers
+  distinguishing code-computed coverage (Phase 1, 7) from LLM-self-reported certainty (Phase 2, 3)
+  confidence fields, replacing Phase 7's prior one-directional, unconfirmable cross-reference. Also
+  disambiguated from Milestone 1.5's pre-existing, unrelated "Weight Calibration Report" (Fusion
+  Engine v2 signal weights, not v4 per-field confidence) — a new confidence-field taxonomy table
+  lives in `ai/intelligence-v4.md`'s "Phase 8 architecture (as shipped)" section. Parts 9-14
+  (Explainability, Candidate Expansion, Ranking Refinement, Personalization, Online Learning
+  readiness, Evaluation Suite, Production Hardening, plus Track B's Subtitle/Caption/Visual
+  Emphasis editorial features) are a documented, estimated, dependency-ordered roadmap only — not
+  built. See `ai/intelligence-v4.md`.
 
 For new feature work: check whether it's an extension of an existing signal/module first (extend,
 don't rebuild — this has been an explicit recurring instruction across the AI Fusion roadmap), and

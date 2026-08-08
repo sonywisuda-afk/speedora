@@ -21,8 +21,10 @@ import { narrativeGraphSchema } from './narrative-graph';
 // computed v4 signals - an entirely different computation path. Do not
 // conflate the two.
 //
-// Every numeric field below is a documented HEURISTIC (ADR D4, "scale
-// honesty") - no engagement data exists to calibrate against.
+// Every numeric field below is a documented HEURISTIC (ADR D4,
+// docs/coding-standards.md's "scale honesty") - no engagement data exists to
+// calibrate against. Never present these as ML-model output downstream (UI
+// copy, API docs) without this caveat.
 
 // A single per-clip object (like HookPredictionOutput), not a per-instant
 // timeline like MomentumCurve/EmotionalArc. Exactly 8 sub-probabilities, 2
@@ -60,9 +62,12 @@ export const viralityPredictionSchema = z.object({
   // usable data for this clip) - a real, honest result, not a fabricated
   // 0.5.
   viralityProbability: z.number().min(0).max(1).nullable(),
-  // Coverage-only, same "coverage, not accuracy" meaning as
-  // HookPredictionOutput's own confidence: count(non-null
-  // sub-probabilities) / 8.
+  // CODE-COMPUTED coverage confidence, not an LLM self-report and not a
+  // measure of accuracy: count(non-null sub-probabilities) / 8. Same "kind
+  // of confidence" as HookPredictionOutput.confidence, unlike
+  // SemanticEvent.confidence/NarrativeSegment.confidence, which are
+  // LLM-self-reported certainty about a categorical judgment. Full taxonomy:
+  // docs/ai/intelligence-v4.md's "Phase 8 architecture (as shipped)" section.
   confidence: z.number().min(0).max(1),
   // Human-readable explanation, same "written for a human, not a log
   // message" convention as hookPrediction's own `reason` field.

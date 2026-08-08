@@ -10,8 +10,12 @@ import { cameraMotionSampleSchema, motionEnergySampleSchema } from './scene-inte
 // Phases 1-3: NO LLM call - a pure composition over already-computed
 // signals, same "composite, not a fresh detector" pattern
 // @speedora/editing-rhythm and @speedora/composition-intelligence already
-// established. Every numeric field is a documented HEURISTIC (ADR D4) - no
-// engagement data exists to calibrate against.
+// established. Every numeric field is a documented HEURISTIC (ADR D4,
+// docs/coding-standards.md's "scale honesty") - no engagement data exists to
+// calibrate against. Never present these as ML-model output downstream (UI
+// copy, API docs) without this caveat. No confidence field: a pure derive
+// with no natural weighted-budget/coverage concept the way Phase 1/7 have
+// (docs/ai/intelligence-v4.md's "Phase 8 architecture (as shipped)" section).
 
 // A per-instant timeline (array), same convention as motionEnergy/
 // semanticEvents - not a single per-clip object like hookPrediction/

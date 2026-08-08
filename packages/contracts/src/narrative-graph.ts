@@ -23,8 +23,10 @@ export const NARRATIVE_SEGMENT_TYPES = [
 ] as const;
 export type NarrativeSegmentType = (typeof NARRATIVE_SEGMENT_TYPES)[number];
 
-// Every numeric field below is a documented HEURISTIC (ADR D4) - no
-// production engagement data exists yet to calibrate confidence against.
+// Every numeric field below is a documented HEURISTIC (ADR D4,
+// docs/coding-standards.md's "scale honesty") - no production engagement
+// data exists yet to calibrate confidence against. Never present these as
+// ML-model output downstream (UI copy, API docs) without this caveat.
 export const narrativeSegmentSchema = z.object({
   // Stable within one graph (0-based) - what narrativeRelationSchema's
   // fromSegmentId/toSegmentId reference. Not a global id; only meaningful
@@ -34,6 +36,11 @@ export const narrativeSegmentSchema = z.object({
   // Clip-relative seconds.
   startTime: z.number(),
   endTime: z.number(),
+  // LLM-SELF-REPORTED certainty about this segment's `type` classification,
+  // not a code-computed coverage fraction - same "kind of confidence" as
+  // SemanticEvent.confidence, unlike HookPredictionOutput.confidence/
+  // ViralityPrediction.confidence. Full taxonomy: docs/ai/intelligence-v4.md's
+  // "Phase 8 architecture (as shipped)" section.
   confidence: z.number().min(0).max(1),
   // Human-readable explanation, same "written for a human, not a log
   // message" convention as SemanticEvent's own `reason` field.
