@@ -32,6 +32,14 @@ export class UpdateClipDto {
   @IsBoolean()
   speakerColorCaptions?: boolean;
 
+  // AI Intelligence v4 Track B, Phase A2 (docs/ai/subtitle-intelligence.md)
+  // - opts this clip's captions into subtitleIntelligence's structural
+  // re-chunking, orthogonal to captionStyle, same shape as
+  // speakerColorCaptions above.
+  @IsOptional()
+  @IsBoolean()
+  smartSegmentation?: boolean;
+
   // Subtitle Studio roadmap (P2f) - which TranscriptSegment.translations key
   // to burn in; null clears it back to the original (untranslated) text.
   @IsOptional()

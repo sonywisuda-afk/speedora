@@ -361,6 +361,12 @@ interface RenderClipJobData {
   captionStyle: CaptionStyle;
   keywords: string[];
   scores: ClipScores | null;
+  // AI Intelligence v4 Track B, Phase A2 - optional here (unlike the real
+  // RenderClipJobData) since most existing tests in this file never set
+  // either; undefined behaves the same as false/null at the worker (see
+  // render-clip.worker.ts's useSmartSegmentation gate).
+  smartSegmentation?: boolean;
+  captionLanguage?: string | null;
 }
 
 // Real deriveAudioFeatures()/deriveFacialEmotionFeatures() output for the
@@ -1322,6 +1328,77 @@ describe('render-clip worker', () => {
     // makes extraction fail) - no reframe-cmds file (no face detected).
     expect(cleanupTempFileMock).toHaveBeenCalledTimes(11);
     expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+  });
+
+  describe('AI Intelligence v4 Track B, Phase A2 - Subtitle Rewriter render wiring', () => {
+    // 12 contiguous words in one Whisper segment - long enough that any
+    // reasonable word budget (@speedora/subtitle-rewriter's own 2-8
+    // words/line range) still produces at least 2 lines once re-chunked, so
+    // these tests don't need to predict the exact speaking-rate-driven
+    // split point - only whether re-chunking happened at all. clipStart is
+    // 10 (baseJobData.startTime), same as every other test in this file.
+    const words = Array.from({ length: 12 }, (_, i) => ({
+      word: `word${i}`,
+      start: 10 + i * 0.4,
+      end: 10 + i * 0.4 + 0.4,
+    }));
+    const multiWordJobData: RenderClipJobData = {
+      ...baseJobData,
+      transcript: [{ start: 10, end: 14.8, text: words.map((w) => w.word).join(' '), words }],
+    };
+
+    beforeEach(() => {
+      buildAssMock.mockReturnValue(
+        '[Script Info]\n...\nDialogue: 0,0:00:00.00,0:00:02.00,Default,,0,0,0,,hi',
+      );
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+    });
+
+    afterEach(() => {
+      delete process.env.SUBTITLE_REWRITE_ENABLED;
+    });
+
+    it('burns in the rewritten SubtitleTimeline when smartSegmentation is on, the global flag is on, and no translation is requested', async () => {
+      process.env.SUBTITLE_REWRITE_ENABLED = 'true';
+      const processor = getProcessor();
+      await processor(fakeJob({ ...multiWordJobData, smartSegmentation: true }));
+
+      const segments = buildAssMock.mock.calls[0][0].segments as {
+        words: { word: string }[];
+      }[];
+      // Re-chunked into more than the 1 original Whisper segment.
+      expect(segments.length).toBeGreaterThan(1);
+      // Every word survives, in order, unchanged (ADR DB1) - reassembling
+      // every line's own words reproduces the exact original word list.
+      expect(segments.flatMap((s) => s.words.map((w) => w.word))).toEqual(words.map((w) => w.word));
+    });
+
+    it('falls back to the raw transcript segments when smartSegmentation is off (default)', async () => {
+      process.env.SUBTITLE_REWRITE_ENABLED = 'true';
+      const processor = getProcessor();
+      await processor(fakeJob(multiWordJobData));
+
+      expect(buildAssMock.mock.calls[0][0].segments).toHaveLength(1);
+    });
+
+    it('falls back to the raw transcript segments when SUBTITLE_REWRITE_ENABLED is off, even though the clip opted in', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob({ ...multiWordJobData, smartSegmentation: true }));
+
+      expect(buildAssMock.mock.calls[0][0].segments).toHaveLength(1);
+    });
+
+    it('falls back to the raw transcript segments when a translation is requested, even with smart segmentation fully enabled', async () => {
+      process.env.SUBTITLE_REWRITE_ENABLED = 'true';
+      const processor = getProcessor();
+      await processor(
+        fakeJob({ ...multiWordJobData, smartSegmentation: true, captionLanguage: 'es' }),
+      );
+
+      expect(buildAssMock.mock.calls[0][0].segments).toHaveLength(1);
+    });
   });
 
   it('skips an orphaned job for a clip that was deleted while queued, without doing any work', async () => {

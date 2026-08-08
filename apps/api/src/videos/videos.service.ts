@@ -1156,6 +1156,7 @@ export class VideosService {
               ),
               captionStyle: toSharedCaptionStyle(clip.captionStyle),
               speakerColorCaptions: clip.speakerColorCaptions,
+              smartSegmentation: clip.smartSegmentation,
               captionLanguage: clip.captionLanguage,
               fontFamily:
                 clip.fontFamily ??

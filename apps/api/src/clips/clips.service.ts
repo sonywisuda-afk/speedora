@@ -742,6 +742,7 @@ export class ClipsService {
     const endTime = input.endTime ?? clip.endTime;
     const captionStyle = input.captionStyle ?? clip.captionStyle;
     const speakerColorCaptions = input.speakerColorCaptions ?? clip.speakerColorCaptions;
+    const smartSegmentation = input.smartSegmentation ?? clip.smartSegmentation;
     const applyBrandKit = input.applyBrandKit ?? clip.applyBrandKit;
     const watermarkEnabled = input.watermarkEnabled ?? clip.watermarkEnabled;
     const introEnabled = input.introEnabled ?? clip.introEnabled;
@@ -761,6 +762,7 @@ export class ClipsService {
         durationSeconds: endTime - startTime,
         captionStyle,
         speakerColorCaptions,
+        smartSegmentation,
         applyBrandKit,
         watermarkEnabled,
         introEnabled,
@@ -873,6 +875,7 @@ export class ClipsService {
         ),
         captionStyle: toSharedCaptionStyle(clip.captionStyle),
         speakerColorCaptions: clip.speakerColorCaptions,
+        smartSegmentation: clip.smartSegmentation,
         captionLanguage: clip.captionLanguage,
         fontFamily,
         watermark,
@@ -1177,6 +1180,7 @@ export class ClipsService {
     storyboardFrameUrls: unknown;
     captionStyle: CaptionStyle;
     speakerColorCaptions: boolean;
+    smartSegmentation: boolean;
     captionLanguage: string | null;
     applyBrandKit: boolean;
     fontFamily: string | null;
@@ -1268,6 +1272,7 @@ export class ClipsService {
       ),
       captionStyle: clip.captionStyle,
       speakerColorCaptions: clip.speakerColorCaptions,
+      smartSegmentation: clip.smartSegmentation,
       captionLanguage: clip.captionLanguage,
       applyBrandKit: clip.applyBrandKit,
       fontFamily: clip.fontFamily,

@@ -272,6 +272,7 @@ export async function enqueueRendersForCandidates(
           // trim (see ClipsService.update/.render).
           captionStyle: clips[index].captionStyle,
           speakerColorCaptions: clips[index].speakerColorCaptions,
+          smartSegmentation: clips[index].smartSegmentation,
           captionLanguage: clips[index].captionLanguage,
           // Subtitle Presets roadmap (P3b) - clips[index].fontFamily
           // is always null for a brand-new clip (schema default),

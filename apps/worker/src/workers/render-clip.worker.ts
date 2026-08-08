@@ -8,6 +8,7 @@ import type {
   CaptionStyleValue,
   FontFamily,
   SpeakerTurn,
+  SubtitleLine,
   SubtitleSegment,
   ThumbnailWeights,
 } from '@speedora/contracts';
@@ -59,6 +60,7 @@ import {
   type FaceSample,
 } from '@speedora/reframe';
 import { getObjectStream, uploadObject } from '@speedora/storage';
+import { isSubtitleRewriteEnabled } from '@speedora/subtitle-rewriter';
 import { buildAss } from '@speedora/subtitles';
 import { DEFAULT_THUMBNAIL_WEIGHTS } from '@speedora/thumbnail-selection';
 import { UnrecoverableError, Worker, type Job } from 'bullmq';
@@ -393,10 +395,50 @@ function toSpeakerTurns(
 // translated (a translated caption can't reuse the original's per-word
 // timestamps - karaoke-style word-by-word highlighting for a translated
 // segment is a known, accepted gap, not attempted here).
+//
+// AI Intelligence v4 Track B, Phase A2 (Subtitle Rewriter render wiring -
+// see docs/ai/subtitle-intelligence.md) - `subtitleTimeline` is
+// Clip.subtitleIntelligence's already-rewritten SubtitleLine[] (this same
+// render's own render-graph output), passed only when the caller has
+// already decided smart segmentation applies (see the call site's own
+// gating comment). Every SubtitleLine field maps 1:1 onto SubtitleSegment
+// (start/end/text/words/speaker) - buildAss() itself needs ZERO changes,
+// since a rewritten line's BOLD_HIGHLIGHT emphasis is naturally reproduced
+// by its own live KEYWORD_PATTERN regex over the identical, unmodified
+// words (Tech Debt #2's original "widen buildAssInputSchema" plan turned
+// out to be unnecessary once this was worked through). `emphasisWordIndices`
+// is intentionally dropped here - it has no buildAss() consumer yet.
+//
+// COORDINATE FRAME: subtitleTimeline is CLIP-relative (0 = this clip's own
+// start - see render-graph/nodes/subtitle-rewriter.ts's own
+// toSubtitleRewriterSegments, which shifts by -startTime before computing
+// it), but buildAss() always expects ABSOLUTE source-video time in
+// `segments` and does its own `- clipStart` shift internally (same as the
+// raw-transcript branch below, whose `segment.start` is absolute). `+
+// startTime` here re-expresses the timeline back into that same absolute
+// frame - a real bug caught while writing this phase's own tests, not a
+// change to any word's actual moment in time (ADR DB1's "unchanged"
+// guarantee is about word identity/order/duration, not which coordinate
+// frame a timestamp happens to be written in).
 function toSubtitleSegments(
   transcript: RenderClipJobData['transcript'],
   captionLanguage: string | null,
+  subtitleTimeline: SubtitleLine[] | null,
+  startTime: number,
 ): SubtitleSegment[] {
+  if (subtitleTimeline) {
+    return subtitleTimeline.map((line) => ({
+      start: line.start + startTime,
+      end: line.end + startTime,
+      text: line.text,
+      words: line.words.map((word) => ({
+        word: word.word,
+        start: word.start + startTime,
+        end: word.end + startTime,
+      })),
+      speaker: line.speaker,
+    }));
+  }
   return transcript.map((segment) => ({
     start: segment.start,
     end: segment.end,
@@ -665,6 +707,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             transcript,
             captionStyle,
             speakerColorCaptions,
+            smartSegmentation,
             captionLanguage,
             fontFamily,
             watermark,
@@ -868,8 +911,27 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               }
             }
 
+            // AI Intelligence v4 Track B, Phase A2 (ADR DB10, docs/ai/
+            // subtitle-intelligence.md) - double-gated: the per-clip
+            // `smartSegmentation` toggle (Clip.smartSegmentation, same
+            // orthogonal-to-captionStyle shape as speakerColorCaptions) AND
+            // the global SUBTITLE_REWRITE_ENABLED kill switch must both be
+            // on. Also disabled whenever a translation is requested
+            // (captionLanguage set) - Clip.subtitleIntelligence is always
+            // computed against the ORIGINAL-language transcript (same
+            // "translated captions have no reliable word-level timing" gap
+            // toSubtitleSegments' own comment already documents for
+            // karaoke), so applying it under a translation would silently
+            // show the wrong language rather than degrade gracefully.
+            const useSmartSegmentation =
+              smartSegmentation && isSubtitleRewriteEnabled() && !captionLanguage;
             const assContent = buildAss({
-              segments: toSubtitleSegments(transcript, captionLanguage),
+              segments: toSubtitleSegments(
+                transcript,
+                captionLanguage,
+                useSmartSegmentation ? graphResult.subtitleIntelligence.timeline : null,
+                startTime,
+              ),
               clipStart: startTime,
               clipEnd: endTime,
               // CaptionStyle (packages/database's Prisma enum, re-exported by

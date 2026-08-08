@@ -718,6 +718,14 @@ model Clip {
   // combinatorial DEFAULT/DEFAULT_SPEAKER_COLOR/KARAOKE_SPEAKER_COLOR/...
   // explosion. False by default - existing clips render unchanged.
   speakerColorCaptions        Boolean      @default(false)
+  // AI Intelligence v4 Track B, Phase A2 (Subtitle Rewriter render wiring -
+  // see docs/ai/subtitle-intelligence.md, ADR DB5/DB10) - opts this clip's
+  // captions into subtitleIntelligence's structural re-chunking, orthogonal
+  // to captionStyle (same reasoning as speakerColorCaptions above). False
+  // by default - existing clips render unchanged. Also requires the global
+  // SUBTITLE_REWRITE_ENABLED flag and is skipped whenever captionLanguage
+  // is set (a translation) - see render-clip.worker.ts's own comment.
+  smartSegmentation           Boolean      @default(false)
   // Subtitle Studio roadmap (P2f) - which key of each TranscriptSegment's
   // `translations` map to burn in; null/absent means the original
   // (untranslated) text, same as every existing clip today.
