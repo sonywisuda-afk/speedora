@@ -201,6 +201,16 @@ const CLIP_UPDATE_MAP: {
   multimodalReasoning: (r) => ({
     multimodalReasoning: r.multimodalReasoning ?? Prisma.JsonNull,
   }),
+  // AI Intelligence v4 Track B, Phase C1 (Visual Emphasis Engine, spec Part
+  // 9 - data only, see docs/ai/visual-emphasis-engine.md) - same "NOT
+  // added to FUSION_INPUT_MAP" posture as every v4 output (DB1/DB2 - this
+  // sits beside the Fusion Engine, never feeds it). Same "always a real
+  // array, never JsonNull" convention as contextualMomentum/emotionalArc/
+  // captionTreatment above - a closed array type with no index signature,
+  // cast through as InputJsonValue.
+  editingSuggestions: (r) => ({
+    editingSuggestions: r.editingSuggestions as unknown as Prisma.InputJsonValue,
+  }),
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // never added to FUSION_INPUT_MAP above: per this module's own policy
   // (see @speedora/contracts' thumbnail-selection.ts), this output must

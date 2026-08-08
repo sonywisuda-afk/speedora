@@ -55,6 +55,7 @@
     "@speedora/storage": "workspace:^",
     "@speedora/subtitle-rewriter": "workspace:*",
     "@speedora/virality-engine": "workspace:*",
+    "@speedora/visual-emphasis": "workspace:*",
     "bcrypt": "^6.0.0",
     "bullmq": "^5.7.8",
     "class-transformer": "^0.5.1",

@@ -6,6 +6,7 @@ import type {
   CaptionTreatmentTimeline,
   CompositionFeatures,
   EditingRhythmFeatures,
+  EditingSuggestionTimeline,
   EmotionalArc,
   FaceLandmarkFeatures,
   FaceTrackingQualityMetrics,
@@ -64,6 +65,7 @@ import { semanticEventNodes } from './nodes/semantic-events';
 import { subtitleRewriterNodes } from './nodes/subtitle-rewriter';
 import { thumbnailSelectionNodes } from './nodes/thumbnail-selection';
 import { viralityEngineNodes } from './nodes/virality-engine';
+import { visualEmphasisNodes } from './nodes/visual-emphasis';
 
 export { runGraph, GraphConfigError, GraphCycleError, type GraphNode } from './executor';
 export type { RenderGraphContext } from './context';
@@ -105,6 +107,12 @@ export const renderClipGraph: GraphNode<RenderGraphContext, unknown>[] = [
   // order here is stylistic, not load-bearing (see the subtitleRewriterNodes
   // comment above).
   ...dynamicCaptionNodes,
+  // AI Intelligence v4 Track B, Phase C1 (Visual Emphasis Engine, spec Part
+  // 9) - depends on subtitleIntelligence (above), ocrTracks/
+  // primarySubjectSamples/retentionCurveInsights (all already registered
+  // earlier), registration order here is stylistic, not load-bearing (see
+  // the subtitleRewriterNodes comment above).
+  ...visualEmphasisNodes,
   ...thumbnailSelectionNodes,
 ];
 
@@ -155,5 +163,6 @@ export interface RenderGraphResult {
   multimodalReasoning: MultimodalReasoningResult | null;
   subtitleIntelligence: SubtitleIntelligence;
   captionTreatment: CaptionTreatmentTimeline;
+  editingSuggestions: EditingSuggestionTimeline;
   thumbnailSelection: SelectThumbnailTimestampOutput;
 }

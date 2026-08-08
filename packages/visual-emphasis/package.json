@@ -1,0 +1,39 @@
+{
+  "name": "@speedora/visual-emphasis",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stateless module (JSON-in/JSON-out): AI Intelligence v4 Track B, Phase C1 - a pure, synchronous composition (no LLM call, no new detector - see docs/ai/visual-emphasis-engine.md) that generates an EditingSuggestionTimeline (spec Part 9, 'Generate editing suggestions') across 5 techniques (digital_push, ocr_highlight, focus_shift, reaction_hold, pause_hold) by reusing Phase A1/B1's HighlightTimeline, OCR Intelligence, Primary Subject Selection, and Phase 10's Retention Curve Insights. No DB/queue access at all; see root ARCHITECTURE.md. Consumed by apps/worker's render-graph editingSuggestions node. Data only - wiring any suggestion into actual rendering is a later phase's job (C2-C7).",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@speedora/contracts": "workspace:*",
+    "@speedora/cutlist": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.2",
+    "@types/node": "^22.20.1",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.9.3"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "testEnvironment": "node"
+  }
+}

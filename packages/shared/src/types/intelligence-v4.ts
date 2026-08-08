@@ -1,5 +1,6 @@
 import type {
   CaptionTreatmentTimeline,
+  EditingSuggestionTimeline,
   EmotionalArc,
   HookPredictionOutput,
   MomentumCurve,
@@ -107,4 +108,12 @@ export interface ClipIntelligenceDto {
   // Intelligence v4 Track B, Phase B1 (Dynamic Caption Engine, spec Part
   // 8 - data only) - see docs/ai/subtitle-intelligence.md.
   captionTreatment: CaptionTreatmentTimeline | null;
+  // Null when VISUAL_EMPHASIS_ENABLED is off (same exposure-only gate, see
+  // isVisualEmphasisEnabled()) or when this Clip row predates the phase's
+  // migration (same pure-node null-semantics as contextualMomentum/
+  // emotionalArc/captionTreatment above). AI Intelligence v4 Track B,
+  // Phase C1 (Visual Emphasis Engine, spec Part 9 - data only) - see
+  // docs/ai/visual-emphasis-engine.md. An empty array (flag on, node ran)
+  // means it genuinely found zero editing opportunities - a real result.
+  editingSuggestions: EditingSuggestionTimeline | null;
 }

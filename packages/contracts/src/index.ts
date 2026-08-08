@@ -44,5 +44,6 @@ export * from './transcript-word';
 export * from './video-import';
 export * from './video-validation';
 export * from './virality-engine';
+export * from './visual-emphasis';
 export * from './vocal-emotion';
 export * from './voice-activity';

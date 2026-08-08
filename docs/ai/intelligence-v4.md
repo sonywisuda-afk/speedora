@@ -112,6 +112,24 @@
   frames were visually inspected to confirm correct scaling. See `ai/subtitle-intelligence.md`'s
   "Phase B2 architecture (as shipped)" section. **This completes the full Subtitle & Dynamic
   Caption Intelligence roadmap (Track B Phase A1/A2/B1/B2)** - see that doc's own status banner.
+- **Track B, Phase C (Visual Emphasis Engine, spec Part 9)**: Phase C1 shipped (flag-off), C2-C7
+  remain design only - see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md). Real spec
+  text obtained before any design started (unlike Phase 7's original Virality Engine) - "Generate
+  editing suggestions" across Auto Zoom/Auto Crop/Face Priority/Object Priority/OCR Highlight/Focus
+  Shift/Digital Push/Reaction Hold/Pause Hold. Audit found 3 of the 9 already shipped (Auto
+  Zoom/Crop/Face Priority, via `packages/reframe`), and confirmed the original roadmap's own
+  flagged risk is real: `buildReframePlan()`'s own face-detection-only subject choice is completely
+  disconnected from `packages/primary-subject`'s already-built, richer selection chain used
+  elsewhere for Composition Intelligence scoring. Split into 7 sub-phases (C1 data-only suggestion
+  timeline, C2 unifies the duplication - also making Object Priority real for the first time, C3
+  Focus Shift, C4 Digital Push, C5 OCR Highlight, C6 Reaction Hold, C7 Pause Hold). **Phase C1**
+  (`@speedora/visual-emphasis`) is a pure, zero-LLM composition over 5 already-computed signals
+  (Phase A1/B1's `HighlightTimeline`, OCR Intelligence's price/name tracks, Composition
+  Intelligence's `PrimarySubjectSample[]`, Phase 10's `emotionalPeaks`/`curiosityPeaks`/
+  `dropPoints`, `@speedora/cutlist`'s silence-gap detection) into one chronological
+  `EditingSuggestionTimeline` (`Clip.editingSuggestions`, `VISUAL_EMPHASIS_ENABLED`) naming which
+  of 5 techniques applies, when, and why - no new detector, no rendering-path change (that's C2-C7's
+  job).
 
 ## Why this exists
 
@@ -430,7 +448,7 @@ without a literal file move. `vocalEmotion.ts` itself is untouched.
 | A2 | Wire Subtitle Rewriter into `buildAss()` (7) — **shipped, flag-off** (`Clip.smartSegmentation`) | A1 | M | First phase touching the production render path — karaoke word-sync must survive re-chunking |
 | B1 | Dynamic Caption Engine, data only (8) — **shipped, flag-off** (`DYNAMIC_CAPTION_ENABLED=false`) | A1, Phase 5 | S-M | "Don't overuse animation" needs an explicit documented cooldown heuristic |
 | B2 | Wire Dynamic Caption treatment into `build-ass.ts`'s ASS emission (8) — **shipped, flag-off** (`Clip.dynamicCaptions`) | B1, A2 | L | New `\fscx`/`\fscy`/`\t` ASS tag territory — verified against real ffmpeg+libass, including a visual frame-extraction check |
-| C | Visual Emphasis Engine (9) | none — signals already exist | M | Unify `reframe`'s own face detector with `primary-subject`'s choice, don't layer a second opinion |
+| C | Visual Emphasis Engine (9) — **C1 shipped, flag-off** (`Clip.editingSuggestions`), **C2-C7 design only**, see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md) | none — signals already exist | M (per original estimate; the real spec text splits into 7 sub-phases, S-L each) | Unify `reframe`'s own face detector with `primary-subject`'s choice, don't layer a second opinion (now Phase C2 specifically) |
 
 **Update (2026-08-08)**: resolved a real product-shape ambiguity in Part 7's "rewrite subtitle" via
 `AskUserQuestion` before any code was written (same "ask, don't guess" precedent as v2.1's Practical

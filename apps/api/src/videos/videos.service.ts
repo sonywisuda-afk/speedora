@@ -81,6 +81,7 @@ import {
   toSharedMultimodalReasoning,
   toSharedSubtitleIntelligence,
   toSharedCaptionTreatment,
+  toSharedEditingSuggestions,
   toSharedLipSyncVerifications,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
@@ -1870,6 +1871,7 @@ export class VideosService {
           multimodalReasoning,
           subtitleIntelligence,
           captionTreatment,
+          editingSuggestions,
           thumbnailSelectionBreakdown,
           thumbnailSelectionFallback,
           ...clip
@@ -1937,6 +1939,7 @@ export class VideosService {
           multimodalReasoning: toSharedMultimodalReasoning(multimodalReasoning),
           subtitleIntelligence: toSharedSubtitleIntelligence(subtitleIntelligence),
           captionTreatment: toSharedCaptionTreatment(captionTreatment),
+          editingSuggestions: toSharedEditingSuggestions(editingSuggestions),
           thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
             thumbnailSelectionBreakdown,
           ),

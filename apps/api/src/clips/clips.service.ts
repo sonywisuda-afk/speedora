@@ -50,6 +50,7 @@ import { isRetentionCurveInsightsEnabled } from '@speedora/retention-curve-insig
 import { isMultimodalReasoningEnabled } from '@speedora/multimodal-reasoning';
 import { isSubtitleRewriteEnabled } from '@speedora/subtitle-rewriter';
 import { isDynamicCaptionEnabled } from '@speedora/dynamic-caption';
+import { isVisualEmphasisEnabled } from '@speedora/visual-emphasis';
 import { computePlatformFit } from '@speedora/platform-fit';
 import type { Queue } from 'bullmq';
 import type { ClipPlatformCopy } from '@speedora/database';
@@ -86,6 +87,7 @@ import {
   toSharedMultimodalReasoning,
   toSharedSubtitleIntelligence,
   toSharedCaptionTreatment,
+  toSharedEditingSuggestions,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
   toSharedOcrText,
@@ -570,6 +572,9 @@ export class ClipsService {
         : null,
       captionTreatment: isDynamicCaptionEnabled()
         ? toSharedCaptionTreatment(clip.captionTreatment)
+        : null,
+      editingSuggestions: isVisualEmphasisEnabled()
+        ? toSharedEditingSuggestions(clip.editingSuggestions)
         : null,
     };
   }
@@ -1256,6 +1261,7 @@ export class ClipsService {
     multimodalReasoning: unknown;
     subtitleIntelligence: unknown;
     captionTreatment: unknown;
+    editingSuggestions: unknown;
     thumbnailSelectionTimestamp: number | null;
     thumbnailSelectionBreakdown: unknown;
     thumbnailSelectionFallback: string | null;
@@ -1350,6 +1356,7 @@ export class ClipsService {
       multimodalReasoning: toSharedMultimodalReasoning(clip.multimodalReasoning),
       subtitleIntelligence: toSharedSubtitleIntelligence(clip.subtitleIntelligence),
       captionTreatment: toSharedCaptionTreatment(clip.captionTreatment),
+      editingSuggestions: toSharedEditingSuggestions(clip.editingSuggestions),
       thumbnailSelectionTimestamp: clip.thumbnailSelectionTimestamp,
       thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
         clip.thumbnailSelectionBreakdown,
