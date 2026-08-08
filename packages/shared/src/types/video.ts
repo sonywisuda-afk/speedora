@@ -965,6 +965,27 @@ export interface SubtitleIntelligence {
   highlights: HighlightTimeline;
 }
 
+// AI Intelligence v4 Track B, Phase B1 (Dynamic Caption Engine, spec Part
+// 8 - data only, see docs/ai/subtitle-intelligence.md). Mirrors
+// @speedora/contracts' captionSizeTierSchema/captionAnimationSchema/
+// treatmentMomentSchema rather than importing them - same duplication
+// precedent as every other v4 type in this file. 'normal'/'none' are each
+// axis's majority-case default.
+export type CaptionSizeTier = 'small' | 'normal' | 'large';
+export type CaptionAnimation = 'none' | 'punch' | 'attention';
+
+export interface TreatmentMoment {
+  start: number;
+  end: number;
+  sizeTier: CaptionSizeTier;
+  animation: CaptionAnimation;
+}
+
+// A dense, 1:1-with-SubtitleTimeline array (not a filtered/sparse one like
+// HighlightTimeline) - bare array, no clipId wrapper, same shape as
+// MomentumCurve/EmotionalArc.
+export type CaptionTreatmentTimeline = TreatmentMoment[];
+
 // AI Fusion roadmap's Face Intelligence initiative, Batch 2 - a per-sample
 // looking-direction bucket, 'center' meaning both iris position and head
 // rotation roughly face the camera. Mirrors @speedora/contracts'
@@ -1659,6 +1680,15 @@ export interface Clip {
   // phase's migration. Does NOT yet affect the actual burned-in captions -
   // see docs/ai/subtitle-intelligence.md's Phase A2.
   subtitleIntelligence: SubtitleIntelligence | null;
+  // AI Intelligence v4 Track B, Phase B1 (Dynamic Caption Engine, spec
+  // Part 8 - data only) - computed on every render regardless of
+  // DYNAMIC_CAPTION_ENABLED (the flag gates API exposure, not computation
+  // - see isDynamicCaptionEnabled()). Same null-semantics as
+  // contextualMomentum/emotionalArc: this node always produces a real
+  // (possibly empty) array once it runs, so null here can ONLY mean this
+  // Clip row predates this phase's migration. Does NOT yet affect the
+  // actual burned-in captions - Phase B2's job.
+  captionTreatment: CaptionTreatmentTimeline | null;
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // @speedora/thumbnail-selection's chosen in-clip timestamp, replacing the
   // naive clip-midpoint thumbnailUrl/thumbnailBlurDataUrl are extracted at,

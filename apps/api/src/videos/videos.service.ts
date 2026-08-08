@@ -80,6 +80,7 @@ import {
   toSharedRetentionCurveInsights,
   toSharedMultimodalReasoning,
   toSharedSubtitleIntelligence,
+  toSharedCaptionTreatment,
   toSharedLipSyncVerifications,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
@@ -1867,6 +1868,7 @@ export class VideosService {
           retentionCurveInsights,
           multimodalReasoning,
           subtitleIntelligence,
+          captionTreatment,
           thumbnailSelectionBreakdown,
           thumbnailSelectionFallback,
           ...clip
@@ -1933,6 +1935,7 @@ export class VideosService {
           retentionCurveInsights: toSharedRetentionCurveInsights(retentionCurveInsights),
           multimodalReasoning: toSharedMultimodalReasoning(multimodalReasoning),
           subtitleIntelligence: toSharedSubtitleIntelligence(subtitleIntelligence),
+          captionTreatment: toSharedCaptionTreatment(captionTreatment),
           thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
             thumbnailSelectionBreakdown,
           ),

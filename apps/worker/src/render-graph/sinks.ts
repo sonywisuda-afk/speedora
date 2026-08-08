@@ -181,6 +181,16 @@ const CLIP_UPDATE_MAP: {
   // retentionCurveInsights above: a plain passthrough, no Prisma.JsonNull,
   // no InputJsonValue cast needed.
   subtitleIntelligence: (r) => ({ subtitleIntelligence: r.subtitleIntelligence }),
+  // AI Intelligence v4 Track B, Phase B1 (Dynamic Caption Engine, spec
+  // Part 8 - data only, see docs/ai/subtitle-intelligence.md) - same "NOT
+  // added to FUSION_INPUT_MAP" posture as every v4 output (DB1/DB2 - this
+  // sits beside the Fusion Engine, never feeds it). Same "always a real
+  // array, never JsonNull" convention as contextualMomentum/emotionalArc -
+  // a closed array type with no index signature, cast through as
+  // InputJsonValue.
+  captionTreatment: (r) => ({
+    captionTreatment: r.captionTreatment as unknown as Prisma.InputJsonValue,
+  }),
   // AI Intelligence v4, Phase 11 (Multimodal Reasoning Engine, spec Part 6 -
   // see docs/ai/intelligence-v4.md) - same "NOT added to FUSION_INPUT_MAP"
   // posture as every prior v4 output. Same null-semantics as

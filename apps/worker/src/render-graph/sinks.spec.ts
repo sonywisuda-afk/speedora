@@ -64,6 +64,7 @@ const noSubtitleIntelligence = {
   timeline: [],
   highlights: [],
 };
+const noCaptionTreatment: never[] = [];
 const midpointThumbnailSelection = {
   timestampSeconds: 5,
   confidence: 0,
@@ -116,6 +117,7 @@ function baseResult(overrides: Partial<RenderGraphResult> = {}): RenderGraphResu
     retentionCurveInsights: noRetentionCurveInsights,
     multimodalReasoning: null,
     subtitleIntelligence: noSubtitleIntelligence,
+    captionTreatment: noCaptionTreatment,
     thumbnailSelection: midpointThumbnailSelection,
     ...overrides,
   };
@@ -175,7 +177,7 @@ describe('toFusionInput', () => {
   // sit BESIDE the Fusion Engine, they never feed computeHighlightScore.
   // Regression guard: a present hookPrediction must never leak into
   // FusionInput under any key.
-  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph/contextualMomentum/emotionalArc/multiSpeakerBreakdown/viralityPrediction/retentionCurveInsights/multimodalReasoning/subtitleIntelligence in FusionInput', () => {
+  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph/contextualMomentum/emotionalArc/multiSpeakerBreakdown/viralityPrediction/retentionCurveInsights/multimodalReasoning/subtitleIntelligence/captionTreatment in FusionInput', () => {
     const hookPrediction = { clipId: 'clip-1', hookProbability: 90 } as never;
     const semanticEvents = [{ type: 'money', t: 5 }] as never;
     const narrativeGraph = { segments: [], relations: [], unsegmented: true } as never;
@@ -189,6 +191,7 @@ describe('toFusionInput', () => {
     } as never;
     const multimodalReasoning = { clipId: 'clip-1', evidence: [], connections: [] } as never;
     const subtitleIntelligence = { clipId: 'clip-1', timeline: [{ text: 'hi' }] } as never;
+    const captionTreatment = [{ start: 0, end: 1, sizeTier: 'large' }] as never;
     const input = toFusionInput(
       baseResult({
         hookPrediction,
@@ -201,6 +204,7 @@ describe('toFusionInput', () => {
         retentionCurveInsights,
         multimodalReasoning,
         subtitleIntelligence,
+        captionTreatment,
       }),
       'clip-1',
       null,
@@ -215,6 +219,7 @@ describe('toFusionInput', () => {
     expect(Object.values(input)).not.toContain(retentionCurveInsights);
     expect(Object.values(input)).not.toContain(multimodalReasoning);
     expect(Object.values(input)).not.toContain(subtitleIntelligence);
+    expect(Object.values(input)).not.toContain(captionTreatment);
   });
 });
 
@@ -381,5 +386,19 @@ describe('toClipUpdateData', () => {
     const data = toClipUpdateData(baseResult(), { outputUrl: 'renders/clip-1.mp4' });
     expect(data.subtitleIntelligence).toBe(noSubtitleIntelligence);
     expect(data.subtitleIntelligence).not.toBe(Prisma.JsonNull);
+  });
+
+  it('casts captionTreatment through as an InputJsonValue, never Prisma.JsonNull, even when empty', () => {
+    const data = toClipUpdateData(baseResult(), { outputUrl: 'renders/clip-1.mp4' });
+    expect(data.captionTreatment).toEqual([]);
+    expect(data.captionTreatment).not.toBe(Prisma.JsonNull);
+  });
+
+  it('writes a present captionTreatment through directly', () => {
+    const captionTreatment = [{ start: 0, end: 1, sizeTier: 'large', animation: 'punch' }] as never;
+    const data = toClipUpdateData(baseResult({ captionTreatment }), {
+      outputUrl: 'renders/clip-1.mp4',
+    });
+    expect(data.captionTreatment).toBe(captionTreatment);
   });
 });

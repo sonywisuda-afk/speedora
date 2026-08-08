@@ -1,0 +1,38 @@
+{
+  "name": "@speedora/dynamic-caption",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stateless module (JSON-in/JSON-out): AI Intelligence v4 Track B, Phase B1 - a pure, synchronous composition (no LLM call, no new detector - see docs/ai/subtitle-intelligence.md) that decides a size tier (small/normal/large) and animation (none/punch/attention) for every one of Phase A1's SubtitleTimeline lines, from Phase A1's own HighlightTimeline and Phase 5's EmotionalArc, with a rate-limited animation cooldown so caption motion stays a highlight, not a constant flicker. No DB/queue access at all; see root ARCHITECTURE.md. Consumed by apps/worker's render-graph captionTreatment node. Data only - wiring this into the actual ASS renderer is Phase B2's job.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@speedora/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.2",
+    "@types/node": "^22.20.1",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.9.3"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "testEnvironment": "node"
+  }
+}

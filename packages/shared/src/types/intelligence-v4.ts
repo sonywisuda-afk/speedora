@@ -1,4 +1,5 @@
 import type {
+  CaptionTreatmentTimeline,
   EmotionalArc,
   HookPredictionOutput,
   MomentumCurve,
@@ -99,4 +100,11 @@ export interface ClipIntelligenceDto {
   // (ADR DB1) - every underlying word/order/timestamp is unchanged from
   // the transcript; only line grouping and emphasis selection may differ.
   subtitleIntelligence: SubtitleIntelligence | null;
+  // Null when DYNAMIC_CAPTION_ENABLED is off (same exposure-only gate,
+  // see isDynamicCaptionEnabled()) or when this Clip row predates the
+  // phase's migration (same pure-node null-semantics as
+  // contextualMomentum/emotionalArc/subtitleIntelligence above). AI
+  // Intelligence v4 Track B, Phase B1 (Dynamic Caption Engine, spec Part
+  // 8 - data only) - see docs/ai/subtitle-intelligence.md.
+  captionTreatment: CaptionTreatmentTimeline | null;
 }

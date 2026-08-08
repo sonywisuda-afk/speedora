@@ -3,6 +3,7 @@ import type {
   AudioFeatures,
   CameraMotionFeatures,
   CameraMotionSample,
+  CaptionTreatmentTimeline,
   CompositionFeatures,
   EditingRhythmFeatures,
   EmotionalArc,
@@ -47,6 +48,7 @@ import type { RenderGraphContext } from './context';
 import { audioEditingNodes } from './nodes/audio-editing';
 import { compositionNodes } from './nodes/composition';
 import { contextualMomentumNodes } from './nodes/contextual-momentum';
+import { dynamicCaptionNodes } from './nodes/dynamic-caption';
 import { emotionalArcNodes } from './nodes/emotional-arc';
 import { facialGestureNodes } from './nodes/facial-gesture';
 import { faceSpeakerNodes } from './nodes/face-speaker';
@@ -98,6 +100,11 @@ export const renderClipGraph: GraphNode<RenderGraphContext, unknown>[] = [
   // load-bearing - runGraph()'s own Kahn's-algorithm level batching orders
   // execution from each node's declared `deps`, not array position.
   ...subtitleRewriterNodes,
+  // AI Intelligence v4 Track B, Phase B1 (Dynamic Caption Engine) - depends
+  // on subtitleRewriterNodes (subtitleIntelligence) above, registration
+  // order here is stylistic, not load-bearing (see the subtitleRewriterNodes
+  // comment above).
+  ...dynamicCaptionNodes,
   ...thumbnailSelectionNodes,
 ];
 
@@ -147,5 +154,6 @@ export interface RenderGraphResult {
   retentionCurveInsights: RetentionCurveInsights;
   multimodalReasoning: MultimodalReasoningResult | null;
   subtitleIntelligence: SubtitleIntelligence;
+  captionTreatment: CaptionTreatmentTimeline;
   thumbnailSelection: SelectThumbnailTimestampOutput;
 }

@@ -603,6 +603,7 @@ describe('VideosService', () => {
           retentionCurveInsights: null,
           multimodalReasoning: null,
           subtitleIntelligence: null,
+          captionTreatment: null,
           publishRecords: [],
         },
         {
@@ -661,6 +662,7 @@ describe('VideosService', () => {
           retentionCurveInsights: null,
           multimodalReasoning: null,
           subtitleIntelligence: null,
+          captionTreatment: null,
           publishRecords: [],
         },
       ]);

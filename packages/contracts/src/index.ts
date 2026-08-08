@@ -6,6 +6,7 @@ export * from './composition-intelligence';
 export * from './contextual-momentum';
 export * from './conversation-intelligence';
 export * from './cutlist';
+export * from './dynamic-caption';
 export * from './editing-rhythm';
 export * from './emoji-suggestions';
 export * from './emotional-arc';
