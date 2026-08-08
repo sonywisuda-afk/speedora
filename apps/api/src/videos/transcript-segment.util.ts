@@ -43,6 +43,7 @@ import type {
   SceneCutEvent,
   SceneFeatures,
   SemanticEvent,
+  SubtitleIntelligence,
   SpeakerConfidenceScore,
   SpeakerEngagementScore,
   SpeakerFaceAssociation,
@@ -543,4 +544,18 @@ export function toSharedMultimodalReasoning(
   multimodalReasoning: unknown,
 ): MultimodalReasoningResult | null {
   return (multimodalReasoning as MultimodalReasoningResult | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.subtitleIntelligence (AI Intelligence v4 Track B, Phase A1 -
+// Subtitle Rewriter). Same null-semantics as toSharedContextualMomentum/
+// toSharedEmotionalArc/toSharedViralityPrediction/
+// toSharedRetentionCurveInsights above (not toSharedMultiSpeakerBreakdown's
+// third pattern): null here can ONLY mean this Clip row predates this
+// phase's migration - the render-graph node always produces a real object
+// once it runs.
+export function toSharedSubtitleIntelligence(
+  subtitleIntelligence: unknown,
+): SubtitleIntelligence | null {
+  return (subtitleIntelligence as SubtitleIntelligence | null) ?? null;
 }

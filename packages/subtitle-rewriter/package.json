@@ -1,0 +1,39 @@
+{
+  "name": "@speedora/subtitle-rewriter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stateless module (JSON-in/JSON-out): AI Intelligence v4 Track B, Phase A1 - a pure, synchronous STRUCTURAL subtitle re-chunker (no LLM call, no lexical paraphrase - see docs/ai/subtitle-intelligence.md) that groups already-transcribed words into short, pause/rhythm/emotion/speaking-speed-aware caption lines with precomputed emphasis, plus a derived HighlightTimeline of punch-worthy moments for the future Dynamic Caption Engine (Phase B1/B2). No DB/queue access at all; see root ARCHITECTURE.md. Consumed by apps/worker's render-graph subtitleIntelligence node.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@speedora/contracts": "workspace:*",
+    "@speedora/cutlist": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.2",
+    "@types/node": "^22.20.1",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.9.3"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "testEnvironment": "node"
+  }
+}

@@ -48,6 +48,7 @@ import { isMultiSpeakerReasoningEnabled } from '@speedora/multi-speaker-reasonin
 import { isViralityEngineEnabled } from '@speedora/virality-engine';
 import { isRetentionCurveInsightsEnabled } from '@speedora/retention-curve-insights';
 import { isMultimodalReasoningEnabled } from '@speedora/multimodal-reasoning';
+import { isSubtitleRewriteEnabled } from '@speedora/subtitle-rewriter';
 import { computePlatformFit } from '@speedora/platform-fit';
 import type { Queue } from 'bullmq';
 import type { ClipPlatformCopy } from '@speedora/database';
@@ -82,6 +83,7 @@ import {
   toSharedViralityPrediction,
   toSharedRetentionCurveInsights,
   toSharedMultimodalReasoning,
+  toSharedSubtitleIntelligence,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
   toSharedOcrText,
@@ -560,6 +562,9 @@ export class ClipsService {
         : null,
       multimodalReasoning: isMultimodalReasoningEnabled()
         ? toSharedMultimodalReasoning(clip.multimodalReasoning)
+        : null,
+      subtitleIntelligence: isSubtitleRewriteEnabled()
+        ? toSharedSubtitleIntelligence(clip.subtitleIntelligence)
         : null,
     };
   }
@@ -1236,6 +1241,7 @@ export class ClipsService {
     viralityPrediction: unknown;
     retentionCurveInsights: unknown;
     multimodalReasoning: unknown;
+    subtitleIntelligence: unknown;
     thumbnailSelectionTimestamp: number | null;
     thumbnailSelectionBreakdown: unknown;
     thumbnailSelectionFallback: string | null;
@@ -1326,6 +1332,7 @@ export class ClipsService {
       viralityPrediction: toSharedViralityPrediction(clip.viralityPrediction),
       retentionCurveInsights: toSharedRetentionCurveInsights(clip.retentionCurveInsights),
       multimodalReasoning: toSharedMultimodalReasoning(clip.multimodalReasoning),
+      subtitleIntelligence: toSharedSubtitleIntelligence(clip.subtitleIntelligence),
       thumbnailSelectionTimestamp: clip.thumbnailSelectionTimestamp,
       thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
         clip.thumbnailSelectionBreakdown,

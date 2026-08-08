@@ -1,17 +1,22 @@
-import { buildAssInputSchema, type BuildAssInput, type SubtitleSegment } from '@speedora/contracts';
+import {
+  buildAssInputSchema,
+  KEYWORD_PATTERN,
+  type BuildAssInput,
+  type SubtitleSegment,
+} from '@speedora/contracts';
+
+// Re-exported for backward compatibility - was previously defined locally
+// here; moved to @speedora/contracts (ADR DB6, docs/ai/
+// subtitle-intelligence.md) so @speedora/subtitle-rewriter can reuse the
+// exact same pattern without depending on this renderer package. Existing
+// consumers (TimelineEditor.tsx's live caption preview, Subtitle Studio
+// roadmap P2e) keep importing it from '@speedora/subtitles' unchanged.
+export { KEYWORD_PATTERN };
 
 // ASS colours are &HAABBGGRR (alpha, then blue/green/red), 00 alpha = opaque.
 const BASE_COLOR = '&H00FFFFFF'; // opaque white - unhighlighted text
 const HIGHLIGHT_COLOR = '&H0000FFFF'; // opaque yellow - karaoke "spoken" fill / bold-highlight
 const OUTLINE_COLOR = '&H00000000'; // opaque black
-
-// No LLM/user keyword input yet (that's Fase 5's hook-generator scope) - just
-// patterns that tend to carry emphasis on their own: numbers/percentages,
-// ALL-CAPS words, and quoted phrases. Exported (Subtitle Studio roadmap,
-// P2e) so TimelineEditor.tsx's live caption preview can bold/highlight the
-// exact same keywords this module actually burns in, rather than
-// maintaining a second, driftable copy of the pattern client-side.
-export const KEYWORD_PATTERN = /\d|^[A-Z]{2,}$|^["“'].+["”']$/;
 
 // Subtitle Studio roadmap (P2c) - the SAME deterministic, letter-indexed
 // palette as apps/web/components/TimelineEditor.tsx's own SPEAKER_COLORS

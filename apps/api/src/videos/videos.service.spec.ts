@@ -602,6 +602,7 @@ describe('VideosService', () => {
           viralityPrediction: null,
           retentionCurveInsights: null,
           multimodalReasoning: null,
+          subtitleIntelligence: null,
           publishRecords: [],
         },
         {
@@ -659,6 +660,7 @@ describe('VideosService', () => {
           viralityPrediction: null,
           retentionCurveInsights: null,
           multimodalReasoning: null,
+          subtitleIntelligence: null,
           publishRecords: [],
         },
       ]);

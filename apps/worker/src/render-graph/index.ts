@@ -37,6 +37,7 @@ import type {
   SpeakerFusionFeatures,
   SpeakerTimelineEntry,
   SpeakerTimelineFeatures,
+  SubtitleIntelligence,
   ViralityPrediction,
 } from '@speedora/contracts';
 import type { FaceLandmarkSample } from '@speedora/facial-intelligence';
@@ -58,6 +59,7 @@ import { ocrNodes } from './nodes/ocr';
 import { retentionCurveInsightsNodes } from './nodes/retention-curve-insights';
 import { sceneNodes } from './nodes/scene';
 import { semanticEventNodes } from './nodes/semantic-events';
+import { subtitleRewriterNodes } from './nodes/subtitle-rewriter';
 import { thumbnailSelectionNodes } from './nodes/thumbnail-selection';
 import { viralityEngineNodes } from './nodes/virality-engine';
 
@@ -90,6 +92,12 @@ export const renderClipGraph: GraphNode<RenderGraphContext, unknown>[] = [
   ...viralityEngineNodes,
   ...retentionCurveInsightsNodes,
   ...multimodalReasoningNodes,
+  // AI Intelligence v4 Track B, Phase A1 (Subtitle Rewriter) - a separate
+  // track from the Phase 1-11 chain above (see docs/ai/
+  // subtitle-intelligence.md); registration order here is stylistic, not
+  // load-bearing - runGraph()'s own Kahn's-algorithm level batching orders
+  // execution from each node's declared `deps`, not array position.
+  ...subtitleRewriterNodes,
   ...thumbnailSelectionNodes,
 ];
 
@@ -138,5 +146,6 @@ export interface RenderGraphResult {
   viralityPrediction: ViralityPrediction;
   retentionCurveInsights: RetentionCurveInsights;
   multimodalReasoning: MultimodalReasoningResult | null;
+  subtitleIntelligence: SubtitleIntelligence;
   thumbnailSelection: SelectThumbnailTimestampOutput;
 }

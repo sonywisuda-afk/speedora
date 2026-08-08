@@ -79,6 +79,7 @@ import {
   toSharedViralityPrediction,
   toSharedRetentionCurveInsights,
   toSharedMultimodalReasoning,
+  toSharedSubtitleIntelligence,
   toSharedLipSyncVerifications,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
@@ -1864,6 +1865,7 @@ export class VideosService {
           viralityPrediction,
           retentionCurveInsights,
           multimodalReasoning,
+          subtitleIntelligence,
           thumbnailSelectionBreakdown,
           thumbnailSelectionFallback,
           ...clip
@@ -1929,6 +1931,7 @@ export class VideosService {
           viralityPrediction: toSharedViralityPrediction(viralityPrediction),
           retentionCurveInsights: toSharedRetentionCurveInsights(retentionCurveInsights),
           multimodalReasoning: toSharedMultimodalReasoning(multimodalReasoning),
+          subtitleIntelligence: toSharedSubtitleIntelligence(subtitleIntelligence),
           thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
             thumbnailSelectionBreakdown,
           ),

@@ -36,6 +36,7 @@ export * from './speaker-quality';
 export * from './speaker-scoring';
 export * from './speaker-timeline';
 export * from './speaking-style';
+export * from './subtitle-rewriter';
 export * from './subtitles';
 export * from './thumbnail-selection';
 export * from './transcript-word';

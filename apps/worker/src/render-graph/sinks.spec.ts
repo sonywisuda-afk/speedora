@@ -59,6 +59,11 @@ const noRetentionCurveInsights = {
   emotionalPeaks: [],
   curiosityPeaks: [],
 };
+const noSubtitleIntelligence = {
+  clipId: 'clip-1',
+  timeline: [],
+  highlights: [],
+};
 const midpointThumbnailSelection = {
   timestampSeconds: 5,
   confidence: 0,
@@ -110,6 +115,7 @@ function baseResult(overrides: Partial<RenderGraphResult> = {}): RenderGraphResu
     viralityPrediction: noViralityPrediction,
     retentionCurveInsights: noRetentionCurveInsights,
     multimodalReasoning: null,
+    subtitleIntelligence: noSubtitleIntelligence,
     thumbnailSelection: midpointThumbnailSelection,
     ...overrides,
   };
@@ -169,7 +175,7 @@ describe('toFusionInput', () => {
   // sit BESIDE the Fusion Engine, they never feed computeHighlightScore.
   // Regression guard: a present hookPrediction must never leak into
   // FusionInput under any key.
-  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph/contextualMomentum/emotionalArc/multiSpeakerBreakdown/viralityPrediction/retentionCurveInsights/multimodalReasoning in FusionInput', () => {
+  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph/contextualMomentum/emotionalArc/multiSpeakerBreakdown/viralityPrediction/retentionCurveInsights/multimodalReasoning/subtitleIntelligence in FusionInput', () => {
     const hookPrediction = { clipId: 'clip-1', hookProbability: 90 } as never;
     const semanticEvents = [{ type: 'money', t: 5 }] as never;
     const narrativeGraph = { segments: [], relations: [], unsegmented: true } as never;
@@ -182,6 +188,7 @@ describe('toFusionInput', () => {
       dropPoints: [{ t: 0, score: 0.5 }],
     } as never;
     const multimodalReasoning = { clipId: 'clip-1', evidence: [], connections: [] } as never;
+    const subtitleIntelligence = { clipId: 'clip-1', timeline: [{ text: 'hi' }] } as never;
     const input = toFusionInput(
       baseResult({
         hookPrediction,
@@ -193,6 +200,7 @@ describe('toFusionInput', () => {
         viralityPrediction,
         retentionCurveInsights,
         multimodalReasoning,
+        subtitleIntelligence,
       }),
       'clip-1',
       null,
@@ -206,6 +214,7 @@ describe('toFusionInput', () => {
     expect(Object.values(input)).not.toContain(viralityPrediction);
     expect(Object.values(input)).not.toContain(retentionCurveInsights);
     expect(Object.values(input)).not.toContain(multimodalReasoning);
+    expect(Object.values(input)).not.toContain(subtitleIntelligence);
   });
 });
 
@@ -366,5 +375,11 @@ describe('toClipUpdateData', () => {
     });
     expect(data.multimodalReasoning).toBe(multimodalReasoning);
     expect(data.multimodalReasoning).not.toBe(Prisma.JsonNull);
+  });
+
+  it('writes subtitleIntelligence through as a plain passthrough, never Prisma.JsonNull (always-computed object)', () => {
+    const data = toClipUpdateData(baseResult(), { outputUrl: 'renders/clip-1.mp4' });
+    expect(data.subtitleIntelligence).toBe(noSubtitleIntelligence);
+    expect(data.subtitleIntelligence).not.toBe(Prisma.JsonNull);
   });
 });

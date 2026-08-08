@@ -929,6 +929,42 @@ export interface MultimodalReasoningResult {
   modalityCoverage: Record<string, number>;
 }
 
+// AI Intelligence v4 Track B, Phase A1 (Subtitle Rewriter, spec Part 7 -
+// see docs/ai/subtitle-intelligence.md). Mirrors @speedora/contracts'
+// subtitleLineSchema/highlightMomentSchema/subtitleIntelligenceSchema
+// rather than importing them - same duplication precedent as
+// ViralitySubProbabilities/RetentionPoint/MultimodalReasoningResult above.
+// ADR DB1 (resolved via AskUserQuestion before implementation): `words` is
+// the exact, UNMODIFIED sub-sequence of the source segment's own words -
+// this is a STRUCTURAL re-chunker, never a lexical rewrite.
+export interface SubtitleLine {
+  start: number;
+  end: number;
+  text: string;
+  words: TranscriptWord[];
+  speaker?: string;
+  emphasisWordIndices: number[];
+}
+
+export type SubtitleTimeline = SubtitleLine[];
+
+// A "punch-worthy" moment - `score` is RELATIVE within this clip's own
+// moments only, same "not comparable across clips" caveat every other v4
+// 0-1 score already carries.
+export interface HighlightMoment {
+  start: number;
+  end: number;
+  score: number;
+}
+
+export type HighlightTimeline = HighlightMoment[];
+
+export interface SubtitleIntelligence {
+  clipId: string;
+  timeline: SubtitleTimeline;
+  highlights: HighlightTimeline;
+}
+
 // AI Fusion roadmap's Face Intelligence initiative, Batch 2 - a per-sample
 // looking-direction bucket, 'center' meaning both iris position and head
 // rotation roughly face the camera. Mirrors @speedora/contracts'
@@ -1605,6 +1641,16 @@ export interface Clip {
   // (including an empty `connections` array) means it ran successfully -
   // a real result, not a failure.
   multimodalReasoning: MultimodalReasoningResult | null;
+  // AI Intelligence v4 Track B, Phase A1 (Subtitle Rewriter, spec Part 7) -
+  // computed on every render regardless of SUBTITLE_REWRITE_ENABLED (the
+  // flag gates API exposure, not computation - see
+  // isSubtitleRewriteEnabled()). Same null-semantics as
+  // contextualMomentum/emotionalArc/viralityPrediction/
+  // retentionCurveInsights: this node always produces a real object once
+  // it runs, so null here can ONLY mean this Clip row predates this
+  // phase's migration. Does NOT yet affect the actual burned-in captions -
+  // see docs/ai/subtitle-intelligence.md's Phase A2.
+  subtitleIntelligence: SubtitleIntelligence | null;
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // @speedora/thumbnail-selection's chosen in-clip timestamp, replacing the
   // naive clip-midpoint thumbnailUrl/thumbnailBlurDataUrl are extracted at,
