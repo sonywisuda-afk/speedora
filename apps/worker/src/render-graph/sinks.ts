@@ -165,6 +165,14 @@ const CLIP_UPDATE_MAP: {
   // InputJsonValue cast needed (object shapes, unlike closed array types,
   // don't need the array-specific cast).
   viralityPrediction: (r) => ({ viralityPrediction: r.viralityPrediction }),
+  // AI Intelligence v4, Phase 10 (Retention Curve Insights, spec Part 5
+  // extension - see docs/ai/intelligence-v4.md) - same "NOT added to
+  // FUSION_INPUT_MAP" posture as every prior v4 output. Same
+  // "always-computed non-nullable object" convention as
+  // viralityPrediction above: a plain passthrough, no Prisma.JsonNull, no
+  // InputJsonValue cast (an object whose own array fields can be empty,
+  // never itself null).
+  retentionCurveInsights: (r) => ({ retentionCurveInsights: r.retentionCurveInsights }),
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // never added to FUSION_INPUT_MAP above: per this module's own policy
   // (see @speedora/contracts' thumbnail-selection.ts), this output must

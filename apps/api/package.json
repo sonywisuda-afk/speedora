@@ -46,6 +46,7 @@
     "@speedora/narrative-graph": "workspace:*",
     "@speedora/platform-fit": "workspace:*",
     "@speedora/report-builder": "workspace:*",
+    "@speedora/retention-curve-insights": "workspace:*",
     "@speedora/semantic-events": "workspace:*",
     "@speedora/shared": "workspace:*",
     "@speedora/social": "workspace:*",

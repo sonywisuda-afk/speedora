@@ -27,6 +27,7 @@ export * from './ocr';
 export * from './platform-fit';
 export * from './primary-subject';
 export * from './reframe';
+export * from './retention-curve-insights';
 export * from './scene-intelligence';
 export * from './semantic-events';
 export * from './seo-copy';

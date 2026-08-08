@@ -4,6 +4,7 @@ import type {
   MomentumCurve,
   MultiSpeakerBreakdown,
   NarrativeGraph,
+  RetentionCurveInsights,
   SemanticEvent,
   ViralityPrediction,
 } from './video';
@@ -17,9 +18,10 @@ import type {
 // number, so reusing that array would force a false equivalence. Phase 1
 // shipped `hookPrediction`; Phase 2 added `semanticEvents`; Phase 3 added
 // `narrativeGraph`; Phase 4 added `contextualMomentum`; Phase 5 added
-// `emotionalArc`; Phase 6 added `multiSpeakerBreakdown`; Phase 7 adds
-// `viralityPrediction` to this same DTO rather than growing a new endpoint
-// per part; later Track A phases follow the same pattern.
+// `emotionalArc`; Phase 6 added `multiSpeakerBreakdown`; Phase 7 added
+// `viralityPrediction`; Phase 10 adds `retentionCurveInsights` to this same
+// DTO rather than growing a new endpoint per part; later Track A phases
+// follow the same pattern.
 export interface ClipIntelligenceDto {
   clipId: string;
   // Null when HOOK_PREDICTION_ENABLED is off (the flag gates this field's
@@ -66,4 +68,13 @@ export interface ClipIntelligenceDto {
   // Clip.viralityScore (Fase 8's original MVP LLM clip-scoring) - see
   // docs/ai/scoring.md.
   viralityPrediction: ViralityPrediction | null;
+  // Null when RETENTION_CURVE_INSIGHTS_ENABLED is off (same exposure-only
+  // gate, see isRetentionCurveInsightsEnabled()) or when this Clip row
+  // predates the phase's migration (same pure-node null-semantics as
+  // contextualMomentum/emotionalArc/viralityPrediction above, not
+  // multiSpeakerBreakdown's third pattern - this node always produces a
+  // real object once it runs). A new ADDITIVE layer over Phase 4's
+  // MomentumCurve and Phase 5's EmotionalArc (ADR D13) - those two fields
+  // are unchanged by this phase.
+  retentionCurveInsights: RetentionCurveInsights | null;
 }

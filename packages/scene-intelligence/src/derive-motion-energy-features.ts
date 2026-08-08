@@ -25,14 +25,19 @@ const PEAK_STDDEV_MULTIPLIER = 1.5;
 // Shared by peak detection (SC-5) and motionVariability (SC-6) - both are
 // self-relative measurements (a spike threshold, a variation ratio) derived
 // from the same clip-level mean/stddev, so it's computed once rather than
-// twice over the same `values` array.
-function meanAndStddev(values: number[]): { mean: number; stddev: number } {
+// twice over the same `values` array. EXPORTED (Phase 10 of AI Intelligence
+// v4, docs/ai/intelligence-v4.md - Retention Curve Insights) so
+// @speedora/retention-curve-insights can reuse it over MomentumCurve/
+// EmotionalArc's own values arrays instead of duplicating this ~10-line
+// algorithm - a small shared-utility extraction, not a rewrite.
+export function meanAndStddev(values: number[]): { mean: number; stddev: number } {
   const mean = values.reduce((sum, value) => sum + value, 0) / values.length;
   const variance = values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length;
   return { mean, stddev: Math.sqrt(variance) };
 }
 
-function findPeakIndices(values: number[], mean: number, stddev: number): number[] {
+// EXPORTED for the same Phase 10 reuse reason as meanAndStddev above.
+export function findPeakIndices(values: number[], mean: number, stddev: number): number[] {
   // A perfectly flat signal (stddev === 0) has no meaningful "spike" -
   // every sample is equally the mean, so none of them qualify as a peak.
   if (stddev === 0) return [];
@@ -49,6 +54,30 @@ function findPeakIndices(values: number[], mean: number, stddev: number): number
     if (clearsPrevious && clearsNext) peakIndices.push(i);
   }
   return peakIndices;
+}
+
+// The mirror image of findPeakIndices() above - a strict local MINIMUM
+// clearing the same PEAK_STDDEV_MULTIPLIER threshold below the mean, added
+// for Phase 10 (AI Intelligence v4, Retention Curve Insights)'s
+// dropPoints - a momentum/intensity trough reads as a likely audience-drop
+// moment. Kept in this file (not duplicated in the new package) so both
+// stay next to the one shared mean/stddev computation and the one
+// PEAK_STDDEV_MULTIPLIER threshold constant.
+export function findTroughIndices(values: number[], mean: number, stddev: number): number[] {
+  if (stddev === 0) return [];
+
+  const troughThreshold = mean - PEAK_STDDEV_MULTIPLIER * stddev;
+  const troughIndices: number[] = [];
+  for (let i = 0; i < values.length; i++) {
+    const value = values[i];
+    if (value > troughThreshold) continue;
+    const previous = i > 0 ? values[i - 1] : null;
+    const next = i < values.length - 1 ? values[i + 1] : null;
+    const clearsPrevious = previous === null || value < previous;
+    const clearsNext = next === null || value < next;
+    if (clearsPrevious && clearsNext) troughIndices.push(i);
+  }
+  return troughIndices;
 }
 
 // Pure, synchronous summary derivation over analyzeMotionEnergy()'s raw

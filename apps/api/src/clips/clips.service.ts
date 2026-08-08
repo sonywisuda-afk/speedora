@@ -46,6 +46,7 @@ import { isContextualMomentumEnabled } from '@speedora/contextual-momentum';
 import { isEmotionalArcEnabled } from '@speedora/emotional-arc';
 import { isMultiSpeakerReasoningEnabled } from '@speedora/multi-speaker-reasoning';
 import { isViralityEngineEnabled } from '@speedora/virality-engine';
+import { isRetentionCurveInsightsEnabled } from '@speedora/retention-curve-insights';
 import { computePlatformFit } from '@speedora/platform-fit';
 import type { Queue } from 'bullmq';
 import type { ClipPlatformCopy } from '@speedora/database';
@@ -78,6 +79,7 @@ import {
   toSharedEmotionalArc,
   toSharedMultiSpeakerBreakdown,
   toSharedViralityPrediction,
+  toSharedRetentionCurveInsights,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
   toSharedOcrText,
@@ -550,6 +552,9 @@ export class ClipsService {
         : null,
       viralityPrediction: isViralityEngineEnabled()
         ? toSharedViralityPrediction(clip.viralityPrediction)
+        : null,
+      retentionCurveInsights: isRetentionCurveInsightsEnabled()
+        ? toSharedRetentionCurveInsights(clip.retentionCurveInsights)
         : null,
     };
   }
@@ -1224,6 +1229,7 @@ export class ClipsService {
     emotionalArc: unknown;
     multiSpeakerBreakdown: unknown;
     viralityPrediction: unknown;
+    retentionCurveInsights: unknown;
     thumbnailSelectionTimestamp: number | null;
     thumbnailSelectionBreakdown: unknown;
     thumbnailSelectionFallback: string | null;
@@ -1312,6 +1318,7 @@ export class ClipsService {
       emotionalArc: toSharedEmotionalArc(clip.emotionalArc),
       multiSpeakerBreakdown: toSharedMultiSpeakerBreakdown(clip.multiSpeakerBreakdown),
       viralityPrediction: toSharedViralityPrediction(clip.viralityPrediction),
+      retentionCurveInsights: toSharedRetentionCurveInsights(clip.retentionCurveInsights),
       thumbnailSelectionTimestamp: clip.thumbnailSelectionTimestamp,
       thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
         clip.thumbnailSelectionBreakdown,

@@ -54,7 +54,16 @@
   zero real consumers depended on the old shape. Needed no new migration (`Clip.viralityPrediction`
   is `Json?`, no DB-level schema), no new render-graph node, no new sink wiring, and no new
   `ClipIntelligenceDto` field — see "Phase 9 architecture (as shipped)" below.
-- **Phases 10-17**: documented roadmap only, not built (renumbered from the original Phase 9-14 —
+- **Phase 10 (Retention Curve Insights, spec Part 5 extension)**: shipped, flag-off
+  (`RETENTION_CURVE_INSIGHTS_ENABLED=false`). Unlike Phase 9, this stays strictly additive (ADR
+  D13) — Phase 4's `MomentumCurve` and Phase 5's `EmotionalArc` are unchanged, only consumed. New
+  `packages/retention-curve-insights` derives `dropPoints`/`replayZones`/`emotionalPeaks` (peak/
+  trough detection over `MomentumCurve`/`EmotionalArc`, reusing `packages/scene-intelligence`'s own
+  `findPeakIndices`/`meanAndStddev` — now exported — plus a new mirror-image `findTroughIndices`)
+  and `curiosityPeaks` (`SemanticEvent[]` filtered to a curiosity-flavored type subset via a new
+  `isCuriositySemanticEventType()` exhaustive switch). Timeline visualization is explicitly
+  deferred to Phase 12 (Explainability) — see "Phase 10 architecture (as shipped)" below.
+- **Phases 11-17**: documented roadmap only, not built (renumbered from the original Phase 9-14 —
   see "Roadmap" below; Phases 0-8 above keep their original numbers/history unchanged).
 
 ## Why this exists
@@ -334,7 +343,7 @@ renumbered. Full ADR (D12-D16) and audit are in persistent memory
 | 7 | Cross-module Fusion (4, Virality Engine) — **shipped, realigned by Phase 9** | Phases 1, 3, 4, 5 | M | Labeling discipline (8 heuristic probabilities reading as "trained") - addressed by design: each sub-probability documented as a HEURISTIC (ADR D4) with an explicit "not trained/calibrated" caveat, plus a new 4th disambiguation section in `ai/scoring.md` against the pre-existing `viralityScore`. **Superseded**: shipped by reverse-engineering Part 4 without its real spec text — see Phase 9 |
 | 8 | Confidence Calibration (cross-cutting) — **shipped** | Phases 1-7 | S-M | Hygiene pass, low risk — addressed by design: no numeric recalibration was possible (0 usable engagement samples, same blocker every phase already documents), so this phase is labeling/consistency only — a missing field comment, 6 standardized module comments, and a confidence-field taxonomy, zero new runtime behavior |
 | 9 | Virality Engine Realignment (4) — **shipped** | Phases 1, 3, 4, 5 (same deps Phase 7 already had) | M | Breaking change to `ViralitySubProbabilities` (ADR D12) - addressed by design: `VIRALITY_ENGINE_ENABLED` was `false` in production so zero real consumers existed; scoped tightly to the shape change only (no new migration/node/sink/DTO field needed since `Clip.viralityPrediction` is `Json?`) |
-| 10 | Retention Curve Insights (5, extension) | Phases 2, 4, 5 | S-M | Peak/trough thresholds are HEURISTIC (no ground truth for curve *shape*, same caveat Phase 4 already carries) — "Curiosity Peaks" has no free existing signal (needs `SemanticEvent` timestamp mapping, not pure array math) |
+| 10 | Retention Curve Insights (5, extension) — **shipped** | Phases 2, 4, 5 | S-M | Peak/trough thresholds are HEURISTIC (no ground truth for curve *shape*, same caveat Phase 4 already carries) — addressed by design: every `RetentionPoint.score` field is documented as such; "Curiosity Peaks" had no free existing signal (needed `SemanticEvent` timestamp mapping, not pure array math) — resolved via a new `isCuriositySemanticEventType()` exhaustive switch (Contract Governance rule 1) |
 | 11 | Multimodal Reasoning Engine (6) | Phase 0, Phase 2 (context) + raw Face/Gesture/Audio/Speaker/Scene/OCR/Object signals | L | First new LLM reasoning module since Phase 3 — prompt-engineering risk (genuine cross-modal "connection" reasoning, not just concatenated signal descriptions) |
 | 12 | Explainability (13) | Phases 1-11 | M | UI copy is where "scale honesty" holds or breaks — also must decide whether to backfill reason/confidence onto the 3 currently-silent fields (momentum/emotional-arc/multi-speaker) or document why they stay silent |
 | 13 | Candidate Expansion (10, generation half) | Phase 1 | L | Biggest infra change — new pre-render adapter stage; must fix `clip-scoring`'s hardcoded "Pick 1-3" prompt text, not just raise `maxCandidates` |
@@ -1029,3 +1038,120 @@ Phase 7's own verification) all green; `apps/worker`'s `render-clip.worker.spec.
 (updated `noViralityPrediction` fixture) all green; a repo-wide grep confirmed no other file
 referenced the old field names outside `packages/virality-engine` itself. Full local `pnpm verify`
 green before push.
+
+## Phase 10 architecture (as shipped)
+
+Retention Curve Insights turns Phase 4's `MomentumCurve` and Phase 5's `EmotionalArc` — real,
+useful raw signal, but not spec Part 5's actual ask — into the derived outputs Part 5 names:
+Expected Drop Points, Replay Zones, Emotional Peaks, and Curiosity Peaks. Unlike Phase 9's
+realignment, this is **strictly additive** (ADR D13) — `MomentumCurve`/`EmotionalArc` themselves
+are untouched, only consumed by a new layer on top.
+
+```
+packages/scene-intelligence/src/derive-motion-energy-features.ts
+                                             findPeakIndices()/meanAndStddev() EXPORTED (were
+                                             module-private) - reused rather than duplicated. New
+                                             findTroughIndices() added alongside them - the mirror
+                                             image (strict local MINIMUM below mean -
+                                             PEAK_STDDEV_MULTIPLIER*stddev), same threshold
+                                             constant, same file (keeps both next to the one shared
+                                             mean/stddev computation)
+
+packages/contracts/src/retention-curve-insights.ts
+                                             retentionPointSchema ({t, score} - the shared shape for
+                                             all 4 arrays), retentionCurveInsightsSchema
+                                             (dropPoints/replayZones/emotionalPeaks/curiosityPeaks,
+                                             each an array, never null - a real "no such point
+                                             found" result when empty), computeRetentionCurveInsights
+                                             InputSchema (imports momentumSampleSchema from
+                                             ./contextual-momentum, emotionalArcSampleSchema from
+                                             ./emotional-arc, semanticEventSchema from
+                                             ./semantic-events - same cross-contract-file-import
+                                             precedent virality-engine.ts already uses)
+
+packages/retention-curve-insights/src/
+  compute-retention-curve-insights.ts       computeRetentionCurveInsights() - the module's single
+                                             entry point, PURE and synchronous (no `deps` param),
+                                             same zero-LLM shape as Phase 4/5/6/9. dropPoints =
+                                             trough indices over MomentumCurve.momentumScore, score
+                                             = 1 - momentumScore (drop severity). replayZones =
+                                             peak indices over MomentumCurve.momentumScore, boosted
+                                             by the temporally-nearest EmotionalArc sample's
+                                             intensity when one exists (falls back to momentumScore
+                                             alone otherwise). emotionalPeaks = peak indices over
+                                             EmotionalArc.intensity. curiosityPeaks =
+                                             SemanticEvent[] filtered to isCuriositySemanticEventType,
+                                             t/score taken directly from the event's own
+                                             t/importance
+  is-curiosity-semantic-event-type.ts       isCuriositySemanticEventType() - exhaustive switch/
+                                             assertNever over all 22 SEMANTIC_EVENT_TYPES (Contract
+                                             Governance rule 1), same "govern an existing enum being
+                                             consumed for the first time" pattern Phase 6/7 already
+                                             established. secret/prediction/warning/breaking_news/
+                                             controversy read as curiosity-evoking (creates an
+                                             information gap - a withheld fact, an implied future,
+                                             visible disagreement, novelty); every other type does
+                                             not
+  feature-flags.ts                          isRetentionCurveInsightsEnabled()
+
+apps/worker/src/render-graph/nodes/retention-curve-insights.ts
+                                             retentionCurveInsightsNode, id:
+                                             'retentionCurveInsights' (optional: false, no fallback
+                                             - same reasoning as Phase 4/5/6/9's own pure-derive
+                                             nodes; deps: contextualMomentum, emotionalArc,
+                                             semanticEvents - all already-existing node ids, no new
+                                             upstream detector)
+
+apps/worker/src/render-graph/sinks.ts       CLIP_UPDATE_MAP['retentionCurveInsights'] entry -
+                                             deliberately NOT added to FUSION_INPUT_MAP (D1). Same
+                                             "always-computed non-nullable object" convention as
+                                             viralityPrediction: a plain passthrough, no
+                                             Prisma.JsonNull, no InputJsonValue cast needed (an
+                                             object whose own array fields can be empty, but the
+                                             object itself is never null once computed)
+
+packages/database/prisma/schema.prisma      Clip.retentionCurveInsights Json? (new column, real
+                                             migration this time - unlike Phase 9, this is a
+                                             genuinely new field, not a shape change to an existing
+                                             one; real-Postgres round trip verified manually)
+
+apps/api/src/videos/transcript-segment.util.ts
+                                             toSharedRetentionCurveInsights() - the TS2742 fix (D7).
+                                             Same null-semantics as toSharedContextualMomentum/
+                                             toSharedEmotionalArc/toSharedViralityPrediction (not
+                                             toSharedMultiSpeakerBreakdown's third pattern): null
+                                             here can ONLY mean this Clip row predates this phase's
+                                             migration
+
+apps/api/src/clips/clips.service.ts         GET /clips/:id/intelligence extended with
+                                             `retentionCurveInsights`, gated by its OWN independent
+                                             flag (D9 - the 8th field on the same DTO)
+
+packages/shared/src/types/
+  video.ts                                  RetentionPoint/RetentionCurveInsights mirrored (not
+                                             imported), same duplication precedent as
+                                             ViralitySubProbabilities/SpeakerAttribution/
+                                             EmotionalArcSample/MomentumSample/NarrativeGraph/
+                                             SemanticEvent/HookPredictionOutput; Clip.
+                                             retentionCurveInsights field
+  intelligence-v4.ts                        ClipIntelligenceDto.retentionCurveInsights
+```
+
+**Timeline visualization explicitly deferred to Phase 12**: the Parts 4-6 audit found zero v4
+fields render anywhere in `apps/web` today - every prior phase (1-9) has been backend/contract-only
+with UI work deferred to Phase 12 (Explainability), the phase this roadmap explicitly positions as
+where new v4 UI surfaces get built. This phase ships the data only.
+
+**No confidence field, matching Phase 4/5/6's own precedent**: `RetentionCurveInsights` has no
+top-level confidence/coverage number - a pure derive with no natural weighted-budget concept, same
+reasoning already established for `MomentumCurve`/`EmotionalArc`/`MultiSpeakerBreakdown`. Coverage
+is communicated by each of the 4 arrays being present-but-possibly-empty, not by a separate figure.
+
+Verification: `packages/retention-curve-insights`'s own suite (peak/trough detection edge cases -
+empty arrays, flat signals with stddev 0 - plus an `isCuriositySemanticEventType()` exhaustiveness
+test over all 22 `SEMANTIC_EVENT_TYPES`, same `it.each` pattern `is-payoff-segment-type.spec.ts`
+uses) green; `apps/worker`'s `render-clip.worker.spec.ts` (all 5 `viralityPrediction` fixture sites
+extended with a new `retentionCurveInsights: expect.any(Object)` line, same pattern Phase 7 used
+after `multiSpeakerBreakdown`) and `sinks.spec.ts` (new `noRetentionCurveInsights` fixture, the
+FusionInput-leak regression guard extended to cover this field too) green; real-Postgres round trip
+verified manually for the new column. Full local `pnpm verify` green before push.

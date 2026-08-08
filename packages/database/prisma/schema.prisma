@@ -1136,6 +1136,23 @@ model Clip {
   // on every render regardless of the VIRALITY_ENGINE_ENABLED flag (gates
   // API exposure only - see isViralityEngineEnabled()).
   viralityPrediction          Json?
+  // AI Intelligence v4, Phase 10 (Retention Curve Insights, spec Part 5
+  // extension - see docs/ai/intelligence-v4.md). @speedora/
+  // retention-curve-insights' RetentionCurveInsights - dropPoints/
+  // replayZones/emotionalPeaks/curiosityPeaks, each an array of timestamped
+  // signal points derived from Phase 4's MomentumCurve, Phase 5's
+  // EmotionalArc, and Phase 2's SemanticEvent[] via a pure computation, no
+  // LLM call. MomentumCurve/EmotionalArc themselves are unchanged (ADR
+  // D13, docs/ai/intelligence-v4.md's Parts 4-15 re-audit) - this is a new
+  // additive layer, not a realignment like Phase 9's viralityPrediction.
+  // Same null-semantics as contextualMomentum/emotionalArc/
+  // viralityPrediction: this node always produces a real object once it
+  // runs (each of its 4 array fields can be empty, but the object itself
+  // is never null once computed), so null here can ONLY mean this Clip
+  // row predates this phase's migration. Computed on every render
+  // regardless of the RETENTION_CURVE_INSIGHTS_ENABLED flag (gates API
+  // exposure only - see isRetentionCurveInsightsEnabled()).
+  retentionCurveInsights      Json?
   // AI Clip Library roadmap, Phase P1 - denormalized endTime - startTime,
   // set alongside them at every write site (detect-clips.worker.ts's
   // initial prisma.clip.create, and ClipsService.update's manual trim) -

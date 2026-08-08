@@ -854,6 +854,33 @@ export interface ViralityPrediction {
   subProbabilities: ViralitySubProbabilities;
 }
 
+// AI Intelligence v4, Phase 10 (Retention Curve Insights, spec Part 5
+// extension - see docs/ai/intelligence-v4.md). Mirrors
+// @speedora/contracts' retentionPointSchema rather than importing it -
+// same duplication precedent as ViralitySubProbabilities above. `score` is
+// RELATIVE within this clip's own points only, same "not comparable
+// across clips" caveat MomentumCurve's momentumScore/EmotionalArc's
+// intensity already carry.
+export interface RetentionPoint {
+  t: number;
+  score: number;
+}
+
+// A new ADDITIVE layer over Phase 4's MomentumCurve and Phase 5's
+// EmotionalArc (ADR D13, docs/ai/intelligence-v4.md's Parts 4-15
+// re-audit) - unlike Phase 9's realignment, MomentumCurve/EmotionalArc
+// themselves are unchanged, only consumed. Every array can be empty (not
+// null) - a real, honest "no such point found" result. No confidence
+// field, same "pure derive with no natural weighted-budget concept"
+// reasoning Phase 4/5/6 already established.
+export interface RetentionCurveInsights {
+  clipId: string;
+  dropPoints: RetentionPoint[];
+  replayZones: RetentionPoint[];
+  emotionalPeaks: RetentionPoint[];
+  curiosityPeaks: RetentionPoint[];
+}
+
 // AI Fusion roadmap's Face Intelligence initiative, Batch 2 - a per-sample
 // looking-direction bucket, 'center' meaning both iris position and head
 // rotation roughly face the camera. Mirrors @speedora/contracts'
@@ -1512,6 +1539,14 @@ export interface Clip {
   // pattern): this node always produces a real object once it runs, so
   // null here can ONLY mean this Clip row predates this phase's migration.
   viralityPrediction: ViralityPrediction | null;
+  // AI Intelligence v4, Phase 10 (Retention Curve Insights, spec Part 5
+  // extension) - computed on every render regardless of
+  // RETENTION_CURVE_INSIGHTS_ENABLED (the flag gates API exposure, not
+  // computation - see isRetentionCurveInsightsEnabled()). Same
+  // null-semantics as contextualMomentum/emotionalArc/viralityPrediction:
+  // this node always produces a real object once it runs, so null here
+  // can ONLY mean this Clip row predates this phase's migration.
+  retentionCurveInsights: RetentionCurveInsights | null;
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // @speedora/thumbnail-selection's chosen in-clip timestamp, replacing the
   // naive clip-midpoint thumbnailUrl/thumbnailBlurDataUrl are extracted at,
