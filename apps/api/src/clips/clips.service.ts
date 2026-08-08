@@ -748,6 +748,7 @@ export class ClipsService {
     const captionStyle = input.captionStyle ?? clip.captionStyle;
     const speakerColorCaptions = input.speakerColorCaptions ?? clip.speakerColorCaptions;
     const smartSegmentation = input.smartSegmentation ?? clip.smartSegmentation;
+    const dynamicCaptions = input.dynamicCaptions ?? clip.dynamicCaptions;
     const applyBrandKit = input.applyBrandKit ?? clip.applyBrandKit;
     const watermarkEnabled = input.watermarkEnabled ?? clip.watermarkEnabled;
     const introEnabled = input.introEnabled ?? clip.introEnabled;
@@ -768,6 +769,7 @@ export class ClipsService {
         captionStyle,
         speakerColorCaptions,
         smartSegmentation,
+        dynamicCaptions,
         applyBrandKit,
         watermarkEnabled,
         introEnabled,
@@ -881,6 +883,7 @@ export class ClipsService {
         captionStyle: toSharedCaptionStyle(clip.captionStyle),
         speakerColorCaptions: clip.speakerColorCaptions,
         smartSegmentation: clip.smartSegmentation,
+        dynamicCaptions: clip.dynamicCaptions,
         captionLanguage: clip.captionLanguage,
         fontFamily,
         watermark,
@@ -1186,6 +1189,7 @@ export class ClipsService {
     captionStyle: CaptionStyle;
     speakerColorCaptions: boolean;
     smartSegmentation: boolean;
+    dynamicCaptions: boolean;
     captionLanguage: string | null;
     applyBrandKit: boolean;
     fontFamily: string | null;
@@ -1279,6 +1283,7 @@ export class ClipsService {
       captionStyle: clip.captionStyle,
       speakerColorCaptions: clip.speakerColorCaptions,
       smartSegmentation: clip.smartSegmentation,
+      dynamicCaptions: clip.dynamicCaptions,
       captionLanguage: clip.captionLanguage,
       applyBrandKit: clip.applyBrandKit,
       fontFamily: clip.fontFamily,

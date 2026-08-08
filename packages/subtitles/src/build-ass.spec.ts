@@ -178,6 +178,110 @@ describe('buildAss', () => {
     });
   });
 
+  // AI Intelligence v4 Track B, Phase B2 (Dynamic Caption Engine render
+  // wiring). Verified against a real ffmpeg+libass render separately (see
+  // this phase's PR description) - these are the unit-level assertions on
+  // the ASS text itself.
+  describe('Dynamic Caption treatment (Phase B2)', () => {
+    it('emits no override at all for an untreated segment (sizeTier/animation both undefined)', () => {
+      const segments: SubtitleSegment[] = [{ start: 10, end: 12, text: 'hi' }];
+      const ass = buildAss({ ...baseOptions, segments });
+
+      expect(ass).toContain('Dialogue: 0,0:00:00.00,0:00:02.00,Default,,0,0,0,,hi');
+      expect(ass).not.toContain('\\fscx');
+      expect(ass).not.toContain('\\t(');
+    });
+
+    it('emits no override for sizeTier "normal" with animation "none" - same as untreated', () => {
+      const segments: SubtitleSegment[] = [
+        { start: 10, end: 12, text: 'hi', sizeTier: 'normal', animation: 'none' },
+      ];
+      const ass = buildAss({ ...baseOptions, segments });
+
+      expect(ass).not.toContain('\\fscx');
+    });
+
+    it('emits a static \\fscx/\\fscy override for sizeTier "large"', () => {
+      const segments: SubtitleSegment[] = [
+        { start: 10, end: 12, text: 'hi', sizeTier: 'large', animation: 'none' },
+      ];
+      const ass = buildAss({ ...baseOptions, segments });
+
+      expect(ass).toContain(',,{\\fscx125\\fscy125}hi');
+      expect(ass).not.toContain('\\t(');
+    });
+
+    it('emits a static \\fscx/\\fscy override for sizeTier "small"', () => {
+      const segments: SubtitleSegment[] = [
+        { start: 10, end: 12, text: 'hi', sizeTier: 'small', animation: 'none' },
+      ];
+      const ass = buildAss({ ...baseOptions, segments });
+
+      expect(ass).toContain(',,{\\fscx80\\fscy80}hi');
+    });
+
+    it('emits a two-stage \\t() pop for animation "punch", resting/peaking at the "normal" scale', () => {
+      const segments: SubtitleSegment[] = [
+        { start: 10, end: 12, text: 'hi', sizeTier: 'normal', animation: 'punch' },
+      ];
+      const ass = buildAss({ ...baseOptions, segments });
+
+      // resting=100 (normal), peak=round(100*1.15)=115, pop=200ms.
+      expect(ass).toContain(',,{\\t(0,200,\\fscx115\\fscy115)\\t(200,400,\\fscx100\\fscy100)}hi');
+    });
+
+    it('emits a smaller/slower \\t() pulse for animation "attention"', () => {
+      const segments: SubtitleSegment[] = [
+        { start: 10, end: 12, text: 'is this real?', sizeTier: 'normal', animation: 'attention' },
+      ];
+      const ass = buildAss({ ...baseOptions, segments });
+
+      // resting=100 (normal), peak=round(100*1.08)=108, pop=300ms.
+      expect(ass).toContain(
+        ',,{\\t(0,300,\\fscx108\\fscy108)\\t(300,600,\\fscx100\\fscy100)}is this real?',
+      );
+    });
+
+    it("animates around the sizeTier's own resting scale, not always 100, when both are set", () => {
+      const segments: SubtitleSegment[] = [
+        { start: 10, end: 12, text: 'hi', sizeTier: 'large', animation: 'punch' },
+      ];
+      const ass = buildAss({ ...baseOptions, segments });
+
+      // resting=125 (large), peak=round(125*1.15)=144.
+      expect(ass).toContain(
+        ',,{\\fscx125\\fscy125\\t(0,200,\\fscx144\\fscy144)\\t(200,400,\\fscx125\\fscy125)}hi',
+      );
+    });
+
+    it('composes with BOLD_HIGHLIGHT - the treatment prefix comes first, the keyword body unchanged', () => {
+      const segments: SubtitleSegment[] = [
+        { start: 10, end: 12, text: 'save 50 percent', sizeTier: 'large', animation: 'none' },
+      ];
+      const ass = buildAss({ ...baseOptions, segments, style: 'BOLD_HIGHLIGHT' });
+
+      expect(ass).toContain(
+        ',,{\\fscx125\\fscy125}save {\\b1\\c&H0000FFFF}50{\\b0\\c&H00FFFFFF} percent',
+      );
+    });
+
+    it('composes with speakerColorCaptions - the treatment prefix comes first', () => {
+      const segments: SubtitleSegment[] = [
+        {
+          start: 10,
+          end: 12,
+          text: 'hi',
+          speaker: 'Speaker A',
+          sizeTier: 'large',
+          animation: 'none',
+        },
+      ];
+      const ass = buildAss({ ...baseOptions, segments, speakerColorCaptions: true });
+
+      expect(ass).toContain(',,{\\fscx125\\fscy125}{\\3c&HD6E622&}hi');
+    });
+  });
+
   it('rejects an input that fails the buildAssInputSchema contract', () => {
     const segments: SubtitleSegment[] = [{ start: 10, end: 12, text: 'hi' }];
     expect(() => buildAss({ ...baseOptions, segments, style: 'COMIC_SANS' as never })).toThrow();

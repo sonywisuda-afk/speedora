@@ -1,14 +1,17 @@
 # Subtitle & Dynamic Caption Intelligence (spec Parts 7-8, Track B Phase A)
 
-> **Status: Phase A1 + A2 + B1 shipped, all flag-off by default (`SUBTITLE_REWRITE_ENABLED=false`,
-> `Clip.smartSegmentation` defaults `false`, `DYNAMIC_CAPTION_ENABLED=false`). B2 remains design
-> only.** This doc is the audit + ADR + dependency graph + phased roadmap written before any
-> implementation started. Implementation proceeds phase-by-phase from this doc, each phase
-> requiring its own explicit go-ahead (same convention as every Track A phase in
-> [`intelligence-v4.md`](./intelligence-v4.md)) and, per explicit user instruction, a test run +
-> regression check + doc update + production build check before moving to the next phase — see
-> "Phase A1 architecture (as shipped)", "Phase A2 architecture (as shipped)", and "Phase B1
-> architecture (as shipped)" below for what that verification actually covered.
+> **Status: COMPLETE. Phases A1/A2/B1/B2 all shipped, all flag-off by default
+> (`SUBTITLE_REWRITE_ENABLED=false`, `Clip.smartSegmentation` defaults `false`,
+> `DYNAMIC_CAPTION_ENABLED=false`, `Clip.dynamicCaptions` defaults `false`).** This doc is the
+> audit + ADR + dependency graph + phased roadmap written before any implementation started.
+> Implementation proceeded phase-by-phase from this doc, each phase requiring its own explicit
+> go-ahead (same convention as every Track A phase in [`intelligence-v4.md`](./intelligence-v4.md))
+> and, per explicit user instruction, a test run + regression check + doc update + production
+> build check before moving to the next phase — see "Phase A1 architecture (as shipped)", "Phase
+> A2 architecture (as shipped)", "Phase B1 architecture (as shipped)", and "Phase B2 architecture
+> (as shipped)" below for what that verification actually covered. Nothing is enabled in
+> production yet — every gate defaults off, same "collect/build first, calibrate/enable later"
+> posture as every other AI Intelligence v4 phase.
 
 ## Why this exists
 
@@ -174,6 +177,31 @@ several other per-clip toggles in this codebase's history already took; delibera
 propagated into `SubtitlePreset`/`ProcessingOptions.subtitle` either (separate feature surfaces,
 out of scope for this phase).
 
+**DB11. Phase B2's render-path gate mirrors DB10 exactly, plus a fourth condition** — a new
+per-clip `Clip.dynamicCaptions` Boolean (same orthogonal-to-`captionStyle` shape as
+`smartSegmentation`/`speakerColorCaptions`) AND the global `DYNAMIC_CAPTION_ENABLED` flag AND
+smart segmentation's own already-computed `useSmartSegmentation` gate (DB10) must ALL hold —
+`Clip.captionTreatment`'s per-line `TreatmentMoment[]` is only meaningful when captions actually
+come from `Clip.subtitleIntelligence`'s own rewritten lines (the two arrays are zipped by array
+index, guaranteed same length/order only in that case). Two per-clip toggles (`smartSegmentation`,
+`dynamicCaptions`) are kept genuinely independent rather than one implying the other — a user can
+want short re-chunked lines (Part 7) without size/animation treatment (Part 8), matching this
+whole roadmap's own Part-7-vs-Part-8 split; the reverse (`dynamicCaptions` on,
+`smartSegmentation` off) is a legitimate no-op, not an error, same "degrade gracefully" posture
+every other v4 gate uses.
+
+**DB12. The new ASS tags compose with the existing renderer via a single prepended override
+block, not a rewrite of `buildDialogueEvent()`'s existing per-style bodies** — `\fscx`/`\fscy`
+(static scale) and `\t()` (animated transform) are their own independent ASS channel from
+`\c`/`\3c`/`\k` (already established by `applySpeakerColor`'s own `\3c`-vs-`\c` reasoning), so a
+`{...}` block built once from a segment's `sizeTier`/`animation` and prepended before whichever
+style-specific body `buildDialogueEvent()` already produces (`KARAOKE`'s `\k` line,
+`BOLD_HIGHLIGHT`'s per-keyword `\b`/`\c`, or plain sanitized text) composes cleanly with all three
+without touching any of their existing logic. A segment with no treatment (`sizeTier`/`animation`
+both `undefined` - the untreated/raw-transcript/smart-segmentation-without-dynamic-captions case)
+produces the exact empty-string prefix, so output is byte-identical to every pre-B2 render unless
+a caller actually opts in.
+
 ## Dependency graph (planned)
 
 ```
@@ -238,7 +266,7 @@ line text ends in "?" (new, trivial) ──────────────�
 | A1 | Subtitle Rewriter (data only) — `SubtitleTimeline` + `HighlightTimeline`, persisted, exposed read-only via `/intelligence` — **shipped, flag-off** | `KEYWORD_PATTERN` hoist (DB6); Phases 2/4/5 optional | M | Re-chunking heuristic quality is unvalidated (no engagement data, same caveat every heuristic in this codebase carries) — mitigated by being 100% non-destructive (DB4) |
 | A2 | Wire A1's timeline into `buildAss()`/`toSubtitleSegments()` behind `smartSegmentation` — **shipped, flag-off** | A1 | M | First phase to touch the production render path — karaoke per-word timestamps must survive re-grouping into different lines unchanged; needs a real render regression test, not just unit tests on the data stage |
 | B1 | Dynamic Caption Engine (data only) — `CaptionTreatmentTimeline`, persisted, exposed read-only — **shipped, flag-off** | A1 (`HighlightTimeline`), Phase 5 (`emotionalArc`) | S-M | "Don't overuse animation" is a real design constraint, not a formula — needs an explicit, documented cooldown/threshold heuristic, flagged as unvalidated like every other threshold constant here |
-| B2 | Wire B1's treatment timeline into `build-ass.ts`'s ASS emission (`\fscx`/`\fscy`/`\t`/`\alpha`) | B1, A2 | L | Genuinely new ASS tag territory for this codebase — must be prototyped and verified against a real `ffmpeg`+`libass` render before trusting it in production (Tech Debt #6); highest-risk phase in this roadmap |
+| B2 | Wire B1's treatment timeline into `build-ass.ts`'s ASS emission (`\fscx`/`\fscy`/`\t`) — **shipped, flag-off** | B1, A2 | L | Genuinely new ASS tag territory for this codebase — verified against a real `ffmpeg`+`libass` render (Tech Debt #6 resolved, not left open); highest-risk phase in this roadmap |
 
 Each phase, per explicit instruction: implement → run the full test suite → confirm no regression in
 existing subtitle/render-graph tests → update this doc's Status line and `intelligence-v4.md` →
@@ -556,6 +584,108 @@ not deferred. **Not yet verified**: the size/animation thresholds have not been 
 real caption content end-to-end (only unit-test fixtures) - flagged honestly, same posture as every
 other unvalidated threshold in this codebase.
 
+## Phase B2 architecture (as shipped)
+
+```
+packages/contracts/src/subtitles.ts          CaptionSizeTier/CaptionAnimation/TreatmentMoment/
+                                              CaptionTreatmentTimeline MOVED here from
+                                              dynamic-caption.ts (DB12 territory - see the file's
+                                              own comment) to avoid a circular import
+                                              (subtitles.ts <- subtitle-rewriter.ts <-
+                                              dynamic-caption.ts already existed; dynamic-caption.ts
+                                              importing back from subtitles.ts would have created a
+                                              cycle). Zero consumer-facing break - every existing
+                                              consumer already imported these by name from
+                                              '@speedora/contracts', never from a specific file.
+                                              subtitleSegmentSchema gains two new OPTIONAL fields,
+                                              sizeTier/animation - undefined for every caller that
+                                              doesn't opt in, in which case buildAss() emits exactly
+                                              the same output as before this phase existed.
+
+packages/contracts/src/dynamic-caption.ts    Now holds only computeCaptionTreatmentInputSchema -
+                                              everything else moved to subtitles.ts (see above)
+
+packages/subtitles/src/build-ass.ts          buildTreatmentPrefix() (DB12) - SIZE_TIER_SCALE
+                                              (small=80/normal=100/large=125, ASS \fscx/\fscy
+                                              PERCENT values), PUNCH_PEAK_MULTIPLIER/POP_MS and
+                                              ATTENTION_PEAK_MULTIPLIER/POP_MS (punch is bigger/
+                                              faster than attention, a deliberate distinction).
+                                              Builds a single {...} override block - a static
+                                              \fscx/\fscy for sizeTier alone, or a two-stage \t()
+                                              rest->peak->rest transform around that same resting
+                                              scale for punch/attention - prepended to whichever
+                                              per-style body buildDialogueEvent() already produces.
+                                              Returns '' for the majority untreated case.
+
+apps/worker/src/workers/render-clip.worker.ts
+                                              isDynamicCaptionEnabled() imported from
+                                              @speedora/dynamic-caption; a new useDynamicCaptions
+                                              local (DB11's 3-way AND: per-clip dynamicCaptions,
+                                              global flag, useSmartSegmentation already computed by
+                                              A2) computed right after useSmartSegmentation;
+                                              toSubtitleSegments() gains a 5th parameter
+                                              (captionTreatment: TreatmentMoment[] | null) - when
+                                              present, zips it onto subtitleTimeline BY ARRAY INDEX
+                                              (both computed from the exact same source array by
+                                              construction, no separate timestamp-matching needed -
+                                              see the function's own comment) before the existing
+                                              +startTime coordinate-frame conversion.
+
+packages/database/prisma/schema.prisma       Clip.dynamicCaptions Boolean @default(false) (new
+                                              column, migration
+                                              20260808201117_add_clip_dynamic_captions, applied
+                                              against the real dev Postgres) - same orthogonal-to-
+                                              captionStyle shape as smartSegmentation (DB11)
+
+apps/api/src/clips/dto/update-clip.dto.ts    UpdateClipDto.dynamicCaptions - user-settable via
+                                              PATCH /clips/:id, same shape as smartSegmentation
+
+apps/api/src/clips/clips.service.ts          update()/render()/toDto() thread it through the same
+                                              way as smartSegmentation - plain Boolean column, no
+                                              TS2742 narrowing needed
+
+apps/api/src/videos/videos.service.ts        retry() copies clip.dynamicCaptions into
+                                              RenderClipJobData the same way
+
+apps/worker/src/workers/clip-persistence.ts  enqueueRendersForCandidates() copies
+                                              clips[index].dynamicCaptions (schema default false)
+                                              the same way
+
+packages/shared/src/types/{job.ts,video.ts}  RenderClipJobData.dynamicCaptions,
+                                              Clip.dynamicCaptions, UpdateClipInput.dynamicCaptions
+```
+
+**Real ffmpeg+libass verification, not left as an "unverified sandbox" caveat** (Tech Debt #6,
+closed - a first for this codebase's AI-signal subprocess history, where Audio/Scene/Facial
+Intelligence all remain honestly unverified for lack of a Python/ffmpeg-equipped sandbox at build
+time): this dev sandbox has a real `ffmpeg` build with `--enable-libass` on `PATH`. A one-off
+script called the actual `buildAss()` (not a hand-written fixture) with segments exercising every
+new tag - static `small`/`large` sizeTier, `punch`/`attention` animation, composed with
+`BOLD_HIGHLIGHT` and `speakerColorCaptions` - and ran the resulting `.ass` file through the exact
+same `subtitles=` filter `apps/worker/src/ffmpeg.ts` uses in production, over a synthetic
+`color=black` source. ffmpeg accepted every tag without error. Frames extracted at the "whisper"
+(small), "HUGE emotional moment" (large), and mid-`\t()`-pop ("shocking reveal") timestamps were
+inspected visually and confirm real, correctly-scaled size differences - not just that ffmpeg
+silently ignored unrecognized syntax. This is materially stronger evidence than every prior
+subprocess-based module in this codebase has had available.
+
+**Verified**: 12 new unit tests in `build-ass.spec.ts` (untreated/normal-none parity with pre-B2
+output, static small/large scale, punch/attention `\t()` timing and peak-scale math including
+composing with a non-100 resting scale, composition with `BOLD_HIGHLIGHT`/`speakerColorCaptions`).
+4 new integration tests in `render-clip.worker.spec.ts` proving all of DB11's gate conditions
+independently (treatment attached only when all three hold; absent when any one is off, including
+smart segmentation itself being off despite `dynamicCaptions`+the global flag both being on). Full
+suites: `apps/worker` (590 tests, up from 586), `apps/api` (1268 tests, unchanged - no existing
+fixture needed updating, `dynamicCaptions` is a plain Boolean defaulting `false`/`undefined`
+everywhere old fixtures didn't set it, same as `smartSegmentation` in Phase A2), `apps/web` (313
+tests, unchanged). Real production builds (`tsc` for `apps/worker`, `nest build` for `apps/api`,
+`next build` for `apps/web`) all pass. Migration applied against the real dev Postgres, not
+deferred. **Not yet verified**: no frontend UI exists yet to toggle `dynamicCaptions` for a real
+user (same gap as `smartSegmentation`'s own DB10 note) - API-settable only. The exact
+scale/duration constants (`SIZE_TIER_SCALE`, `PUNCH_PEAK_MULTIPLIER`, etc.) are still unvalidated
+HEURISTICS (ADR D4) - visually confirmed to render correctly, not confirmed to be the *right*
+numbers for real viewer engagement.
+
 ## Explicitly deferred (not part of this roadmap)
 
 - **LLM paraphrase mode** (DB1) — a real future capability, needs its own ADR/contract/flag/cost
@@ -565,6 +695,16 @@ other unvalidated threshold in this codebase.
 - **Non-Latin uppercase emphasis** (Tech Debt #9 / DB9) — suppressed, not solved; a real per-script
   emphasis convention (e.g. different glyph weight/color cues) is future work if this becomes a real
   product need.
-- **Frontend toggle for `smartSegmentation`** (DB10) — no Subtitle Studio panel checkbox yet;
-  `PATCH /clips/:id` is the only way to set it today. Also deliberately not propagated into
-  `SubtitlePreset`/`ProcessingOptions.subtitle` (separate feature surfaces).
+- **Frontend toggle for `smartSegmentation`/`dynamicCaptions`** (DB10/DB11) — no Subtitle Studio
+  panel checkbox for either yet; `PATCH /clips/:id` is the only way to set them today. Also
+  deliberately not propagated into `SubtitlePreset`/`ProcessingOptions.subtitle` (separate feature
+  surfaces).
+- **Calibrating the actual scale/animation constants** (`SIZE_TIER_SCALE`,
+  `PUNCH_PEAK_MULTIPLIER`/`_POP_MS`, `ATTENTION_PEAK_MULTIPLIER`/`_POP_MS`, the emotional-
+  intensity thresholds in `@speedora/dynamic-caption`) against real viewer engagement - same "0
+  usable engagement samples" blocker every heuristic in this codebase already documents. Verified
+  to RENDER correctly (real ffmpeg+libass), not verified to be the right numbers.
+- **`\alpha` (fade) tags** - named in this roadmap's original Tech Debt #6 alongside `\fscx`/
+  `\fscy`/`\t`, but the shipped Phase B2 implementation only ended up needing scale-based
+  animation (punch/attention are both scale pops, not fades) - `\alpha` was never actually
+  emitted. Left as a real, available option for a future animation style, not implemented.

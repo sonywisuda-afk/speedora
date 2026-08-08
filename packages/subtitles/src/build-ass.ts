@@ -2,6 +2,8 @@ import {
   buildAssInputSchema,
   KEYWORD_PATTERN,
   type BuildAssInput,
+  type CaptionAnimation,
+  type CaptionSizeTier,
   type SubtitleSegment,
 } from '@speedora/contracts';
 
@@ -110,6 +112,67 @@ function karaokeLine(words: NonNullable<SubtitleSegment['words']>, lineStart: nu
   return line.trim();
 }
 
+// AI Intelligence v4 Track B, Phase B2 (Dynamic Caption Engine render
+// wiring, spec Part 8 - see docs/ai/subtitle-intelligence.md). The first
+// \fscx/\fscy (scale)/\t (animated transform) tags this module has ever
+// emitted - genuinely new ASS tag territory for this codebase (Tech Debt
+// #6), verified against a real ffmpeg+libass render before being trusted
+// here (see build-ass.spec.ts's own comment and this phase's PR
+// description for how). Every numeric value below is a documented
+// HEURISTIC (ADR D4) - no readability/engagement data exists to calibrate
+// against.
+//
+// Resting (non-animated) scale per size tier, as ASS \fscx/\fscy PERCENT
+// values (100 = the Style's own declared Fontsize, unchanged - so
+// 'normal' emits no override at all, byte-identical to a segment with no
+// treatment).
+const SIZE_TIER_SCALE: Record<CaptionSizeTier, number> = {
+  small: 80,
+  normal: 100,
+  large: 125,
+};
+
+// "Do NOT overuse animation" (spec Part 8's own explicit constraint) is
+// already enforced upstream by @speedora/dynamic-caption's cooldown -
+// these two pairs only define what a punch/attention pop actually LOOKS
+// like once one is allowed to play. Punch (shock) is bigger/faster than
+// attention (a question) - a deliberate, documented distinction, not an
+// arbitrary pair of numbers.
+const PUNCH_PEAK_MULTIPLIER = 1.15;
+const PUNCH_POP_MS = 200;
+const ATTENTION_PEAK_MULTIPLIER = 1.08;
+const ATTENTION_POP_MS = 300;
+
+// Builds the ASS override block that opens a Dialogue line's text -
+// \fscx/\fscy alone for a static size change, plus a two-stage \t()
+// transform (rest -> peak -> rest) for punch/attention. Returns '' for
+// the majority case (sizeTier undefined/'normal' AND animation
+// undefined/'none') so a segment with no treatment produces EXACTLY the
+// same output as before this phase existed - the regression this
+// function must never cause. \fscx/\fscy is its own independent ASS
+// channel from \c/\3c/\k (already established by applySpeakerColor's own
+// \3c-vs-\c reasoning above), so this composes with every existing style/
+// speaker-color/emphasis tag without needing to touch any of them.
+function buildTreatmentPrefix(
+  sizeTier: CaptionSizeTier | undefined,
+  animation: CaptionAnimation | undefined,
+): string {
+  const resting = SIZE_TIER_SCALE[sizeTier ?? 'normal'];
+  const restingTag = resting !== 100 ? `\\fscx${resting}\\fscy${resting}` : '';
+
+  if (animation === 'punch' || animation === 'attention') {
+    const multiplier = animation === 'punch' ? PUNCH_PEAK_MULTIPLIER : ATTENTION_PEAK_MULTIPLIER;
+    const popMs = animation === 'punch' ? PUNCH_POP_MS : ATTENTION_POP_MS;
+    const peak = Math.round(resting * multiplier);
+    return (
+      `{${restingTag}\\t(0,${popMs},\\fscx${peak}\\fscy${peak})` +
+      `\\t(${popMs},${popMs * 2},\\fscx${resting}\\fscy${resting})}`
+    );
+  }
+
+  return restingTag ? `{${restingTag}}` : '';
+}
+
 // \k's colour switch (Secondary -> Primary as each syllable's timer elapses)
 // applies to whichever ASS Style a line references, and a line with no \k
 // tags at all is simply always shown in that Style's PrimaryColour. Those
@@ -128,17 +191,28 @@ function buildDialogueEvent(
 ): { text: string; styleName: 'Default' | 'Karaoke' } {
   const withSpeakerColor = (text: string) =>
     applySpeakerColor(text, segment.speaker, speakerColorCaptions);
+  // Phase B2 - prepended first, so it composes with (never replaces)
+  // whichever style-specific body follows; '' for the majority
+  // no-treatment case, so behavior is unchanged unless a caller actually
+  // opts in (see buildTreatmentPrefix's own comment).
+  const treatmentPrefix = buildTreatmentPrefix(segment.sizeTier, segment.animation);
 
   if (style === 'KARAOKE' && segment.words && segment.words.length > 0) {
     return {
-      text: withSpeakerColor(karaokeLine(segment.words, segment.start)),
+      text: treatmentPrefix + withSpeakerColor(karaokeLine(segment.words, segment.start)),
       styleName: 'Karaoke',
     };
   }
   if (style === 'BOLD_HIGHLIGHT') {
-    return { text: withSpeakerColor(highlightKeywords(segment.text)), styleName: 'Default' };
+    return {
+      text: treatmentPrefix + withSpeakerColor(highlightKeywords(segment.text)),
+      styleName: 'Default',
+    };
   }
-  return { text: withSpeakerColor(sanitizeAssText(segment.text)), styleName: 'Default' };
+  return {
+    text: treatmentPrefix + withSpeakerColor(sanitizeAssText(segment.text)),
+    styleName: 'Default',
+  };
 }
 
 // Builds a full .ass subtitle file for one clip, styled per the given

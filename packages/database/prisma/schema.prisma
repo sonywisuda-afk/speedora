@@ -726,6 +726,16 @@ model Clip {
   // SUBTITLE_REWRITE_ENABLED flag and is skipped whenever captionLanguage
   // is set (a translation) - see render-clip.worker.ts's own comment.
   smartSegmentation           Boolean      @default(false)
+  // AI Intelligence v4 Track B, Phase B2 (Dynamic Caption Engine render
+  // wiring - see docs/ai/subtitle-intelligence.md, ADR DB11) - opts this
+  // clip's captions into captionTreatment's per-line size/animation
+  // treatment, orthogonal to captionStyle (same reasoning as
+  // smartSegmentation above). False by default - existing clips render
+  // unchanged. Can only actually apply when smartSegmentation is ALSO on
+  // for a given render (dynamic captions have no meaning without
+  // subtitleIntelligence's own lines) - see render-clip.worker.ts's own
+  // comment.
+  dynamicCaptions             Boolean      @default(false)
   // Subtitle Studio roadmap (P2f) - which key of each TranscriptSegment's
   // `translations` map to burn in; null/absent means the original
   // (untranslated) text, same as every existing clip today.

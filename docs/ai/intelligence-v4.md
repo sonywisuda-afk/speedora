@@ -99,8 +99,19 @@
   (none/punch/attention, from highlight overlap and question-mark detection) for every caption
   line, rate-limited by a cooldown so animation stays a highlight, not a constant flicker ("Do NOT
   overuse animation," spec Part 8's own explicit constraint). `Clip.captionTreatment` persisted,
-  exposed via `GET /clips/:id/intelligence`'s 10th field. Does not yet touch the actual burned-in
-  captions (Phase B2's job, design-only, the only phase left in this initiative).
+  exposed via `GET /clips/:id/intelligence`'s 10th field.
+- **Track B, Phase B2 (wire Dynamic Caption treatment into rendering, spec Part 8)**: shipped,
+  flag-off. A new per-clip `Clip.dynamicCaptions` Boolean (same shape as `smartSegmentation`) opts
+  a clip's captions into Phase B1's size/animation decisions at render time - gated by 4
+  conditions together (the per-clip toggle, the global `DYNAMIC_CAPTION_ENABLED` flag, and Phase
+  A2's own smart-segmentation gate, since treatment data only aligns with the rewritten timeline).
+  New `\fscx`/`\fscy`/`\t` ASS tags - genuinely new territory for this codebase, but **verified
+  against a real `ffmpeg`+`libass` render** (not left as an "unverified sandbox" caveat the way
+  Audio/Scene/Facial Intelligence's own subprocesses still are) - a real `.ass` file exercising
+  every new tag was rendered through the exact same `subtitles=` filter production uses, and
+  frames were visually inspected to confirm correct scaling. See `ai/subtitle-intelligence.md`'s
+  "Phase B2 architecture (as shipped)" section. **This completes the full Subtitle & Dynamic
+  Caption Intelligence roadmap (Track B Phase A1/A2/B1/B2)** - see that doc's own status banner.
 
 ## Why this exists
 
@@ -418,7 +429,7 @@ without a literal file move. `vocalEmotion.ts` itself is untouched.
 | A1 | Subtitle Rewriter, data only (7) — **shipped, flag-off** (`SUBTITLE_REWRITE_ENABLED=false`), see [`ai/subtitle-intelligence.md`](./subtitle-intelligence.md) | vocal-emotion rescue | M | Re-chunking heuristic quality unvalidated; addressed by design: non-destructive, data-only (`Clip.subtitleIntelligence`), zero render-path risk |
 | A2 | Wire Subtitle Rewriter into `buildAss()` (7) — **shipped, flag-off** (`Clip.smartSegmentation`) | A1 | M | First phase touching the production render path — karaoke word-sync must survive re-chunking |
 | B1 | Dynamic Caption Engine, data only (8) — **shipped, flag-off** (`DYNAMIC_CAPTION_ENABLED=false`) | A1, Phase 5 | S-M | "Don't overuse animation" needs an explicit documented cooldown heuristic |
-| B2 | Wire Dynamic Caption treatment into `build-ass.ts`'s ASS emission (8) — **design complete, not built** | B1, A2 | L | New `\fscx`/`\fscy`/`\t`/`\alpha` ASS tag territory — needs real ffmpeg/libass verification before trusting in production |
+| B2 | Wire Dynamic Caption treatment into `build-ass.ts`'s ASS emission (8) — **shipped, flag-off** (`Clip.dynamicCaptions`) | B1, A2 | L | New `\fscx`/`\fscy`/`\t` ASS tag territory — verified against real ffmpeg+libass, including a visual frame-extraction check |
 | C | Visual Emphasis Engine (9) | none — signals already exist | M | Unify `reframe`'s own face detector with `primary-subject`'s choice, don't layer a second opinion |
 
 **Update (2026-08-08)**: resolved a real product-shape ambiguity in Part 7's "rewrite subtitle" via

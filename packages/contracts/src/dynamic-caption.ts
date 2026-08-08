@@ -16,43 +16,15 @@ import { highlightTimelineSchema, subtitleTimelineSchema } from './subtitle-rewr
 // to calibrate the intensity/animation thresholds against. Never present
 // this as a trained "optimal caption styling" model downstream without
 // this caveat.
-
-// "High emotion -> large text; whisper -> small text" (spec Part 8).
-// 'normal' is the majority-case default - most caption lines get no size
-// change at all.
-export const CAPTION_SIZE_TIERS = ['small', 'normal', 'large'] as const;
-export const captionSizeTierSchema = z.enum(CAPTION_SIZE_TIERS);
-export type CaptionSizeTier = z.infer<typeof captionSizeTierSchema>;
-
-// "Shock -> punch animation; question -> attention animation" (spec Part
-// 8) - 'none' is the majority-case default. Mutually exclusive with each
-// other (a line gets at most one animation), and rate-limited across the
-// whole clip so animation stays a highlight, not a constant flicker
-// ("Do NOT overuse animation" - spec Part 8's own explicit constraint,
-// enforced by @speedora/dynamic-caption's cooldown, not by this contract).
-export const CAPTION_ANIMATIONS = ['none', 'punch', 'attention'] as const;
-export const captionAnimationSchema = z.enum(CAPTION_ANIMATIONS);
-export type CaptionAnimation = z.infer<typeof captionAnimationSchema>;
-
-// One treatment decision per SubtitleLine (start/end mirror that line's
-// own timing exactly - clip-relative seconds, same coordinate frame as
-// SubtitleTimeline).
-export const treatmentMomentSchema = z.object({
-  start: z.number(),
-  end: z.number(),
-  sizeTier: captionSizeTierSchema,
-  animation: captionAnimationSchema,
-});
-export type TreatmentMoment = z.infer<typeof treatmentMomentSchema>;
-
-// A dense, 1:1-with-`SubtitleTimeline` array (not a filtered/sparse one
-// like HighlightTimeline) - every caption line gets a real treatment
-// decision, even when it's the 'normal'/'none' default. Bare array, no
-// clipId wrapper - same shape as MomentumCurve/EmotionalArc (a single
-// per-instant timeline, not a compound multi-array object like
-// SubtitleIntelligence/RetentionCurveInsights).
-export const captionTreatmentTimelineSchema = z.array(treatmentMomentSchema);
-export type CaptionTreatmentTimeline = z.infer<typeof captionTreatmentTimelineSchema>;
+//
+// CaptionSizeTier/CaptionAnimation/TreatmentMoment/CaptionTreatmentTimeline
+// themselves now live in ./subtitles (moved there in Phase B2 - see that
+// file's own comment for why: subtitleSegmentSchema needs them too, and
+// this file already imports from ./subtitle-rewriter, which itself imports
+// from ./subtitles - defining them here would create a cycle). Nothing
+// downstream of this file needs to change: every consumer already imports
+// these types from '@speedora/contracts' (the package root), never from
+// this specific file.
 
 // Deliberately narrow (ARCHITECTURE.md's checklist) - every field is
 // already-computed elsewhere in the render pipeline; this module derives

@@ -40,6 +40,14 @@ export class UpdateClipDto {
   @IsBoolean()
   smartSegmentation?: boolean;
 
+  // AI Intelligence v4 Track B, Phase B2 (docs/ai/subtitle-intelligence.md)
+  // - opts this clip's captions into captionTreatment's per-line size/
+  // animation treatment, orthogonal to captionStyle, same shape as
+  // smartSegmentation above.
+  @IsOptional()
+  @IsBoolean()
+  dynamicCaptions?: boolean;
+
   // Subtitle Studio roadmap (P2f) - which TranscriptSegment.translations key
   // to burn in; null clears it back to the original (untranslated) text.
   @IsOptional()

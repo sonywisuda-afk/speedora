@@ -1452,6 +1452,14 @@ export interface Clip {
   // the global SUBTITLE_REWRITE_ENABLED flag and is skipped whenever a
   // translation is requested (see render-clip.worker.ts).
   smartSegmentation: boolean;
+  // AI Intelligence v4 Track B, Phase B2 (Dynamic Caption Engine render
+  // wiring - see docs/ai/subtitle-intelligence.md, ADR DB11) - opts this
+  // clip's captions into Clip.captionTreatment's per-line size/animation
+  // treatment, orthogonal to captionStyle, same shape as smartSegmentation
+  // above. Can only actually apply when smartSegmentation is ALSO on for
+  // this render (dynamic captions have no meaning without
+  // Clip.subtitleIntelligence's own lines).
+  dynamicCaptions: boolean;
   // Subtitle Studio roadmap (P2f) - which TranscriptSegment.translations key
   // to burn in; null means the original (untranslated) text.
   captionLanguage: string | null;
@@ -1774,6 +1782,9 @@ export interface UpdateClipInput {
   // AI Intelligence v4 Track B, Phase A2 - same orthogonal-to-captionStyle
   // shape as speakerColorCaptions above.
   smartSegmentation?: boolean;
+  // AI Intelligence v4 Track B, Phase B2 - same orthogonal-to-captionStyle
+  // shape as smartSegmentation above.
+  dynamicCaptions?: boolean;
   // null clears back to the original (untranslated) text - distinct from
   // omitted (leave unchanged), same convention as MoveVideoDto's
   // projectId/folderId.

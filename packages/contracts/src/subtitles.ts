@@ -40,6 +40,57 @@ export const FONT_FAMILIES = [
 export const fontFamilySchema = z.enum(FONT_FAMILIES);
 const DEFAULT_FONT_FAMILY: (typeof FONT_FAMILIES)[number] = 'Inter';
 
+// AI Intelligence v4 Track B, Phase B1/B2 (Dynamic Caption Engine, spec
+// Part 8 - see docs/ai/subtitle-intelligence.md). Hoisted here (was
+// previously defined in packages/contracts/src/dynamic-caption.ts) for the
+// same reason KEYWORD_PATTERN was hoisted in Phase A1: this renderer
+// contract file is the most "upstream" one in the subtitles/subtitle-
+// rewriter/dynamic-caption import chain
+// (subtitles.ts <- subtitle-rewriter.ts <- dynamic-caption.ts), so
+// defining CaptionSizeTier/CaptionAnimation/TreatmentMoment here - where
+// subtitleSegmentSchema itself now also consumes them (Phase B2) - avoids
+// a circular import that defining them in dynamic-caption.ts and importing
+// back into subtitles.ts would create. @speedora/dynamic-caption's own
+// module code is unaffected - it already imports these by name from
+// '@speedora/contracts' (the package root), never from a specific file.
+//
+// "High emotion -> large text; whisper -> small text" (spec Part 8).
+// 'normal' is the majority-case default - most caption lines get no size
+// change at all.
+export const CAPTION_SIZE_TIERS = ['small', 'normal', 'large'] as const;
+export const captionSizeTierSchema = z.enum(CAPTION_SIZE_TIERS);
+export type CaptionSizeTier = z.infer<typeof captionSizeTierSchema>;
+
+// "Shock -> punch animation; question -> attention animation" (spec Part
+// 8) - 'none' is the majority-case default. Mutually exclusive with each
+// other (a line gets at most one animation), and rate-limited across the
+// whole clip so animation stays a highlight, not a constant flicker
+// ("Do NOT overuse animation" - spec Part 8's own explicit constraint,
+// enforced by @speedora/dynamic-caption's cooldown, not by this contract).
+export const CAPTION_ANIMATIONS = ['none', 'punch', 'attention'] as const;
+export const captionAnimationSchema = z.enum(CAPTION_ANIMATIONS);
+export type CaptionAnimation = z.infer<typeof captionAnimationSchema>;
+
+// One treatment decision per SubtitleLine (start/end mirror that line's
+// own timing exactly - clip-relative seconds, same coordinate frame as
+// SubtitleTimeline).
+export const treatmentMomentSchema = z.object({
+  start: z.number(),
+  end: z.number(),
+  sizeTier: captionSizeTierSchema,
+  animation: captionAnimationSchema,
+});
+export type TreatmentMoment = z.infer<typeof treatmentMomentSchema>;
+
+// A dense, 1:1-with-`SubtitleTimeline` array (not a filtered/sparse one
+// like HighlightTimeline) - every caption line gets a real treatment
+// decision, even when it's the 'normal'/'none' default. Bare array, no
+// clipId wrapper - same shape as MomentumCurve/EmotionalArc (a single
+// per-instant timeline, not a compound multi-array object like
+// SubtitleIntelligence/RetentionCurveInsights).
+export const captionTreatmentTimelineSchema = z.array(treatmentMomentSchema);
+export type CaptionTreatmentTimeline = z.infer<typeof captionTreatmentTimelineSchema>;
+
 // The subtitles module's OWN transcript segment shape - deliberately
 // narrower than packages/shared's DB-hydrated TranscriptSegment (which also
 // carries speaker/emotion labels this module never reads), same pattern as
@@ -55,6 +106,17 @@ export const subtitleSegmentSchema = z.object({
   // same friendly, order-of-first-appearance format the DB row itself
   // stores, not the raw pyannote "SPEAKER_00" label.
   speaker: z.string().optional(),
+  // AI Intelligence v4 Track B, Phase B2 (Dynamic Caption Engine render
+  // wiring) - undefined for every caller that doesn't opt in (the raw-
+  // transcript path, or smart segmentation without dynamicCaptions), in
+  // which case buildAss() emits exactly the same output as before this
+  // phase existed. Populated by the adapter (render-clip.worker.ts) by
+  // index-zipping Clip.subtitleIntelligence.timeline with
+  // Clip.captionTreatment - both computed from the exact same source
+  // array by @speedora/dynamic-caption, so they're guaranteed the same
+  // length/order; no separate timestamp-matching needed here.
+  sizeTier: captionSizeTierSchema.optional(),
+  animation: captionAnimationSchema.optional(),
 });
 
 export const buildAssInputSchema = z.object({
