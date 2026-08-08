@@ -34,12 +34,16 @@ clips (`highlightRank`), not clip selection itself.
 ## 4. `Clip.viralityPrediction` — AI Intelligence v4's cross-module fusion estimate
 
 Produced by `packages/virality-engine` (AI Intelligence v4 Phase 7, `ai/intelligence-v4.md`),
-**after** rendering and **after** Phases 1/3/4/5 have already run. A JSON object — 8 heuristic
-sub-probabilities (`subProbabilities`, 2 fused from each of Hook Prediction/Narrative Graph/
-Contextual Momentum/Emotional Arc's own already-computed outputs) plus one composite
-`viralityProbability` (0-1) and a coverage-only `confidence`. No new LLM call, no new detector — a
-pure, synchronous *fusion* of v4's own already-computed signals, gated behind
-`VIRALITY_ENGINE_ENABLED` and exposed only via `GET /clips/:id/intelligence`
+**after** rendering and **after** Phases 1/3/4/5 have already run. Phase 7 originally shipped 8
+reverse-engineered structural sub-probabilities (the real Part 4 spec text wasn't available when it
+was built); **Phase 9 realigned the shape to the spec's own vocabulary** once that text became
+available (ADR D12, `ai/intelligence-v4.md`) — a JSON object with 7 named probabilities
+(`subProbabilities`: `scrollStopProbability`, `watchProbability`, `completionProbability`,
+`shareProbability`, `commentProbability`, `saveProbability`, `followProbability`, each re-composed
+from Hook Prediction/Narrative Graph/Contextual Momentum/Emotional Arc's own already-computed
+outputs) plus one composite `overallViralScore` (0-1) and a coverage-only `confidence`. No new LLM
+call, no new detector — a pure, synchronous *fusion* of v4's own already-computed signals, gated
+behind `VIRALITY_ENGINE_ENABLED` and exposed only via `GET /clips/:id/intelligence`
 (`ClipIntelligenceDto.viralityPrediction`), never through the same endpoints/fields as the other
 three systems above.
 
@@ -51,7 +55,7 @@ one LLM call, computed *before* render, used to *select* which candidate moments
 outputs, and never influences clip selection or `highlightRank` at all — it exists purely as an
 additional, explainable, opt-in read for a caller (`GET /clips/:id/intelligence`), same as every
 other v4 field (`hookPrediction`/`semanticEvents`/`narrativeGraph`/`contextualMomentum`/
-`emotionalArc`/`multiSpeakerBreakdown`). Never mix a `viralityPrediction.viralityProbability`
+`emotionalArc`/`multiSpeakerBreakdown`). Never mix a `viralityPrediction.overallViralScore`
 (0-1) with `viralityScore` (0-100) in the same UI comparison or calculation.
 
 ## Why four systems, not one
