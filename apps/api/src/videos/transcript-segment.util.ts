@@ -52,6 +52,7 @@ import type {
   TranscriptSegment,
   TranscriptWord,
   ValidationReport,
+  ViralityPrediction,
   VoiceActivityFeatures,
   VoiceActivitySegment,
 } from '@speedora/shared';
@@ -499,4 +500,17 @@ export function toSharedMultiSpeakerBreakdown(
   multiSpeakerBreakdown: unknown,
 ): MultiSpeakerBreakdown | null {
   return (multiSpeakerBreakdown as MultiSpeakerBreakdown | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.viralityPrediction (AI Intelligence v4, Phase 7). Same
+// null-semantics as toSharedContextualMomentum/toSharedEmotionalArc above
+// (not toSharedMultiSpeakerBreakdown's third pattern): null here can ONLY
+// mean this Clip row predates this phase's migration - the render-graph
+// node always produces a real object once it runs. NOT the same as
+// Clip.viralityScore (Fase 8's original MVP LLM clip-scoring, a plain
+// number column, narrowed nowhere since it needs no narrowing) - see
+// docs/ai/scoring.md.
+export function toSharedViralityPrediction(viralityPrediction: unknown): ViralityPrediction | null {
+  return (viralityPrediction as ViralityPrediction | null) ?? null;
 }

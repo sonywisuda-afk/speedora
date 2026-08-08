@@ -599,6 +599,7 @@ describe('VideosService', () => {
           contextualMomentum: null,
           emotionalArc: null,
           multiSpeakerBreakdown: null,
+          viralityPrediction: null,
           publishRecords: [],
         },
         {
@@ -653,6 +654,7 @@ describe('VideosService', () => {
           contextualMomentum: null,
           emotionalArc: null,
           multiSpeakerBreakdown: null,
+          viralityPrediction: null,
           publishRecords: [],
         },
       ]);

@@ -37,6 +37,22 @@ const noCompositionFeatures = {
   framingConsistency: null,
 };
 const noHookPauseFeatures = { pauseCount: 0, longestPauseSeconds: 0, pauseBeforeHookRatio: 0 };
+const noViralityPrediction = {
+  clipId: 'clip-1',
+  viralityProbability: null,
+  confidence: 0,
+  reason: 'Not enough signals were available to estimate virality potential.',
+  subProbabilities: {
+    hookStrength: null,
+    replayPotential: null,
+    buildIntensity: null,
+    peakMomentum: null,
+    emotionalIntensity: null,
+    emotionalRange: null,
+    narrativeCompleteness: null,
+    payoffPresence: null,
+  },
+};
 const midpointThumbnailSelection = {
   timestampSeconds: 5,
   confidence: 0,
@@ -85,6 +101,7 @@ function baseResult(overrides: Partial<RenderGraphResult> = {}): RenderGraphResu
     contextualMomentum: [],
     emotionalArc: [],
     multiSpeakerBreakdown: null,
+    viralityPrediction: noViralityPrediction,
     thumbnailSelection: midpointThumbnailSelection,
     ...overrides,
   };
@@ -144,13 +161,14 @@ describe('toFusionInput', () => {
   // sit BESIDE the Fusion Engine, they never feed computeHighlightScore.
   // Regression guard: a present hookPrediction must never leak into
   // FusionInput under any key.
-  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph/contextualMomentum/emotionalArc/multiSpeakerBreakdown in FusionInput', () => {
+  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph/contextualMomentum/emotionalArc/multiSpeakerBreakdown/viralityPrediction in FusionInput', () => {
     const hookPrediction = { clipId: 'clip-1', hookProbability: 90 } as never;
     const semanticEvents = [{ type: 'money', t: 5 }] as never;
     const narrativeGraph = { segments: [], relations: [], unsegmented: true } as never;
     const contextualMomentum = [{ t: 0, momentumScore: 0.5 }] as never;
     const emotionalArc = [{ t: 0, emotion: 'neu', intensity: 0.1 }] as never;
     const multiSpeakerBreakdown = [{ speaker: 'Speaker A', talkTimeRatio: 1 } as never] as never;
+    const viralityPrediction = { clipId: 'clip-1', viralityProbability: 0.5 } as never;
     const input = toFusionInput(
       baseResult({
         hookPrediction,
@@ -159,6 +177,7 @@ describe('toFusionInput', () => {
         contextualMomentum,
         emotionalArc,
         multiSpeakerBreakdown,
+        viralityPrediction,
       }),
       'clip-1',
       null,
@@ -169,6 +188,7 @@ describe('toFusionInput', () => {
     expect(Object.values(input)).not.toContain(contextualMomentum);
     expect(Object.values(input)).not.toContain(emotionalArc);
     expect(Object.values(input)).not.toContain(multiSpeakerBreakdown);
+    expect(Object.values(input)).not.toContain(viralityPrediction);
   });
 });
 
@@ -303,5 +323,11 @@ describe('toClipUpdateData', () => {
     });
     expect(data.multiSpeakerBreakdown).toBe(multiSpeakerBreakdown);
     expect(data.multiSpeakerBreakdown).not.toBe(Prisma.JsonNull);
+  });
+
+  it('writes viralityPrediction through as a plain passthrough, never Prisma.JsonNull (always-computed object)', () => {
+    const data = toClipUpdateData(baseResult(), { outputUrl: 'renders/clip-1.mp4' });
+    expect(data.viralityPrediction).toBe(noViralityPrediction);
+    expect(data.viralityPrediction).not.toBe(Prisma.JsonNull);
   });
 });

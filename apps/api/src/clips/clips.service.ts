@@ -45,6 +45,7 @@ import { isNarrativeGraphEnabled } from '@speedora/narrative-graph';
 import { isContextualMomentumEnabled } from '@speedora/contextual-momentum';
 import { isEmotionalArcEnabled } from '@speedora/emotional-arc';
 import { isMultiSpeakerReasoningEnabled } from '@speedora/multi-speaker-reasoning';
+import { isViralityEngineEnabled } from '@speedora/virality-engine';
 import { computePlatformFit } from '@speedora/platform-fit';
 import type { Queue } from 'bullmq';
 import type { ClipPlatformCopy } from '@speedora/database';
@@ -76,6 +77,7 @@ import {
   toSharedContextualMomentum,
   toSharedEmotionalArc,
   toSharedMultiSpeakerBreakdown,
+  toSharedViralityPrediction,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
   toSharedOcrText,
@@ -545,6 +547,9 @@ export class ClipsService {
       emotionalArc: isEmotionalArcEnabled() ? toSharedEmotionalArc(clip.emotionalArc) : null,
       multiSpeakerBreakdown: isMultiSpeakerReasoningEnabled()
         ? toSharedMultiSpeakerBreakdown(clip.multiSpeakerBreakdown)
+        : null,
+      viralityPrediction: isViralityEngineEnabled()
+        ? toSharedViralityPrediction(clip.viralityPrediction)
         : null,
     };
   }
@@ -1218,6 +1223,7 @@ export class ClipsService {
     contextualMomentum: unknown;
     emotionalArc: unknown;
     multiSpeakerBreakdown: unknown;
+    viralityPrediction: unknown;
     thumbnailSelectionTimestamp: number | null;
     thumbnailSelectionBreakdown: unknown;
     thumbnailSelectionFallback: string | null;
@@ -1305,6 +1311,7 @@ export class ClipsService {
       contextualMomentum: toSharedContextualMomentum(clip.contextualMomentum),
       emotionalArc: toSharedEmotionalArc(clip.emotionalArc),
       multiSpeakerBreakdown: toSharedMultiSpeakerBreakdown(clip.multiSpeakerBreakdown),
+      viralityPrediction: toSharedViralityPrediction(clip.viralityPrediction),
       thumbnailSelectionTimestamp: clip.thumbnailSelectionTimestamp,
       thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
         clip.thumbnailSelectionBreakdown,

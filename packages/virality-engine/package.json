@@ -1,0 +1,38 @@
+{
+  "name": "@speedora/virality-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stateless module (JSON-in/JSON-out): AI Intelligence v4 Phase 7 - a pure, synchronous composition (no LLM call) that fuses Phase 1's HookPredictionOutput, Phase 3's NarrativeGraph, Phase 4's MomentumCurve, and Phase 5's EmotionalArc into 8 heuristic sub-probabilities plus one composite virality estimate. Deliberately distinct from the pre-existing Clip.viralityScore (Fase 8's MVP LLM clip-scoring) - see docs/ai/scoring.md. See docs/ai/intelligence-v4.md. No DB/queue access at all; see root ARCHITECTURE.md. Consumed by apps/worker's render-graph virality-engine node.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@speedora/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.2",
+    "@types/node": "^22.20.1",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.9.3"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "testEnvironment": "node"
+  }
+}

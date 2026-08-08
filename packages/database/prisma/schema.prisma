@@ -1118,6 +1118,24 @@ model Clip {
   // MULTI_SPEAKER_REASONING_ENABLED flag (gates API exposure only - see
   // isMultiSpeakerReasoningEnabled()).
   multiSpeakerBreakdown       Json?
+  // AI Intelligence v4, Phase 7 (Cross-module Fusion, spec Part 4 -
+  // Virality Engine - see docs/ai/intelligence-v4.md). @speedora/
+  // virality-engine's ViralityPrediction - 8 heuristic sub-probabilities +
+  // one composite estimate, fused from Phase 1's HookPredictionOutput,
+  // Phase 3's NarrativeGraph, Phase 4's MomentumCurve, and Phase 5's
+  // EmotionalArc via a pure computation, no LLM call. DELIBERATELY
+  // DISTINCT from Clip.viralityScore (Fase 8's original MVP LLM
+  // clip-scoring, a single 0-100 number used to SELECT candidate moments
+  // before render) - see docs/ai/scoring.md, which documents this as the
+  // 4th of 4 distinct scoring systems in this codebase; do not conflate
+  // the two. Same null-semantics as contextualMomentum/emotionalArc (not
+  // multiSpeakerBreakdown's third pattern): this node always produces a
+  // real object once it runs (there is no "doesn't apply" case the way
+  // multi-speaker attribution has for single-speaker clips), so null here
+  // can ONLY mean this Clip row predates this phase's migration. Computed
+  // on every render regardless of the VIRALITY_ENGINE_ENABLED flag (gates
+  // API exposure only - see isViralityEngineEnabled()).
+  viralityPrediction          Json?
   // AI Clip Library roadmap, Phase P1 - denormalized endTime - startTime,
   // set alongside them at every write site (detect-clips.worker.ts's
   // initial prisma.clip.create, and ClipsService.update's manual trim) -

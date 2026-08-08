@@ -51,10 +51,11 @@ packages/
                                                          # calibration + M1's correlation math -
                                                          # shared by apps/worker's CLI report and
                                                          # apps/api's GET /ops/ai/* (M5C-B)
-  llm-client/, hook-prediction/,                        # AI Intelligence v4 Phase 0-6 - see
+  llm-client/, hook-prediction/,                        # AI Intelligence v4 Phase 0-7 - see
   multimodal-reasoning/, semantic-events/,               # ai/intelligence-v4.md
   narrative-graph/, contextual-momentum/,
-  emotional-arc/, multi-speaker-reasoning/
+  emotional-arc/, multi-speaker-reasoning/,
+  virality-engine/
 ```
 
 `apps/web` and `apps/api` only communicate over HTTP. `apps/worker` has no HTTP server — it only
@@ -104,7 +105,7 @@ pattern itself and its "add a new module" checklist.
 | [`docs/ai/composition-intelligence.md`](docs/ai/composition-intelligence.md) | Composition Intelligence roadmap (rule of thirds, headroom, lead room, centering, composition stability, framing consistency, subject loss ratio) — reclassifies an earlier 15-batch "Camera Intelligence" proposal, most of which turned out to already be Scene/Motion/Object Intelligence; **complete** — contract, `packages/composition-intelligence` derive functions, the standalone `packages/primary-subject` selection package, worker adapter, and Fusion Engine wiring (RB-1/RB-2) are all done at weight 0, pending calibration |
 | [`docs/ai/dataset-feedback-loop.md`](docs/ai/dataset-feedback-loop.md) | Dataset & Feedback Loop (post-hardening roadmap Milestone 1) — `PublishRecordStatsSnapshot` engagement history, the `engagementScore` heuristic, and `export-training-dataset.ts`'s feature/outcome join + correlation read, the prerequisite for Fusion Engine v3's ML-based weighting |
 | [`docs/ai/dataset-validation-calibration.md`](docs/ai/dataset-validation-calibration.md) | Dataset Validation & Calibration (post-hardening roadmap Milestone 1.5, between Milestone 1 and Fusion Engine v3) — `generate-dataset-report.ts`'s Dataset Health Report (Missing Data, Feature Distribution, Feature Drift Detection, Correlation Dashboard, Weight Calibration Report), and the two-tier `dataset-lib.ts` data model that makes most of it useful ahead of real engagement data |
-| [`docs/ai/intelligence-v4.md`](docs/ai/intelligence-v4.md) | AI Intelligence v4 — the ADR (D1-D11), dependency graph, and 14-part phased roadmap for a new additive prediction layer (Hook Prediction, Virality, Retention Curve, Narrative Graph, Personalization, ...) that sits beside `highlightScore`, not instead of it; Phase 0 (`packages/llm-client`), Phase 1 (Hook Prediction Engine), Phase 2 (Semantic Event Detection + `packages/multimodal-reasoning`), Phase 3 (Narrative Graph), Phase 4 (Contextual Momentum, `packages/contextual-momentum` — the first v4 module with no LLM call, pure composition), Phase 5 (Emotional Arc, `packages/emotional-arc` — same no-LLM shape as Phase 4, over already-persisted vocal-emotion labels), and Phase 6 (Multi-speaker Reasoning, `packages/multi-speaker-reasoning` — a post-hoc attribution of Phases 1/4/5's signals to individual speakers, null by design for single-speaker clips) are shipped, Parts 7-14 are roadmap only |
+| [`docs/ai/intelligence-v4.md`](docs/ai/intelligence-v4.md) | AI Intelligence v4 — the ADR (D1-D11), dependency graph, and 14-part phased roadmap for a new additive prediction layer (Hook Prediction, Virality, Retention Curve, Narrative Graph, Personalization, ...) that sits beside `highlightScore`, not instead of it; Phase 0 (`packages/llm-client`), Phase 1 (Hook Prediction Engine), Phase 2 (Semantic Event Detection + `packages/multimodal-reasoning`), Phase 3 (Narrative Graph), Phase 4 (Contextual Momentum, `packages/contextual-momentum` — the first v4 module with no LLM call, pure composition), Phase 5 (Emotional Arc, `packages/emotional-arc` — same no-LLM shape as Phase 4, over already-persisted vocal-emotion labels), Phase 6 (Multi-speaker Reasoning, `packages/multi-speaker-reasoning` — a post-hoc attribution of Phases 1/4/5's signals to individual speakers, null by design for single-speaker clips), and Phase 7 (Cross-module Fusion, spec Part 4 - Virality Engine, `packages/virality-engine` — 8 heuristic sub-probabilities fused from Phases 1/3/4/5, deliberately distinct from the pre-existing `Clip.viralityScore`, see `ai/scoring.md`) are shipped, Parts 8-14 are roadmap only |
 
 ## Status
 
@@ -385,11 +386,28 @@ High-level state of each major initiative (see the linked docs for what's actual
   single-speaker," not distinguished at the column level; its `sinks.ts` entry correspondingly
   breaks from Phase 4/5's plain-array-cast convention and uses the Phase 1-3 `?? Prisma.JsonNull`
   pattern instead, since a real success can produce `null`. Same DTO-extension pattern as Phases
-  1-5, behind its own `MULTI_SPEAKER_REASONING_ENABLED` flag. Parts 7-14 (Cross-module
-  Fusion/Virality Engine, Confidence Calibration, Explainability, Candidate Expansion, Ranking
-  Refinement, Personalization, Online Learning readiness, Evaluation Suite, Production Hardening,
-  plus Track B's Subtitle/Caption/Visual Emphasis editorial features) are a documented, estimated,
-  dependency-ordered roadmap only — not built. See `ai/intelligence-v4.md`.
+  1-5, behind its own `MULTI_SPEAKER_REASONING_ENABLED` flag. **Phase 7 (Cross-module Fusion, spec
+  Part 4 - Virality Engine)**: `packages/virality-engine` — same zero-LLM shape as Phase 4/5/6,
+  fusing Phases 1/3/4/5's own already-computed outputs (not detecting anything new) into 8
+  heuristic sub-probabilities (`hookStrength`/`replayPotential` from Hook Prediction,
+  `buildIntensity`/`peakMomentum` from Contextual Momentum, `emotionalIntensity`/`emotionalRange`
+  from Emotional Arc, `narrativeCompleteness`/`payoffPresence` from Narrative Graph, via a new
+  `isPayoffSegmentType()` exhaustive switch) plus one composite `viralityProbability` (average of
+  every non-null sub-probability) and a coverage-only `confidence`. Deliberately distinct from the
+  pre-existing, unrelated `Clip.viralityScore` (Fase 8's MVP LLM clip-scoring, used to *select*
+  candidates before render) — kept the "Virality" name for direct roadmap traceability but named
+  the new field `Clip.viralityPrediction`, with `docs/ai/scoring.md` gaining a new 4th section
+  disambiguating the two explicitly. Reverts to Phase 4/5's simpler null-semantics (not Phase 6's
+  third pattern) since this node always produces a real object once it runs, no "doesn't apply"
+  case. Caught and fixed a real bug during verification: an early version's `narrativeGraph !==
+  null` strict check threw when the render-graph handed back `undefined` rather than `null`; fixed
+  to the `!= null` loose-inequality pattern `@speedora/contextual-momentum`'s own `segmentAt()`
+  already established, with a dedicated regression test. Same DTO-extension pattern as Phases 1-6,
+  behind its own `VIRALITY_ENGINE_ENABLED` flag. Parts 8-14 (Confidence Calibration, Explainability,
+  Candidate Expansion, Ranking Refinement, Personalization, Online Learning readiness, Evaluation
+  Suite, Production Hardening, plus Track B's Subtitle/Caption/Visual Emphasis editorial features)
+  are a documented, estimated, dependency-ordered roadmap only — not built. See
+  `ai/intelligence-v4.md`.
 
 For new feature work: check whether it's an extension of an existing signal/module first (extend,
 don't rebuild — this has been an explicit recurring instruction across the AI Fusion roadmap), and

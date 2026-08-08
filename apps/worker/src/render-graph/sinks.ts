@@ -154,6 +154,17 @@ const CLIP_UPDATE_MAP: {
   multiSpeakerBreakdown: (r) => ({
     multiSpeakerBreakdown: r.multiSpeakerBreakdown ?? Prisma.JsonNull,
   }),
+  // AI Intelligence v4, Phase 7 (Cross-module Fusion, spec Part 4 -
+  // Virality Engine - see docs/ai/intelligence-v4.md) - same "NOT added to
+  // FUSION_INPUT_MAP" posture as every prior v4 output. Unlike
+  // multiSpeakerBreakdown's own third null-semantics pattern, this node
+  // always produces a real object once it runs (no "doesn't apply to the
+  // majority case" analog here) - so it follows the same "always-computed
+  // non-nullable object" convention as audioFeatures/editingRhythmFeatures/
+  // compositionFeatures above: a plain passthrough, no Prisma.JsonNull, no
+  // InputJsonValue cast needed (object shapes, unlike closed array types,
+  // don't need the array-specific cast).
+  viralityPrediction: (r) => ({ viralityPrediction: r.viralityPrediction }),
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // never added to FUSION_INPUT_MAP above: per this module's own policy
   // (see @speedora/contracts' thumbnail-selection.ts), this output must
