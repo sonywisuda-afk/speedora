@@ -47,6 +47,7 @@ import { isEmotionalArcEnabled } from '@speedora/emotional-arc';
 import { isMultiSpeakerReasoningEnabled } from '@speedora/multi-speaker-reasoning';
 import { isViralityEngineEnabled } from '@speedora/virality-engine';
 import { isRetentionCurveInsightsEnabled } from '@speedora/retention-curve-insights';
+import { isMultimodalReasoningEnabled } from '@speedora/multimodal-reasoning';
 import { computePlatformFit } from '@speedora/platform-fit';
 import type { Queue } from 'bullmq';
 import type { ClipPlatformCopy } from '@speedora/database';
@@ -80,6 +81,7 @@ import {
   toSharedMultiSpeakerBreakdown,
   toSharedViralityPrediction,
   toSharedRetentionCurveInsights,
+  toSharedMultimodalReasoning,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
   toSharedOcrText,
@@ -555,6 +557,9 @@ export class ClipsService {
         : null,
       retentionCurveInsights: isRetentionCurveInsightsEnabled()
         ? toSharedRetentionCurveInsights(clip.retentionCurveInsights)
+        : null,
+      multimodalReasoning: isMultimodalReasoningEnabled()
+        ? toSharedMultimodalReasoning(clip.multimodalReasoning)
         : null,
     };
   }
@@ -1230,6 +1235,7 @@ export class ClipsService {
     multiSpeakerBreakdown: unknown;
     viralityPrediction: unknown;
     retentionCurveInsights: unknown;
+    multimodalReasoning: unknown;
     thumbnailSelectionTimestamp: number | null;
     thumbnailSelectionBreakdown: unknown;
     thumbnailSelectionFallback: string | null;
@@ -1319,6 +1325,7 @@ export class ClipsService {
       multiSpeakerBreakdown: toSharedMultiSpeakerBreakdown(clip.multiSpeakerBreakdown),
       viralityPrediction: toSharedViralityPrediction(clip.viralityPrediction),
       retentionCurveInsights: toSharedRetentionCurveInsights(clip.retentionCurveInsights),
+      multimodalReasoning: toSharedMultimodalReasoning(clip.multimodalReasoning),
       thumbnailSelectionTimestamp: clip.thumbnailSelectionTimestamp,
       thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
         clip.thumbnailSelectionBreakdown,

@@ -601,6 +601,7 @@ describe('VideosService', () => {
           multiSpeakerBreakdown: null,
           viralityPrediction: null,
           retentionCurveInsights: null,
+          multimodalReasoning: null,
           publishRecords: [],
         },
         {
@@ -657,6 +658,7 @@ describe('VideosService', () => {
           multiSpeakerBreakdown: null,
           viralityPrediction: null,
           retentionCurveInsights: null,
+          multimodalReasoning: null,
           publishRecords: [],
         },
       ]);

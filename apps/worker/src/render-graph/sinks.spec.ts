@@ -109,6 +109,7 @@ function baseResult(overrides: Partial<RenderGraphResult> = {}): RenderGraphResu
     multiSpeakerBreakdown: null,
     viralityPrediction: noViralityPrediction,
     retentionCurveInsights: noRetentionCurveInsights,
+    multimodalReasoning: null,
     thumbnailSelection: midpointThumbnailSelection,
     ...overrides,
   };
@@ -168,7 +169,7 @@ describe('toFusionInput', () => {
   // sit BESIDE the Fusion Engine, they never feed computeHighlightScore.
   // Regression guard: a present hookPrediction must never leak into
   // FusionInput under any key.
-  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph/contextualMomentum/emotionalArc/multiSpeakerBreakdown/viralityPrediction/retentionCurveInsights in FusionInput', () => {
+  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph/contextualMomentum/emotionalArc/multiSpeakerBreakdown/viralityPrediction/retentionCurveInsights/multimodalReasoning in FusionInput', () => {
     const hookPrediction = { clipId: 'clip-1', hookProbability: 90 } as never;
     const semanticEvents = [{ type: 'money', t: 5 }] as never;
     const narrativeGraph = { segments: [], relations: [], unsegmented: true } as never;
@@ -180,6 +181,7 @@ describe('toFusionInput', () => {
       clipId: 'clip-1',
       dropPoints: [{ t: 0, score: 0.5 }],
     } as never;
+    const multimodalReasoning = { clipId: 'clip-1', evidence: [], connections: [] } as never;
     const input = toFusionInput(
       baseResult({
         hookPrediction,
@@ -190,6 +192,7 @@ describe('toFusionInput', () => {
         multiSpeakerBreakdown,
         viralityPrediction,
         retentionCurveInsights,
+        multimodalReasoning,
       }),
       'clip-1',
       null,
@@ -202,6 +205,7 @@ describe('toFusionInput', () => {
     expect(Object.values(input)).not.toContain(multiSpeakerBreakdown);
     expect(Object.values(input)).not.toContain(viralityPrediction);
     expect(Object.values(input)).not.toContain(retentionCurveInsights);
+    expect(Object.values(input)).not.toContain(multimodalReasoning);
   });
 });
 
@@ -348,5 +352,19 @@ describe('toClipUpdateData', () => {
     const data = toClipUpdateData(baseResult(), { outputUrl: 'renders/clip-1.mp4' });
     expect(data.retentionCurveInsights).toBe(noRetentionCurveInsights);
     expect(data.retentionCurveInsights).not.toBe(Prisma.JsonNull);
+  });
+
+  it('writes Prisma.JsonNull (not plain null) for a null multimodalReasoning - the LLM call can fail/never run', () => {
+    const data = toClipUpdateData(baseResult(), { outputUrl: 'renders/clip-1.mp4' });
+    expect(data.multimodalReasoning).toBe(Prisma.JsonNull);
+  });
+
+  it('writes a present multimodalReasoning through directly, never Prisma.JsonNull', () => {
+    const multimodalReasoning = { clipId: 'clip-1', evidence: [], connections: [] } as never;
+    const data = toClipUpdateData(baseResult({ multimodalReasoning }), {
+      outputUrl: 'renders/clip-1.mp4',
+    });
+    expect(data.multimodalReasoning).toBe(multimodalReasoning);
+    expect(data.multimodalReasoning).not.toBe(Prisma.JsonNull);
   });
 });

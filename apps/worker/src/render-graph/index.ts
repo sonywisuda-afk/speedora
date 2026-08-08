@@ -18,6 +18,7 @@ import type {
   MomentumCurve,
   MotionEnergyFeatures,
   MotionEnergySample,
+  MultimodalReasoningResult,
   MultiSpeakerBreakdown,
   NarrativeGraph,
   ObjectFeatures,
@@ -49,6 +50,7 @@ import { emotionalArcNodes } from './nodes/emotional-arc';
 import { facialGestureNodes } from './nodes/facial-gesture';
 import { faceSpeakerNodes } from './nodes/face-speaker';
 import { hookPredictionNodes } from './nodes/hook-prediction';
+import { multimodalReasoningNodes } from './nodes/multimodal-reasoning';
 import { multiSpeakerReasoningNodes } from './nodes/multi-speaker-reasoning';
 import { narrativeGraphNodes } from './nodes/narrative-graph';
 import { objectNodes } from './nodes/object';
@@ -87,6 +89,7 @@ export const renderClipGraph: GraphNode<RenderGraphContext, unknown>[] = [
   ...multiSpeakerReasoningNodes,
   ...viralityEngineNodes,
   ...retentionCurveInsightsNodes,
+  ...multimodalReasoningNodes,
   ...thumbnailSelectionNodes,
 ];
 
@@ -134,5 +137,6 @@ export interface RenderGraphResult {
   multiSpeakerBreakdown: MultiSpeakerBreakdown | null;
   viralityPrediction: ViralityPrediction;
   retentionCurveInsights: RetentionCurveInsights;
+  multimodalReasoning: MultimodalReasoningResult | null;
   thumbnailSelection: SelectThumbnailTimestampOutput;
 }

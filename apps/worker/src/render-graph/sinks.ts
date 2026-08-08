@@ -173,6 +173,16 @@ const CLIP_UPDATE_MAP: {
   // InputJsonValue cast (an object whose own array fields can be empty,
   // never itself null).
   retentionCurveInsights: (r) => ({ retentionCurveInsights: r.retentionCurveInsights }),
+  // AI Intelligence v4, Phase 11 (Multimodal Reasoning Engine, spec Part 6 -
+  // see docs/ai/intelligence-v4.md) - same "NOT added to FUSION_INPUT_MAP"
+  // posture as every prior v4 output. Same null-semantics as
+  // hookPrediction/semanticEvents/narrativeGraph (Phase 1-3's own
+  // "?? Prisma.JsonNull" pattern), not Phase 4/5/7/10's "always a real
+  // object" pattern - this node IS LLM-backed (optional: true, fallback:
+  // null) and can genuinely fail/never run.
+  multimodalReasoning: (r) => ({
+    multimodalReasoning: r.multimodalReasoning ?? Prisma.JsonNull,
+  }),
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // never added to FUSION_INPUT_MAP above: per this module's own policy
   // (see @speedora/contracts' thumbnail-selection.ts), this output must

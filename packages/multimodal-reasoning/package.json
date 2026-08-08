@@ -2,7 +2,7 @@
   "name": "@speedora/multimodal-reasoning",
   "version": "0.1.0",
   "private": true,
-  "description": "Stateless module (JSON-in/JSON-out): AI Intelligence v4 Phase 2 - correlates a timestamp with already-computed OcrTextTrack/ObjectTrack entries concurrent with it (findConcurrentEvidence), grounding an LLM-detected moment with on-screen evidence. See docs/ai/intelligence-v4.md. Pure/synchronous, no DB/queue/LLM access at all; see root ARCHITECTURE.md. Extracted standalone (not buried inside packages/semantic-events) since the roadmap names further future consumers (Emotional Arc/Retention Curve, Virality Engine).",
+  "description": "Stateless module (JSON-in/JSON-out): AI Intelligence v4 Phase 2's findConcurrentEvidence (correlates a timestamp with already-computed OcrTextTrack/ObjectTrack entries, grounding an LLM-detected moment) PLUS Phase 11's Multimodal Reasoning Engine (spec Part 6) - normalizeEvidence/groupEvidenceByTranscriptSegment/extractRawConnections/validateConnections/reasonMultimodal, genuine cross-modal connection-finding (refers_to/co_occurs_with/emphasizes) across Transcript/Scene/OCR/Object/Face/Gesture/Audio/Speaker evidence, grounded against fabricated citations by a deterministic post-LLM validation step. See docs/ai/intelligence-v4.md. No DB/queue access at all; see root ARCHITECTURE.md.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
@@ -13,11 +13,14 @@
     "test": "jest"
   },
   "dependencies": {
-    "@speedora/contracts": "workspace:*"
+    "@speedora/contracts": "workspace:*",
+    "@speedora/llm-client": "workspace:*"
   },
   "devDependencies": {
     "@types/jest": "^29.5.2",
+    "@types/node": "^22.20.1",
     "jest": "^29.5.0",
+    "openai": "^6.45.0",
     "ts-jest": "^29.1.0",
     "typescript": "^5.9.3"
   },

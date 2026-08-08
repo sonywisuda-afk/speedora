@@ -2,6 +2,7 @@ import type {
   EmotionalArc,
   HookPredictionOutput,
   MomentumCurve,
+  MultimodalReasoningResult,
   MultiSpeakerBreakdown,
   NarrativeGraph,
   RetentionCurveInsights,
@@ -19,9 +20,9 @@ import type {
 // shipped `hookPrediction`; Phase 2 added `semanticEvents`; Phase 3 added
 // `narrativeGraph`; Phase 4 added `contextualMomentum`; Phase 5 added
 // `emotionalArc`; Phase 6 added `multiSpeakerBreakdown`; Phase 7 added
-// `viralityPrediction`; Phase 10 adds `retentionCurveInsights` to this same
-// DTO rather than growing a new endpoint per part; later Track A phases
-// follow the same pattern.
+// `viralityPrediction`; Phase 10 added `retentionCurveInsights`; Phase 11
+// adds `multimodalReasoning` to this same DTO rather than growing a new
+// endpoint per part; later Track A phases follow the same pattern.
 export interface ClipIntelligenceDto {
   clipId: string;
   // Null when HOOK_PREDICTION_ENABLED is off (the flag gates this field's
@@ -77,4 +78,13 @@ export interface ClipIntelligenceDto {
   // MomentumCurve and Phase 5's EmotionalArc (ADR D13) - those two fields
   // are unchanged by this phase.
   retentionCurveInsights: RetentionCurveInsights | null;
+  // Null when MULTIMODAL_REASONING_ENABLED is off (same exposure-only
+  // gate, see isMultimodalReasoningEnabled()) or when the render-graph
+  // node's own LLM call failed/never ran - same LLM-backed null-semantics
+  // as hookPrediction/semanticEvents/narrativeGraph above, not
+  // contextualMomentum/emotionalArc/viralityPrediction/
+  // retentionCurveInsights's "predates migration only" pattern. A present
+  // object (including an empty `connections` array) means it ran
+  // successfully - a real result, not a failure.
+  multimodalReasoning: MultimodalReasoningResult | null;
 }

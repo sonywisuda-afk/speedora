@@ -881,6 +881,54 @@ export interface RetentionCurveInsights {
   curiosityPeaks: RetentionPoint[];
 }
 
+// AI Intelligence v4, Phase 11 (Multimodal Reasoning Engine, spec Part 6 -
+// see docs/ai/intelligence-v4.md). Mirrors @speedora/contracts'
+// multimodalEvidenceSchema/multimodalConnectionSchema/
+// multimodalReasoningResultSchema rather than importing them - same
+// duplication precedent as ViralitySubProbabilities/RetentionPoint above.
+//
+// 'transcript'/'scene'/'ocr'/'face'/'gesture'/'audio'/'speaker' are Part
+// 6's own 7 NORMATIVE modalities; 'object' (Object Intelligence's
+// objectTracks) is a deliberate, DOCUMENTED EXTENSION beyond the spec, not
+// a Part 6 requirement itself - see @speedora/contracts'
+// MODALITY_SOURCES comment. 'timing' is not a modality of its own - every
+// evidence item below carries its own startTime/endTime instead.
+export type ModalitySource =
+  'transcript' | 'scene' | 'ocr' | 'face' | 'gesture' | 'audio' | 'speaker' | 'object';
+
+export interface MultimodalEvidence {
+  id: string;
+  modality: ModalitySource;
+  startTime: number;
+  endTime: number;
+  speakerId: string | null;
+  value: string;
+  confidence: number | null;
+  provenance: string;
+}
+
+export type MultimodalRelationType = 'refers_to' | 'co_occurs_with' | 'emphasizes';
+
+export interface MultimodalConnection {
+  relation: MultimodalRelationType;
+  evidenceRefs: string[];
+  modalities: ModalitySource[];
+  startTime: number;
+  endTime: number;
+  confidence: number;
+  reason: string;
+}
+
+// `connections` empty (evidence non-empty) is a REAL, SUCCESSFUL result -
+// same "a degenerate-but-real result isn't an error" convention as Phase
+// 2's empty SemanticEvent[]/Phase 3's `unsegmented: true`.
+export interface MultimodalReasoningResult {
+  clipId: string;
+  evidence: MultimodalEvidence[];
+  connections: MultimodalConnection[];
+  modalityCoverage: Record<string, number>;
+}
+
 // AI Fusion roadmap's Face Intelligence initiative, Batch 2 - a per-sample
 // looking-direction bucket, 'center' meaning both iris position and head
 // rotation roughly face the camera. Mirrors @speedora/contracts'
@@ -1547,6 +1595,16 @@ export interface Clip {
   // this node always produces a real object once it runs, so null here
   // can ONLY mean this Clip row predates this phase's migration.
   retentionCurveInsights: RetentionCurveInsights | null;
+  // AI Intelligence v4, Phase 11 (Multimodal Reasoning Engine, spec Part 6)
+  // - computed on every render regardless of MULTIMODAL_REASONING_ENABLED
+  // (the flag gates API exposure, not computation - see
+  // isMultimodalReasoningEnabled()). Same null-semantics as
+  // hookPrediction/semanticEvents/narrativeGraph above (LLM-backed, can
+  // fail) - null means the render-graph node's own LLM call
+  // failed/never ran, not "predates migration" alone. A present object
+  // (including an empty `connections` array) means it ran successfully -
+  // a real result, not a failure.
+  multimodalReasoning: MultimodalReasoningResult | null;
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // @speedora/thumbnail-selection's chosen in-clip timestamp, replacing the
   // naive clip-midpoint thumbnailUrl/thumbnailBlurDataUrl are extracted at,
