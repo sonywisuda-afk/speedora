@@ -39,18 +39,17 @@ const noCompositionFeatures = {
 const noHookPauseFeatures = { pauseCount: 0, longestPauseSeconds: 0, pauseBeforeHookRatio: 0 };
 const noViralityPrediction = {
   clipId: 'clip-1',
-  viralityProbability: null,
+  overallViralScore: null,
   confidence: 0,
   reason: 'Not enough signals were available to estimate virality potential.',
   subProbabilities: {
-    hookStrength: null,
-    replayPotential: null,
-    buildIntensity: null,
-    peakMomentum: null,
-    emotionalIntensity: null,
-    emotionalRange: null,
-    narrativeCompleteness: null,
-    payoffPresence: null,
+    scrollStopProbability: null,
+    watchProbability: null,
+    completionProbability: null,
+    shareProbability: null,
+    commentProbability: null,
+    saveProbability: null,
+    followProbability: null,
   },
 };
 const midpointThumbnailSelection = {
@@ -168,7 +167,7 @@ describe('toFusionInput', () => {
     const contextualMomentum = [{ t: 0, momentumScore: 0.5 }] as never;
     const emotionalArc = [{ t: 0, emotion: 'neu', intensity: 0.1 }] as never;
     const multiSpeakerBreakdown = [{ speaker: 'Speaker A', talkTimeRatio: 1 } as never] as never;
-    const viralityPrediction = { clipId: 'clip-1', viralityProbability: 0.5 } as never;
+    const viralityPrediction = { clipId: 'clip-1', overallViralScore: 0.5 } as never;
     const input = toFusionInput(
       baseResult({
         hookPrediction,

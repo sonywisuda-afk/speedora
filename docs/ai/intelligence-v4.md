@@ -28,9 +28,11 @@
   case, by design.
 - **Phase 7 (Cross-module Fusion, spec Part 4 - Virality Engine)**: shipped, flag-off
   (`VIRALITY_ENGINE_ENABLED=false`). Same no-LLM shape as Phase 4/5/6 - fuses Phase 1/3/4/5's own
-  already-computed outputs into 8 heuristic sub-probabilities + one composite estimate. Deliberately
-  distinct from the pre-existing, unrelated `Clip.viralityScore` (Fase 8's MVP LLM clip-scoring) -
-  see `ai/scoring.md`, now documenting 4 distinct scoring systems.
+  already-computed outputs into one composite estimate. Deliberately distinct from the pre-existing,
+  unrelated `Clip.viralityScore` (Fase 8's MVP LLM clip-scoring) - see `ai/scoring.md`, now
+  documenting 4 distinct scoring systems. **Shipped by reverse-engineering what "Virality Engine"
+  wanted, since the real Part 4 spec text didn't exist in the repo at the time — Phase 9 below
+  realigns this phase's output shape to the real spec once that text became available.**
 - **Phase 8 (Confidence Calibration, cross-cutting)**: shipped. No new package, contract, migration,
   or API field — a deliberate departure from every prior phase's "new JSON-contract module" shape,
   since real numeric calibration is impossible (0 usable engagement samples, the same blocker every
@@ -40,7 +42,20 @@
   LLM-self-reported (Phase 2, 3) from code-computed-coverage (Phase 1, 7) confidence fields, and
   disambiguated from M1.5's pre-existing, unrelated "Weight Calibration Report". See "Phase 8
   architecture (as shipped)" below.
-- **Phases 9-14**: documented roadmap only, not built. See "Roadmap" below.
+- **Phase 9 (Virality Engine Realignment, spec Part 4)**: shipped, same `VIRALITY_ENGINE_ENABLED`
+  flag as Phase 7 (no new flag needed). The user supplied the real Part 4 spec text for the first
+  time (a "Parts 4-15 re-audit," ADR D12-D16, ran before this phase) and it named 7 different
+  probabilities than Phase 7 had reverse-engineered. **Replaces** (not extends) Phase 7's 8
+  structural sub-probabilities with the spec's own 7: `scrollStopProbability`, `watchProbability`,
+  `completionProbability`, `shareProbability`, `commentProbability`, `saveProbability`,
+  `followProbability`, plus a renamed top-level composite `overallViralScore` (was
+  `viralityProbability`). The one deliberate exception to this initiative's strict additive-only
+  convention (ADR D12) — justified because `VIRALITY_ENGINE_ENABLED` was `false` in production, so
+  zero real consumers depended on the old shape. Needed no new migration (`Clip.viralityPrediction`
+  is `Json?`, no DB-level schema), no new render-graph node, no new sink wiring, and no new
+  `ClipIntelligenceDto` field — see "Phase 9 architecture (as shipped)" below.
+- **Phases 10-17**: documented roadmap only, not built (renumbered from the original Phase 9-14 —
+  see "Roadmap" below; Phases 0-8 above keep their original numbers/history unchanged).
 
 ## Why this exists
 
@@ -291,12 +306,21 @@ emotionalArc (existing, Phase 5 - EmotionalArc, unmodified) ──────�
                                                                      own independent flag)
 ```
 
-## Roadmap (Parts 2-14 — documented, not built)
+## Roadmap (Parts 2-15 — documented, not built unless marked shipped)
 
 Two tracks. **Track A** (scoring/intelligence chain) is the user's own recommended sequence, each
 phase mergeable as its own PR. **Track B** (editorial/rendering) consumes Track A's outputs
 opportunistically but doesn't block or get blocked by it. No phase changes default production output
 until its own later calibration sub-phase.
+
+**Renumbering note (2026-08-08, Parts 4-15 re-audit)**: the user supplied the real Part 4-15 spec
+text for the first time. It revealed Phases 7/4-5/2 didn't match what Parts 4/5/6 actually asked for
+(built by reverse-engineering before the text existed). Phase 9 (below) realigns Phase 7. Two more
+new phases (Retention Curve Insights, Multimodal Reasoning Engine) were inserted for Parts 5/6,
+pushing the original Phase 9-14 (Explainability through Production Hardening) to Phase 12-17. Phases
+0-8 keep their original numbers and shipped git history unchanged — only not-yet-started phases were
+renumbered. Full ADR (D12-D16) and audit are in persistent memory
+(`project_ai_intelligence_v4_parts4_15_reaudit.md`) and this session's own plan file.
 
 ### Track A — Scoring & Intelligence Chain
 
@@ -307,14 +331,17 @@ until its own later calibration sub-phase.
 | 4 | Contextual Momentum (new, part of 5) — **shipped** | Phase 3 + `EditingRhythmFeatures.accelerationScore` | M | No ground truth for curve *shape* yet (still true post-ship — heuristic weights, undocumented as calibrated) |
 | 5 | Emotional Arc (new, part of 5) — **shipped** | vocal-emotion rescue (see below) + Phase 2 | M | Vocal-emotion classifier trained on acted, not natural, speech (still true post-ship — a documented heuristic caveat, not a solved problem) |
 | 6 | Multi-speaker Reasoning (extends 6) — **shipped** | Phases 1, 4, 5 | M | Must not affect single-speaker clips (the majority case) - addressed by design: `computeMultiSpeakerBreakdown()` returns `null` for any clip with fewer than 2 distinct speakers |
-| 7 | Cross-module Fusion (4, Virality Engine) — **shipped** | Phases 1, 3, 4, 5 | M | Labeling discipline (8 heuristic probabilities reading as "trained") - addressed by design: each sub-probability documented as a HEURISTIC (ADR D4) with an explicit "not trained/calibrated" caveat, plus a new 4th disambiguation section in `ai/scoring.md` against the pre-existing `viralityScore` |
+| 7 | Cross-module Fusion (4, Virality Engine) — **shipped, realigned by Phase 9** | Phases 1, 3, 4, 5 | M | Labeling discipline (8 heuristic probabilities reading as "trained") - addressed by design: each sub-probability documented as a HEURISTIC (ADR D4) with an explicit "not trained/calibrated" caveat, plus a new 4th disambiguation section in `ai/scoring.md` against the pre-existing `viralityScore`. **Superseded**: shipped by reverse-engineering Part 4 without its real spec text — see Phase 9 |
 | 8 | Confidence Calibration (cross-cutting) — **shipped** | Phases 1-7 | S-M | Hygiene pass, low risk — addressed by design: no numeric recalibration was possible (0 usable engagement samples, same blocker every phase already documents), so this phase is labeling/consistency only — a missing field comment, 6 standardized module comments, and a confidence-field taxonomy, zero new runtime behavior |
-| 9 | Explainability (13) | Phases 1-8 | M | UI copy is where "scale honesty" holds or breaks — Phase 9's copy will draw on Phase 8's confidence-field taxonomy, a real dependency this table didn't record until Phase 8 shipped |
-| 10 | Candidate Expansion (10, generation half) | Phase 1 | L | Biggest infra change — new pre-render adapter stage |
-| 11 | Ranking Refinement (10 + 11, Personalization) | Phase 10 + 1-7 | L | Introduces `WorkspaceContentProfile` schema (D10) |
-| 12 | Learning Pipeline (12) | Phases 1-11 | S | Interfaces only, no training, by design |
-| 13 | Evaluation Suite (new) | Phases 10-12 | M | Gated on real engagement samples, same as Fusion v3 |
-| 14 | Production Hardening (final) | all | M | Real go/no-go gate on cost + rollout |
+| 9 | Virality Engine Realignment (4) — **shipped** | Phases 1, 3, 4, 5 (same deps Phase 7 already had) | M | Breaking change to `ViralitySubProbabilities` (ADR D12) - addressed by design: `VIRALITY_ENGINE_ENABLED` was `false` in production so zero real consumers existed; scoped tightly to the shape change only (no new migration/node/sink/DTO field needed since `Clip.viralityPrediction` is `Json?`) |
+| 10 | Retention Curve Insights (5, extension) | Phases 2, 4, 5 | S-M | Peak/trough thresholds are HEURISTIC (no ground truth for curve *shape*, same caveat Phase 4 already carries) — "Curiosity Peaks" has no free existing signal (needs `SemanticEvent` timestamp mapping, not pure array math) |
+| 11 | Multimodal Reasoning Engine (6) | Phase 0, Phase 2 (context) + raw Face/Gesture/Audio/Speaker/Scene/OCR/Object signals | L | First new LLM reasoning module since Phase 3 — prompt-engineering risk (genuine cross-modal "connection" reasoning, not just concatenated signal descriptions) |
+| 12 | Explainability (13) | Phases 1-11 | M | UI copy is where "scale honesty" holds or breaks — also must decide whether to backfill reason/confidence onto the 3 currently-silent fields (momentum/emotional-arc/multi-speaker) or document why they stay silent |
+| 13 | Candidate Expansion (10, generation half) | Phase 1 | L | Biggest infra change — new pre-render adapter stage; must fix `clip-scoring`'s hardcoded "Pick 1-3" prompt text, not just raise `maxCandidates` |
+| 14 | Ranking Refinement + Personalization (10 rank half + 11) | Phase 13 + Phases 1-9 | L | Pre-render vs. post-render tension (ADR D16, unresolved); introduces `WorkspaceContentProfile` schema (D10), reusing `platform-fit`'s weighted-sum pattern |
+| 15 | Learning Pipeline (12) | Phases 1-14 | S | Interfaces only, no training, by design — needs a genuinely new v4-aware `FeatureExtractor`, since `fusion-ml`'s `FUSION_V3_SIGNALS` vocabulary has zero v4 coverage today (D11 alone doesn't cover this) |
+| 16 | Evaluation Suite (new) | Phases 13-15 | M | Gated on real engagement samples, same as Fusion v3 — also gated on `dataset-feedback-loop`'s own known gap (CTR/Retention/Completion/Replay have no capture mechanism at all yet) |
+| 17 | Production Hardening (final) | all | M | Real go/no-go gate on cost + rollout; also where spec Part 15's "performance benchmark" ask belongs |
 
 **Adjacent opportunity flagged, not built in Phase 6**: `packages/contracts/src/
 conversation-intelligence.ts` (Conversation Type Classification — monologue/interview/discussion/
@@ -895,3 +922,110 @@ exists, this phase's only honest option was labeling/consistency, which is what 
 Verification: comments/docs-only change, zero new runtime logic, so verification is a full green
 `pnpm verify` run (unchanged pass/fail status across every suite) plus a grep confirming no
 existing test asserts on the exact comment text touched.
+
+## Phase 9 architecture (as shipped)
+
+Virality Engine Realignment exists because Phase 7 shipped without the real Part 4 spec text — it
+reverse-engineered "Virality Engine" into 8 structural sub-probabilities
+(`hookStrength`/`replayPotential`/`buildIntensity`/`peakMomentum`/`emotionalIntensity`/
+`emotionalRange`/`narrativeCompleteness`/`payoffPresence`). Once the user supplied the real text (a
+"Parts 4-15 re-audit" done before this phase, ADR D12-D16), it named 7 different probabilities:
+**Scroll Stop, Watch, Completion, Share, Comment, Save, Follow Probability + Overall Viral Score**.
+
+```
+packages/contracts/src/virality-engine.ts
+                                             viralitySubProbabilitiesSchema REPLACED (not extended)
+                                             - 7 new fields, each documented with the existing
+                                             Phase 1/3/4/5 field(s) it re-composes:
+                                               scrollStopProbability  <- hookPrediction.
+                                                 predictionFeatures.expectedScrollStopRate (direct)
+                                               watchProbability       <- momentumCurve avg +
+                                                 hookPrediction.expectedRetentionLift (normalized)
+                                                 + narrativeGraph segment-type coverage
+                                               completionProbability  <- narrativeGraph payoff
+                                                 check (same isPayoffSegmentType/`resolves` logic
+                                                 Phase 7's old payoffPresence used) + late-momentum
+                                                 (final third of momentumCurve) not collapsing
+                                               shareProbability       <- hookPrediction surprise/
+                                                 controversy scores + emotionalArc peak intensity
+                                               commentProbability     <- hookPrediction controversy/
+                                                 question-density scores + an "unresolved tension"
+                                                 check (conflict/escalation segment, no `resolves`)
+                                               saveProbability        <- hookPrediction numeric-
+                                                 fact-count/named-entity-count (normalized) +
+                                                 narrativeGraph `takeaway`-segment bonus
+                                               followProbability      <- hookPrediction dominant-
+                                                 emotion positivity + emotionalArc 'hap' ratio -
+                                                 documented as the WEAKEST-SUPPORTED of the 7 (no
+                                                 speaker-trust signal is one of this phase's 4
+                                                 dependencies)
+                                             viralityPredictionSchema.viralityProbability RENAMED to
+                                             overallViralScore (spec's own "Overall Viral Score"
+                                             naming); confidence denominator /8 -> /7
+
+packages/virality-engine/src/
+  compute-virality-prediction.ts            computeViralityPrediction() rewritten - one small pure
+                                             helper per probability (computeScrollStopProbability()
+                                             through computeFollowProbability()), each averaging
+                                             only the parts whose source data is present (same
+                                             "null means unavailable" convention every prior phase
+                                             uses); SUB_PROBABILITY_LABELS/buildReason() updated to
+                                             the 7 new keys, same shape otherwise
+  is-payoff-segment-type.ts                 UNCHANGED - still reused by completionProbability's
+                                             payoff check and (via a sibling hasUnresolvedTension()
+                                             helper) commentProbability's tension check
+
+apps/worker/src/render-graph/nodes/virality-engine.ts
+                                             UNCHANGED - same node id, same 4 deps (hookPrediction/
+                                             narrativeGraph/contextualMomentum/emotionalArc), same
+                                             optional: false; compiles against the new return type
+                                             with no code change needed
+
+apps/worker/src/render-graph/sinks.ts       UNCHANGED - still a plain passthrough
+                                             (`viralityPrediction: (r) => ({ viralityPrediction:
+                                             r.viralityPrediction })`), no field names referenced
+
+packages/database/prisma/schema.prisma      UNCHANGED - Clip.viralityPrediction is Json? with no
+                                             DB-level schema, so the shape change needed NO new
+                                             migration (a genuine scope-reduction found during this
+                                             phase's own planning, smaller footprint than a typical
+                                             new-phase PR despite being a breaking change)
+
+packages/shared/src/types/video.ts          ViralitySubProbabilities/ViralityPrediction interfaces
+                                             updated to the new field names (still duplicated, not
+                                             imported, same convention every phase's mirror follows)
+
+apps/api/src/clips/clips.service.ts,
+apps/api/src/videos/transcript-segment.util.ts
+                                             UNCHANGED - toSharedViralityPrediction() narrows
+                                             `unknown` to `ViralityPrediction | null` without
+                                             referencing any field name; GET /clips/:id/intelligence
+                                             still exposes viralityPrediction under the same
+                                             VIRALITY_ENGINE_ENABLED flag, no new field
+```
+
+**No new feature flag, no new API/DTO field, no new render-graph wiring** — the render-graph node,
+sink, flag, and `ClipIntelligenceDto.viralityPrediction` field all keep their Phase 7 identity; only
+the internal shape of what flows through them changed. This is a real departure from every other
+phase's footprint, and was flagged as such during this phase's own planning specifically because
+D12 makes it a breaking change despite the small footprint.
+
+**`docs/ai/scoring.md` updated**: §4's sub-probability list and the `viralityProbability` ->
+`overallViralScore` rename are reflected there; the disambiguation-from-`viralityScore` reasoning
+itself (system 1 vs. system 4) is unchanged, since the *relationship* between the two systems didn't
+change, only system 4's internal field names.
+
+**The `followProbability` weak-signal caveat is documented, not silently accepted**: with only
+Phases 1/3/4/5 wired as inputs (no Speaker Scoring), nothing in this phase's dependency set carries
+a real trust/authority/engagement signal for "will they follow this creator." The contract's own
+field comment names this as the weakest-supported of the 7 and points at a future (unscoped)
+strengthening via Speaker Scoring, rather than presenting a weak proxy as equally reliable to the
+other 6.
+
+Verification: `packages/virality-engine`'s own suite (37 tests, a rewrite of the existing coverage
+for the new fields/values, including the preserved `narrativeGraph`-undefined regression test from
+Phase 7's own verification) all green; `apps/worker`'s `render-clip.worker.spec.ts` (576 tests, all
+5 `viralityPrediction` fixtures use `expect.any(Object)` so needed no changes) and `sinks.spec.ts`
+(updated `noViralityPrediction` fixture) all green; a repo-wide grep confirmed no other file
+referenced the old field names outside `packages/virality-engine` itself. Full local `pnpm verify`
+green before push.

@@ -105,7 +105,7 @@ pattern itself and its "add a new module" checklist.
 | [`docs/ai/composition-intelligence.md`](docs/ai/composition-intelligence.md) | Composition Intelligence roadmap (rule of thirds, headroom, lead room, centering, composition stability, framing consistency, subject loss ratio) — reclassifies an earlier 15-batch "Camera Intelligence" proposal, most of which turned out to already be Scene/Motion/Object Intelligence; **complete** — contract, `packages/composition-intelligence` derive functions, the standalone `packages/primary-subject` selection package, worker adapter, and Fusion Engine wiring (RB-1/RB-2) are all done at weight 0, pending calibration |
 | [`docs/ai/dataset-feedback-loop.md`](docs/ai/dataset-feedback-loop.md) | Dataset & Feedback Loop (post-hardening roadmap Milestone 1) — `PublishRecordStatsSnapshot` engagement history, the `engagementScore` heuristic, and `export-training-dataset.ts`'s feature/outcome join + correlation read, the prerequisite for Fusion Engine v3's ML-based weighting |
 | [`docs/ai/dataset-validation-calibration.md`](docs/ai/dataset-validation-calibration.md) | Dataset Validation & Calibration (post-hardening roadmap Milestone 1.5, between Milestone 1 and Fusion Engine v3) — `generate-dataset-report.ts`'s Dataset Health Report (Missing Data, Feature Distribution, Feature Drift Detection, Correlation Dashboard, Weight Calibration Report), and the two-tier `dataset-lib.ts` data model that makes most of it useful ahead of real engagement data |
-| [`docs/ai/intelligence-v4.md`](docs/ai/intelligence-v4.md) | AI Intelligence v4 — the ADR (D1-D11), dependency graph, and 14-part phased roadmap for a new additive prediction layer (Hook Prediction, Virality, Retention Curve, Narrative Graph, Personalization, ...) that sits beside `highlightScore`, not instead of it; Phase 0 (`packages/llm-client`), Phase 1 (Hook Prediction Engine), Phase 2 (Semantic Event Detection + `packages/multimodal-reasoning`), Phase 3 (Narrative Graph), Phase 4 (Contextual Momentum, `packages/contextual-momentum` — the first v4 module with no LLM call, pure composition), Phase 5 (Emotional Arc, `packages/emotional-arc` — same no-LLM shape as Phase 4, over already-persisted vocal-emotion labels), Phase 6 (Multi-speaker Reasoning, `packages/multi-speaker-reasoning` — a post-hoc attribution of Phases 1/4/5's signals to individual speakers, null by design for single-speaker clips), Phase 7 (Cross-module Fusion, spec Part 4 - Virality Engine, `packages/virality-engine` — 8 heuristic sub-probabilities fused from Phases 1/3/4/5, deliberately distinct from the pre-existing `Clip.viralityScore`, see `ai/scoring.md`), and Phase 8 (Confidence Calibration, cross-cutting — a labeling/consistency hygiene pass with no new package/contract/migration/API field, since no engagement data exists yet to numerically calibrate against; standardizes "scale honesty" comments and confidence-field doc pointers across Phases 1-7, disambiguated from Milestone 1.5's unrelated Weight Calibration Report) are shipped, Parts 9-14 are roadmap only |
+| [`docs/ai/intelligence-v4.md`](docs/ai/intelligence-v4.md) | AI Intelligence v4 — the ADR (D1-D16), dependency graph, and (post Parts 4-15 re-audit) 18-phase Track A roadmap for a new additive prediction layer (Hook Prediction, Virality, Retention Curve, Narrative Graph, Multimodal Reasoning, Personalization, ...) that sits beside `highlightScore`, not instead of it; Phase 0 (`packages/llm-client`), Phase 1 (Hook Prediction Engine), Phase 2 (Semantic Event Detection + `packages/multimodal-reasoning`), Phase 3 (Narrative Graph), Phase 4 (Contextual Momentum), Phase 5 (Emotional Arc), Phase 6 (Multi-speaker Reasoning), Phase 7 (Cross-module Fusion, spec Part 4 - Virality Engine, `packages/virality-engine` — shipped by reverse-engineering Part 4 before its real spec text existed, later realigned by Phase 9), Phase 8 (Confidence Calibration, cross-cutting hygiene pass), and Phase 9 (Virality Engine Realignment, spec Part 4 — once the real spec text arrived, **replaced** Phase 7's 8 reverse-engineered sub-probabilities with the spec's own 7: Scroll Stop/Watch/Completion/Share/Comment/Save/Follow Probability + Overall Viral Score, the one deliberate breaking change in this initiative, ADR D12; no new migration/node/DTO field needed) are shipped; Phases 10-17 (Retention Curve Insights, Multimodal Reasoning Engine, Explainability, Candidate Expansion, Ranking Refinement + Personalization, Learning Pipeline, Evaluation Suite, Production Hardening — renumbered from the original 9-14 to make room for the 3 new phases the re-audit surfaced) plus Track B are roadmap only |
 
 ## Status
 
@@ -416,11 +416,26 @@ High-level state of each major initiative (see the linked docs for what's actual
   confidence fields, replacing Phase 7's prior one-directional, unconfirmable cross-reference. Also
   disambiguated from Milestone 1.5's pre-existing, unrelated "Weight Calibration Report" (Fusion
   Engine v2 signal weights, not v4 per-field confidence) — a new confidence-field taxonomy table
-  lives in `ai/intelligence-v4.md`'s "Phase 8 architecture (as shipped)" section. Parts 9-14
-  (Explainability, Candidate Expansion, Ranking Refinement, Personalization, Online Learning
-  readiness, Evaluation Suite, Production Hardening, plus Track B's Subtitle/Caption/Visual
-  Emphasis editorial features) are a documented, estimated, dependency-ordered roadmap only — not
-  built. See `ai/intelligence-v4.md`.
+  lives in `ai/intelligence-v4.md`'s "Phase 8 architecture (as shipped)" section. **Phase 9
+  (Virality Engine Realignment, spec Part 4)**: the user supplied the real Part 4-15 spec text for
+  the first time (a "Parts 4-15 re-audit" with its own ADR D12-D16 ran first) and it named 7
+  different probabilities than Phase 7 had reverse-engineered without that text. **Replaces** (not
+  extends) Phase 7's 8 structural sub-probabilities with the spec's own `scrollStopProbability`/
+  `watchProbability`/`completionProbability`/`shareProbability`/`commentProbability`/
+  `saveProbability`/`followProbability`, plus a renamed top-level `overallViralScore` (was
+  `viralityProbability`) — the one deliberate exception to this initiative's strict additive-only
+  convention (ADR D12), justified because `VIRALITY_ENGINE_ENABLED` was `false` in production so
+  zero real consumers depended on the old shape. Needed no new migration
+  (`Clip.viralityPrediction` is `Json?`, no DB-level schema), no new render-graph node, no new sink
+  wiring, and no new `ClipIntelligenceDto` field — smaller footprint than a typical new-phase PR
+  despite being a breaking change. `followProbability` is documented as the weakest-supported of
+  the 7 (no speaker-trust signal is one of this phase's 4 dependencies). See `ai/intelligence-v4.md`'s
+  "Phase 9 architecture (as shipped)" section. Parts 5/6/13/10/11/12 (Retention Curve Insights,
+  Multimodal Reasoning Engine, Explainability, Candidate Expansion, Ranking Refinement +
+  Personalization, Online Learning readiness, renumbered to Phases 10-15) plus Evaluation Suite,
+  Production Hardening (Phases 16-17), and Track B's Subtitle/Caption/Visual Emphasis editorial
+  features are a documented, estimated, dependency-ordered roadmap only — not built. See
+  `ai/intelligence-v4.md`.
 
 For new feature work: check whether it's an extension of an existing signal/module first (extend,
 don't rebuild — this has been an explicit recurring instruction across the AI Fusion roadmap), and

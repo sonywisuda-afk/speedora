@@ -812,11 +812,15 @@ export interface SpeakerAttribution {
 export type MultiSpeakerBreakdown = SpeakerAttribution[];
 
 // AI Intelligence v4, Phase 7 (Cross-module Fusion, spec Part 4 - Virality
-// Engine - see docs/ai/intelligence-v4.md). Mirrors @speedora/contracts'
-// viralitySubProbabilitiesSchema rather than importing it - same
-// duplication precedent as SpeakerAttribution above. Exactly 8
-// sub-probabilities, 2 sourced from each of Phases 1/3/4/5 - each null
-// (not 0) when its source phase's data is genuinely unavailable.
+// Engine - see docs/ai/intelligence-v4.md), REALIGNED in Phase 9 once the
+// real Part 4 spec text became available (ADR D12) - the shape below is
+// the spec's own 7 named probabilities, replacing Phase 7's original 8
+// reverse-engineered structural sub-probabilities. Mirrors
+// @speedora/contracts' viralitySubProbabilitiesSchema rather than
+// importing it - same duplication precedent as SpeakerAttribution above.
+// Each field is re-composed from Phases 1/3/4/5's own already-computed
+// outputs (no new detector) - null (not 0) when its source data is
+// genuinely unavailable.
 //
 // DELIBERATELY DISTINCT from the pre-existing Clip.viralityScore (Fase 8's
 // original MVP LLM clip-scoring, a single 0-100 number used to SELECT
@@ -824,27 +828,27 @@ export type MultiSpeakerBreakdown = SpeakerAttribution[];
 // documents this as the 4th of 4 distinct scoring systems in this
 // codebase; do not conflate the two.
 export interface ViralitySubProbabilities {
-  // From Phase 1 (Hook Prediction) - direct transforms of its own output.
-  hookStrength: number | null;
-  replayPotential: number | null;
-  // From Phase 4 (Contextual Momentum).
-  buildIntensity: number | null;
-  peakMomentum: number | null;
-  // From Phase 5 (Emotional Arc).
-  emotionalIntensity: number | null;
-  emotionalRange: number | null;
-  // From Phase 3 (Narrative Graph).
-  narrativeCompleteness: number | null;
-  payoffPresence: number | null;
+  scrollStopProbability: number | null;
+  watchProbability: number | null;
+  completionProbability: number | null;
+  shareProbability: number | null;
+  commentProbability: number | null;
+  saveProbability: number | null;
+  // Weakest-supported of the 7 - no speaker-trust signal is wired into
+  // Phase 9's inputs, see the contract's own doc comment.
+  followProbability: number | null;
 }
 
 export interface ViralityPrediction {
   clipId: string;
-  // Composite - the average of every non-null sub-probability. Null only
-  // when ALL 8 are null - a real, honest result, not a fabricated 0.5.
-  viralityProbability: number | null;
+  // Composite - the average of every non-null probability. Null only
+  // when ALL 7 are null - a real, honest result, not a fabricated 0.5.
+  // Named to match the spec's own "Overall Viral Score" (Phase 7's
+  // `viralityProbability` field name was retired in Phase 9).
+  overallViralScore: number | null;
   // Coverage-only, same "coverage, not accuracy" meaning as
-  // HookPredictionOutput's own confidence.
+  // HookPredictionOutput's own confidence. count(non-null)/7 (was /8
+  // before Phase 9).
   confidence: number;
   reason: string;
   subProbabilities: ViralitySubProbabilities;
