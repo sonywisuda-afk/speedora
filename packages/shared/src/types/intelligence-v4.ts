@@ -7,6 +7,7 @@ import type {
   NarrativeGraph,
   RetentionCurveInsights,
   SemanticEvent,
+  SubtitleIntelligence,
   ViralityPrediction,
 } from './video';
 
@@ -87,4 +88,15 @@ export interface ClipIntelligenceDto {
   // object (including an empty `connections` array) means it ran
   // successfully - a real result, not a failure.
   multimodalReasoning: MultimodalReasoningResult | null;
+  // Null when SUBTITLE_REWRITE_ENABLED is off (same exposure-only gate,
+  // see isSubtitleRewriteEnabled()) or when this Clip row predates the
+  // phase's migration (same pure-node null-semantics as
+  // contextualMomentum/emotionalArc/viralityPrediction/
+  // retentionCurveInsights above, not multiSpeakerBreakdown's third
+  // pattern - this node always produces a real object once it runs). AI
+  // Intelligence v4 Track B, Phase A1 (Subtitle Rewriter, spec Part 7) -
+  // see docs/ai/subtitle-intelligence.md. STRUCTURAL re-chunking only
+  // (ADR DB1) - every underlying word/order/timestamp is unchanged from
+  // the transcript; only line grouping and emphasis selection may differ.
+  subtitleIntelligence: SubtitleIntelligence | null;
 }

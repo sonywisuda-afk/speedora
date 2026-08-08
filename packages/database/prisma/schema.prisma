@@ -1168,6 +1168,26 @@ model Clip {
   // render regardless of the MULTIMODAL_REASONING_ENABLED flag (gates API
   // exposure only - see isMultimodalReasoningEnabled()).
   multimodalReasoning         Json?
+  // AI Intelligence v4 Track B, Phase A1 (Subtitle Rewriter, spec Part 7 -
+  // see docs/ai/subtitle-intelligence.md). @speedora/subtitle-rewriter's
+  // SubtitleIntelligence - a STRUCTURAL re-chunking of the transcript into
+  // short, pause/rhythm/emotion/speaking-speed-aware caption lines with
+  // precomputed emphasis (`timeline`), plus a derived `highlights` array of
+  // punch-worthy moments for the future Dynamic Caption Engine (Phase
+  // B1/B2). ADR DB1 (resolved via AskUserQuestion before implementation):
+  // every ASR word/order/word-level-timestamp is carried through
+  // completely UNCHANGED - only line grouping and emphasis selection can
+  // differ; lexical paraphrase is explicitly out of scope. Via a pure
+  // computation, no LLM call. Does NOT yet affect the actual burned-in
+  // captions - buildAss()/toSubtitleSegments() are untouched by this phase
+  // (Phase A2's job). Same null-semantics as contextualMomentum/
+  // emotionalArc/viralityPrediction/retentionCurveInsights (not
+  // multiSpeakerBreakdown's third pattern): this node always produces a
+  // real object once it runs, so null here can ONLY mean this Clip row
+  // predates this phase's migration. Computed on every render regardless
+  // of the SUBTITLE_REWRITE_ENABLED flag (gates API exposure only - see
+  // isSubtitleRewriteEnabled()).
+  subtitleIntelligence        Json?
   // AI Clip Library roadmap, Phase P1 - denormalized endTime - startTime,
   // set alongside them at every write site (detect-clips.worker.ts's
   // initial prisma.clip.create, and ClipsService.update's manual trim) -

@@ -173,6 +173,14 @@ const CLIP_UPDATE_MAP: {
   // InputJsonValue cast (an object whose own array fields can be empty,
   // never itself null).
   retentionCurveInsights: (r) => ({ retentionCurveInsights: r.retentionCurveInsights }),
+  // AI Intelligence v4 Track B, Phase A1 (Subtitle Rewriter, spec Part 7 -
+  // see docs/ai/subtitle-intelligence.md) - same "NOT added to
+  // FUSION_INPUT_MAP" posture as every Track A v4 output (DB1/DB2 - this
+  // sits beside the Fusion Engine, never feeds it). Same "always-computed
+  // non-nullable object" convention as viralityPrediction/
+  // retentionCurveInsights above: a plain passthrough, no Prisma.JsonNull,
+  // no InputJsonValue cast needed.
+  subtitleIntelligence: (r) => ({ subtitleIntelligence: r.subtitleIntelligence }),
   // AI Intelligence v4, Phase 11 (Multimodal Reasoning Engine, spec Part 6 -
   // see docs/ai/intelligence-v4.md) - same "NOT added to FUSION_INPUT_MAP"
   // posture as every prior v4 output. Same null-semantics as

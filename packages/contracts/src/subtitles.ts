@@ -8,6 +8,17 @@ import { transcriptWordSchema } from './transcript-word';
 export const CAPTION_STYLES = ['DEFAULT', 'KARAOKE', 'BOLD_HIGHLIGHT'] as const;
 export const captionStyleSchema = z.enum(CAPTION_STYLES);
 
+// Numbers/percentages, ALL-CAPS-as-transcribed words, and quoted phrases -
+// patterns that tend to carry emphasis on their own. Hoisted here (was
+// previously local to @speedora/subtitles' build-ass.ts, which still
+// re-exports it for its existing consumers) so @speedora/subtitle-rewriter
+// (AI Intelligence v4 Track B, Phase A1 - see docs/ai/
+// subtitle-intelligence.md, ADR DB6) can precompute the exact same
+// emphasis decision at rewrite time that @speedora/subtitles' own
+// BOLD_HIGHLIGHT renderer already makes live at render time, instead of
+// each maintaining its own drifting copy.
+export const KEYWORD_PATTERN = /\d|^[A-Z]{2,}$|^["“'].+["”']$/;
+
 // Brand Kit roadmap (P3a) - a curated, OFL-licensed set (not arbitrary
 // font-file upload - see the plan's own decision record) that must be
 // bundled into apps/worker's Docker image (apps/worker/Dockerfile) and kept
