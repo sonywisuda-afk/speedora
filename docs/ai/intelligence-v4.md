@@ -26,7 +26,12 @@
   attribution of Phase 4's `MomentumCurve` and Phase 5's `EmotionalArc` to individual speakers via
   Speaker Intelligence's `SpeakerTimelineEntry[]`. Returns `null` for the majority single-speaker
   case, by design.
-- **Phases 7-14**: documented roadmap only, not built. See "Roadmap" below.
+- **Phase 7 (Cross-module Fusion, spec Part 4 - Virality Engine)**: shipped, flag-off
+  (`VIRALITY_ENGINE_ENABLED=false`). Same no-LLM shape as Phase 4/5/6 - fuses Phase 1/3/4/5's own
+  already-computed outputs into 8 heuristic sub-probabilities + one composite estimate. Deliberately
+  distinct from the pre-existing, unrelated `Clip.viralityScore` (Fase 8's MVP LLM clip-scoring) -
+  see `ai/scoring.md`, now documenting 4 distinct scoring systems.
+- **Phases 8-14**: documented roadmap only, not built. See "Roadmap" below.
 
 ## Why this exists
 
@@ -110,7 +115,7 @@ Revisit at Track A Phase 11.
 (`FeatureVector`, `TrainingSample`, `Predictor`, `DatasetBuilder`, `ModelEvaluator`) rather than
 inventing v4-specific ones.
 
-## Dependency graph (Phase 1-6, as shipped)
+## Dependency graph (Phase 1-7, as shipped)
 
 ```
 TranscriptSegment (words, rmsDb, peakDb, speakingRateWordsPerSecond, emotion)
@@ -248,6 +253,33 @@ emotionalArc (existing, Phase 5 - EmotionalArc, unmodified) ──────�
                                                                     ▼
                                        GET /clips/:id/intelligence (flag-gated exposure,
                                                                      own independent flag)
+
+hookPrediction (existing, Phase 1 - HookPredictionOutput, optional) ───┐
+narrativeGraph (existing, Phase 3 - NarrativeGraph, optional) ─────────┤
+contextualMomentum (existing, Phase 4 - MomentumCurve, unmodified) ────┼──▶ computeVirality
+emotionalArc (existing, Phase 5 - EmotionalArc, unmodified) ───────────┘   Prediction()
+                                                                            (@speedora/virality-
+                                                                             engine, PURE - no
+                                                                             LLM call, no `deps`
+                                                                             param)
+                                                                    │
+                                                                    ▼
+                                                          ViralityPrediction
+                                        { viralityProbability, confidence, reason,
+                                          subProbabilities: { hookStrength, replayPotential,
+                                          buildIntensity, peakMomentum, emotionalIntensity,
+                                          emotionalRange, narrativeCompleteness, payoffPresence } }
+                                        - each sub-probability null when its source phase's data
+                                          is unavailable; composite averages only non-null values
+                                                                    │
+                                                                    ▼
+                                     Clip.viralityPrediction (new Json? column - null means ONLY
+                                                        "predates this migration," not "failed" -
+                                                          this node always produces a real object)
+                                                                    │
+                                                                    ▼
+                                       GET /clips/:id/intelligence (flag-gated exposure,
+                                                                     own independent flag)
 ```
 
 ## Roadmap (Parts 2-14 — documented, not built)
@@ -266,7 +298,7 @@ until its own later calibration sub-phase.
 | 4 | Contextual Momentum (new, part of 5) — **shipped** | Phase 3 + `EditingRhythmFeatures.accelerationScore` | M | No ground truth for curve *shape* yet (still true post-ship — heuristic weights, undocumented as calibrated) |
 | 5 | Emotional Arc (new, part of 5) — **shipped** | vocal-emotion rescue (see below) + Phase 2 | M | Vocal-emotion classifier trained on acted, not natural, speech (still true post-ship — a documented heuristic caveat, not a solved problem) |
 | 6 | Multi-speaker Reasoning (extends 6) — **shipped** | Phases 1, 4, 5 | M | Must not affect single-speaker clips (the majority case) - addressed by design: `computeMultiSpeakerBreakdown()` returns `null` for any clip with fewer than 2 distinct speakers |
-| 7 | Cross-module Fusion (4, Virality Engine) | Phases 1, 3, 4, 5 | M | Labeling discipline (8 heuristic probabilities reading as "trained") |
+| 7 | Cross-module Fusion (4, Virality Engine) — **shipped** | Phases 1, 3, 4, 5 | M | Labeling discipline (8 heuristic probabilities reading as "trained") - addressed by design: each sub-probability documented as a HEURISTIC (ADR D4) with an explicit "not trained/calibrated" caveat, plus a new 4th disambiguation section in `ai/scoring.md` against the pre-existing `viralityScore` |
 | 8 | Confidence Calibration (cross-cutting) | Phases 1-7 | S-M | Hygiene pass, low risk |
 | 9 | Explainability (13) | Phases 1-7 | M | UI copy is where "scale honesty" holds or breaks |
 | 10 | Candidate Expansion (10, generation half) | Phase 1 | L | Biggest infra change — new pre-render adapter stage |
@@ -681,16 +713,109 @@ Reasoning as an anticipated consumer. Phase 6 extends spec Part 6's *spirit* (cr
 reasoning) along a speaker-identity axis via a new sibling package, not by modifying Part 6's own
 code - same precedent Phase 4/5 already set for spec Part 5.
 
-`Clip.highlightScore` and every existing Fusion Engine v2 output are unchanged by all six phases —
-verified by regression tests in `sinks.spec.ts` (extended to cover `multiSpeakerBreakdown`
-alongside `hookPrediction`/`semanticEvents`/`narrativeGraph`/`contextualMomentum`/`emotionalArc`)
-plus a full, green run of every existing test suite after each phase's changes. Phase 3 was the
-first to run the full `pnpm verify` (added between Phase 2 and Phase 3) locally before pushing;
-Phase 4, 5, and 6 continued that practice. Phase 6: `apps/worker`: 575/575, `apps/api`: 1268/1268,
-`apps/web`: 313/313, plus 14 new unit tests in `packages/multi-speaker-reasoning` covering the
-core "must not affect single-speaker clips" guarantee as a dedicated regression test, along with
-talk-time-ratio/hook-window/momentum/emotion attribution scoping. One
-`ffmpeg.brand-segment-concat.integration.spec.ts` case hit a system-load-induced timeout during
-the combined `pnpm verify` run (unrelated to anything this phase changed) and was re-verified
-passing cleanly in isolation (4/4) before being treated as green. Real-Postgres round trip
-verified manually for the new column.
+## Phase 7 architecture (as shipped)
+
+```
+packages/contracts/src/virality-engine.ts
+                                             viralitySubProbabilitiesSchema,
+                                             viralityPredictionSchema,
+                                             computeViralityPredictionInputSchema (imports
+                                             hookPredictionOutputSchema from ./hook-prediction,
+                                             narrativeGraphSchema from ./narrative-graph,
+                                             momentumSampleSchema from ./contextual-momentum,
+                                             emotionalArcSampleSchema from ./emotional-arc - same
+                                             cross-contract-file-import precedent
+                                             contextual-momentum.ts/multi-speaker-reasoning.ts
+                                             already set)
+
+packages/virality-engine/src/
+  is-payoff-segment-type.ts                 isPayoffSegmentType() - exhaustive switch/assertNever
+                                             over all 10 NARRATIVE_SEGMENT_TYPES (Contract
+                                             Governance rule 1), marking resolution/takeaway/cta
+                                             as payoff-bearing - same "govern an existing enum
+                                             being consumed for the first time" pattern Phase 4/6
+                                             already established
+  compute-virality-prediction.ts            computeViralityPrediction() - the module's single
+                                             entry point, PURE and synchronous (no `deps` param) -
+                                             same zero-LLM shape as Phase 4/5/6, since "Cross-
+                                             module Fusion" means fusing v4's own already-computed
+                                             outputs, not detecting anything new. Exactly 8 sub-
+                                             probabilities, 2 sourced from each of Phases 1/3/4/5
+                                             (hookStrength/replayPotential from Hook Prediction,
+                                             buildIntensity/peakMomentum from Contextual Momentum,
+                                             emotionalIntensity/emotionalRange from Emotional Arc,
+                                             narrativeCompleteness/payoffPresence from Narrative
+                                             Graph) - each null (not 0) when its source phase's
+                                             data is unavailable, same "null means unavailable"
+                                             convention Phase 6 established. Composite
+                                             viralityProbability averages only non-null values;
+                                             confidence is coverage-only (count non-null / 8)
+  feature-flags.ts                          isViralityEngineEnabled()
+
+apps/worker/src/render-graph/nodes/virality-engine.ts
+                                             viralityPredictionNode, id: 'viralityPrediction'
+                                             (optional: false, no fallback - same reasoning as
+                                             Phase 4/5/6's own pure-derive nodes; deps:
+                                             hookPrediction, narrativeGraph, contextualMomentum,
+                                             emotionalArc - exactly the roadmap's own stated
+                                             dependency list, Phases 1/3/4/5, all already-existing
+                                             node ids, none touched or modified by this phase)
+
+apps/worker/src/render-graph/sinks.ts       CLIP_UPDATE_MAP['viralityPrediction'] entry -
+                                             deliberately NOT added to FUSION_INPUT_MAP (D1).
+                                             Unlike Phase 6's multiSpeakerBreakdown, this node
+                                             always produces a real object once it runs (no
+                                             "doesn't apply to the majority case" analog) - so it
+                                             reverts to the "always-computed non-nullable object"
+                                             convention audioFeatures/editingRhythmFeatures/
+                                             compositionFeatures already use: a plain passthrough,
+                                             no Prisma.JsonNull, no InputJsonValue cast needed
+
+apps/api/src/videos/transcript-segment.util.ts
+                                             toSharedViralityPrediction() - the TS2742 fix (D7).
+                                             Same null-semantics as toSharedContextualMomentum/
+                                             toSharedEmotionalArc (not
+                                             toSharedMultiSpeakerBreakdown's third pattern): null
+                                             here can ONLY mean this Clip row predates this
+                                             phase's migration
+
+apps/api/src/clips/clips.service.ts         GET /clips/:id/intelligence extended with
+                                             `viralityPrediction`, gated by its OWN independent
+                                             flag (D9 - the 7th field on the same DTO)
+
+packages/database/prisma/schema.prisma      Clip.viralityPrediction Json? (new column,
+                                             real-Postgres round trip manually verified)
+
+packages/shared/src/types/
+  video.ts                                  ViralitySubProbabilities/ViralityPrediction
+                                             mirrored (not imported), same duplication precedent
+                                             as SpeakerAttribution/EmotionalArcSample/
+                                             MomentumSample/NarrativeGraph/SemanticEvent/
+                                             HookPredictionOutput; Clip.viralityPrediction field
+  intelligence-v4.ts                        ClipIntelligenceDto.viralityPrediction
+```
+
+**Naming collision investigated and resolved**: `Clip.viralityScore` already existed (Fase 8's
+original MVP LLM clip-scoring, pre-dates v4 entirely). Kept the "Virality" name for direct
+traceability to the roadmap/ADR's own naming (spec Part 4 = "Virality Engine," same "package name
+mirrors the roadmap's own phase noun" convention every prior phase used), but the new field is
+`Clip.viralityPrediction` (not bare `virality`), and `docs/ai/scoring.md` now has a new 4th section
+disambiguating the two explicitly - see there for the full comparison.
+
+**A real bug found and fixed during verification**: an early version of `hasNarrativeGraph` used
+`narrativeGraph !== null` (a strict check) rather than the established `!narrativeGraph ||
+narrativeGraph.unsegmented` truthy-check pattern `@speedora/contextual-momentum`'s own `segmentAt()`
+already uses - this threw when the render-graph's `get()` handed back `undefined` rather than
+`null` in `render-clip.worker.spec.ts`'s own integration fixtures (81 of 85 tests failed). Fixed to
+`narrativeGraph != null && !narrativeGraph.unsegmented` (loose inequality, catches both null and
+undefined) and locked in with a dedicated regression test.
+
+`Clip.highlightScore` and every existing Fusion Engine v2 output are unchanged by all seven
+phases — verified by regression tests in `sinks.spec.ts` (extended to cover `viralityPrediction`
+alongside `hookPrediction`/`semanticEvents`/`narrativeGraph`/`contextualMomentum`/`emotionalArc`/
+`multiSpeakerBreakdown`) plus a full, green run of every existing test suite after each phase's
+changes. Phase 3 was the first to run the full `pnpm verify` (added between Phase 2 and Phase 3)
+locally before pushing; Phases 4-7 continued that practice. Phase 7: `apps/worker`: 576/576,
+`apps/api`: 1268/1268, `apps/web`: 313/313, plus 37 new unit tests in `packages/virality-engine`
+(including the dedicated undefined-vs-null regression test above) - a fully clean run, no
+load-induced flakes this time. Real-Postgres round trip verified manually for the new column.

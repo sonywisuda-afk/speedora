@@ -5,6 +5,7 @@ import type {
   MultiSpeakerBreakdown,
   NarrativeGraph,
   SemanticEvent,
+  ViralityPrediction,
 } from './video';
 
 // AI Intelligence v4 (see docs/ai/intelligence-v4.md, ADR D9) - a separate
@@ -16,9 +17,9 @@ import type {
 // number, so reusing that array would force a false equivalence. Phase 1
 // shipped `hookPrediction`; Phase 2 added `semanticEvents`; Phase 3 added
 // `narrativeGraph`; Phase 4 added `contextualMomentum`; Phase 5 added
-// `emotionalArc`; Phase 6 adds `multiSpeakerBreakdown` to this same DTO
-// rather than growing a new endpoint per part; later Track A phases follow
-// the same pattern.
+// `emotionalArc`; Phase 6 added `multiSpeakerBreakdown`; Phase 7 adds
+// `viralityPrediction` to this same DTO rather than growing a new endpoint
+// per part; later Track A phases follow the same pattern.
 export interface ClipIntelligenceDto {
   clipId: string;
   // Null when HOOK_PREDICTION_ENABLED is off (the flag gates this field's
@@ -57,4 +58,12 @@ export interface ClipIntelligenceDto {
   // >= 2, sorted by talkTimeRatio descending) means the clip genuinely has
   // multiple speakers and was attributed successfully.
   multiSpeakerBreakdown: MultiSpeakerBreakdown | null;
+  // Null when VIRALITY_ENGINE_ENABLED is off (same exposure-only gate, see
+  // isViralityEngineEnabled()) or when this Clip row predates the phase's
+  // migration (same pure-node null-semantics as contextualMomentum/
+  // emotionalArc above, not multiSpeakerBreakdown's third pattern - this
+  // node always produces a real object once it runs). NOT the same as
+  // Clip.viralityScore (Fase 8's original MVP LLM clip-scoring) - see
+  // docs/ai/scoring.md.
+  viralityPrediction: ViralityPrediction | null;
 }

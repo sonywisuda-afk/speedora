@@ -35,6 +35,7 @@ import type {
   SpeakerFusionFeatures,
   SpeakerTimelineEntry,
   SpeakerTimelineFeatures,
+  ViralityPrediction,
 } from '@speedora/contracts';
 import type { FaceLandmarkSample } from '@speedora/facial-intelligence';
 import type { ClipSpeakerScores } from '@speedora/speaker-scoring';
@@ -54,6 +55,7 @@ import { ocrNodes } from './nodes/ocr';
 import { sceneNodes } from './nodes/scene';
 import { semanticEventNodes } from './nodes/semantic-events';
 import { thumbnailSelectionNodes } from './nodes/thumbnail-selection';
+import { viralityEngineNodes } from './nodes/virality-engine';
 
 export { runGraph, GraphConfigError, GraphCycleError, type GraphNode } from './executor';
 export type { RenderGraphContext } from './context';
@@ -81,6 +83,7 @@ export const renderClipGraph: GraphNode<RenderGraphContext, unknown>[] = [
   ...contextualMomentumNodes,
   ...emotionalArcNodes,
   ...multiSpeakerReasoningNodes,
+  ...viralityEngineNodes,
   ...thumbnailSelectionNodes,
 ];
 
@@ -126,5 +129,6 @@ export interface RenderGraphResult {
   contextualMomentum: MomentumCurve;
   emotionalArc: EmotionalArc;
   multiSpeakerBreakdown: MultiSpeakerBreakdown | null;
+  viralityPrediction: ViralityPrediction;
   thumbnailSelection: SelectThumbnailTimestampOutput;
 }

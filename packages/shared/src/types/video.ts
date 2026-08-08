@@ -811,6 +811,45 @@ export interface SpeakerAttribution {
 // successfully.
 export type MultiSpeakerBreakdown = SpeakerAttribution[];
 
+// AI Intelligence v4, Phase 7 (Cross-module Fusion, spec Part 4 - Virality
+// Engine - see docs/ai/intelligence-v4.md). Mirrors @speedora/contracts'
+// viralitySubProbabilitiesSchema rather than importing it - same
+// duplication precedent as SpeakerAttribution above. Exactly 8
+// sub-probabilities, 2 sourced from each of Phases 1/3/4/5 - each null
+// (not 0) when its source phase's data is genuinely unavailable.
+//
+// DELIBERATELY DISTINCT from the pre-existing Clip.viralityScore (Fase 8's
+// original MVP LLM clip-scoring, a single 0-100 number used to SELECT
+// candidate moments before render) - see docs/ai/scoring.md, which
+// documents this as the 4th of 4 distinct scoring systems in this
+// codebase; do not conflate the two.
+export interface ViralitySubProbabilities {
+  // From Phase 1 (Hook Prediction) - direct transforms of its own output.
+  hookStrength: number | null;
+  replayPotential: number | null;
+  // From Phase 4 (Contextual Momentum).
+  buildIntensity: number | null;
+  peakMomentum: number | null;
+  // From Phase 5 (Emotional Arc).
+  emotionalIntensity: number | null;
+  emotionalRange: number | null;
+  // From Phase 3 (Narrative Graph).
+  narrativeCompleteness: number | null;
+  payoffPresence: number | null;
+}
+
+export interface ViralityPrediction {
+  clipId: string;
+  // Composite - the average of every non-null sub-probability. Null only
+  // when ALL 8 are null - a real, honest result, not a fabricated 0.5.
+  viralityProbability: number | null;
+  // Coverage-only, same "coverage, not accuracy" meaning as
+  // HookPredictionOutput's own confidence.
+  confidence: number;
+  reason: string;
+  subProbabilities: ViralitySubProbabilities;
+}
+
 // AI Fusion roadmap's Face Intelligence initiative, Batch 2 - a per-sample
 // looking-direction bucket, 'center' meaning both iris position and head
 // rotation roughly face the camera. Mirrors @speedora/contracts'
@@ -1461,6 +1500,14 @@ export interface Clip {
   // genuine, by-design result for the majority single-speaker case, not
   // distinguished from "predates migration" at this field's level.
   multiSpeakerBreakdown: MultiSpeakerBreakdown | null;
+  // AI Intelligence v4, Phase 7 (Cross-module Fusion, spec Part 4 -
+  // Virality Engine) - computed on every render regardless of
+  // VIRALITY_ENGINE_ENABLED (the flag gates API exposure, not computation
+  // - see isViralityEngineEnabled()). Same null-semantics as
+  // contextualMomentum/emotionalArc (not multiSpeakerBreakdown's third
+  // pattern): this node always produces a real object once it runs, so
+  // null here can ONLY mean this Clip row predates this phase's migration.
+  viralityPrediction: ViralityPrediction | null;
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // @speedora/thumbnail-selection's chosen in-clip timestamp, replacing the
   // naive clip-midpoint thumbnailUrl/thumbnailBlurDataUrl are extracted at,
