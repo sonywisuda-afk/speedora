@@ -266,6 +266,15 @@ export interface RenderClipJobData {
   // Subtitle Studio roadmap (P2c) - burns speaker-colored captions in when
   // true, orthogonal to captionStyle (see Clip.speakerColorCaptions).
   speakerColorCaptions: boolean;
+  // AI Intelligence v4 Track B, Phase A2 (Subtitle Rewriter render wiring -
+  // see docs/ai/subtitle-intelligence.md, ADR DB5/DB10) - burns the
+  // structurally re-chunked SubtitleTimeline (Clip.subtitleIntelligence,
+  // recomputed fresh by THIS render's own render-graph, never a stale
+  // value read from the DB) in when true, orthogonal to captionStyle, same
+  // shape as speakerColorCaptions above. Also gated at the worker by the
+  // global SUBTITLE_REWRITE_ENABLED flag and disabled whenever a
+  // translation is requested - see render-clip.worker.ts's own comment.
+  smartSegmentation: boolean;
   // Subtitle Studio roadmap (P2f) - which TranscriptSegment.translations key
   // to burn in; undefined/null means the original (untranslated) text.
   captionLanguage: string | null;

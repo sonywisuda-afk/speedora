@@ -1423,6 +1423,14 @@ export interface Clip {
   // with any preset. False by default (unchanged rendering) for every
   // existing clip.
   speakerColorCaptions: boolean;
+  // AI Intelligence v4 Track B, Phase A2 (Subtitle Rewriter render wiring -
+  // see docs/ai/subtitle-intelligence.md) - opts this clip's captions into
+  // Clip.subtitleIntelligence's structural re-chunking, orthogonal to
+  // captionStyle, same shape as speakerColorCaptions above. False by
+  // default (unchanged rendering) for every existing clip; also requires
+  // the global SUBTITLE_REWRITE_ENABLED flag and is skipped whenever a
+  // translation is requested (see render-clip.worker.ts).
+  smartSegmentation: boolean;
   // Subtitle Studio roadmap (P2f) - which TranscriptSegment.translations key
   // to burn in; null means the original (untranslated) text.
   captionLanguage: string | null;
@@ -1733,6 +1741,9 @@ export interface UpdateClipInput {
   endTime?: number;
   captionStyle?: CaptionStyle;
   speakerColorCaptions?: boolean;
+  // AI Intelligence v4 Track B, Phase A2 - same orthogonal-to-captionStyle
+  // shape as speakerColorCaptions above.
+  smartSegmentation?: boolean;
   // null clears back to the original (untranslated) text - distinct from
   // omitted (leave unchanged), same convention as MoveVideoDto's
   // projectId/folderId.

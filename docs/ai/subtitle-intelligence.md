@@ -1,12 +1,13 @@
 # Subtitle & Dynamic Caption Intelligence (spec Parts 7-8, Track B Phase A)
 
-> **Status: Phase A1 shipped, flag-off (`SUBTITLE_REWRITE_ENABLED=false`). A2/B1/B2 remain design
-> only.** This doc is the audit + ADR + dependency graph + phased roadmap written before any
-> implementation started. Implementation proceeds phase-by-phase from this doc, each phase
-> requiring its own explicit go-ahead (same convention as every Track A phase in
-> [`intelligence-v4.md`](./intelligence-v4.md)) and, per explicit user instruction, a test run +
-> regression check + doc update + production build check before moving to the next phase — see
-> "Phase A1 architecture (as shipped)" below for what that verification actually covered.
+> **Status: Phase A1 + A2 shipped, both flag-off by default (`SUBTITLE_REWRITE_ENABLED=false`,
+> `Clip.smartSegmentation` defaults `false`). B1/B2 remain design only.** This doc is the audit +
+> ADR + dependency graph + phased roadmap written before any implementation started.
+> Implementation proceeds phase-by-phase from this doc, each phase requiring its own explicit
+> go-ahead (same convention as every Track A phase in [`intelligence-v4.md`](./intelligence-v4.md))
+> and, per explicit user instruction, a test run + regression check + doc update + production
+> build check before moving to the next phase — see "Phase A1 architecture (as shipped)" and
+> "Phase A2 architecture (as shipped)" below for what that verification actually covered.
 
 ## Why this exists
 
@@ -155,6 +156,23 @@ non-Latin caption languages while leaving line-breaking/rhythm/emphasis-via-bold
 (bold/color have no script dependency). Documented explicitly rather than silently producing
 nonsensical output.
 
+**DB10. Phase A2's render-path gate is double-gated AND disabled under translation** (decided
+during A2 implementation, not pre-specified in DB5) — three independent conditions must all hold
+before a render actually uses the rewritten timeline: (1) `Clip.smartSegmentation` (a new per-clip
+Boolean column, same orthogonal-to-`captionStyle` shape `speakerColorCaptions` already
+established, user-settable via `PATCH /clips/:id`), AND (2) the global `SUBTITLE_REWRITE_ENABLED`
+flag (a kill switch — the first v4 flag whose scope had to grow beyond "gates API exposure only,"
+since A2 is the first v4 phase that changes actual render output, not just a read-only endpoint),
+AND (3) no translation requested (`captionLanguage` unset) — `Clip.subtitleIntelligence` is always
+computed against the ORIGINAL-language transcript (the render-graph node has no
+`captionLanguage`-awareness, by design, since Phase A1 was read-only and never needed it), so
+applying it under a translation would silently show the wrong language rather than degrade
+gracefully. No new frontend UI ships in this phase (no Subtitle Studio panel checkbox yet) — the
+mechanism is real and settable via the API, same "ship the mechanism, UI can follow" posture
+several other per-clip toggles in this codebase's history already took; deliberately not
+propagated into `SubtitlePreset`/`ProcessingOptions.subtitle` either (separate feature surfaces,
+out of scope for this phase).
+
 ## Dependency graph (planned)
 
 ```
@@ -217,7 +235,7 @@ line text ends in "?" (new, trivial) ──────────────�
 | Phase | Deliverable | Depends on | Complexity | Primary risk |
 |---|---|---|---|---|
 | A1 | Subtitle Rewriter (data only) — `SubtitleTimeline` + `HighlightTimeline`, persisted, exposed read-only via `/intelligence` — **shipped, flag-off** | `KEYWORD_PATTERN` hoist (DB6); Phases 2/4/5 optional | M | Re-chunking heuristic quality is unvalidated (no engagement data, same caveat every heuristic in this codebase carries) — mitigated by being 100% non-destructive (DB4) |
-| A2 | Wire A1's timeline into `buildAss()`/`toSubtitleSegments()` behind `smartSegmentation` | A1 | M | First phase to touch the production render path — karaoke per-word timestamps must survive re-grouping into different lines unchanged; needs a real render regression test, not just unit tests on the data stage |
+| A2 | Wire A1's timeline into `buildAss()`/`toSubtitleSegments()` behind `smartSegmentation` — **shipped, flag-off** | A1 | M | First phase to touch the production render path — karaoke per-word timestamps must survive re-grouping into different lines unchanged; needs a real render regression test, not just unit tests on the data stage |
 | B1 | Dynamic Caption Engine (data only) — `CaptionTreatmentTimeline`, persisted, exposed read-only | A1 (`HighlightTimeline`), Phase 5 (`emotionalArc`) | S-M | "Don't overuse animation" is a real design constraint, not a formula — needs an explicit, documented cooldown/threshold heuristic, flagged as unvalidated like every other threshold constant here |
 | B2 | Wire B1's treatment timeline into `build-ass.ts`'s ASS emission (`\fscx`/`\fscy`/`\t`/`\alpha`) | B1, A2 | L | Genuinely new ASS tag territory for this codebase — must be prototyped and verified against a real `ffmpeg`+`libass` render before trusting it in production (Tech Debt #6); highest-risk phase in this roadmap |
 
@@ -357,6 +375,83 @@ deferred. **Not yet verified**: the re-chunking heuristics have not been exercis
 transcript end-to-end (only unit-test fixtures) — flagged honestly, same posture as every other
 unvalidated threshold in this codebase, not glossed over.
 
+## Phase A2 architecture (as shipped)
+
+```
+packages/database/prisma/schema.prisma      Clip.smartSegmentation Boolean @default(false) (new
+                                              column, migration
+                                              20260808114435_add_clip_smart_segmentation, applied
+                                              against the real dev Postgres) - orthogonal to
+                                              captionStyle, same shape as speakerColorCaptions
+                                              (DB5/DB10)
+
+apps/api/src/clips/dto/update-clip.dto.ts    UpdateClipDto.smartSegmentation - user-settable via
+                                              PATCH /clips/:id, same @IsOptional/@IsBoolean shape
+                                              as speakerColorCaptions
+
+apps/api/src/clips/clips.service.ts          update() reads/writes it the same way as
+                                              speakerColorCaptions; render() copies
+                                              clip.smartSegmentation into RenderClipJobData; toDto()
+                                              exposes it (plain Boolean column, no TS2742 narrowing
+                                              needed - that trap is Json-column-specific)
+
+apps/api/src/videos/videos.service.ts        retry() copies clip.smartSegmentation into
+                                              RenderClipJobData the same way
+
+apps/worker/src/workers/clip-persistence.ts  enqueueRendersForCandidates() copies
+                                              clips[index].smartSegmentation (schema default false
+                                              for every newly-detected clip) into RenderClipJobData
+
+packages/shared/src/types/{job.ts,video.ts}  RenderClipJobData.smartSegmentation,
+                                              Clip.smartSegmentation, UpdateClipInput.smartSegmentation
+                                              mirrored the same way every other per-clip toggle is
+
+apps/worker/src/workers/render-clip.worker.ts
+                                              isSubtitleRewriteEnabled() imported from
+                                              @speedora/subtitle-rewriter; a new useSmartSegmentation
+                                              local (DB10's 3-way AND: per-clip flag, global flag,
+                                              !captionLanguage) computed right before the buildAss()
+                                              call; toSubtitleSegments() gains a 4th parameter
+                                              (subtitleTimeline: SubtitleLine[] | null) - when
+                                              present, maps SubtitleLine[] 1:1 onto SubtitleSegment[]
+                                              instead of the raw transcript; when null (the default,
+                                              and every existing render), behavior is byte-for-byte
+                                              unchanged from before this phase. buildAss() itself
+                                              needed ZERO changes (Tech Debt #2's original "widen
+                                              buildAssInputSchema" plan turned out unnecessary - a
+                                              rewritten line's BOLD_HIGHLIGHT emphasis is naturally
+                                              reproduced by its own live KEYWORD_PATTERN regex over
+                                              the identical words already in place before this phase).
+```
+
+**A real bug caught while writing this phase's own tests, before it ever ran**: the first draft of
+`toSubtitleSegments()`'s smart-segmentation branch passed `Clip.subtitleIntelligence.timeline`
+straight through unmodified. But that timeline is **clip-relative** (0 = this clip's own start -
+see Phase A1's `render-graph/nodes/subtitle-rewriter.ts`, which shifts by `-startTime` before
+computing it), while `buildAss()` always expects **absolute source-video time** in `segments` and
+does its own `- clipStart` shift internally (exactly what the raw-transcript branch already relies
+on). Feeding it clip-relative input would have double-shifted every timestamp, burning in captions
+at the wrong (negative-offset) position whenever smart segmentation was on. Fixed by re-adding
+`startTime` to every line's/word's timestamp in `toSubtitleSegments()` before handing them to
+`buildAss()` - caught by working through the coordinate math while writing
+`render-clip.worker.spec.ts`'s new Phase A2 tests, not by a failing assertion (the bug would have
+silently corrupted output rather than throwing). A dedicated code comment now documents the
+coordinate-frame contract explicitly at both the function and the render-graph node, so the next
+consumer of `Clip.subtitleIntelligence` doesn't have to re-derive it.
+
+**Verified**: 4 new integration tests in `render-clip.worker.spec.ts` (`apps/worker`'s real,
+un-mocked render-graph, only `buildAss()` itself mocked) proving all three DB10 gate conditions
+independently - smart segmentation re-chunks and preserves every word/order when all three
+conditions hold; falls back to the exact raw pass-through when the per-clip flag is off, when the
+global flag is off, and when a translation is requested. Full suites: `apps/worker` (584 tests, up
+from 580), `apps/api` (1268 tests, unchanged - no existing fixture needed updating since
+`smartSegmentation` defaults `false`/`undefined` everywhere old fixtures didn't set it), `apps/web`
+(313 tests, unchanged). Real production builds (`tsc` for `apps/worker`, `nest build` for
+`apps/api`, `next build` for `apps/web`) all pass. Migration applied against the real dev Postgres,
+not deferred. **Not yet verified**: no frontend UI exists yet to actually toggle
+`smartSegmentation` for a real user (DB10) - the mechanism is real and API-settable, but exercising
+it end-to-end still requires a manual `PATCH` call, not a real browser click-through.
+
 ## Explicitly deferred (not part of this roadmap)
 
 - **LLM paraphrase mode** (DB1) — a real future capability, needs its own ADR/contract/flag/cost
@@ -366,3 +461,6 @@ unvalidated threshold in this codebase, not glossed over.
 - **Non-Latin uppercase emphasis** (Tech Debt #9 / DB9) — suppressed, not solved; a real per-script
   emphasis convention (e.g. different glyph weight/color cues) is future work if this becomes a real
   product need.
+- **Frontend toggle for `smartSegmentation`** (DB10) — no Subtitle Studio panel checkbox yet;
+  `PATCH /clips/:id` is the only way to set it today. Also deliberately not propagated into
+  `SubtitlePreset`/`ProcessingOptions.subtitle` (separate feature surfaces).
