@@ -63,7 +63,18 @@
   and `curiosityPeaks` (`SemanticEvent[]` filtered to a curiosity-flavored type subset via a new
   `isCuriositySemanticEventType()` exhaustive switch). Timeline visualization is explicitly
   deferred to Phase 12 (Explainability) — see "Phase 10 architecture (as shipped)" below.
-- **Phases 11-17**: documented roadmap only, not built (renumbered from the original Phase 9-14 —
+- **Phase 11 (Multimodal Reasoning Engine, spec Part 6)**: shipped, flag-off
+  (`MULTIMODAL_REASONING_ENABLED=false`). Extends Phase 2's `packages/multimodal-reasoning` (its
+  existing `findConcurrentEvidence` is untouched, still Phase 2's own grounding helper) with a
+  genuine cross-modal reasoning layer: normalizes 8 evidence sources into one common
+  `MultimodalEvidence` shape (Transcript/Scene/OCR/Face/Gesture/Audio/Speaker — Part 6's own 7
+  normative modalities — plus Object Intelligence's `objectTracks` as a documented, non-normative
+  extension), groups them by transcript segment (a real structural unit, not an arbitrary window),
+  then makes exactly one LLM call per clip to find `refers_to`/`co_occurs_with`/`emphasizes`
+  connections across evidence from >= 2 distinct modalities, validated by a deterministic post-LLM
+  step that drops any connection whose cited evidence doesn't actually resolve (the hallucination
+  guard). See "Phase 11 architecture (as shipped)" below.
+- **Phases 12-17**: documented roadmap only, not built (renumbered from the original Phase 9-14 —
   see "Roadmap" below; Phases 0-8 above keep their original numbers/history unchanged).
 
 ## Why this exists
@@ -344,7 +355,7 @@ renumbered. Full ADR (D12-D16) and audit are in persistent memory
 | 8 | Confidence Calibration (cross-cutting) — **shipped** | Phases 1-7 | S-M | Hygiene pass, low risk — addressed by design: no numeric recalibration was possible (0 usable engagement samples, same blocker every phase already documents), so this phase is labeling/consistency only — a missing field comment, 6 standardized module comments, and a confidence-field taxonomy, zero new runtime behavior |
 | 9 | Virality Engine Realignment (4) — **shipped** | Phases 1, 3, 4, 5 (same deps Phase 7 already had) | M | Breaking change to `ViralitySubProbabilities` (ADR D12) - addressed by design: `VIRALITY_ENGINE_ENABLED` was `false` in production so zero real consumers existed; scoped tightly to the shape change only (no new migration/node/sink/DTO field needed since `Clip.viralityPrediction` is `Json?`) |
 | 10 | Retention Curve Insights (5, extension) — **shipped** | Phases 2, 4, 5 | S-M | Peak/trough thresholds are HEURISTIC (no ground truth for curve *shape*, same caveat Phase 4 already carries) — addressed by design: every `RetentionPoint.score` field is documented as such; "Curiosity Peaks" had no free existing signal (needed `SemanticEvent` timestamp mapping, not pure array math) — resolved via a new `isCuriositySemanticEventType()` exhaustive switch (Contract Governance rule 1) |
-| 11 | Multimodal Reasoning Engine (6) | Phase 0, Phase 2 (context) + raw Face/Gesture/Audio/Speaker/Scene/OCR/Object signals | L | First new LLM reasoning module since Phase 3 — prompt-engineering risk (genuine cross-modal "connection" reasoning, not just concatenated signal descriptions) |
+| 11 | Multimodal Reasoning Engine (6) — **shipped** | Phase 0, Phase 2 (context) + raw Face/Gesture/Audio/Speaker/Scene/OCR/Object signals | L | First new LLM reasoning module since Phase 3 — prompt-engineering risk (genuine cross-modal "connection" reasoning, not just concatenated signal descriptions) - addressed by design: evidence is grouped by transcript segment (not sent as flat concatenated text) and every LLM-cited connection is deterministically re-validated against the real evidence sent, dropping any connection whose evidenceRefs don't resolve or whose resolved modalities are < 2 |
 | 12 | Explainability (13) | Phases 1-11 | M | UI copy is where "scale honesty" holds or breaks — also must decide whether to backfill reason/confidence onto the 3 currently-silent fields (momentum/emotional-arc/multi-speaker) or document why they stay silent |
 | 13 | Candidate Expansion (10, generation half) | Phase 1 | L | Biggest infra change — new pre-render adapter stage; must fix `clip-scoring`'s hardcoded "Pick 1-3" prompt text, not just raise `maxCandidates` |
 | 14 | Ranking Refinement + Personalization (10 rank half + 11) | Phase 13 + Phases 1-9 | L | Pre-render vs. post-render tension (ADR D16, unresolved); introduces `WorkspaceContentProfile` schema (D10), reusing `platform-fit`'s weighted-sum pattern |
@@ -1155,3 +1166,185 @@ extended with a new `retentionCurveInsights: expect.any(Object)` line, same patt
 after `multiSpeakerBreakdown`) and `sinks.spec.ts` (new `noRetentionCurveInsights` fixture, the
 FusionInput-leak regression guard extended to cover this field too) green; real-Postgres round trip
 verified manually for the new column. Full local `pnpm verify` green before push.
+
+## Phase 11 architecture (as shipped)
+
+Multimodal Reasoning Engine is spec Part 6's own real ask: "gabungkan Transcript, Scene, OCR, Face,
+Gesture, Audio, Speaker, Timing, dan LLM... semua reasoning dilakukan secara multimodal... model
+harus mampu menghubungkan evidence lintas modalitas." An audit against that source text first
+(see the persistent-memory plan file, `project_ai_intelligence_v4_phase11.md`) found Phase 2's
+existing `packages/multimodal-reasoning`/`findConcurrentEvidence` is a correct, reusable building
+block but nowhere near Part 6-complete on its own — it's a deterministic OCR/Object co-occurrence
+lookup consumed by one caller (`semantic-events`' grounding step), not a reasoning engine. This
+phase **extends that same package** (not a second, competing one) with the genuine reasoning layer
+Part 6 actually asks for, while leaving `findConcurrentEvidence`/`groundedFactSchema` completely
+untouched — Phase 2 keeps working exactly as it does today.
+
+**Evidence timing turned out to already be uniform** (a real open question the audit had to
+resolve, not an assumption): every render-graph node id this phase depends on
+(`sceneCutEvents`/`ocrTracks`/`objectTracks`/`facialEmotions`/`gestures`/`speakerTimeline`) is
+already clip-relative by the time it reaches a node's `run()`, same clock as `ctx.transcript` once
+re-anchored by `startTime` (the same `segment.start - startTime` convention every prior LLM-backed
+v4 node already uses). `SpeakerTimelineEntry`'s own doc comment describes the RAW diarization
+output as absolute-video-time, which reads as a risk at first glance — but `render-clip.worker.ts`'s
+`toSpeakerTurns()` already converts to clip-relative BEFORE the render graph ever sees it, so no
+conversion bug was possible here.
+
+**Object Intelligence is a documented, non-normative extension, not a Part 6 requirement.** Part
+6's own list is Transcript/Scene/OCR/Face/Gesture/Audio/Speaker (7) + Timing + LLM.
+`objectTracks` is included as an 8th evidence source because it's mature/shipped and
+`findConcurrentEvidence` already treats it as on-screen evidence alongside OCR — but every place
+that names the modality list (contracts, package description, this doc) says so explicitly, rather
+than silently presenting 8 as if Part 6 asked for it. `timing` is deliberately not a modality of
+its own in `MODALITY_SOURCES` — every evidence item already carries `startTime`/`endTime`, so
+timing is a dimension of evidence, not a signal source, matching Part 6's own Section 4 framing.
+
+```
+packages/contracts/src/multimodal-reasoning.ts
+                                             groundedFactSchema/GROUNDED_FACT_SOURCES UNTOUCHED
+                                             (Phase 2's own frozen contract). NEW below it:
+                                             MODALITY_SOURCES (8 values - transcript/scene/ocr/
+                                             face/gesture/audio/speaker/object, with 'object'
+                                             documented as a non-normative extension),
+                                             multimodalEvidenceSchema (id/modality/startTime/
+                                             endTime/speakerId/value/confidence/provenance),
+                                             MULTIMODAL_RELATION_TYPES (refers_to/co_occurs_with/
+                                             emphasizes - deliberately small/closed, same
+                                             discipline as NARRATIVE_RELATION_TYPES's 2 values),
+                                             multimodalConnectionSchema (relation/evidenceRefs/
+                                             modalities/startTime/endTime/confidence/reason),
+                                             multimodalReasoningResultSchema (clipId/evidence/
+                                             connections/modalityCoverage - modalityCoverage uses
+                                             z.record(z.string(), ...) rather than
+                                             z.record(z.enum(MODALITY_SOURCES), ...) deliberately,
+                                             since zod infers an enum-keyed record's TS type as
+                                             requiring every key present even though it validates a
+                                             genuinely partial object fine at runtime)
+
+packages/multimodal-reasoning/src/
+  find-concurrent-evidence.ts               UNTOUCHED (Phase 2's own module)
+  normalize-evidence.ts                     normalizeEvidence() - exhaustive per-modality mapper
+                                             (transcript/audio both read off the SAME
+                                             TranscriptSegment - audio has no raw timestamped
+                                             stream of its own, only AudioFeatures' clip-wide
+                                             aggregate; scene/face/gesture collapse to zero-width
+                                             instant evidence; speaker evidence comes from
+                                             speakerTimeline ONLY - raw ActiveSpeakerSample[] is
+                                             deliberately NOT a separate input, it would be
+                                             redundant evidence about the same underlying signal
+                                             speakerTimeline already fuses). Skips non-evidence
+                                             samples (null face emotion, null/'none' gesture, a
+                                             transcript segment with zero audio readings) rather
+                                             than fabricating them
+  group-evidence.ts                         groupEvidenceByTranscriptSegment() - one evidence
+                                             group PER TRANSCRIPT SEGMENT (a real structural unit,
+                                             not an arbitrary sliding window - Part 6, Section 8's
+                                             own requirement), with a small
+                                             SEGMENT_EVIDENCE_PADDING_SECONDS=0.5 overlap tolerance
+                                             and a MAX_EVIDENCE_PER_MODALITY_PER_GROUP=3 cap (same
+                                             cap-and-sort-by-proximity shape as
+                                             find-concurrent-evidence.ts's own
+                                             MAX_EVIDENCE_PER_EVENT). selectReasoningGroups() drops
+                                             any group spanning < 2 distinct modalities BEFORE the
+                                             LLM prompt is built - the module's main cost-control
+                                             lever (Section 17): a clip with little cross-modal
+                                             evidence pays less, not more
+  extract-raw-connections.ts                extractRawConnections() - the one LLM call, over
+                                             ALREADY-GROUPED evidence with explicit ids (never flat
+                                             concatenated per-modality text - the concrete
+                                             difference from "signal concatenation," Section 3),
+                                             asking the model to cite >= 2 evidence ids from >= 2
+                                             modalities per connection. Skips the LLM call entirely
+                                             when there are zero reasoning-worthy groups (same
+                                             `segments.length === 0` early-return convention as
+                                             extractRawEvents/extractRawGraph)
+  describe-relation-type.ts                 describeRelationType() - exhaustive switch/assertNever
+                                             over all 3 MULTIMODAL_RELATION_TYPES (Contract
+                                             Governance rule 1's exhaustiveness discipline), used as
+                                             the fallback `reason` when the LLM's own reason comes
+                                             back empty
+  validate-connections.ts                   validateConnections() - the hallucination guard
+                                             (Section 10), pure/deterministic, no LLM/DB access.
+                                             DROPS (never partially repairs) a connection when its
+                                             relation isn't a real MULTIMODAL_RELATION_TYPES value,
+                                             when any evidenceRefs entry doesn't resolve to a real
+                                             evidence id actually sent to the LLM, or when the
+                                             resolved evidence spans < 2 distinct modalities.
+                                             modalities/startTime/endTime on a surviving connection
+                                             are RECOMPUTED from the resolved evidence, never
+                                             trusted as reported by the LLM itself
+  reason-multimodal.ts                      reasonMultimodal() - the module's single entry point,
+                                             orchestrates normalizeEvidence -> groupEvidenceBy
+                                             TranscriptSegment -> selectReasoningGroups ->
+                                             extractRawConnections -> validateConnections. Exactly
+                                             ONE LLM call per clip regardless of evidence group
+                                             count (Section 17)
+  feature-flags.ts                          isMultimodalReasoningEnabled()
+
+apps/worker/src/render-graph/nodes/multimodal-reasoning.ts
+                                             multimodalReasoningNode, id: 'multimodalReasoning'
+                                             (optional: true, fallback: null - the LLM call can
+                                             fail, never fails the render job, same convention as
+                                             hookPrediction/semanticEvents/narrativeGraph); deps:
+                                             sceneCutEvents/ocrTracks/objectTracks/facialEmotions/
+                                             gestures/speakerTimeline (all already-existing node
+                                             ids, no new upstream detector); re-anchors
+                                             ctx.transcript onto clip-relative time the same way
+                                             every prior LLM-backed v4 node does
+
+apps/worker/src/render-graph/sinks.ts       CLIP_UPDATE_MAP['multimodalReasoning'] entry -
+                                             deliberately NOT added to FUSION_INPUT_MAP (D1). Same
+                                             "?? Prisma.JsonNull" null-semantics as hookPrediction/
+                                             semanticEvents/narrativeGraph (LLM-backed, can
+                                             genuinely fail/never run) - NOT the "always a real
+                                             object" pattern contextualMomentum/emotionalArc/
+                                             viralityPrediction/retentionCurveInsights use
+
+packages/database/prisma/schema.prisma      Clip.multimodalReasoning Json? (new column, real
+                                             migration - real-Postgres round trip verified)
+
+apps/api/src/videos/transcript-segment.util.ts
+                                             toSharedMultimodalReasoning() - the TS2742 fix (D7).
+                                             Same LLM-backed null-semantics as toSharedHookPrediction/
+                                             toSharedSemanticEvents/toSharedNarrativeGraph
+
+apps/api/src/clips/clips.service.ts         GET /clips/:id/intelligence extended with
+                                             `multimodalReasoning`, gated by its OWN independent
+                                             flag (D9); VideosService.mapVideoWithClips also
+                                             extended (the TS2742 fix's OTHER call site)
+
+packages/shared/src/types/
+  video.ts                                  ModalitySource/MultimodalEvidence/MultimodalConnection/
+                                             MultimodalReasoningResult mirrored (not imported), same
+                                             duplication precedent as every other v4 contract type;
+                                             Clip.multimodalReasoning field
+  intelligence-v4.ts                        ClipIntelligenceDto.multimodalReasoning
+```
+
+**Testing note - `reasonMultimodal` is mocked at the render-graph test level, same as its
+siblings**: `render-clip.worker.spec.ts` mocks `@speedora/multimodal-reasoning`'s `reasonMultimodal`
+as the one I/O-touching seam (leaving `normalizeEvidence`/`groupEvidenceByTranscriptSegment`/
+`validateConnections`/`findConcurrentEvidence` real via `requireActual`), exactly the same "mock
+only the seam" convention as `predictHook`/`detectSemanticEvents`/`buildNarrativeGraph`. Without
+this mock, `reasonMultimodal`'s own "skip the LLM call when there are zero reasoning-worthy groups"
+design (Section 17) would make it return a REAL, non-null result in most of this spec file's sparse
+fixtures — unlike its siblings, which always attempt the LLM call and so always fail against this
+file's `{}`-mocked `openai` client, this module's success path doesn't depend on an LLM call at all
+when there's nothing cross-modal to reason about. Discovered by running the full
+`render-clip.worker.spec.ts` suite after wiring the node (not just the new package's own tests) and
+seeing 4 failures whose expected fixtures assumed `Prisma.JsonNull` - fixed by adding the same
+single-seam mock every sibling v4 LLM module already has, not by changing the module's own
+"skip empty-evidence clips" behavior (that behavior is correct and Section 17-mandated).
+
+Verification: `packages/multimodal-reasoning`'s own suite (55 tests - per-modality normalization
+including every skip case; temporal grouping with Part 6's own worked example, transcript+speaker+
+gesture+OCR+scene all overlapping one moment, joining one group; a non-overlapping-timestamps
+negative test; missing-modality combinations; the hallucination guard dropping a fabricated
+evidence id end to end; malformed/out-of-range LLM output clamping; a transcript-only clip skipping
+the LLM call entirely; an LLM failure propagating rather than being swallowed - "module throws,
+adapter catches") green; `apps/worker`'s full suite (579 tests, including `render-clip.worker.spec.ts`
+and `sinks.spec.ts` extended with `multimodalReasoning` fixtures/regression guards) green;
+`apps/api`'s full `clips.service`/`videos.service`/`transcript-segment` suite (222 tests, 4 expected
+literals extended with `multimodalReasoning: null`) green; real-Postgres round trip verified via
+`prisma migrate dev`. `nest build` (not just `tsc --noEmit`) run for `apps/api` per `docs/prisma.md`'s
+own TS2742 warning. Full local `pnpm verify` green before push.

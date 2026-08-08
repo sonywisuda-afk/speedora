@@ -190,6 +190,19 @@ jest.mock('@speedora/narrative-graph', () => ({
   buildNarrativeGraph: (...args: unknown[]) => buildNarrativeGraphMock(...args),
 }));
 
+// AI Intelligence v4, Phase 11 - reasonMultimodal is the module's one
+// I/O-touching entry point (it makes the LLM call, when there's at least
+// one reasoning-worthy evidence group); everything it internally
+// orchestrates (normalizeEvidence, groupEvidenceByTranscriptSegment,
+// validateConnections, findConcurrentEvidence) is left real via
+// requireActual, same "mock only the seam" convention as predictHook/
+// detectSemanticEvents/buildNarrativeGraph above.
+const reasonMultimodalMock = jest.fn();
+jest.mock('@speedora/multimodal-reasoning', () => ({
+  ...jest.requireActual('@speedora/multimodal-reasoning'),
+  reasonMultimodal: (...args: unknown[]) => reasonMultimodalMock(...args),
+}));
+
 const detectFacesMock = jest.fn();
 const computeCropDimensionsMock = jest.fn();
 const buildCropPathMock = jest.fn();
@@ -1255,6 +1268,7 @@ describe('render-clip worker', () => {
         multiSpeakerBreakdown: Prisma.JsonNull,
         viralityPrediction: expect.any(Object),
         retentionCurveInsights: expect.any(Object),
+        multimodalReasoning: Prisma.JsonNull,
         thumbnailSelectionTimestamp: expect.any(Number),
         thumbnailSelectionBreakdown: expect.any(Array),
         thumbnailSelectionFallback: expect.any(String),
@@ -2138,6 +2152,7 @@ describe('render-clip worker', () => {
           multiSpeakerBreakdown: Prisma.JsonNull,
           viralityPrediction: expect.any(Object),
           retentionCurveInsights: expect.any(Object),
+          multimodalReasoning: Prisma.JsonNull,
           thumbnailSelectionTimestamp: expect.any(Number),
           thumbnailSelectionBreakdown: expect.any(Array),
           thumbnailSelectionFallback: expect.any(String),
@@ -2279,6 +2294,7 @@ describe('render-clip worker', () => {
           multiSpeakerBreakdown: Prisma.JsonNull,
           viralityPrediction: expect.any(Object),
           retentionCurveInsights: expect.any(Object),
+          multimodalReasoning: Prisma.JsonNull,
           thumbnailSelectionTimestamp: expect.any(Number),
           thumbnailSelectionBreakdown: expect.any(Array),
           thumbnailSelectionFallback: expect.any(String),
@@ -2586,6 +2602,7 @@ describe('render-clip worker', () => {
           multiSpeakerBreakdown: Prisma.JsonNull,
           viralityPrediction: expect.any(Object),
           retentionCurveInsights: expect.any(Object),
+          multimodalReasoning: Prisma.JsonNull,
           thumbnailSelectionTimestamp: expect.any(Number),
           thumbnailSelectionBreakdown: expect.any(Array),
           thumbnailSelectionFallback: expect.any(String),
@@ -2727,6 +2744,7 @@ describe('render-clip worker', () => {
           multiSpeakerBreakdown: Prisma.JsonNull,
           viralityPrediction: expect.any(Object),
           retentionCurveInsights: expect.any(Object),
+          multimodalReasoning: Prisma.JsonNull,
           thumbnailSelectionTimestamp: expect.any(Number),
           thumbnailSelectionBreakdown: expect.any(Array),
           thumbnailSelectionFallback: expect.any(String),

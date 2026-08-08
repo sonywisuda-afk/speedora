@@ -1153,6 +1153,21 @@ model Clip {
   // regardless of the RETENTION_CURVE_INSIGHTS_ENABLED flag (gates API
   // exposure only - see isRetentionCurveInsightsEnabled()).
   retentionCurveInsights      Json?
+  // AI Intelligence v4, Phase 11 (Multimodal Reasoning Engine, spec Part 6
+  // - see docs/ai/intelligence-v4.md). @speedora/multimodal-reasoning's
+  // MultimodalReasoningResult - genuine cross-modal connections
+  // (refers_to/co_occurs_with/emphasizes) found across Transcript/Scene/
+  // OCR/Face/Gesture/Audio/Speaker evidence (Part 6's own 7 normative
+  // modalities) plus Object Intelligence as a documented, non-normative
+  // extension, grounded against fabricated evidence citations by a
+  // deterministic post-LLM validation step. Same null-semantics as
+  // hookPrediction/semanticEvents/narrativeGraph (Phase 1-3's own
+  // "?? Prisma.JsonNull" pattern) - this node is LLM-backed (optional:
+  // true, fallback: null) and can genuinely fail/never run, unlike
+  // retentionCurveInsights/viralityPrediction above. Computed on every
+  // render regardless of the MULTIMODAL_REASONING_ENABLED flag (gates API
+  // exposure only - see isMultimodalReasoningEnabled()).
+  multimodalReasoning         Json?
   // AI Clip Library roadmap, Phase P1 - denormalized endTime - startTime,
   // set alongside them at every write site (detect-clips.worker.ts's
   // initial prisma.clip.create, and ClipsService.update's manual trim) -

@@ -27,6 +27,7 @@ import type {
   HookPredictionOutput,
   LipSyncVerification,
   MomentumCurve,
+  MultimodalReasoningResult,
   MultiSpeakerBreakdown,
   OcrFeatures,
   OcrSample,
@@ -528,4 +529,18 @@ export function toSharedRetentionCurveInsights(
   retentionCurveInsights: unknown,
 ): RetentionCurveInsights | null {
   return (retentionCurveInsights as RetentionCurveInsights | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.multimodalReasoning (AI Intelligence v4, Phase 11). Same
+// LLM-backed null-semantics as toSharedHookPrediction/
+// toSharedSemanticEvents/toSharedNarrativeGraph (not
+// toSharedContextualMomentum/toSharedEmotionalArc/toSharedViralityPrediction/
+// toSharedRetentionCurveInsights's "predates migration only" pattern):
+// null means the render-graph node's own LLM call failed/never ran, in
+// addition to "predates this phase's migration".
+export function toSharedMultimodalReasoning(
+  multimodalReasoning: unknown,
+): MultimodalReasoningResult | null {
+  return (multimodalReasoning as MultimodalReasoningResult | null) ?? null;
 }
