@@ -11,6 +11,7 @@ import type {
   SubtitleLine,
   SubtitleSegment,
   ThumbnailWeights,
+  TreatmentMoment,
 } from '@speedora/contracts';
 import {
   computeFillerCuts,
@@ -60,6 +61,7 @@ import {
   type FaceSample,
 } from '@speedora/reframe';
 import { getObjectStream, uploadObject } from '@speedora/storage';
+import { isDynamicCaptionEnabled } from '@speedora/dynamic-caption';
 import { isSubtitleRewriteEnabled } from '@speedora/subtitle-rewriter';
 import { buildAss } from '@speedora/subtitles';
 import { DEFAULT_THUMBNAIL_WEIGHTS } from '@speedora/thumbnail-selection';
@@ -420,14 +422,28 @@ function toSpeakerTurns(
 // change to any word's actual moment in time (ADR DB1's "unchanged"
 // guarantee is about word identity/order/duration, not which coordinate
 // frame a timestamp happens to be written in).
+//
+// AI Intelligence v4 Track B, Phase B2 (Dynamic Caption Engine render
+// wiring - see docs/ai/subtitle-intelligence.md) - `captionTreatment` is
+// Clip.captionTreatment's already-decided TreatmentMoment[] (this same
+// render's own render-graph output, ALSO clip-relative - see
+// render-graph/nodes/dynamic-caption.ts), passed only when the caller has
+// already decided dynamic captions apply. Zipped onto each SubtitleLine by
+// ARRAY INDEX, not by a timestamp re-match: @speedora/dynamic-caption's
+// computeCaptionTreatment() builds its own output via `timeline.map(...)`
+// over this exact same subtitleTimeline array, so the two are guaranteed
+// the same length/order by construction - no separate coordinate-frame
+// conversion is needed for the treatment fields themselves (sizeTier/
+// animation carry no timestamps of their own).
 function toSubtitleSegments(
   transcript: RenderClipJobData['transcript'],
   captionLanguage: string | null,
   subtitleTimeline: SubtitleLine[] | null,
   startTime: number,
+  captionTreatment: TreatmentMoment[] | null,
 ): SubtitleSegment[] {
   if (subtitleTimeline) {
-    return subtitleTimeline.map((line) => ({
+    return subtitleTimeline.map((line, index) => ({
       start: line.start + startTime,
       end: line.end + startTime,
       text: line.text,
@@ -437,6 +453,8 @@ function toSubtitleSegments(
         end: word.end + startTime,
       })),
       speaker: line.speaker,
+      sizeTier: captionTreatment?.[index]?.sizeTier,
+      animation: captionTreatment?.[index]?.animation,
     }));
   }
   return transcript.map((segment) => ({
@@ -708,6 +726,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             captionStyle,
             speakerColorCaptions,
             smartSegmentation,
+            dynamicCaptions,
             captionLanguage,
             fontFamily,
             watermark,
@@ -925,12 +944,24 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // show the wrong language rather than degrade gracefully.
             const useSmartSegmentation =
               smartSegmentation && isSubtitleRewriteEnabled() && !captionLanguage;
+            // AI Intelligence v4 Track B, Phase B2 (ADR DB11, docs/ai/
+            // subtitle-intelligence.md) - a THIRD gate layered on top of
+            // useSmartSegmentation, since Clip.captionTreatment's
+            // TreatmentMoment[] is only meaningful when captions actually
+            // come from Clip.subtitleIntelligence's own lines (see
+            // toSubtitleSegments' own index-zip comment) - dynamic captions
+            // can never apply without smart segmentation also being active
+            // this render, even if a clip somehow has dynamicCaptions on
+            // and smartSegmentation off.
+            const useDynamicCaptions =
+              dynamicCaptions && isDynamicCaptionEnabled() && useSmartSegmentation;
             const assContent = buildAss({
               segments: toSubtitleSegments(
                 transcript,
                 captionLanguage,
                 useSmartSegmentation ? graphResult.subtitleIntelligence.timeline : null,
                 startTime,
+                useDynamicCaptions ? graphResult.captionTreatment : null,
               ),
               clipStart: startTime,
               clipEnd: endTime,

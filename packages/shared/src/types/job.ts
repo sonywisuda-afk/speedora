@@ -275,6 +275,15 @@ export interface RenderClipJobData {
   // global SUBTITLE_REWRITE_ENABLED flag and disabled whenever a
   // translation is requested - see render-clip.worker.ts's own comment.
   smartSegmentation: boolean;
+  // AI Intelligence v4 Track B, Phase B2 (Dynamic Caption Engine render
+  // wiring - see docs/ai/subtitle-intelligence.md, ADR DB11) - burns the
+  // per-line size/animation treatment (Clip.captionTreatment, recomputed
+  // fresh by THIS render's own render-graph) in when true, orthogonal to
+  // captionStyle, same shape as smartSegmentation above. Can only actually
+  // apply when smartSegmentation is ALSO active this render (dynamic
+  // captions have no meaning without Clip.subtitleIntelligence's own
+  // lines) - see render-clip.worker.ts's own comment.
+  dynamicCaptions: boolean;
   // Subtitle Studio roadmap (P2f) - which TranscriptSegment.translations key
   // to burn in; undefined/null means the original (untranslated) text.
   captionLanguage: string | null;

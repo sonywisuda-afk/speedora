@@ -366,6 +366,7 @@ interface RenderClipJobData {
   // either; undefined behaves the same as false/null at the worker (see
   // render-clip.worker.ts's useSmartSegmentation gate).
   smartSegmentation?: boolean;
+  dynamicCaptions?: boolean;
   captionLanguage?: string | null;
 }
 
@@ -1399,6 +1400,87 @@ describe('render-clip worker', () => {
       );
 
       expect(buildAssMock.mock.calls[0][0].segments).toHaveLength(1);
+    });
+  });
+
+  describe('AI Intelligence v4 Track B, Phase B2 - Dynamic Caption Engine render wiring', () => {
+    // Same fixture shape as Phase A2's own describe block above - reused
+    // here since dynamic captions can only ever apply on top of an
+    // already-active smart-segmentation render.
+    const words = Array.from({ length: 12 }, (_, i) => ({
+      word: `word${i}`,
+      start: 10 + i * 0.4,
+      end: 10 + i * 0.4 + 0.4,
+    }));
+    const multiWordJobData: RenderClipJobData = {
+      ...baseJobData,
+      transcript: [{ start: 10, end: 14.8, text: words.map((w) => w.word).join(' '), words }],
+    };
+
+    beforeEach(() => {
+      buildAssMock.mockReturnValue(
+        '[Script Info]\n...\nDialogue: 0,0:00:00.00,0:00:02.00,Default,,0,0,0,,hi',
+      );
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+    });
+
+    afterEach(() => {
+      delete process.env.SUBTITLE_REWRITE_ENABLED;
+      delete process.env.DYNAMIC_CAPTION_ENABLED;
+    });
+
+    it('attaches sizeTier/animation to every segment when dynamicCaptions is on, the global flag is on, and smart segmentation is active', async () => {
+      process.env.SUBTITLE_REWRITE_ENABLED = 'true';
+      process.env.DYNAMIC_CAPTION_ENABLED = 'true';
+      const processor = getProcessor();
+      await processor(
+        fakeJob({ ...multiWordJobData, smartSegmentation: true, dynamicCaptions: true }),
+      );
+
+      const segments = buildAssMock.mock.calls[0][0].segments as {
+        sizeTier?: string;
+        animation?: string;
+      }[];
+      expect(segments.length).toBeGreaterThan(0);
+      for (const segment of segments) {
+        expect(['small', 'normal', 'large']).toContain(segment.sizeTier);
+        expect(['none', 'punch', 'attention']).toContain(segment.animation);
+      }
+    });
+
+    it('does not attach treatment fields when dynamicCaptions is off (default), even with smart segmentation active', async () => {
+      process.env.SUBTITLE_REWRITE_ENABLED = 'true';
+      process.env.DYNAMIC_CAPTION_ENABLED = 'true';
+      const processor = getProcessor();
+      await processor(fakeJob({ ...multiWordJobData, smartSegmentation: true }));
+
+      const segments = buildAssMock.mock.calls[0][0].segments as { sizeTier?: string }[];
+      expect(segments[0].sizeTier).toBeUndefined();
+    });
+
+    it('does not attach treatment fields when DYNAMIC_CAPTION_ENABLED is off, even though the clip opted in', async () => {
+      process.env.SUBTITLE_REWRITE_ENABLED = 'true';
+      const processor = getProcessor();
+      await processor(
+        fakeJob({ ...multiWordJobData, smartSegmentation: true, dynamicCaptions: true }),
+      );
+
+      const segments = buildAssMock.mock.calls[0][0].segments as { sizeTier?: string }[];
+      expect(segments[0].sizeTier).toBeUndefined();
+    });
+
+    it('does not attach treatment fields when smart segmentation itself is off, even with dynamicCaptions and the global flag both on', async () => {
+      process.env.DYNAMIC_CAPTION_ENABLED = 'true';
+      const processor = getProcessor();
+      await processor(fakeJob({ ...multiWordJobData, dynamicCaptions: true }));
+
+      // Falls all the way back to the raw (single) transcript segment -
+      // same as Phase A2's own "smart segmentation off" fallback.
+      const segments = buildAssMock.mock.calls[0][0].segments as { sizeTier?: string }[];
+      expect(segments).toHaveLength(1);
+      expect(segments[0].sizeTier).toBeUndefined();
     });
   });
 

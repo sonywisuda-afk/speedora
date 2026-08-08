@@ -273,6 +273,7 @@ export async function enqueueRendersForCandidates(
           captionStyle: clips[index].captionStyle,
           speakerColorCaptions: clips[index].speakerColorCaptions,
           smartSegmentation: clips[index].smartSegmentation,
+          dynamicCaptions: clips[index].dynamicCaptions,
           captionLanguage: clips[index].captionLanguage,
           // Subtitle Presets roadmap (P3b) - clips[index].fontFamily
           // is always null for a brand-new clip (schema default),
