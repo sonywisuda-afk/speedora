@@ -11,8 +11,13 @@ import { VOCAL_EMOTIONS } from './vocal-emotion';
 // NO LLM call - a pure, post-hoc composition over already-computed data
 // (SpeakerTimelineEntry[] from Speaker Intelligence + Phase 4's
 // MomentumCurve + Phase 5's EmotionalArc), same zero-LLM shape as Phases
-// 4-5. Every numeric field is a documented HEURISTIC (ADR D4) - no
-// engagement data exists to calibrate against.
+// 4-5. Every numeric field is a documented HEURISTIC (ADR D4,
+// docs/coding-standards.md's "scale honesty") - no engagement data exists to
+// calibrate against. Never present these as ML-model output downstream (UI
+// copy, API docs) without this caveat. No confidence field: per-speaker null
+// sub-fields (averageMomentumScore, dominantEmotion, ...) already communicate
+// coverage without a redundant top-level number (docs/ai/intelligence-v4.md's
+// "Phase 8 architecture (as shipped)" section).
 
 // One entry per distinct speaker with any turn in the clip - not a
 // per-instant timeline like MomentumCurve/EmotionalArc.

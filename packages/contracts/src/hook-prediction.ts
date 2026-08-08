@@ -96,6 +96,15 @@ export const hookPredictionOutputSchema = z.object({
   // Human-readable explanation, same "written for a human, not a log
   // message" convention as clip-scoring's own `reason` field.
   reason: z.string(),
+  // CODE-COMPUTED coverage confidence, not an LLM self-report and not a
+  // measure of accuracy: fraction of this module's configured signal
+  // weight actually backed by non-null input data (0 when nothing was
+  // available, 1 when every signal was present) - see
+  // compute-hook-prediction.ts. Same "kind of confidence" as
+  // ViralityPrediction.confidence (packages/contracts/src/virality-engine.ts),
+  // unlike SemanticEvent.confidence/NarrativeSegment.confidence, which are
+  // LLM-self-reported certainty about a categorical judgment. Full taxonomy:
+  // docs/ai/intelligence-v4.md's "Phase 8 architecture (as shipped)" section.
   confidence: z.number().min(0).max(1),
   linguisticFeatures: hookLinguisticFeaturesSchema,
   predictionFeatures: z.object({

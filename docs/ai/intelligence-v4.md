@@ -31,7 +31,16 @@
   already-computed outputs into 8 heuristic sub-probabilities + one composite estimate. Deliberately
   distinct from the pre-existing, unrelated `Clip.viralityScore` (Fase 8's MVP LLM clip-scoring) -
   see `ai/scoring.md`, now documenting 4 distinct scoring systems.
-- **Phases 8-14**: documented roadmap only, not built. See "Roadmap" below.
+- **Phase 8 (Confidence Calibration, cross-cutting)**: shipped. No new package, contract, migration,
+  or API field — a deliberate departure from every prior phase's "new JSON-contract module" shape,
+  since real numeric calibration is impossible (0 usable engagement samples, the same blocker every
+  phase already documents). A labeling/consistency pass instead: filled `HookPredictionOutput.
+  confidence`'s previously-missing doc comment, standardized the "scale honesty" module comment
+  across the 6 contract files that lacked it, added "kind of confidence" pointers distinguishing
+  LLM-self-reported (Phase 2, 3) from code-computed-coverage (Phase 1, 7) confidence fields, and
+  disambiguated from M1.5's pre-existing, unrelated "Weight Calibration Report". See "Phase 8
+  architecture (as shipped)" below.
+- **Phases 9-14**: documented roadmap only, not built. See "Roadmap" below.
 
 ## Why this exists
 
@@ -299,8 +308,8 @@ until its own later calibration sub-phase.
 | 5 | Emotional Arc (new, part of 5) — **shipped** | vocal-emotion rescue (see below) + Phase 2 | M | Vocal-emotion classifier trained on acted, not natural, speech (still true post-ship — a documented heuristic caveat, not a solved problem) |
 | 6 | Multi-speaker Reasoning (extends 6) — **shipped** | Phases 1, 4, 5 | M | Must not affect single-speaker clips (the majority case) - addressed by design: `computeMultiSpeakerBreakdown()` returns `null` for any clip with fewer than 2 distinct speakers |
 | 7 | Cross-module Fusion (4, Virality Engine) — **shipped** | Phases 1, 3, 4, 5 | M | Labeling discipline (8 heuristic probabilities reading as "trained") - addressed by design: each sub-probability documented as a HEURISTIC (ADR D4) with an explicit "not trained/calibrated" caveat, plus a new 4th disambiguation section in `ai/scoring.md` against the pre-existing `viralityScore` |
-| 8 | Confidence Calibration (cross-cutting) | Phases 1-7 | S-M | Hygiene pass, low risk |
-| 9 | Explainability (13) | Phases 1-7 | M | UI copy is where "scale honesty" holds or breaks |
+| 8 | Confidence Calibration (cross-cutting) — **shipped** | Phases 1-7 | S-M | Hygiene pass, low risk — addressed by design: no numeric recalibration was possible (0 usable engagement samples, same blocker every phase already documents), so this phase is labeling/consistency only — a missing field comment, 6 standardized module comments, and a confidence-field taxonomy, zero new runtime behavior |
+| 9 | Explainability (13) | Phases 1-8 | M | UI copy is where "scale honesty" holds or breaks — Phase 9's copy will draw on Phase 8's confidence-field taxonomy, a real dependency this table didn't record until Phase 8 shipped |
 | 10 | Candidate Expansion (10, generation half) | Phase 1 | L | Biggest infra change — new pre-render adapter stage |
 | 11 | Ranking Refinement (10 + 11, Personalization) | Phase 10 + 1-7 | L | Introduces `WorkspaceContentProfile` schema (D10) |
 | 12 | Learning Pipeline (12) | Phases 1-11 | S | Interfaces only, no training, by design |
@@ -819,3 +828,70 @@ locally before pushing; Phases 4-7 continued that practice. Phase 7: `apps/worke
 `apps/api`: 1268/1268, `apps/web`: 313/313, plus 37 new unit tests in `packages/virality-engine`
 (including the dedicated undefined-vs-null regression test above) - a fully clean run, no
 load-induced flakes this time. Real-Postgres round trip verified manually for the new column.
+
+## Phase 8 architecture (as shipped)
+
+Confidence Calibration turned out, once researched, to have no numeric work to do: real
+calibration (adjusting a confidence number against observed accuracy) needs engagement data that
+doesn't exist yet — the same "0 usable samples" blocker every phase from Phase 1 onward already
+documents in its own comments, and the same blocker Fusion Engine v3 (M2C) and Milestone 1.5 are
+both explicitly parked on. So "calibration" here means labeling/consistency calibration only —
+comments and docs, zero runtime change. **No new package, contract, migration, or API field** — the
+first phase since Phase 0 without a new `packages/<name>` module.
+
+**Confidence-field taxonomy** (the audit this phase's comment changes are based on — every
+confidence-shaped field across Phases 1-7):
+
+| Phase | Field | Meaning | Kind |
+|---|---|---|---|
+| 1 Hook Prediction | `HookPredictionOutput.confidence` | Fraction of this module's configured signal weight backed by non-null input data | Code-computed coverage |
+| 2 Semantic Events | `SemanticEvent.confidence` (per-event) | The LLM's own certainty that this moment matches its assigned `type` | LLM-self-reported |
+| 3 Narrative Graph | `NarrativeSegment.confidence` (per-segment) | The LLM's own certainty about this segment's `type` classification | LLM-self-reported |
+| 4 Contextual Momentum | — | No confidence field — a pure derive with no natural weighted-budget/coverage concept the way Phase 1/7 have | N/A |
+| 5 Emotional Arc | — | No confidence field, same reasoning as Phase 4 | N/A |
+| 6 Multi-speaker Reasoning | — | No confidence field — per-speaker `null` sub-fields (`averageMomentumScore`, `dominantEmotion`, ...) already communicate coverage without a redundant top-level number | N/A |
+| 7 Virality Engine | `ViralityPrediction.confidence` | `count(non-null sub-probabilities) / 8`, flat (no weighting, unlike Phase 1) | Code-computed coverage |
+
+Two genuinely different "kinds" of confidence exist across this codebase's v4 modules, and neither
+is a measure of *accuracy* — both are forms of "how much of the intended input did this prediction
+actually have," not "how often is this prediction right" (nothing here is validated against
+outcomes yet):
+- **Code-computed coverage** (Phase 1, 7) — a deterministic fraction of available signal, computed
+  in plain arithmetic, not asked of the LLM.
+- **LLM-self-reported** (Phase 2, 3) — the model's own stated certainty about a categorical
+  judgment it just made, taken at face value with no independent check.
+
+Every contract file's confidence-bearing field now carries a one-line pointer back to this table
+(`packages/contracts/src/hook-prediction.ts`, `semantic-events.ts`, `narrative-graph.ts`,
+`virality-engine.ts`), replacing Phase 7's previous one-directional, unconfirmable cross-reference
+("same meaning as HookPredictionOutput's own confidence," pointing at a field that had no comment
+of its own to confirm the claim).
+
+**"Scale honesty" comment standardized** across the 6 contract files that previously lacked either
+the phrase itself or the operational instruction that follows it (`semantic-events.ts`,
+`narrative-graph.ts`, `contextual-momentum.ts`, `emotional-arc.ts`, `multi-speaker-reasoning.ts`,
+`virality-engine.ts`): every module-level comment now states both the ADR D4 "scale honesty" label
+*and* "never present these as ML-model output downstream (UI copy, API docs) without this caveat"
+— previously only Phase 1's file said the second part. Each file's own extra phase-specific caveat
+(e.g. Phase 5's IEMOCAP acted-speech note) was preserved verbatim, not replaced.
+
+**Naming collision investigated and resolved (same shape as Phase 7's own `viralityScore` vs.
+`viralityPrediction` disambiguation)**: `docs/ai/dataset-validation-calibration.md`'s Milestone 1.5
+already ships a "Weight Calibration Report" — an entirely different object. It suggests
+adjustments to **Fusion Engine v2's signal weights** (`packages/fusion-engine/src/weights.ts`,
+e.g. facial/audio/scene contribution percentages) once ≥20 real engagement samples exist,
+correlating each *signal* against outcomes at the Fusion Engine level. Phase 8's "Confidence
+Calibration" is about individual v4 *prediction fields'* confidence-number semantics being
+honestly labeled — no signal weights, no Fusion Engine v2 involvement, no correlation math. The
+shared word "calibration" is the only overlap; this section is that disambiguation, so a future
+reader doesn't conflate the two the way Phase 7 already flagged for `viralityScore`.
+
+**Why no new numeric calibration**: restated here as the phase's own explicit closing note, not
+just implied by the roadmap table — every phase from Phase 1 onward already documents "0 usable
+engagement samples exist yet" in its own comments (`docs/ai/dataset-feedback-loop.md`). Genuinely
+calibrating a confidence number against observed accuracy requires exactly that data. Until it
+exists, this phase's only honest option was labeling/consistency, which is what shipped.
+
+Verification: comments/docs-only change, zero new runtime logic, so verification is a full green
+`pnpm verify` run (unchanged pass/fail status across every suite) plus a grep confirming no
+existing test asserts on the exact comment text touched.

@@ -56,14 +56,21 @@ export type SemanticEventDetectionSegment = z.infer<typeof semanticEventDetectio
 
 // Every numeric field below is a documented HEURISTIC (ADR D4,
 // docs/coding-standards.md's "scale honesty") - no production engagement
-// data exists yet to calibrate confidence/importance against.
+// data exists yet to calibrate confidence/importance against. Never present
+// these as ML-model output downstream (UI copy, API docs) without this
+// caveat.
 export const semanticEventSchema = z.object({
   type: z.enum(SEMANTIC_EVENT_TYPES),
   // Clip-relative seconds - the LLM's own approximate placement of this
   // event within the transcript, not snapped to a word/segment boundary.
   t: z.number(),
   // How confident the detection itself is that this moment really matches
-  // `type` (0-1) - distinct from `importance` below.
+  // `type` (0-1) - distinct from `importance` below. LLM-SELF-REPORTED
+  // certainty about a categorical judgment, not a code-computed coverage
+  // fraction - same "kind of confidence" as NarrativeSegment.confidence,
+  // unlike HookPredictionOutput.confidence/ViralityPrediction.confidence.
+  // Full taxonomy: docs/ai/intelligence-v4.md's "Phase 8 architecture (as
+  // shipped)" section.
   confidence: z.number().min(0).max(1),
   // How significant this moment is to the clip's overall narrative (0-1) -
   // a quiet, certain "mistake" can still be low-importance; a loud,
