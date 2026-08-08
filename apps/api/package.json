@@ -39,6 +39,7 @@
     "@speedora/contracts": "workspace:*",
     "@speedora/database": "workspace:*",
     "@speedora/dataset-quality": "workspace:*",
+    "@speedora/dynamic-caption": "workspace:*",
     "@speedora/emotional-arc": "workspace:*",
     "@speedora/fusion-engine": "workspace:*",
     "@speedora/hook-prediction": "workspace:*",

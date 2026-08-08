@@ -1,13 +1,14 @@
 # Subtitle & Dynamic Caption Intelligence (spec Parts 7-8, Track B Phase A)
 
-> **Status: Phase A1 + A2 shipped, both flag-off by default (`SUBTITLE_REWRITE_ENABLED=false`,
-> `Clip.smartSegmentation` defaults `false`). B1/B2 remain design only.** This doc is the audit +
-> ADR + dependency graph + phased roadmap written before any implementation started.
-> Implementation proceeds phase-by-phase from this doc, each phase requiring its own explicit
-> go-ahead (same convention as every Track A phase in [`intelligence-v4.md`](./intelligence-v4.md))
-> and, per explicit user instruction, a test run + regression check + doc update + production
-> build check before moving to the next phase — see "Phase A1 architecture (as shipped)" and
-> "Phase A2 architecture (as shipped)" below for what that verification actually covered.
+> **Status: Phase A1 + A2 + B1 shipped, all flag-off by default (`SUBTITLE_REWRITE_ENABLED=false`,
+> `Clip.smartSegmentation` defaults `false`, `DYNAMIC_CAPTION_ENABLED=false`). B2 remains design
+> only.** This doc is the audit + ADR + dependency graph + phased roadmap written before any
+> implementation started. Implementation proceeds phase-by-phase from this doc, each phase
+> requiring its own explicit go-ahead (same convention as every Track A phase in
+> [`intelligence-v4.md`](./intelligence-v4.md)) and, per explicit user instruction, a test run +
+> regression check + doc update + production build check before moving to the next phase — see
+> "Phase A1 architecture (as shipped)", "Phase A2 architecture (as shipped)", and "Phase B1
+> architecture (as shipped)" below for what that verification actually covered.
 
 ## Why this exists
 
@@ -236,7 +237,7 @@ line text ends in "?" (new, trivial) ──────────────�
 |---|---|---|---|---|
 | A1 | Subtitle Rewriter (data only) — `SubtitleTimeline` + `HighlightTimeline`, persisted, exposed read-only via `/intelligence` — **shipped, flag-off** | `KEYWORD_PATTERN` hoist (DB6); Phases 2/4/5 optional | M | Re-chunking heuristic quality is unvalidated (no engagement data, same caveat every heuristic in this codebase carries) — mitigated by being 100% non-destructive (DB4) |
 | A2 | Wire A1's timeline into `buildAss()`/`toSubtitleSegments()` behind `smartSegmentation` — **shipped, flag-off** | A1 | M | First phase to touch the production render path — karaoke per-word timestamps must survive re-grouping into different lines unchanged; needs a real render regression test, not just unit tests on the data stage |
-| B1 | Dynamic Caption Engine (data only) — `CaptionTreatmentTimeline`, persisted, exposed read-only | A1 (`HighlightTimeline`), Phase 5 (`emotionalArc`) | S-M | "Don't overuse animation" is a real design constraint, not a formula — needs an explicit, documented cooldown/threshold heuristic, flagged as unvalidated like every other threshold constant here |
+| B1 | Dynamic Caption Engine (data only) — `CaptionTreatmentTimeline`, persisted, exposed read-only — **shipped, flag-off** | A1 (`HighlightTimeline`), Phase 5 (`emotionalArc`) | S-M | "Don't overuse animation" is a real design constraint, not a formula — needs an explicit, documented cooldown/threshold heuristic, flagged as unvalidated like every other threshold constant here |
 | B2 | Wire B1's treatment timeline into `build-ass.ts`'s ASS emission (`\fscx`/`\fscy`/`\t`/`\alpha`) | B1, A2 | L | Genuinely new ASS tag territory for this codebase — must be prototyped and verified against a real `ffmpeg`+`libass` render before trusting it in production (Tech Debt #6); highest-risk phase in this roadmap |
 
 Each phase, per explicit instruction: implement → run the full test suite → confirm no regression in
@@ -451,6 +452,109 @@ from 580), `apps/api` (1268 tests, unchanged - no existing fixture needed updati
 not deferred. **Not yet verified**: no frontend UI exists yet to actually toggle
 `smartSegmentation` for a real user (DB10) - the mechanism is real and API-settable, but exercising
 it end-to-end still requires a manual `PATCH` call, not a real browser click-through.
+
+## Phase B1 architecture (as shipped)
+
+```
+packages/contracts/src/dynamic-caption.ts    captionSizeTierSchema (CaptionSizeTier: small/
+                                              normal/large), captionAnimationSchema
+                                              (CaptionAnimation: none/punch/attention),
+                                              treatmentMomentSchema (TreatmentMoment),
+                                              captionTreatmentTimelineSchema
+                                              (CaptionTreatmentTimeline - bare array, no clipId
+                                              wrapper, same shape as MomentumCurve/EmotionalArc),
+                                              computeCaptionTreatmentInputSchema - reuses
+                                              @speedora/subtitle-rewriter's own
+                                              subtitleTimelineSchema/highlightTimelineSchema
+                                              directly (not near-duplicate copies)
+
+packages/dynamic-caption/src/
+  compute-caption-treatment.ts               computeCaptionTreatment() - the module's single
+                                              entry point, PURE and synchronous (no `deps` param,
+                                              no LLM call) - same zero-LLM shape as every other
+                                              Track A/B v4 pure-derive module. Walks Phase A1's
+                                              SubtitleTimeline in order, producing exactly one
+                                              TreatmentMoment per line (dense, not filtered):
+                                              sizeTier from the nearest EmotionalArc sample's
+                                              intensity (HIGH_INTENSITY_THRESHOLD -> 'large',
+                                              LOW_INTENSITY_THRESHOLD -> 'small', else 'normal');
+                                              animation is 'punch' when the line overlaps a Phase
+                                              A1 HighlightTimeline moment (reused directly, no
+                                              re-derivation), else 'attention' when the line's own
+                                              text ends in '?', else 'none' - punch wins when both
+                                              apply. A running MIN_ANIMATION_GAP_SECONDS cooldown
+                                              (spec Part 8's own "Do NOT overuse animation"
+                                              constraint) downgrades any animated candidate landing
+                                              too close to the previous animated line back to
+                                              'none' - "none" lines never consume cooldown budget.
+  nearest-by-time.ts                         nearestByTime() - local temporal-nearest-neighbor
+                                              helper, same shape as @speedora/retention-curve-
+                                              insights' and @speedora/subtitle-rewriter's own
+                                              local copies
+  feature-flags.ts                           isDynamicCaptionEnabled()
+
+apps/worker/src/render-graph/nodes/dynamic-caption.ts
+                                              captionTreatmentNode, id: 'captionTreatment'
+                                              (optional: false, no fallback - same reasoning as
+                                              every other pure-derive v4 node; deps:
+                                              subtitleIntelligence, emotionalArc, both
+                                              already-existing node ids, neither touched by this
+                                              phase)
+
+apps/worker/src/render-graph/index.ts        renderClipGraph grows dynamicCaptionNodes (after
+                                              subtitleRewriterNodes, its own dependency);
+                                              RenderGraphResult.captionTreatment:
+                                              CaptionTreatmentTimeline
+
+apps/worker/src/render-graph/sinks.ts        CLIP_UPDATE_MAP['captionTreatment'] entry -
+                                              deliberately NOT added to FUSION_INPUT_MAP; same
+                                              "always a real array, never JsonNull" convention as
+                                              contextualMomentum/emotionalArc, cast through as
+                                              InputJsonValue
+
+packages/database/prisma/schema.prisma       Clip.captionTreatment Json? (new column, migration
+                                              20260808191423_add_clip_caption_treatment, applied
+                                              against the real dev Postgres)
+
+apps/api/src/videos/transcript-segment.util.ts
+                                              toSharedCaptionTreatment() - the TS2742 fix, same
+                                              null-semantics as toSharedContextualMomentum/
+                                              toSharedSubtitleIntelligence (null means ONLY
+                                              "predates this migration")
+
+apps/api/src/videos/videos.service.ts        mapVideoWithClips destructures + narrows
+                                              captionTreatment the same way as every other Json?
+                                              column
+
+apps/api/src/clips/clips.service.ts          GET /clips/:id/intelligence extended with
+                                              `captionTreatment` (the 10th field on
+                                              ClipIntelligenceDto), gated by
+                                              isDynamicCaptionEnabled(); toDto()'s input type/
+                                              return object extended the same way
+
+packages/shared/src/types/
+  video.ts                                   CaptionSizeTier/CaptionAnimation/TreatmentMoment/
+                                              CaptionTreatmentTimeline mirrored (not imported),
+                                              same duplication precedent as every other v4 type in
+                                              this file; Clip.captionTreatment field
+  intelligence-v4.ts                         ClipIntelligenceDto.captionTreatment
+```
+
+**Does NOT touch `buildAss()`/the actual burned-in output** - `captionTreatment` is computed and
+persisted, but nothing in the render pipeline reads it yet. That is Phase B2's job, and where the
+genuinely new ASS tag territory (`\fscx`/`\fscy`/`\t`/`\alpha`, Tech Debt #6) is actually taken on.
+
+**Verified**: 15 new unit tests in `@speedora/dynamic-caption` covering every branch (sizeTier
+thresholds, punch/attention/none, the punch-over-attention priority rule, and 3 dedicated cooldown
+tests including one confirming a "none" line doesn't reset the cooldown window). Full suites:
+`apps/worker` (586 tests, up from 584 - after extending 5 existing exact-payload assertions and
+`sinks.spec.ts`'s FusionInput-leak regression guard the same way every prior phase did),
+`apps/api` (1268 tests, after extending 4 existing exact-DTO assertions the same way), `apps/web`
+(313 tests, unchanged). Real production builds (`tsc` for `apps/worker`, `nest build` for
+`apps/api`, `next build` for `apps/web`) all pass. Migration applied against the real dev Postgres,
+not deferred. **Not yet verified**: the size/animation thresholds have not been exercised against
+real caption content end-to-end (only unit-test fixtures) - flagged honestly, same posture as every
+other unvalidated threshold in this codebase.
 
 ## Explicitly deferred (not part of this roadmap)
 

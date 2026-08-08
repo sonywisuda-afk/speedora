@@ -39,6 +39,7 @@ import type {
   ObjectTrack,
   OcrTextTrack,
   ProcessingOptions,
+  CaptionTreatmentTimeline,
   RetentionCurveInsights,
   SceneCutEvent,
   SceneFeatures,
@@ -558,4 +559,16 @@ export function toSharedSubtitleIntelligence(
   subtitleIntelligence: unknown,
 ): SubtitleIntelligence | null {
   return (subtitleIntelligence as SubtitleIntelligence | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.captionTreatment (AI Intelligence v4 Track B, Phase B1). Same
+// null-semantics as toSharedContextualMomentum/toSharedEmotionalArc/
+// toSharedSubtitleIntelligence: null here can ONLY mean this Clip row
+// predates this phase's migration - the render-graph node always
+// produces a real (possibly empty) array once it runs.
+export function toSharedCaptionTreatment(
+  captionTreatment: unknown,
+): CaptionTreatmentTimeline | null {
+  return (captionTreatment as CaptionTreatmentTimeline | null) ?? null;
 }

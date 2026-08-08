@@ -1196,6 +1196,21 @@ model Clip {
   // of the SUBTITLE_REWRITE_ENABLED flag (gates API exposure only - see
   // isSubtitleRewriteEnabled()).
   subtitleIntelligence        Json?
+  // AI Intelligence v4 Track B, Phase B1 (Dynamic Caption Engine, spec
+  // Part 8 - data only, see docs/ai/subtitle-intelligence.md).
+  // @speedora/dynamic-caption's CaptionTreatmentTimeline - a dense, 1:1-
+  // with-subtitleIntelligence.timeline array of {start, end, sizeTier,
+  // animation} decisions ("high emotion -> large text, whisper -> small
+  // text, shock -> punch animation, question -> attention animation"),
+  // rate-limited so animation stays a highlight, not a constant flicker.
+  // Via a pure computation over Phase A1's own subtitleIntelligence +
+  // Phase 5's emotionalArc, no LLM call. Does NOT yet affect the actual
+  // burned-in captions - Phase B2's job. Same null-semantics/always-a-
+  // real-array convention as contextualMomentum/emotionalArc: null here
+  // can ONLY mean this Clip row predates this phase's migration. Computed
+  // on every render regardless of the DYNAMIC_CAPTION_ENABLED flag (gates
+  // API exposure only - see isDynamicCaptionEnabled()).
+  captionTreatment            Json?
   // AI Clip Library roadmap, Phase P1 - denormalized endTime - startTime,
   // set alongside them at every write site (detect-clips.worker.ts's
   // initial prisma.clip.create, and ClipsService.update's manual trim) -

@@ -91,8 +91,16 @@
   global `SUBTITLE_REWRITE_ENABLED` flag, and no translation requested). `buildAss()` itself needed
   zero changes. A real coordinate-frame bug (clip-relative vs. absolute source time) was caught
   while writing this phase's own tests, before it ever ran - see `ai/subtitle-intelligence.md`'s
-  "Phase A2 architecture (as shipped)" section. No frontend UI yet (API-settable only). Phases
-  B1/B2 remain design-only pending their own go-ahead.
+  "Phase A2 architecture (as shipped)" section. No frontend UI yet (API-settable only).
+- **Track B, Phase B1 (Dynamic Caption Engine, data only, spec Part 8)**: shipped, flag-off
+  (`DYNAMIC_CAPTION_ENABLED=false`). New `@speedora/dynamic-caption` - a pure composition (no LLM
+  call, no new detector) over Phase A1's own `SubtitleTimeline`/`HighlightTimeline` and Phase 5's
+  `EmotionalArc` - decides a size tier (small/normal/large, from emotional intensity) and animation
+  (none/punch/attention, from highlight overlap and question-mark detection) for every caption
+  line, rate-limited by a cooldown so animation stays a highlight, not a constant flicker ("Do NOT
+  overuse animation," spec Part 8's own explicit constraint). `Clip.captionTreatment` persisted,
+  exposed via `GET /clips/:id/intelligence`'s 10th field. Does not yet touch the actual burned-in
+  captions (Phase B2's job, design-only, the only phase left in this initiative).
 
 ## Why this exists
 
@@ -409,7 +417,7 @@ without a literal file move. `vocalEmotion.ts` itself is untouched.
 |---|---|---|---|---|
 | A1 | Subtitle Rewriter, data only (7) — **shipped, flag-off** (`SUBTITLE_REWRITE_ENABLED=false`), see [`ai/subtitle-intelligence.md`](./subtitle-intelligence.md) | vocal-emotion rescue | M | Re-chunking heuristic quality unvalidated; addressed by design: non-destructive, data-only (`Clip.subtitleIntelligence`), zero render-path risk |
 | A2 | Wire Subtitle Rewriter into `buildAss()` (7) — **shipped, flag-off** (`Clip.smartSegmentation`) | A1 | M | First phase touching the production render path — karaoke word-sync must survive re-chunking |
-| B1 | Dynamic Caption Engine, data only (8) — **design complete, not built** | A1, Phase 5 | S-M | "Don't overuse animation" needs an explicit documented cooldown heuristic |
+| B1 | Dynamic Caption Engine, data only (8) — **shipped, flag-off** (`DYNAMIC_CAPTION_ENABLED=false`) | A1, Phase 5 | S-M | "Don't overuse animation" needs an explicit documented cooldown heuristic |
 | B2 | Wire Dynamic Caption treatment into `build-ass.ts`'s ASS emission (8) — **design complete, not built** | B1, A2 | L | New `\fscx`/`\fscy`/`\t`/`\alpha` ASS tag territory — needs real ffmpeg/libass verification before trusting in production |
 | C | Visual Emphasis Engine (9) | none — signals already exist | M | Unify `reframe`'s own face detector with `primary-subject`'s choice, don't layer a second opinion |
 
