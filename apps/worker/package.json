@@ -69,6 +69,7 @@
     "@speedora/video-import-engine": "workspace:*",
     "@speedora/video-validation": "workspace:*",
     "@speedora/virality-engine": "workspace:*",
+    "@speedora/visual-emphasis": "workspace:*",
     "bullmq": "^5.7.8",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",

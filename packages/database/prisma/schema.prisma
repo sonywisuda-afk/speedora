@@ -1221,6 +1221,25 @@ model Clip {
   // on every render regardless of the DYNAMIC_CAPTION_ENABLED flag (gates
   // API exposure only - see isDynamicCaptionEnabled()).
   captionTreatment            Json?
+  // AI Intelligence v4 Track B, Phase C1 (Visual Emphasis Engine, spec
+  // Part 9 - data only, see docs/ai/visual-emphasis-engine.md).
+  // @speedora/visual-emphasis's EditingSuggestionTimeline - a chronological
+  // list of heuristic {technique, start, end, score, reason} entries (5
+  // techniques: digital_push from Phase A1/B1's HighlightTimeline,
+  // ocr_highlight from OCR Intelligence's price/name tracks, focus_shift
+  // from Composition Intelligence's PrimarySubjectSample changes,
+  // reaction_hold from Phase 10's emotionalPeaks, pause_hold from
+  // @speedora/cutlist's silence gaps protected by a nearby Phase 10
+  // curiosityPeak/dropPoint). Via a pure composition over 5 already-
+  // computed upstream signals, no new detector and no LLM call. Does NOT
+  // yet affect the actual crop-path/render decision - that's a later
+  // phase's job (C2-C7, see docs/ai/visual-emphasis-engine.md). Same
+  // null-semantics/always-a-real-array convention as contextualMomentum/
+  // emotionalArc/captionTreatment: null here can ONLY mean this Clip row
+  // predates this phase's migration. Computed on every render regardless
+  // of the VISUAL_EMPHASIS_ENABLED flag (gates API exposure only - see
+  // isVisualEmphasisEnabled()).
+  editingSuggestions          Json?
   // AI Clip Library roadmap, Phase P1 - denormalized endTime - startTime,
   // set alongside them at every write site (detect-clips.worker.ts's
   // initial prisma.clip.create, and ClipsService.update's manual trim) -

@@ -604,6 +604,7 @@ describe('VideosService', () => {
           multimodalReasoning: null,
           subtitleIntelligence: null,
           captionTreatment: null,
+          editingSuggestions: null,
           publishRecords: [],
         },
         {
@@ -663,6 +664,7 @@ describe('VideosService', () => {
           multimodalReasoning: null,
           subtitleIntelligence: null,
           captionTreatment: null,
+          editingSuggestions: null,
           publishRecords: [],
         },
       ]);

@@ -12,6 +12,7 @@ import type {
   CompositionFeatures,
   DiarizationFeatures,
   EditingRhythmFeatures,
+  EditingSuggestionTimeline,
   EmotionalArc,
   FaceLandmarkFeatures,
   FaceLandmarkSample,
@@ -571,4 +572,16 @@ export function toSharedCaptionTreatment(
   captionTreatment: unknown,
 ): CaptionTreatmentTimeline | null {
   return (captionTreatment as CaptionTreatmentTimeline | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.editingSuggestions (AI Intelligence v4 Track B, Phase C1 - Visual
+// Emphasis Engine). Same null-semantics as toSharedContextualMomentum/
+// toSharedEmotionalArc/toSharedCaptionTreatment above: null here can ONLY
+// mean this Clip row predates this phase's migration - the render-graph
+// node always produces a real (possibly empty) array once it runs.
+export function toSharedEditingSuggestions(
+  editingSuggestions: unknown,
+): EditingSuggestionTimeline | null {
+  return (editingSuggestions as EditingSuggestionTimeline | null) ?? null;
 }

@@ -986,6 +986,29 @@ export interface TreatmentMoment {
 // MomentumCurve/EmotionalArc.
 export type CaptionTreatmentTimeline = TreatmentMoment[];
 
+// AI Intelligence v4 Track B, Phase C1 (Visual Emphasis Engine, spec Part
+// 9 - data only, see docs/ai/visual-emphasis-engine.md). Mirrors
+// @speedora/contracts' editingTechniqueSchema/editingSuggestionSchema
+// rather than importing them - same duplication precedent as every other
+// v4 type in this file. `score` is RELATIVE within this clip's own
+// suggestions only, same "not comparable across clips" caveat every other
+// v4 0-1 score already carries.
+export type EditingTechnique =
+  'digital_push' | 'ocr_highlight' | 'focus_shift' | 'reaction_hold' | 'pause_hold';
+
+export interface EditingSuggestion {
+  technique: EditingTechnique;
+  start: number;
+  end: number;
+  score: number;
+  reason: string;
+}
+
+// Bare array, filtered/sparse like HighlightTimeline (not dense like
+// CaptionTreatmentTimeline) - one entry per detected editing opportunity,
+// not one per input sample.
+export type EditingSuggestionTimeline = EditingSuggestion[];
+
 // AI Fusion roadmap's Face Intelligence initiative, Batch 2 - a per-sample
 // looking-direction bucket, 'center' meaning both iris position and head
 // rotation roughly face the camera. Mirrors @speedora/contracts'
@@ -1697,6 +1720,16 @@ export interface Clip {
   // Clip row predates this phase's migration. Does NOT yet affect the
   // actual burned-in captions - Phase B2's job.
   captionTreatment: CaptionTreatmentTimeline | null;
+  // AI Intelligence v4 Track B, Phase C1 (Visual Emphasis Engine, spec
+  // Part 9 - data only) - computed on every render regardless of
+  // VISUAL_EMPHASIS_ENABLED (the flag gates API exposure, not computation
+  // - see isVisualEmphasisEnabled()). Same null-semantics as
+  // contextualMomentum/emotionalArc/captionTreatment: this node always
+  // produces a real (possibly empty) array once it runs, so null here can
+  // ONLY mean this Clip row predates this phase's migration. Does NOT yet
+  // affect the actual crop-path/render decision - a later phase's job
+  // (C2-C7, see docs/ai/visual-emphasis-engine.md).
+  editingSuggestions: EditingSuggestionTimeline | null;
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // @speedora/thumbnail-selection's chosen in-clip timestamp, replacing the
   // naive clip-midpoint thumbnailUrl/thumbnailBlurDataUrl are extracted at,

@@ -65,6 +65,7 @@ const noSubtitleIntelligence = {
   highlights: [],
 };
 const noCaptionTreatment: never[] = [];
+const noEditingSuggestions: never[] = [];
 const midpointThumbnailSelection = {
   timestampSeconds: 5,
   confidence: 0,
@@ -118,6 +119,7 @@ function baseResult(overrides: Partial<RenderGraphResult> = {}): RenderGraphResu
     multimodalReasoning: null,
     subtitleIntelligence: noSubtitleIntelligence,
     captionTreatment: noCaptionTreatment,
+    editingSuggestions: noEditingSuggestions,
     thumbnailSelection: midpointThumbnailSelection,
     ...overrides,
   };
@@ -177,7 +179,7 @@ describe('toFusionInput', () => {
   // sit BESIDE the Fusion Engine, they never feed computeHighlightScore.
   // Regression guard: a present hookPrediction must never leak into
   // FusionInput under any key.
-  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph/contextualMomentum/emotionalArc/multiSpeakerBreakdown/viralityPrediction/retentionCurveInsights/multimodalReasoning/subtitleIntelligence/captionTreatment in FusionInput', () => {
+  it('never includes hookPrediction/hookPauseFeatures/semanticEvents/narrativeGraph/contextualMomentum/emotionalArc/multiSpeakerBreakdown/viralityPrediction/retentionCurveInsights/multimodalReasoning/subtitleIntelligence/captionTreatment/editingSuggestions in FusionInput', () => {
     const hookPrediction = { clipId: 'clip-1', hookProbability: 90 } as never;
     const semanticEvents = [{ type: 'money', t: 5 }] as never;
     const narrativeGraph = { segments: [], relations: [], unsegmented: true } as never;
@@ -192,6 +194,7 @@ describe('toFusionInput', () => {
     const multimodalReasoning = { clipId: 'clip-1', evidence: [], connections: [] } as never;
     const subtitleIntelligence = { clipId: 'clip-1', timeline: [{ text: 'hi' }] } as never;
     const captionTreatment = [{ start: 0, end: 1, sizeTier: 'large' }] as never;
+    const editingSuggestions = [{ technique: 'digital_push', start: 0, end: 1 }] as never;
     const input = toFusionInput(
       baseResult({
         hookPrediction,
@@ -205,6 +208,7 @@ describe('toFusionInput', () => {
         multimodalReasoning,
         subtitleIntelligence,
         captionTreatment,
+        editingSuggestions,
       }),
       'clip-1',
       null,
@@ -220,6 +224,7 @@ describe('toFusionInput', () => {
     expect(Object.values(input)).not.toContain(multimodalReasoning);
     expect(Object.values(input)).not.toContain(subtitleIntelligence);
     expect(Object.values(input)).not.toContain(captionTreatment);
+    expect(Object.values(input)).not.toContain(editingSuggestions);
   });
 });
 
@@ -400,5 +405,21 @@ describe('toClipUpdateData', () => {
       outputUrl: 'renders/clip-1.mp4',
     });
     expect(data.captionTreatment).toBe(captionTreatment);
+  });
+
+  it('casts editingSuggestions through as an InputJsonValue, never Prisma.JsonNull, even when empty', () => {
+    const data = toClipUpdateData(baseResult(), { outputUrl: 'renders/clip-1.mp4' });
+    expect(data.editingSuggestions).toEqual([]);
+    expect(data.editingSuggestions).not.toBe(Prisma.JsonNull);
+  });
+
+  it('writes a present editingSuggestions through directly', () => {
+    const editingSuggestions = [
+      { technique: 'digital_push', start: 0, end: 1, score: 0.7, reason: 'x' },
+    ] as never;
+    const data = toClipUpdateData(baseResult({ editingSuggestions }), {
+      outputUrl: 'renders/clip-1.mp4',
+    });
+    expect(data.editingSuggestions).toBe(editingSuggestions);
   });
 });
