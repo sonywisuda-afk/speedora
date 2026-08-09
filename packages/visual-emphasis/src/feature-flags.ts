@@ -55,3 +55,24 @@ export function isFocusShiftEnabled(): boolean {
 export function isDigitalPushEnabled(): boolean {
   return process.env.VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED === 'true';
 }
+
+// Visual Emphasis Engine Phase C5 ("OCR Highlight" - see docs/ai/
+// visual-emphasis-engine.md's "C5 mechanism"/"C5 rollout" decisions) - a
+// SEPARATE flag from isFocusShiftEnabled()/isDigitalPushEnabled() above,
+// same "one flag per technique, never a shared master flag" reasoning.
+// Gates whether render-clip.worker.ts's buildReframePlan() computes and
+// burns in real ASS \p1 highlight-box rectangles (via
+// @speedora/reframe's computeOcrHighlightBoxes() + @speedora/subtitles'
+// buildOcrHighlightEvent()) around OCR-detected price/name text - unlike
+// Focus Shift/Digital Push, this phase's RENDERING MECHANISM was verified
+// against a real ffmpeg+libass render (this phase's own acceptance gate,
+// unlike C3/C4 which had no equivalent real-render surface to exercise);
+// what's still unvalidated here is purely aesthetic/positional - whether a
+// highlight box reads as helpful emphasis vs. visual clutter on real
+// footage, and whether the "C5 position tracking" static-snapshot
+// simplification (the box holds its position from the highlight's own
+// start, not tracking any crop pan/zoom during its visible window) drifts
+// noticeably in practice. Off by default, no per-clip toggle.
+export function isOcrHighlightEnabled(): boolean {
+  return process.env.VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED === 'true';
+}

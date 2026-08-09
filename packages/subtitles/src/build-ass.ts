@@ -4,6 +4,7 @@ import {
   type BuildAssInput,
   type CaptionAnimation,
   type CaptionSizeTier,
+  type OcrHighlightBox,
   type SubtitleSegment,
 } from '@speedora/contracts';
 
@@ -215,6 +216,55 @@ function buildDialogueEvent(
   };
 }
 
+// Visual Emphasis Engine Phase C5 ("OCR Highlight", docs/ai/
+// visual-emphasis-engine.md) - the first ASS \p (vector drawing) tags this
+// module has ever emitted, genuinely new ASS tag territory (same
+// "genuinely new, verify against real ffmpeg+libass" discipline Phase B2's
+// \fscx/\fscy/\t already established) - reuses the existing subtitles=
+// filter pipeline rather than introducing a second ffmpeg drawing
+// mechanism (ADR resolved via AskUserQuestion before implementation, see
+// docs/ai/visual-emphasis-engine.md's "C5 mechanism" decision).
+//
+// \1a&HFF&: fully transparent PRIMARY (fill) colour - the rectangle's
+// interior is invisible, only its outline renders, same "00 alpha =
+// opaque, FF = fully transparent" convention BASE_COLOR's own comment
+// documents.
+const OCR_HIGHLIGHT_FILL_ALPHA = '&HFF&';
+// Reuses HIGHLIGHT_COLOR (the same yellow already used for karaoke/
+// bold-highlight emphasis) as the outline colour - "yellow = emphasis" is
+// already this module's own established visual language, not a new one.
+const OCR_HIGHLIGHT_OUTLINE_COLOR = HIGHLIGHT_COLOR;
+
+// Border (outline) thickness in pixels, scaled to the output frame the
+// same way fontSize/marginV already are in buildAss() below - a
+// documented HEURISTIC (ADR D4), not calibrated against any real
+// footage/readability data. Deliberately thicker than caption text's own
+// outline (buildAss()'s `outline` local) so the highlight frame reads as
+// a deliberate annotation, not confusable with text stroke.
+function ocrHighlightBorderWidth(videoHeight: number): number {
+  return Math.max(2, Math.round(videoHeight * 0.008));
+}
+
+// One Dialogue event per highlight box, drawing a rectangle OUTLINE (not
+// filled - see OCR_HIGHLIGHT_FILL_ALPHA above) at its own absolute
+// output-frame position via \an7\pos() (top-left-anchored, so the vector
+// path's own `m 0 0` origin lands exactly at (x, y)) and \p1...\p0 vector
+// drawing. `box.start`/`box.end` are ALREADY clip-relative - see
+// buildAssInputSchema's own ocrHighlights field comment for why this
+// function must NOT apply the same `- clipStart` shift buildAss() applies
+// to `segments`. Layer 1 (captions stay Layer 0, the Format's default) so
+// a highlight box that happens to visually overlap a caption still shows
+// on top of it, since a highlight annotates something the viewer should
+// be able to see regardless.
+function buildOcrHighlightEvent(box: OcrHighlightBox, videoHeight: number): string {
+  const border = ocrHighlightBorderWidth(videoHeight);
+  const path = `m 0 0 l ${box.width} 0 l ${box.width} ${box.height} l 0 ${box.height} l 0 0`;
+  const text =
+    `{\\an7\\pos(${box.x},${box.y})\\1a${OCR_HIGHLIGHT_FILL_ALPHA}` +
+    `\\3c${OCR_HIGHLIGHT_OUTLINE_COLOR}\\bord${border}\\p1}${path}{\\p0}`;
+  return `Dialogue: 1,${toAssTimestamp(box.start)},${toAssTimestamp(box.end)},Default,,0,0,0,,${text}`;
+}
+
 // Builds a full .ass subtitle file for one clip, styled per the given
 // caption preset. Replaces the plain SRT burn-in used before Fase 3 - SRT
 // has no per-word styling, which both KARAOKE (word-synced fill) and
@@ -238,6 +288,7 @@ export function buildAss(options: BuildAssInput): string {
     videoHeight,
     speakerColorCaptions,
     fontFamily,
+    ocrHighlights,
   } = buildAssInputSchema.parse(options);
   const duration = clipEnd - clipStart;
 
@@ -246,7 +297,7 @@ export function buildAss(options: BuildAssInput): string {
   const shadow = Math.max(0, Math.round(fontSize / 20));
   const marginV = Math.max(10, Math.round(videoHeight * 0.06));
 
-  const events = segments
+  const captionEvents = segments
     .map((segment) => {
       const shifted: SubtitleSegment = {
         ...segment,
@@ -270,6 +321,25 @@ export function buildAss(options: BuildAssInput): string {
       (event) =>
         `Dialogue: 0,${toAssTimestamp(event.start)},${toAssTimestamp(event.end)},${event.styleName},,0,0,0,,${event.text}`,
     );
+
+  // Visual Emphasis Engine Phase C5 - ocrHighlights are already
+  // clip-relative (unlike `segments` above), so they're only clamped to
+  // [0, duration] here, never shifted by clipStart - see
+  // buildAssInputSchema's own field comment. Merged into the SAME events
+  // array (not a separate return path) so a clip with zero overlapping
+  // captions but a real highlight-worthy OCR moment (e.g. a music-only
+  // clip with an on-screen price tag) still gets a real .ass file written
+  // instead of being skipped entirely.
+  const ocrHighlightEvents = ocrHighlights
+    .map((box) => ({
+      ...box,
+      start: Math.max(0, box.start),
+      end: Math.min(duration, box.end),
+    }))
+    .filter((box) => box.end > box.start)
+    .map((box) => buildOcrHighlightEvent(box, videoHeight));
+
+  const events = [...captionEvents, ...ocrHighlightEvents];
 
   if (events.length === 0) {
     return '';
