@@ -91,7 +91,15 @@ adapter pattern every AI module here follows. See `worker-architecture.md` for t
 7. **Caption build** (`@speedora/subtitles`) — transcript → ASS/SSA (`buildAss()`), one code path
    for every `CaptionStyle` preset (`DEFAULT`/`KARAOKE`/`BOLD_HIGHLIGHT`).
 8. **Silence/filler cut planning** (`@speedora/cutlist`) — word-gap-based silence detection (>0.7s
-   gap, 0.15s padding) + a narrow um/uh filler-word list, merged into cut ranges.
+   gap, 0.15s padding) + a narrow um/uh filler-word list, merged into cut ranges. **Visual Emphasis
+   Engine Phase C7** ("Pause Hold", flag-gated behind `VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED`, off by
+   default) adds `@speedora/cutlist`'s new `protectPauseHolds()` before the merge step — removes any
+   silence cut that exactly matches a Phase C1 `pause_hold` `EditingSuggestion` window (a silence
+   gap landing near a Retention Curve Insights `curiosityPeak`/`dropPoint`), so a dramatic pause
+   right before a reveal survives Smart Trim instead of being removed like ordinary dead air. An
+   editing-decision change only — no duration/timeline/sync math touched at all, deliberately
+   narrower in scope than Phase C6's original "extend a shot's on-screen duration" framing (see
+   `ai/visual-emphasis-engine.md`'s C6 status — redesign required before implementation).
 9. **FFmpeg render** (`src/ffmpeg.ts`) — crop/zoom filter (from step 1's `sendcmd` script) → B-roll
    overlay (if any keyword moments matched, `-filter_complex` only when B-roll is present) →
    subtitle burn-in. A **second** FFmpeg pass then applies the cutlist from step 8

@@ -76,3 +76,22 @@ export function isDigitalPushEnabled(): boolean {
 export function isOcrHighlightEnabled(): boolean {
   return process.env.VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED === 'true';
 }
+
+// Visual Emphasis Engine Phase C7 ("Pause Hold" - see docs/ai/
+// visual-emphasis-engine.md's "C7 rollout" note) - a SEPARATE flag from
+// isFocusShiftEnabled()/isDigitalPushEnabled()/isOcrHighlightEnabled()
+// above, same "one flag per technique, never a shared master flag"
+// reasoning. Unlike C3/C4/C5 (all real VISUAL/temporal changes), this
+// phase changes an editing DECISION only - which already-detected silence
+// gaps @speedora/cutlist's computeSilenceCuts() skips trimming - never a
+// new visual effect, never a timeline/duration/sync change (deliberately
+// scoped this way instead of Phase C6's original "extend shot duration"
+// framing - see that phase's own "redesign required" status). Still off
+// by default, no per-clip toggle: a wrong "protect this pause" call
+// silently reintroduces dead air Smart Trim exists specifically to
+// remove, and (same gap every prior C-phase carries) no real footage was
+// available in this sandbox to validate how often the exact-match
+// protection below actually fires on real content.
+export function isPauseHoldEnabled(): boolean {
+  return process.env.VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED === 'true';
+}

@@ -22,6 +22,7 @@ import {
   computeFillerCuts,
   computeSilenceCuts,
   mergeCutRanges,
+  protectPauseHolds,
   totalCutSeconds,
   type CutRange,
 } from '@speedora/cutlist';
@@ -73,6 +74,7 @@ import {
   isFocusShiftEnabled,
   isOcrHighlightEnabled,
   isOcrHighlightWorthy,
+  isPauseHoldEnabled,
 } from '@speedora/visual-emphasis';
 import { buildAss } from '@speedora/subtitles';
 import { DEFAULT_THUMBNAIL_WEIGHTS } from '@speedora/thumbnail-selection';
@@ -484,15 +486,32 @@ function toSubtitleSegments(
 // burned-in captions/crop for a cut range simply vanish along with those
 // exact frames - no separate timing remap needed for captions or the face-
 // tracking crop path at all.
+//
+// Visual Emphasis Engine Phase C7 ("Pause Hold", docs/ai/visual-emphasis-
+// engine.md) - editingSuggestions is Phase C1's own, ALWAYS computed
+// regardless of any Visual Emphasis Engine flag. Filtered to
+// technique === 'pause_hold' and gated by isPauseHoldEnabled() right
+// here, same "each technique checks its own flag inside the function
+// that consumes it" shape C3/C4/C5 already established. protectPauseHolds()
+// runs BEFORE mergeCutRanges() combines silence cuts with filler-word
+// cuts, deliberately - see that function's own comment for why a merged
+// range would break the exact-match protection check.
 function computeClipCuts(
   transcript: RenderClipJobData['transcript'],
   startTime: number,
   endTime: number,
+  editingSuggestions: EditingSuggestionTimeline = [],
 ): CutRange[] {
   const words = toClipRelativeWords(transcript, startTime);
+  const silenceCuts = computeSilenceCuts(words, endTime - startTime);
+  const protectedWindows = isPauseHoldEnabled()
+    ? editingSuggestions
+        .filter((suggestion) => suggestion.technique === 'pause_hold')
+        .map((suggestion) => ({ start: suggestion.start, end: suggestion.end }))
+    : [];
 
   return mergeCutRanges([
-    ...computeSilenceCuts(words, endTime - startTime),
+    ...protectPauseHolds(silenceCuts, protectedWindows),
     ...computeFillerCuts(words),
   ]);
 }
@@ -1191,7 +1210,16 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // Second pass (see computeClipCuts's comment) - skipped entirely
             // when there's nothing to cut, so a clip with no long pauses/filler
             // words renders exactly as it did before this feature existed.
-            const cuts = computeClipCuts(transcript, startTime, endTime);
+            // graphResult.editingSuggestions passed through unconditionally
+            // (Phase C1's own output, always computed) - computeClipCuts()
+            // itself checks isPauseHoldEnabled() before acting on any
+            // pause_hold entries within it (Phase C7).
+            const cuts = computeClipCuts(
+              transcript,
+              startTime,
+              endTime,
+              graphResult.editingSuggestions,
+            );
             let renderedPath = outputPath;
             if (cuts.length > 0) {
               trimmedPath = await reserveScratchPath('trimmed', '.mp4');
