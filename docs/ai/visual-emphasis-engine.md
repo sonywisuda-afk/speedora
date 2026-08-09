@@ -1,12 +1,12 @@
 # Visual Emphasis Engine (spec Part 9, AI Intelligence v4 Track B Phase C)
 
-> **Status: Phases C1-C2 shipped. Phases C3-C7 remain design only.** This doc is the audit + ADR +
+> **Status: Phases C1-C3 shipped. Phases C4-C7 remain design only.** This doc is the audit + ADR +
 > dependency graph + phased roadmap requested before any implementation starts, same discipline as
 > [`ai/subtitle-intelligence.md`](./subtitle-intelligence.md) (Track B Phase A/B, now complete) —
-> see that doc for the precedent this one follows. See "Phase C1 architecture (as shipped)" and
-> "Phase C2 architecture (as shipped)" below for what actually exists; every other phase (C3-C7,
-> the 6 remaining technique-specific rendering phases) is still the planned design below, not
-> built.
+> see that doc for the precedent this one follows. See "Phase C1 architecture (as shipped)",
+> "Phase C2 architecture (as shipped)", and "Phase C3 architecture (as shipped)" below for what
+> actually exists; every other phase (C4-C7, the 4 remaining technique-specific rendering phases)
+> is still the planned design below, not built.
 
 ## Why this exists
 
@@ -175,7 +175,7 @@ facialFeatures/emotionalArc ────┘
 |---|---|---|---|---|
 | C1 | Editing Suggestion timeline (data only) — names which of the 9 techniques applies, when, why | Hook Prediction, Virality Engine, Phase B1's `HighlightTimeline`, Narrative Graph, Retention Curve Insights, Emotional Arc — all existing | M | Defining one contract shape flexible enough for 9 fairly different techniques (some are instants, some are ranges, some are booleans-per-clip) without it becoming a junk-drawer type |
 | C2 | Unify Face/Object Priority — `buildReframePlan()` consumes `selectPrimarySubject()` instead of its own `detectFaces()`-only decision — **shipped, no flag** (real behavior change, not opt-in) | `primarySubjectSamples` node (existing) | M | Real behavior change to the production crop path for every future render (unlike Track B's flag-gated phases, this fixes a duplication rather than adding an opt-in) — needs a real before/after render comparison, not just unit tests |
-| C3 | Focus Shift — deliberate transition when the primary subject id changes, instead of continuous drift | C2 | S-M | Defining "deliberate" (a faster pan? a hard cut? a brief hold?) without real footage to validate against |
+| C3 | Focus Shift — deliberate transition when the primary subject id changes, instead of continuous drift — **shipped, flag-gated** (`VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED`, off by default, no per-clip toggle) | C2 | S-M | Defining "deliberate" (a faster pan? a hard cut? a brief hold?) without real footage to validate against |
 | C4 | Digital Push — extend Auto Zoom's triggers beyond `EMPHASIS_PATTERN` words to include v4's own "this moment matters" signals | C1 | S | Two trigger sources (regex words, v4 signals) firing on overlapping spans needs a real merge rule, not double-triggering |
 | C5 | OCR Highlight — new overlay rendering | C1, OCR Intelligence (existing) | L | Genuinely new rendering mechanism (Tech Debt #5) — needs the same "verify against real ffmpeg" discipline Track B Phase B2 established, and a real design pass for DC5's open question |
 | C6 | Reaction Hold — extend shot duration for a detected reaction | C1 | M | Extending duration interacts with the existing cutlist/render timeline math non-trivially — a naive implementation could desync captions/crop from the extended audio |
@@ -475,6 +475,75 @@ correct (right values reach the right function); whether `selectPrimarySubject()
 priority order produces aesthetically better panning than the old face-only detector is a real
 open question for production footage to answer, same category of gap
 `video-import-reliability.md` already carries for its own unverified stderr-regex categories.
+
+## Phase C3 architecture (as shipped)
+
+**"C3 rollout" decision** (resolved via `AskUserQuestion` before implementation, unlike C2): unlike
+C2's pure bug fix, Focus Shift introduces a genuinely NEW visual effect (a snap transition where
+none existed) with no real footage available in this sandbox to validate its aesthetics against -
+the user chose **flag-gated, off by default, no per-clip toggle** (a single global kill switch,
+`VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED`) over shipping it unconditionally like C2/Auto Zoom/Auto
+Crop. This resolves the "Whether any of C3-C7 need their own per-clip opt-in toggle... or should
+just be unconditional" question this doc's "Explicitly deferred" section originally left open -
+for C3 specifically; C4-C7 each surface this same question fresh when designed, per that section's
+own instruction not to assume an answer for phases not yet built.
+
+```
+packages/reframe/src/crop-path.ts
+
+  applyFocusShifts() NEW      Inserts synthetic HOLD/snap waypoints into interpolateAt()'s own
+                              `known` array around each detected shift window - HOLD at the
+                              pre-shift position until `start`, ramp (interpolateAt()'s existing
+                              linear math, UNCHANGED) from `start` to `end`, HOLD at the post-shift
+                              position after. No new interpolation algorithm - reuses the exact
+                              same linear-ramp function every other pan already goes through, just
+                              reshapes its input. A shift window with no bracketing known sample
+                              (a clip-start/-end edge case) is skipped for that one shift - falls
+                              back to the default drift rather than fabricating a position with
+                              nothing to anchor it to.
+
+  buildCropPath() CHANGED     Gained an 8th parameter, `focusShifts: Array<{start, end}> = []`
+                              (default empty - every pre-C3 caller/test keeps the function's exact
+                              prior drift behavior with no changes needed). Deliberately a plain
+                              {start, end} shape, not @speedora/visual-emphasis's own
+                              EditingSuggestion type - @speedora/reframe stays decoupled from that
+                              package's vocabulary; the filter/map from EditingSuggestion happens
+                              at the orchestration seam in render-clip.worker.ts instead (same
+                              "adapter translates between modules' own vocabularies" pattern
+                              FUSION_INPUT_MAP already established in render-graph/sinks.ts).
+
+packages/visual-emphasis/src/feature-flags.ts
+
+  isFocusShiftEnabled() NEW   VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED - a SEPARATE flag from
+                              isVisualEmphasisEnabled() (ADR D8's API-exposure-only gate,
+                              unaffected by this phase): this one gates an actual render-pipeline
+                              behavior change, following the SAME "one flag per phase" convention
+                              as SUBTITLE_REWRITE_ENABLED/DYNAMIC_CAPTION_ENABLED rather than
+                              reusing VISUAL_EMPHASIS_ENABLED for two unrelated concerns (API
+                              exposure vs. rendering behavior) or letting one flag silently gate
+                              multiple future C4-C7 techniques together.
+
+apps/worker/src/workers/render-clip.worker.ts
+
+  buildReframePlan() CHANGED  Gained an 8th parameter, focusShifts: EditingSuggestionTimeline = []
+                              (Phase C1's own type, always available on graphResult regardless of
+                              VISUAL_EMPHASIS_ENABLED - that flag gates API exposure only,
+                              computation always runs). Filters to technique === 'focus_shift' and
+                              maps to buildCropPath()'s plain {start, end} shape right here, before
+                              forwarding.
+
+  Call site (the           isFocusShiftEnabled() ? graphResult.editingSuggestions : [] - the ONE
+  buildReframePlan() call)   place this phase's flag is actually checked. Off (default) reproduces
+                              buildReframePlan()'s exact pre-C3 behavior byte-for-byte (empty
+                              array in, empty array through to buildCropPath(), which then behaves
+                              exactly as it did before this phase existed).
+```
+
+**What did NOT change**: `interpolateAt()`'s own linear-ramp math, the zoom envelope, `buildSendCmdScript()`, the `sendcmd` filtergraph mechanism, and Phase C2's own subject-selection wiring are all byte-for-byte untouched - this phase only reshapes WHICH waypoints `interpolateAt()` ramps between, and only when the window comes from a real Phase C1 `focus_shift` suggestion.
+
+**Verification performed**: `packages/reframe/src/crop-path.spec.ts` gained 3 new tests - (1) the core snap behavior (a sample pair that would have produced a mid-drift value at t=0.2 without this phase now holds flat at the pre-shift position, snapping only within the shift's own [0.4, 0.6] window), (2) the clip-start edge case (a shift window before the first known sample falls back to the exact pre-C3 path, proven via `toEqual` against the no-shift baseline), (3) an explicit default-empty-array regression lock. `render-clip.worker.spec.ts` gained a new "Visual Emphasis Engine Phase C3 - Focus Shift render wiring" describe block (2 tests: flag on with a real detected subject change passes the exact `[{start: 1.85, end: 2.15}]` window through to `buildCropPath()`; flag off passes `[]` even with the same real subject change present) and had its 3 existing Phase C2 "smart reframe" assertions extended with the new trailing `[]` argument. `@speedora/reframe`: 27/27 pass (up from 24). Full worker suite: 594/594 pass (up from 592, net +2 new Phase C3 tests). `apps/worker`/`@speedora/reframe`/`@speedora/visual-emphasis` typecheck, lint, and production build all clean; `apps/api` typecheck unaffected (no API surface touched - `focusShifts` is a purely internal render-time parameter derived from Phase C1's already-exposed `editingSuggestions`, no new DTO field); `pnpm format:check` clean. No new migration, no new Prisma column, no new DTO field - the entire phase lives inside `packages/reframe` + `packages/visual-emphasis` + `apps/worker`.
+
+**What was explicitly NOT done** (the same honestly-flagged gap C2 already carries, restated for this phase's own new visual effect): no real footage was available in this sandbox to judge whether the 0.3s snap window (reusing Phase C1's own `FOCUS_SHIFT_WINDOW_SECONDS` heuristic, not a new constant) actually reads as "deliberate" versus "jarring" to a real viewer - exactly the risk this doc's own roadmap table flagged for C3 before implementation, and the reason the user chose a flag-gated rollout over an unconditional one for this phase specifically.
 
 ## Explicitly deferred / open questions
 

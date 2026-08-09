@@ -7,6 +7,7 @@ import * as Sentry from '@sentry/node';
 import type {
   CaptionStyleValue,
   CropDimensions,
+  EditingSuggestionTimeline,
   FontFamily,
   PrimarySubjectSample,
   SpeakerTurn,
@@ -64,6 +65,7 @@ import {
 import { getObjectStream, uploadObject } from '@speedora/storage';
 import { isDynamicCaptionEnabled } from '@speedora/dynamic-caption';
 import { isSubtitleRewriteEnabled } from '@speedora/subtitle-rewriter';
+import { isFocusShiftEnabled } from '@speedora/visual-emphasis';
 import { buildAss } from '@speedora/subtitles';
 import { DEFAULT_THUMBNAIL_WEIGHTS } from '@speedora/thumbnail-selection';
 import { UnrecoverableError, Worker, type Job } from 'bullmq';
@@ -546,6 +548,16 @@ async function buildReframePlan(
   // Pre-Processing Settings roadmap (Phase 2) - undefined lets
   // buildCropPath() fall back to its own MAX_ZOOM_IN_FRACTION default.
   zoomInFraction?: number,
+  // Visual Emphasis Engine Phase C3 ("Focus Shift", docs/ai/
+  // visual-emphasis-engine.md) - Phase C1's own editingSuggestions
+  // (always computed regardless of VISUAL_EMPHASIS_ENABLED, which gates
+  // only GET /clips/:id/intelligence's exposure). Filtered/mapped to the
+  // plain {start, end} shape buildCropPath() expects right here, at this
+  // orchestration seam - @speedora/reframe stays decoupled from
+  // @speedora/visual-emphasis's own EditingSuggestion vocabulary. Empty
+  // by default so every pre-C3 caller/test keeps buildCropPath()'s exact
+  // prior drift behavior.
+  focusShifts: EditingSuggestionTimeline = [],
 ): Promise<ReframeOptions> {
   const emphasisWords = findEmphasisWords(toClipRelativeWords(transcript, startTime));
   const cropPath = buildCropPath(
@@ -556,6 +568,9 @@ async function buildReframePlan(
     sourceHeight,
     clipDurationSeconds,
     zoomInFraction,
+    focusShifts
+      .filter((suggestion) => suggestion.technique === 'focus_shift')
+      .map((suggestion) => ({ start: suggestion.start, end: suggestion.end })),
   );
   if (!cropPath) {
     return {
@@ -896,6 +911,16 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // Intelligence's own selectPrimarySubject() chain) instead of a
             // second, disconnected face detector call - see buildReframePlan()'s
             // own comment for the full "before/after" story.
+            //
+            // Phase C3 ("Focus Shift") - graphResult.editingSuggestions is
+            // ALWAYS computed (Phase C1's own render-graph node, optional:
+            // false), regardless of VISUAL_EMPHASIS_ENABLED (that flag gates
+            // GET /clips/:id/intelligence's exposure only); isFocusShiftEnabled()
+            // is the SEPARATE flag deciding whether THIS render actually acts
+            // on the focus_shift entries within it (docs/ai/
+            // visual-emphasis-engine.md's "C3 rollout" decision - flag-gated,
+            // off by default, no per-clip toggle). Off keeps buildReframePlan()'s
+            // exact pre-C3 behavior (empty focusShifts default).
             const reframe = await buildReframePlan(
               graphResult.primarySubjectSamples,
               transcript,
@@ -905,6 +930,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               sourceHeight,
               endTime - startTime,
               resolveZoomInFraction(processingOptions),
+              isFocusShiftEnabled() ? graphResult.editingSuggestions : [],
             );
             sendCmdPath = reframe.sendCmdPath;
 

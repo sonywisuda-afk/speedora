@@ -142,6 +142,18 @@ before this phase. `computeCropDimensions()` (the clip's constant output frame s
 *before* the graph, since it only needs the source video's own width/height and
 `compositionFeaturesNode` needs it early for its own aspect-ratio-aware thresholds.
 
+**Visual Emphasis Engine Phase C3** ("Focus Shift", flag-gated behind
+`VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED`, off by default) adds a distinct transition at a detected
+primary-subject change, instead of the plain continuous pan every subject change previously got.
+`buildCropPath()` gained an 8th, optional `focusShifts: Array<{start, end}>` parameter — for each
+window, it inserts synthetic waypoints that HOLD the pre-shift position until the window starts,
+ramp (the function's own existing linear interpolation, unchanged) across the window, then HOLD the
+post-shift position after — no new interpolation math, just reshaped input. The windows themselves
+come from Phase C1's own `focus_shift` `EditingSuggestion` entries (`graphResult.editingSuggestions`,
+always computed regardless of `VISUAL_EMPHASIS_ENABLED`); `isFocusShiftEnabled()` is the one place
+this phase's own flag is actually checked, deciding whether `render-clip.worker.ts` passes those
+windows through at all.
+
 ## Caption styling
 
 `Clip.captionStyle` (`DEFAULT`/`KARAOKE`/`BOLD_HIGHLIGHT`) drives `buildAss()`. `KARAOKE` uses

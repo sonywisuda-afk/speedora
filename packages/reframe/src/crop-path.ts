@@ -122,6 +122,44 @@ function interpolateAt(
   return { x: last.x, y: last.y };
 }
 
+// Visual Emphasis Engine Phase C3 (spec Part 9, "Focus Shift" - see
+// docs/ai/visual-emphasis-engine.md's audit) - the tech-debt row this
+// phase fixes: interpolateAt() above already smoothly pans between EVERY
+// known sample, including when the tracked subject genuinely changed (a
+// 2-speaker conversation drifts continuously as if tracking one wandering
+// face, with no distinct "the camera deliberately cut to someone else"
+// moment). Rather than a new interpolation algorithm, this inserts
+// synthetic hold/snap waypoints around each already-detected shift window
+// (`@speedora/visual-emphasis`'s own `focus_shift` EditingSuggestion,
+// Phase C1 - reused here via the caller, not re-detected: this function
+// receives plain {start, end} windows, no dependency on that package's
+// vocabulary) - HOLD at the pre-shift position until `start`, ramp
+// (interpolateAt's own existing linear ramp, unchanged) from `start` to
+// `end`, then HOLD at the post-shift position. The result is a short,
+// deliberate snap confined to the shift's own window instead of a slow
+// drift spread across the full gap between two sparse
+// (FACE_SAMPLE_INTERVAL_SECONDS) samples. A window whose pre/post
+// boundary has no bracketing known sample (clip start/end edge cases) is
+// skipped - falls back to the default drift for that one shift rather
+// than fabricating a position with nothing to anchor it to.
+function applyFocusShifts(
+  known: Array<{ t: number; x: number; y: number }>,
+  focusShifts: Array<{ start: number; end: number }>,
+): Array<{ t: number; x: number; y: number }> {
+  if (known.length === 0 || focusShifts.length === 0) return known;
+
+  const synthetic: Array<{ t: number; x: number; y: number }> = [];
+  for (const shift of focusShifts) {
+    const pre = [...known].reverse().find((point) => point.t <= shift.start);
+    const post = known.find((point) => point.t >= shift.end);
+    if (!pre || !post) continue;
+    synthetic.push({ t: shift.start, x: pre.x, y: pre.y }, { t: shift.end, x: post.x, y: post.y });
+  }
+  if (synthetic.length === 0) return known;
+
+  return [...known, ...synthetic].sort((a, b) => a.t - b.t);
+}
+
 // Builds a fine-grained (CROP_PATH_STEP_SECONDS) crop-window path spanning
 // the whole clip, combining two independent signals: x/y panning
 // interpolated from sparse (FACE_SAMPLE_INTERVAL_SECONDS) face samples
@@ -150,6 +188,12 @@ export function buildCropPath(
   // above; undefined keeps this function's exact prior behavior for every
   // existing caller/test.
   maxZoomInFraction: number = MAX_ZOOM_IN_FRACTION,
+  // Visual Emphasis Engine Phase C3 ("Focus Shift") - see applyFocusShifts()'s
+  // own comment. Empty array (the default) keeps this function's exact
+  // prior behavior for every existing caller/test - render-clip.worker.ts
+  // only ever passes a non-empty list when VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED
+  // is on.
+  focusShifts: Array<{ start: number; end: number }> = [],
 ): CropWindow[] | null {
   const hasFaceData = samples.some((sample) => sample.box !== null);
   if (!hasFaceData && emphasisWords.length === 0) {
@@ -159,17 +203,20 @@ export function buildCropPath(
   const movesHorizontally = crop.width < sourceWidth;
   const movesVertically = crop.height < sourceHeight;
 
-  const known = samples
-    .filter((s): s is { t: number; box: NonNullable<FaceSample['box']> } => s.box !== null)
-    .map((s) => ({
-      t: s.t,
-      x: movesHorizontally
-        ? clamp(s.box.xCenter * sourceWidth - crop.width / 2, 0, sourceWidth - crop.width)
-        : 0,
-      y: movesVertically
-        ? clamp(s.box.yCenter * sourceHeight - crop.height / 2, 0, sourceHeight - crop.height)
-        : 0,
-    }));
+  const known = applyFocusShifts(
+    samples
+      .filter((s): s is { t: number; box: NonNullable<FaceSample['box']> } => s.box !== null)
+      .map((s) => ({
+        t: s.t,
+        x: movesHorizontally
+          ? clamp(s.box.xCenter * sourceWidth - crop.width / 2, 0, sourceWidth - crop.width)
+          : 0,
+        y: movesVertically
+          ? clamp(s.box.yCenter * sourceHeight - crop.height / 2, 0, sourceHeight - crop.height)
+          : 0,
+      })),
+    focusShifts,
+  );
 
   // No tracked face at all (zoom-only case) centers the pan on the frame -
   // fixed for the whole clip, zoom still moves independently around it.
