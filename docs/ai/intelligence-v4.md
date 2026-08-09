@@ -112,8 +112,9 @@
   frames were visually inspected to confirm correct scaling. See `ai/subtitle-intelligence.md`'s
   "Phase B2 architecture (as shipped)" section. **This completes the full Subtitle & Dynamic
   Caption Intelligence roadmap (Track B Phase A1/A2/B1/B2)** - see that doc's own status banner.
-- **Track B, Phase C (Visual Emphasis Engine, spec Part 9)**: Phases C1-C5 shipped, C6-C7
-  remain design only - see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md). Real spec
+- **Track B, Phase C (Visual Emphasis Engine, spec Part 9)**: Phases C1-C5 and C7 shipped (C7
+  deliberately implemented BEFORE C6 - see below); C6 needs a dedicated redesign pass before
+  implementation - see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md). Real spec
   text obtained before any design started (unlike Phase 7's original Virality Engine) - "Generate
   editing suggestions" across Auto Zoom/Auto Crop/Face Priority/Object Priority/OCR Highlight/Focus
   Shift/Digital Push/Reaction Hold/Pause Hold. Audit found 3 of the 9 already shipped (Auto
@@ -164,7 +165,20 @@
   precedent. Uniquely among C2-C5, this phase's own RENDERING MECHANISM (not just its aesthetics)
   was verified against a real ffmpeg+libass render with frame extraction, an explicit acceptance
   gate the user required before trusting it - the ASS tag combination is confirmed genuinely valid,
-  not just a plausible-looking string.
+  not just a plausible-looking string. **Phase C6** (Reaction Hold) was reconsidered before starting
+  and found categorically riskier than every phase shipped so far - literally "extending a shot's
+  on-screen duration" would be the first change in this initiative to touch the clip's own temporal
+  coordinate system (shifting every downstream caption/crop-path/B-roll timestamp), not just spatial
+  positioning or an editing decision. Deferred pending its own dedicated redesign pass (tentatively
+  **C6R**) building a reusable temporal-remapping primitive FIRST, per explicit user direction -
+  "don't change timeline duration without an explicit temporal-remapping layer first" - rather than
+  a Reaction-Hold-specific hack. **Phase C7** (Pause Hold) was implemented in its place - a
+  deliberate reordering, not an oversight - since it only changes an editing DECISION (which
+  already-detected `@speedora/cutlist` silence gaps get skipped rather than trimmed, via a new
+  `protectPauseHolds()` requiring an EXACT match against a Phase C1 `pause_hold` suggestion window),
+  never the timeline itself. Ships behind its own `VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED` flag, off by
+  default, no per-clip toggle, same shape as every prior rendering-behavior phase despite being
+  lower-risk than all of them.
 
 ## Why this exists
 
@@ -483,7 +497,7 @@ without a literal file move. `vocalEmotion.ts` itself is untouched.
 | A2 | Wire Subtitle Rewriter into `buildAss()` (7) — **shipped, flag-off** (`Clip.smartSegmentation`) | A1 | M | First phase touching the production render path — karaoke word-sync must survive re-chunking |
 | B1 | Dynamic Caption Engine, data only (8) — **shipped, flag-off** (`DYNAMIC_CAPTION_ENABLED=false`) | A1, Phase 5 | S-M | "Don't overuse animation" needs an explicit documented cooldown heuristic |
 | B2 | Wire Dynamic Caption treatment into `build-ass.ts`'s ASS emission (8) — **shipped, flag-off** (`Clip.dynamicCaptions`) | B1, A2 | L | New `\fscx`/`\fscy`/`\t` ASS tag territory — verified against real ffmpeg+libass, including a visual frame-extraction check |
-| C | Visual Emphasis Engine (9) — **C1 shipped, flag-off** (`Clip.editingSuggestions`), **C2 shipped, no flag** (real behavior change), **C3 shipped, flag-off** (`VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED`), **C4 shipped, flag-off** (`VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED`), **C5 shipped, flag-off** (`VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED`, real ffmpeg+libass verified), **C6-C7 design only**, see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md) | none — signals already exist | M (per original estimate; the real spec text splits into 7 sub-phases, S-L each) | Unify `reframe`'s own face detector with `primary-subject`'s choice, don't layer a second opinion (Phase C2, shipped) |
+| C | Visual Emphasis Engine (9) — **C1 shipped, flag-off** (`Clip.editingSuggestions`), **C2 shipped, no flag** (real behavior change), **C3 shipped, flag-off** (`VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED`), **C4 shipped, flag-off** (`VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED`), **C5 shipped, flag-off** (`VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED`, real ffmpeg+libass verified), **C7 shipped, flag-off** (`VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED`, implemented before C6), **C6 redesign required, not built**, see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md) | none — signals already exist | M (per original estimate; the real spec text splits into 7 sub-phases, S-L each) | Unify `reframe`'s own face detector with `primary-subject`'s choice, don't layer a second opinion (Phase C2, shipped) |
 
 **Update (2026-08-08)**: resolved a real product-shape ambiguity in Part 7's "rewrite subtitle" via
 `AskUserQuestion` before any code was written (same "ask, don't guess" precedent as v2.1's Practical

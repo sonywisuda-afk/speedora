@@ -85,6 +85,33 @@ export function computeFillerCuts(words: TranscriptWordInput[]): CutRange[] {
     .map((word) => ({ start: round3(word.start), end: round3(word.end) }));
 }
 
+// Visual Emphasis Engine Phase C7 ("Pause Hold", docs/ai/visual-emphasis-
+// engine.md) - removes any silence cut that exactly matches a protected
+// window (@speedora/visual-emphasis's own pause_hold EditingSuggestion,
+// {start, end} - always derived from THIS SAME computeSilenceCuts() call
+// in that package's fromPauses(), so an EXACT match - not a loose overlap
+// check - is the correct, conservative comparison: "protect THIS pause",
+// never "protect anything near it" (the roadmap's own "protect rarely,
+// not liberally" instruction). Must run BEFORE mergeCutRanges() combines
+// silence cuts with filler-word cuts - a protected silence gap sitting
+// right next to an unrelated filler cut must never accidentally protect
+// the filler cut too (filler words are always removed regardless of
+// dramatic-pause proximity; pause protection only ever applies to actual
+// silence gaps). Floating-point tolerance (1e-6) accounts for the same
+// ordinary binary rounding round3() above already exists to smooth over.
+export function protectPauseHolds(
+  silenceCuts: CutRange[],
+  protectedWindows: Array<{ start: number; end: number }>,
+): CutRange[] {
+  return silenceCuts.filter(
+    (cut) =>
+      !protectedWindows.some(
+        (window) =>
+          Math.abs(window.start - cut.start) < 1e-6 && Math.abs(window.end - cut.end) < 1e-6,
+      ),
+  );
+}
+
 // Sorts and merges overlapping/adjacent ranges into the minimal equivalent
 // set - silence and filler cuts are computed independently and can overlap
 // (a filler word sitting right at the edge of a silence gap), and ffmpeg's

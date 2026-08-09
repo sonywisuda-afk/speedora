@@ -2515,6 +2515,85 @@ describe('render-clip worker', () => {
     });
   });
 
+  // Visual Emphasis Engine Phase C7 ("Pause Hold" - docs/ai/visual-
+  // emphasis-engine.md's "C7 rollout" note: flag-gated, off by default,
+  // own independent flag, same shape as every prior rendering-behavior
+  // phase). Drives a REAL pause_hold suggestion through the render graph -
+  // a genuine silence gap (same fixture the pre-existing "runs a second
+  // trim pass..." test above uses) plus a real curiosityPeak
+  // (detectSemanticEventsMock, left real/un-mocked for
+  // computeRetentionCurveInsights' own derivation - only the LLM call
+  // itself is mocked, same "mock only the seam" convention as every other
+  // LLM-backed node in this file).
+  describe('Visual Emphasis Engine Phase C7 - Pause Hold render wiring', () => {
+    // "hi" ends at clip-relative 0.3s, "there" starts at 9.5s - the exact
+    // same 9.2s isolated gap the pre-existing silence-cut test above uses,
+    // which computeSilenceCuts() pads to a cut range of [0.45, 9.35].
+    const pauseJobData: RenderClipJobData = {
+      ...baseJobData,
+      startTime: 10,
+      endTime: 20,
+      transcript: [
+        {
+          start: 10,
+          end: 20,
+          text: 'hi there',
+          words: [
+            { word: 'hi', start: 10, end: 10.3 },
+            { word: 'there', start: 19.5, end: 19.8 },
+          ],
+        },
+      ],
+    };
+
+    beforeEach(() => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      // Well within PAUSE_PROXIMITY_SECONDS (1.5s) of the [0.45, 9.35] cut
+      // window on either edge - 'secret' is one of
+      // isCuriositySemanticEventType()'s curiosity-evoking types.
+      detectSemanticEventsMock.mockResolvedValue([
+        { type: 'secret', t: 5, confidence: 0.9, importance: 0.8, evidence: [], reason: 'x' },
+      ]);
+    });
+
+    afterEach(() => {
+      delete process.env.VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED;
+      // jest.clearAllMocks() (the top-level beforeEach) only clears call
+      // history, not a mock's own .mockResolvedValue() implementation -
+      // without this, every test running AFTER this describe block in file
+      // order would keep getting this same real curiosityPeak fixture,
+      // silently changing their own retentionCurveInsights/downstream
+      // output. mockReset() restores detectSemanticEventsMock to its
+      // pre-existing default (unset - every other test's convention).
+      detectSemanticEventsMock.mockReset();
+    });
+
+    it('protects the pause from Smart Trim (skips the trim pass entirely) when the flag is on and a real pause_hold suggestion covers the exact same gap', async () => {
+      process.env.VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED = 'true';
+
+      const processor = getProcessor();
+      await processor(fakeJob(pauseJobData));
+
+      expect(trimCutRangesMock).not.toHaveBeenCalled();
+      expect(uploadObjectMock).toHaveBeenCalledWith(
+        'renders/clip-1.mp4',
+        { fakeStream: expect.stringContaining('output') },
+        'video/mp4',
+      );
+    });
+
+    it('still cuts the same silence gap normally when the flag is off (default), even with the same real curiosity signal nearby', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob(pauseJobData));
+
+      expect(trimCutRangesMock).toHaveBeenCalledTimes(1);
+      const [, , cuts] = trimCutRangesMock.mock.calls[0];
+      expect(cuts).toEqual([{ start: 0.45, end: 9.35 }]);
+    });
+  });
+
   describe('Auto B-roll (Fase 15/16)', () => {
     const sunsetAsset = {
       id: 'pexels-123',

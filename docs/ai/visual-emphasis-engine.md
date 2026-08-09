@@ -1,12 +1,14 @@
 # Visual Emphasis Engine (spec Part 9, AI Intelligence v4 Track B Phase C)
 
-> **Status: Phases C1-C5 shipped. Phases C6-C7 remain design only.** This doc is the audit + ADR +
+> **Status: Phases C1-C5 and C7 shipped. Phase C6 needs a dedicated redesign pass before
+> implementation (see its own status note below) - deliberately done OUT OF ORDER, C7 before C6,
+> a real decision recorded in the "C7 rollout"/C6 sections below.** This doc is the audit + ADR +
 > dependency graph + phased roadmap requested before any implementation starts, same discipline as
 > [`ai/subtitle-intelligence.md`](./subtitle-intelligence.md) (Track B Phase A/B, now complete) —
 > see that doc for the precedent this one follows. See "Phase C1 architecture (as shipped)" through
-> "Phase C5 architecture (as shipped)" below for what actually exists; every other phase (C6-C7,
-> the 2 remaining technique-specific rendering phases) is still the planned design below, not
-> built.
+> "Phase C5 architecture (as shipped)" and "Phase C7 architecture (as shipped)" below for what
+> actually exists; C6 is the one phase in this roadmap not yet built and not yet even fully
+> designed - see its own roadmap-table row and the "C6 redesign" note.
 
 ## Why this exists
 
@@ -178,8 +180,8 @@ facialFeatures/emotionalArc ────┘
 | C3 | Focus Shift — deliberate transition when the primary subject id changes, instead of continuous drift — **shipped, flag-gated** (`VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED`, off by default, no per-clip toggle) | C2 | S-M | Defining "deliberate" (a faster pan? a hard cut? a brief hold?) without real footage to validate against |
 | C4 | Digital Push — extend Auto Zoom's triggers beyond `EMPHASIS_PATTERN` words to include v4's own "this moment matters" signals — **shipped, flag-gated** (`VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED`, off by default, no per-clip toggle) | C1 | S | Two trigger sources (regex words, v4 signals) firing on overlapping spans needs a real merge rule, not double-triggering |
 | C5 | OCR Highlight — new overlay rendering — **shipped, flag-gated** (`VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED`, off by default, no per-clip toggle; ASS `\p1` mechanism, real ffmpeg+libass verified) | C1, OCR Intelligence (existing) | L | Genuinely new rendering mechanism (Tech Debt #5) — needs the same "verify against real ffmpeg" discipline Track B Phase B2 established, and a real design pass for DC5's open question |
-| C6 | Reaction Hold — extend shot duration for a detected reaction | C1 | M | Extending duration interacts with the existing cutlist/render timeline math non-trivially — a naive implementation could desync captions/crop from the extended audio |
-| C7 | Pause Hold — protect specific pauses from Smart Trim | C1 | S-M | A wrong "protect this pause" call silently reintroduces dead air Smart Trim was built to remove — needs a conservative default (protect rarely, not liberally) |
+| C6 | Reaction Hold — extend shot duration for a detected reaction — **redesign required, not built** (see "C6 redesign" note below; likely renamed **C6R** once designed) | C1 | M (likely underestimated - see redesign note) | Extending duration interacts with the existing cutlist/render timeline math non-trivially — a naive implementation could desync captions/crop from the extended audio. Confirmed real during C7's own design pass, not just a theoretical risk - deliberately deferred rather than attempted with a naive implementation |
+| C7 | Pause Hold — protect specific pauses from Smart Trim — **shipped, flag-gated** (`VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED`, off by default, no per-clip toggle) - **implemented before C6**, a deliberate reordering (see "C7 rollout" note) | C1 | S-M | A wrong "protect this pause" call silently reintroduces dead air Smart Trim was built to remove — needs a conservative default (protect rarely, not liberally) |
 
 Each phase, per this codebase's established convention: implement → run the full test suite →
 confirm no regression → update this doc + `intelligence-v4.md`/`CLAUDE.md` → confirm production
@@ -847,6 +849,129 @@ limitation, not an oversight - no real footage was available in this sandbox to 
 that matters in practice, and a future phase (dynamic tracking, if real footage evidence ever
 shows drift is a real problem) would need that evidence to design its own sampling/interpolation
 approach against, not a guess made here.
+
+## C6 status: redesign required (Reaction Hold deferred, C7 done first)
+
+Before starting C6, its own risk note ("extending duration interacts with the existing cutlist/
+render timeline math non-trivially") was reconsidered against C7's actual shape (see "C7 rollout"
+below) and found to be a materially bigger, categorically different undertaking than every other
+C-phase shipped so far - **C2-C5 and C7 all change spatial positioning, a visual effect's trigger
+set, or an editing DECISION, but never the clip's own temporal coordinate system.** Literally
+"extending a shot's on-screen duration" (freeze-frame or slow-motion) would shift every downstream
+timestamp (captions, crop path, B-roll, the cut junctions Phase 14's Smart Transitions already
+anchors to) - the first phase in this initiative that would need to.
+
+**Decision** (the user's own explicit framing, preserved close to verbatim since it's the actual
+design mandate for whenever C6 is picked back up): don't build a Reaction-Hold-specific timeline
+hack. Build a general, reusable temporal-remapping PRIMITIVE first, then implement duration
+extension on top of it - "Jangan mengubah timeline duration tanpa terlebih dahulu memiliki
+explicit temporal-remapping layer." A future dedicated phase (tentatively **C6R - "Reaction Hold
+Temporal Extension"**, name not final) needs its own audit/ADR pass designing, at minimum:
+
+- the timeline transformation primitive itself (reusable, not Reaction-Hold-specific)
+- timestamp rebasing
+- caption timestamp propagation
+- crop-path remapping
+- B-roll remapping
+- segment boundary handling
+- audio behavior (freeze vs. continue vs. fade)
+- freeze-frame vs. slow-motion semantics (a real open question, not pre-decided)
+- max extension duration (a "scale honesty" heuristic, like every other numeric constant in this
+  initiative)
+- overlapping reaction windows
+- clip-start/clip-end edge cases
+- idempotency (a re-render must not compound the extension)
+
+Until that design pass happens, C6 stays exactly where the original roadmap left it - "M" complexity
+was the estimate BEFORE this reconsideration; the real scope is likely larger once temporal
+remapping is designed for real, not a naive first attempt.
+
+## Phase C7 architecture (as shipped)
+
+**"C7 rollout" decision**: unlike C6, Pause Hold changes an editing DECISION only - which of the
+already-detected silence gaps `@speedora/cutlist`'s existing `computeSilenceCuts()` produces get
+SKIPPED rather than trimmed. No duration mutation, no timestamp rebasing, no freeze-frame/slow-
+motion, no caption shift, no B-roll rescheduling - the render-graph/render-timeline architecture
+this pipeline already has is completely sufficient. This is exactly why C7 was implemented before
+C6 despite the numbering - a deliberate reordering, not an oversight, once C6's own real risk
+became clear during this comparison. Same rollout SHAPE as C3/C4/C5 regardless (flag-gated, off by
+default, own independent flag, `VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED`) - lower risk than any prior
+rendering-behavior phase, but a wrong "protect this pause" call still silently reintroduces dead air
+Smart Trim exists specifically to remove, and (the same gap every prior phase carries) no real
+footage was available in this sandbox to validate how often the exact-match protection below
+actually fires on real content.
+
+```
+packages/cutlist/src/cutlist.ts
+
+  protectPauseHolds() NEW    Removes any silence cut that EXACTLY matches a protected window
+                              ({start, end} from a Phase C1 pause_hold EditingSuggestion - always
+                              derived from THIS SAME computeSilenceCuts() call in
+                              @speedora/visual-emphasis's fromPauses(), so an exact match - not a
+                              loose overlap check - is the correct, conservative comparison:
+                              "protect THIS pause", never "protect anything near it" (the
+                              roadmap's own "protect rarely, not liberally" instruction). A 1e-6
+                              floating-point tolerance accounts for ordinary binary rounding, same
+                              reasoning round3() elsewhere in this file already exists for. Must
+                              run BEFORE mergeCutRanges() combines silence cuts with filler-word
+                              cuts - a protected silence gap sitting right next to an unrelated
+                              filler cut must never accidentally protect the filler cut too
+                              (filler words are always removed regardless of dramatic-pause
+                              proximity; pause protection only ever applies to actual silence
+                              gaps).
+
+packages/visual-emphasis/src/feature-flags.ts
+
+  isPauseHoldEnabled() NEW   VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED - a SEPARATE, independent flag
+                              from isFocusShiftEnabled()/isDigitalPushEnabled()/
+                              isOcrHighlightEnabled(), same "one flag per technique, never a
+                              shared master flag" reasoning as every prior rendering-behavior
+                              phase.
+
+apps/worker/src/workers/render-clip.worker.ts
+
+  computeClipCuts() CHANGED  Gained a 4th parameter, editingSuggestions: EditingSuggestionTimeline
+                              = [] (Phase C1's own output, always computed regardless of any
+                              flag) - filtered to technique === 'pause_hold' and gated by
+                              isPauseHoldEnabled() INSIDE this function, same "each technique
+                              checks its own flag inside the function that consumes it" shape
+                              C3/C4/C5 already established. protectPauseHolds() runs on the raw
+                              silence-cuts array, before merging with filler cuts, matching
+                              protectPauseHolds()'s own documented ordering requirement.
+
+  Call site                graphResult.editingSuggestions passed through unconditionally (same
+                              "always pass the whole array, let the consumer check its own flag"
+                              shape as C3/C4/C5's own call sites).
+```
+
+**What did NOT change**: `computeSilenceCuts()`/`computeFillerCuts()`/`mergeCutRanges()`/
+`totalCutSeconds()`/`computeCutJunctionTimestamps()` (every existing `@speedora/cutlist` function),
+the entire `renderClip()`/`trimCutRanges()` ffmpeg mechanism, and every downstream caption/crop-path
+timestamp are all byte-for-byte untouched - this phase only changes WHICH already-computed silence
+cuts make it into the final list that gets trimmed.
+
+**Verification performed**: `packages/cutlist/src/cutlist.spec.ts` gained 6 new tests for
+`protectPauseHolds()` - exact-match protection, partial-overlap NOT protected (proving the
+conservative "exact match only" design), floating-point tolerance, empty-protected-windows
+no-op, empty-silence-cuts no-op, multiple independent protected cuts. `render-clip.worker.spec.ts`
+gained a new "Visual Emphasis Engine Phase C7 - Pause Hold render wiring" describe block driving a
+REAL `pause_hold` suggestion through the full render graph (a genuine 9.2s silence gap - the exact
+same fixture the pre-existing silence-cut test already uses - plus a real `curiosityPeak` via
+`detectSemanticEventsMock`, left otherwise real/un-mocked for `computeRetentionCurveInsights`'s own
+derivation, same "mock only the LLM seam" convention as every other LLM-backed node in this file):
+flag on -> the trim pass is skipped entirely (`trimCutRangesMock` never called); flag off (default)
+-> the exact same gap still gets cut normally. Caught and fixed a real test-isolation bug during
+this work: `detectSemanticEventsMock.mockResolvedValue(...)` (unlike every other detector mock in
+this file, which already has a safe default set in the top-level `beforeEach`) had no prior default,
+so setting it in this describe block's own `beforeEach` silently leaked into every LATER test in
+file execution order (`jest.clearAllMocks()` only clears call history, not a mock's own resolved-
+value implementation) - fixed with an explicit `detectSemanticEventsMock.mockReset()` in this
+block's `afterEach`, confirmed by re-running the full suite and seeing the previously-broken
+Scene/Facial Intelligence tests pass again. `@speedora/cutlist`: 26/26 pass (up from 20, +6). Full
+worker suite: 604/604 pass (up from 602, +2). `apps/worker`/`@speedora/cutlist`/
+`@speedora/visual-emphasis` typecheck, lint, and production build all clean; `apps/api` typecheck
+unaffected (no API surface touched); `pnpm format:check` clean. No new migration, no new contract
+type, no new DTO field - the entire phase lives inside `packages/cutlist` + `apps/worker`.
 
 ## Explicitly deferred / open questions
 

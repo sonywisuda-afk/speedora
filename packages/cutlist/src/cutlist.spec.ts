@@ -3,6 +3,7 @@ import {
   computeFillerCuts,
   computeSilenceCuts,
   mergeCutRanges,
+  protectPauseHolds,
   totalCutSeconds,
 } from './cutlist';
 
@@ -125,6 +126,62 @@ describe('mergeCutRanges', () => {
 
   it('returns an empty array for no cuts', () => {
     expect(mergeCutRanges([])).toEqual([]);
+  });
+});
+
+// Visual Emphasis Engine Phase C7 ("Pause Hold" - see docs/ai/
+// visual-emphasis-engine.md).
+describe('protectPauseHolds', () => {
+  it('removes a silence cut that exactly matches a protected window', () => {
+    const silenceCuts = [
+      { start: 1.15, end: 2.85 },
+      { start: 5, end: 6 },
+    ];
+    const protectedWindows = [{ start: 1.15, end: 2.85 }];
+
+    expect(protectPauseHolds(silenceCuts, protectedWindows)).toEqual([{ start: 5, end: 6 }]);
+  });
+
+  it('does NOT remove a cut that only partially overlaps a protected window - exact match required', () => {
+    const silenceCuts = [{ start: 1.15, end: 2.85 }];
+    // Close, but not the exact same gap - e.g. a stale/mismatched suggestion.
+    const protectedWindows = [{ start: 1.2, end: 2.85 }];
+
+    expect(protectPauseHolds(silenceCuts, protectedWindows)).toEqual(silenceCuts);
+  });
+
+  it('tolerates ordinary floating-point rounding noise when matching', () => {
+    const silenceCuts = [{ start: 1.1500000000001, end: 2.8499999999999 }];
+    const protectedWindows = [{ start: 1.15, end: 2.85 }];
+
+    expect(protectPauseHolds(silenceCuts, protectedWindows)).toEqual([]);
+  });
+
+  it('leaves every cut unprotected when protectedWindows is empty', () => {
+    const silenceCuts = [
+      { start: 1.15, end: 2.85 },
+      { start: 5, end: 6 },
+    ];
+
+    expect(protectPauseHolds(silenceCuts, [])).toEqual(silenceCuts);
+  });
+
+  it('returns an empty array when silenceCuts is empty, regardless of protected windows', () => {
+    expect(protectPauseHolds([], [{ start: 1, end: 2 }])).toEqual([]);
+  });
+
+  it('protects multiple matching cuts independently', () => {
+    const silenceCuts = [
+      { start: 1, end: 2 },
+      { start: 5, end: 6 },
+      { start: 10, end: 11 },
+    ];
+    const protectedWindows = [
+      { start: 1, end: 2 },
+      { start: 10, end: 11 },
+    ];
+
+    expect(protectPauseHolds(silenceCuts, protectedWindows)).toEqual([{ start: 5, end: 6 }]);
   });
 });
 
