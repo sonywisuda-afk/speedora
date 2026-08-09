@@ -418,6 +418,137 @@ describe('buildCropPath', () => {
       expect(between.width).toBe(crop.width);
     });
   });
+
+  // Visual Emphasis Integration Audit, Gate B1 (docs/ai/
+  // visual-emphasis-integration-audit.md) - EVIDENCE GATHERING for the
+  // audit's one HIGH/unmitigated finding: Focus Shift and Digital Push
+  // both write into this SAME buildCropPath() call (pan-snap vs.
+  // zoom-punch) with no merge/priority rule between them, unlike Digital
+  // Push's own max-reduce with Auto Zoom above. Per the user's own
+  // explicit instruction ("jangan langsung memilih rule sebelum melihat
+  // hasilnya" - don't pick an arbitration rule before seeing the
+  // results), this describe block does NOT fix or arbitrate anything -
+  // it only proves, with exact numbers, what currently happens when the
+  // two windows coincide. The actual arbitration decision (does one win,
+  // do they coexist as-is, is damping needed) belongs to whoever reviews
+  // this evidence next.
+  describe('Gate B1 evidence: focus shift × digital push overlap (no arbitration - observation only)', () => {
+    // Widened to a 0.4s window (start=0.4, end=0.8) so the snap ramp has a
+    // genuine INTERMEDIATE sample on buildCropPath()'s own
+    // CROP_PATH_STEP_SECONDS (0.2s) grid at t=0.6, between the window's
+    // own start/end - t=0.5 is never actually sampled, only 0, 0.2, 0.4,
+    // 0.6, 0.8, 1.0 are.
+    const samples: FaceSample[] = [
+      { t: 0, box: { xCenter: 0.25, yCenter: 0.5, width: 0.1, height: 0.1 } }, // x = 12
+      { t: 1, box: { xCenter: 0.75, yCenter: 0.5, width: 0.1, height: 0.1 } }, // x = 172
+    ];
+    const focusShifts = [{ start: 0.4, end: 0.8 }];
+    // start=0.4 puts the zoom envelope's full-peak HOLD window at
+    // [0.4, 0.8] (ZOOM_HOLD_SECONDS=0.4 after start) - deliberately chosen
+    // to exactly match the focus-shift snap window above, the worst-case
+    // overlap (peak zoom for the ENTIRE snap, not just part of it).
+    const digitalPushStarts = [0.4];
+    // Even-number width rounding (roundToEven() - a real libx264/yuv420p
+    // requirement, not a test artifact) means the peak width is 96, not
+    // the un-rounded 136*0.7=95.2 - every assertion below uses this exact
+    // rounded value, the same one "builds a zoom-only path"/"combines
+    // overlapping emphasis words" above already rely on.
+    const peakZoomWidth = Math.round((crop.width * 0.7) / 2) * 2; // 96
+
+    it('pans AND zooms simultaneously for the full duration a focus-shift window and a digital-push hold overlap - no arbitration exists today', () => {
+      const path = buildCropPath(
+        samples,
+        [],
+        crop,
+        sourceWidth,
+        sourceHeight,
+        1,
+        undefined,
+        focusShifts,
+        digitalPushStarts,
+      )!;
+      const at = (t: number) => path.find((p) => Math.abs(p.t - t) < 1e-6)!;
+
+      // FACT 1: the snap and the zoom peak really do coincide, at every
+      // sampled instant across the whole overlap - not an approximation.
+      expect(at(0.4).width).toBe(peakZoomWidth);
+      expect(at(0.6).width).toBe(peakZoomWidth);
+      expect(at(0.8).width).toBe(peakZoomWidth);
+
+      // FACT 2: the position is actively, rapidly changing (the snap
+      // ramp) at the SAME instants the frame is already zoomed to its
+      // tightest punch-in. The absolute x is NOT the raw pan target
+      // (12/92/172, what "focus shift (Phase C3)" above asserts with no
+      // zoom active) - it's re-centered for the current zoom level
+      // ("re-centers the zoomed crop on the same point the pan would have
+      // used" above), adding a CONSTANT +20px offset here
+      // ((crop.width-peakZoomWidth)/2 = (136-96)/2) since the zoom stays
+      // at its peak for the whole overlap. The underlying 160px pan span
+      // is unaffected (32 -> 112 -> 192, still 160px total) - only the
+      // absolute starting/ending position shifts uniformly. This coupling
+      // (the pan's own rendered position depends on whatever zoom level
+      // is simultaneously active) is itself part of Gate B1's evidence -
+      // not obvious from reading either technique's own code in
+      // isolation.
+      expect(at(0.4).x).toBe(32); // snap not yet started (12 + 20 recenter offset)
+      expect(at(0.6).x).toBe(112); // mid-snap - actively panning (92 + 20)
+      expect(at(0.8).x).toBe(192); // snap complete (172 + 20)
+
+      // FACT 3: no damping/reduction is applied to either signal because
+      // the other is also active - the zoom's own magnitude at t=0.6 is
+      // identical to a digital-push moment firing ALONE with nothing else
+      // happening (see "builds a zoom-only path" above, same 0.7 factor,
+      // same peakZoomWidth) - confirming there is currently NO
+      // arbitration, damping, or priority rule between these two
+      // techniques. Whether that combined pan+zoom reads as intentional
+      // emphasis or as chaos is a Gate B5 (visual) judgment, not decided
+      // by this test.
+      const zoomAloneWidth = buildCropPath(
+        [{ t: 0, box: null }],
+        [],
+        crop,
+        sourceWidth,
+        sourceHeight,
+        1,
+        undefined,
+        [],
+        [0.4],
+      )!.find((p) => Math.abs(p.t - 0.6) < 1e-6)!.width;
+      expect(at(0.6).width).toBe(zoomAloneWidth);
+    });
+
+    it('quantifies the combined motion: 160px of pan (over 100% of the crop width) compressed into the same 0.4s the frame is 30% zoomed in', () => {
+      const path = buildCropPath(
+        samples,
+        [],
+        crop,
+        sourceWidth,
+        sourceHeight,
+        1,
+        undefined,
+        focusShifts,
+        digitalPushStarts,
+      )!;
+      const start = path.find((p) => Math.abs(p.t - 0.4) < 1e-6)!;
+      const end = path.find((p) => Math.abs(p.t - 0.8) < 1e-6)!;
+
+      const panDistancePx = Math.abs(end.x - start.x);
+      const panFractionOfCropWidth = panDistancePx / crop.width;
+      // The ROUNDED width (96), not the ideal 0.3 - roundToEven()'s own
+      // even-number requirement means the actual shrink is ~0.294, a
+      // documented, real ~0.006 deviation from the nominal
+      // MAX_ZOOM_IN_FRACTION, not a bug in this test's own math.
+      const zoomShrinkFraction = 1 - end.width / crop.width;
+
+      // Documented as raw numbers, not a pass/fail threshold - there is no
+      // "acceptable" cutoff decided anywhere in this codebase yet. This
+      // test exists so the exact figures are machine-verified and can't
+      // silently drift if either technique's own constants change later.
+      expect(panDistancePx).toBe(160);
+      expect(panFractionOfCropWidth).toBeCloseTo(1.176, 2); // >100% of the crop's own width, in 0.4s
+      expect(zoomShrinkFraction).toBeCloseTo(0.294, 3);
+    });
+  });
 });
 
 describe('buildSendCmdScript', () => {
