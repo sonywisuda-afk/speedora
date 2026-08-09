@@ -1,11 +1,11 @@
 # Visual Emphasis Engine (spec Part 9, AI Intelligence v4 Track B Phase C)
 
-> **Status: Phases C1-C4 shipped. Phases C5-C7 remain design only.** This doc is the audit + ADR +
+> **Status: Phases C1-C5 shipped. Phases C6-C7 remain design only.** This doc is the audit + ADR +
 > dependency graph + phased roadmap requested before any implementation starts, same discipline as
 > [`ai/subtitle-intelligence.md`](./subtitle-intelligence.md) (Track B Phase A/B, now complete) —
 > see that doc for the precedent this one follows. See "Phase C1 architecture (as shipped)" through
-> "Phase C4 architecture (as shipped)" below for what actually exists; every other phase (C5-C7,
-> the 3 remaining technique-specific rendering phases) is still the planned design below, not
+> "Phase C5 architecture (as shipped)" below for what actually exists; every other phase (C6-C7,
+> the 2 remaining technique-specific rendering phases) is still the planned design below, not
 > built.
 
 ## Why this exists
@@ -177,7 +177,7 @@ facialFeatures/emotionalArc ────┘
 | C2 | Unify Face/Object Priority — `buildReframePlan()` consumes `selectPrimarySubject()` instead of its own `detectFaces()`-only decision — **shipped, no flag** (real behavior change, not opt-in) | `primarySubjectSamples` node (existing) | M | Real behavior change to the production crop path for every future render (unlike Track B's flag-gated phases, this fixes a duplication rather than adding an opt-in) — needs a real before/after render comparison, not just unit tests |
 | C3 | Focus Shift — deliberate transition when the primary subject id changes, instead of continuous drift — **shipped, flag-gated** (`VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED`, off by default, no per-clip toggle) | C2 | S-M | Defining "deliberate" (a faster pan? a hard cut? a brief hold?) without real footage to validate against |
 | C4 | Digital Push — extend Auto Zoom's triggers beyond `EMPHASIS_PATTERN` words to include v4's own "this moment matters" signals — **shipped, flag-gated** (`VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED`, off by default, no per-clip toggle) | C1 | S | Two trigger sources (regex words, v4 signals) firing on overlapping spans needs a real merge rule, not double-triggering |
-| C5 | OCR Highlight — new overlay rendering | C1, OCR Intelligence (existing) | L | Genuinely new rendering mechanism (Tech Debt #5) — needs the same "verify against real ffmpeg" discipline Track B Phase B2 established, and a real design pass for DC5's open question |
+| C5 | OCR Highlight — new overlay rendering — **shipped, flag-gated** (`VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED`, off by default, no per-clip toggle; ASS `\p1` mechanism, real ffmpeg+libass verified) | C1, OCR Intelligence (existing) | L | Genuinely new rendering mechanism (Tech Debt #5) — needs the same "verify against real ffmpeg" discipline Track B Phase B2 established, and a real design pass for DC5's open question |
 | C6 | Reaction Hold — extend shot duration for a detected reaction | C1 | M | Extending duration interacts with the existing cutlist/render timeline math non-trivially — a naive implementation could desync captions/crop from the extended audio |
 | C7 | Pause Hold — protect specific pauses from Smart Trim | C1 | S-M | A wrong "protect this pause" call silently reintroduces dead air Smart Trim was built to remove — needs a conservative default (protect rarely, not liberally) |
 
@@ -673,14 +673,192 @@ moments, not just emphasis words) reads as more impactful or as over-emphasis/ag
 a real viewer - the exact reason this phase ships flag-gated with its own independent flag rather
 than unconditionally alongside the existing Auto Zoom mechanism it extends.
 
+## Phase C5 architecture (as shipped)
+
+**"C5 mechanism" and "C5 position tracking" decisions** (both resolved via `AskUserQuestion` before
+implementation, DC5's own open question finally closed): ASS `\p1` vector-drawing rectangle burn-in
+(reusing the existing `subtitles=` filter pipeline, the SAME mechanism Phase B2 already proved
+against real ffmpeg+libass - explicitly preferred over a new `drawbox` ffmpeg filter to avoid
+introducing a second, unverified drawing mechanism), positioned via a STATIC crop-window snapshot
+taken at the highlight's own `startTime` (never the clip's start - the user's own explicit
+constraint, since using clip-start crop state would only widen drift) and held fixed for the
+highlight's whole visible duration, rather than continuously tracking the crop path's own pan/zoom
+motion (explicitly out of scope - "OCR highlight renderer", not "dynamic geometry synchronization
+between OCR tracks and an animated crop path", its own separate problem with its own sampling-rate/
+interpolation-shape/crop-path-discontinuity questions that need real footage evidence to design
+against, not a guess made here).
+
+```
+packages/contracts/src/reframe.ts
+
+  ocrHighlightBoxSchema NEW  {start, end, x, y, width, height} - a positioned rectangle for ONE
+                              highlight's visible window, in absolute OUTPUT-frame pixel
+                              coordinates, already clamped to the frame. Lives alongside
+                              cropWindowSchema (both are "a positioned rectangle for one instant/
+                              window in output-pixel space") even though PRODUCED by
+                              @speedora/reframe and CONSUMED by @speedora/subtitles - a genuine
+                              cross-package boundary type, same convention every other
+                              contracts/src/*.ts type follows.
+
+packages/reframe/src/ocr-highlight.ts NEW
+
+  computeOcrHighlightBoxes() Transforms each qualifying OCR track's SOURCE-frame-normalized
+                              boundingBox into absolute OUTPUT-frame pixel coordinates: finds the
+                              crop window nearest the track's own startTime (nearestCropWindow(),
+                              a local linear-scan helper, same "local copy, not a shared micro-
+                              package" convention every other nearestByTime()-shaped helper in
+                              this codebase already follows), transforms through it (subtract
+                              crop offset, scale by outputWidth/crop.width and
+                              outputHeight/crop.height), then clamps to the output frame - a
+                              track that falls entirely outside the crop window's own view (e.g.
+                              visible in the wide source shot but cropped out of the 9:16 output)
+                              or clamps down to a degenerate (zero-size) box is skipped entirely,
+                              never producing an invalid/nonsensical rectangle. `cropPath` must be
+                              non-empty - buildCropPath() returning null (a static center-crop)
+                              still means a real, constant crop window exists; the caller supplies
+                              a single-element synthetic path spanning the whole clip in that case,
+                              never an empty array.
+
+packages/visual-emphasis/src/from-ocr-tracks.ts CHANGED
+
+  OCR_HIGHLIGHT_CATEGORIES/  Exported (were module-private) plus a new isOcrHighlightWorthy()
+  MIN_CATEGORY_CONFIDENCE/   helper - Phase C5 reuses the EXACT SAME filter Phase C1's own
+  isOcrHighlightWorthy() NEW fromOcrTracks() already uses to decide which OcrTextTrack entries
+                              qualify, so "which tracks are highlight-worthy" has exactly one
+                              definition, not two independently drifting copies (the suggestion-
+                              timeline one and a hypothetical render-time one).
+
+packages/visual-emphasis/src/feature-flags.ts CHANGED
+
+  isOcrHighlightEnabled() NEW VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED - a SEPARATE, independent flag
+                              from isFocusShiftEnabled()/isDigitalPushEnabled(), same "one flag
+                              per technique, never a shared master flag" reasoning as C3/C4.
+
+packages/subtitles/src/build-ass.ts CHANGED
+
+  buildOcrHighlightEvent() NEW One Dialogue event per highlight box: \an7\pos(x,y) (top-left-
+                              anchored, so the vector path's own `m 0 0` origin lands exactly at
+                              the box's own (x,y)) plus \p1...\p0 vector drawing
+                              (`m 0 0 l W 0 l W H l 0 H l 0 0`) for the rectangle itself. \1a&HFF&
+                              (fully transparent PRIMARY/fill colour) makes the interior
+                              invisible - only the \3c-coloured, \bord-thick OUTLINE renders (an
+                              outline "annotation" box, not a filled rectangle obscuring the video
+                              underneath). Reuses HIGHLIGHT_COLOR (the same yellow already used
+                              for karaoke/bold-highlight emphasis) as the outline colour -
+                              "yellow = emphasis" is already this module's own established visual
+                              language. Emitted on Layer 1 (captions stay Layer 0, the Format's
+                              default) so a highlight box that happens to visually overlap a
+                              caption still shows on top of it.
+
+  buildAss() CHANGED          Gained a new `ocrHighlights` input field (buildAssInputSchema,
+                              packages/contracts/src/subtitles.ts) - defaults to `[]` so every
+                              pre-C5 caller/test produces byte-identical output. CRITICAL
+                              coordinate-frame distinction, documented directly on the schema
+                              field (this codebase's own established caution after Phase A2's real
+                              coordinate-frame bug): `ocrHighlights[].start/end` arrive ALREADY
+                              clip-relative (computeOcrHighlightBoxes() output), UNLIKE `segments`
+                              (which arrive in ABSOLUTE source-video time and get shifted by
+                              `clipStart` internally) - buildAss() clamps ocrHighlights to
+                              [0, duration] but must NEVER apply the same `- clipStart` shift a
+                              second time. Highlight events are merged into the SAME `events` array
+                              as captions (not a separate return path), so a clip with zero
+                              overlapping captions but a real highlight-worthy OCR moment (e.g. a
+                              music-only clip with an on-screen price tag) still gets a real .ass
+                              file written instead of being skipped entirely.
+
+apps/worker/src/workers/render-clip.worker.ts CHANGED
+
+  buildReframePlan() CHANGED  Return type changed from `Promise<ReframeOptions>` to
+                              `Promise<{reframe: ReframeOptions; ocrHighlights: OcrHighlightBox[]}>`
+                              - OCR highlights are a genuinely separate concern from the crop/zoom
+                              plan ffmpeg.ts's renderClip() actually consumes, so they're returned
+                              alongside it rather than bundled INTO ReframeOptions (which would
+                              give renderClip() a field it never uses). Gained a 9th parameter,
+                              `ocrTracks: OcrTextTrack[] | null = null` (graphResult.ocrTracks
+                              itself, always computed regardless of any flag) - filtered by
+                              isOcrHighlightWorthy() and gated by isOcrHighlightEnabled() right
+                              here, same "each technique checks its own flag inside this function"
+                              shape C3/C4 already established. computeOcrHighlightBoxes() is
+                              called in BOTH the null-cropPath branch (static center-crop - a
+                              single-element synthetic crop window built from the static x/y/w/h)
+                              and the real-cropPath branch, so OCR highlights work identically
+                              whether or not the clip also has a moving pan/zoom.
+
+  Call site                buildAss()'s call now passes `ocrHighlights` through (the destructured
+                              second half of buildReframePlan()'s new return value) as a new field.
+                              apps/worker's ffmpeg.ts (renderClip()) needed ZERO changes - the
+                              entire mechanism piggybacks on the ALREADY-EXISTING subtitles=
+                              filter, exactly the reuse-first design DC5 required.
+```
+
+**What did NOT change**: `buildCropPath()`/`interpolateAt()`/`zoomEnvelopeAt()` (Phase C2-C4's own
+math), `ffmpeg.ts`'s `renderClip()` function signature, and every existing ASS Dialogue-line
+construction (karaoke/bold-highlight/speaker-color/dynamic-caption treatment) are all byte-for-byte
+untouched - this phase adds a wholly new, independent Dialogue-line KIND (a drawn rectangle, not
+styled text) on its own Layer, composing alongside everything already there.
+
+**Verification performed** (the acceptance gate the user made explicit for this phase, unlike
+C3/C4 which had no equivalent real-render surface to exercise):
+- `packages/reframe/src/ocr-highlight.spec.ts` (7 new tests): empty crop path -> no boxes; empty
+  track list -> no boxes; a real source-to-output coordinate transform through a static crop
+  window, checked against a hand-computed expected pixel value; the snapshot uses the crop window
+  nearest the highlight's own `startTime` (proven by using a DIFFERENT crop window than clip-start
+  would have produced); multiple tracks -> multiple boxes; a track fully outside the crop window
+  -> skipped; a track partially overlapping the edge -> clamped, not out-of-bounds; a degenerate
+  (zero-size) box -> skipped safely.
+- `packages/subtitles/src/build-ass.spec.ts` (7 new tests, "OCR Highlight (Phase C5)" describe
+  block): empty `ocrHighlights` (default) -> byte-identical to pre-C5 output; a real box produces
+  the exact expected `\p1` rectangle path and `\1a&HFF&` transparent-fill tag; timestamps are used
+  DIRECTLY (not clipStart-shifted, the coordinate-frame regression this test locks in); multiple
+  boxes -> multiple Dialogue lines; a highlight-only clip (no captions) still produces real output;
+  a highlight that clamps to zero/negative duration is dropped; captions and highlights compose in
+  the same file.
+- `render-clip.worker.spec.ts` (4 new tests, "Visual Emphasis Engine Phase C5 - OCR Highlight
+  render wiring" describe block, using REAL - not mocked - `classifyOcrTrack()` classification via
+  `detectOcrTextMock`, same "pure functions left real" convention as
+  `detectFacialEmotion`/`detectFaceLandmarks` elsewhere in this spec file): flag off -> empty
+  tracks array passed to `computeOcrHighlightBoxes()` even with a real qualifying (`price`) track
+  detected; flag on + qualifying track -> the real classified track passed through; flag on +
+  non-qualifying (`subtitle`) track -> empty array; `computeOcrHighlightBoxes()`'s own return
+  value flows through to `buildAss()`'s `ocrHighlights` field unchanged.
+- **Real ffmpeg+libass render** (this phase's explicit acceptance gate): a real `buildAss()` call
+  (one caption line + one highlight box spanning a 5s test clip) run through real `ffmpeg` with a
+  `crop=...,subtitles='...'` filtergraph matching `renderClip()`'s own real shape - zero libass
+  parse errors/warnings, and frame extraction at 4 timestamps visually confirmed: (1) caption only
+  before the highlight starts, (2) the highlight box - a yellow outline, transparent interior, at
+  the expected position and size - with the caption still visible where their windows overlap,
+  (3) the highlight box alone after the caption ends, (4) neither, after the highlight ends too.
+  Confirms the `\p1`/`\an7\pos()`/`\1a`/`\3c`/`\bord` tag combination is genuinely valid ASS that
+  libass renders correctly, not just a plausible-looking string.
+
+`@speedora/reframe`: 47/47 pass (up from 40, +7). `@speedora/subtitles`: 34/34 pass (up from 27,
++7). Full worker suite: 606/606 pass (up from 602, +4). `apps/worker`/`@speedora/contracts`/
+`@speedora/reframe`/`@speedora/visual-emphasis`/`@speedora/subtitles` typecheck, lint, and
+production build all clean; `apps/api` typecheck unaffected (no API surface touched - no new DTO
+field, no new endpoint); `pnpm format:check` clean. One new Prisma-adjacent-but-not-actually-Prisma
+type (`ocrHighlightBoxSchema`, `packages/contracts`) - no migration, since this data is never
+persisted, only computed fresh at render time and burned directly into the `.ass` file.
+
+**What was explicitly NOT done**: continuous crop-path tracking (the "C5 position tracking"
+decision's own explicit scope cut - see above) - a highlight box is anchored to the crop state at
+its own start and CAN visibly drift out of alignment with the source video's own on-screen text if
+the crop path pans/zooms substantially during a long highlight. This is a documented, by-design
+limitation, not an oversight - no real footage was available in this sandbox to judge how often
+that matters in practice, and a future phase (dynamic tracking, if real footage evidence ever
+shows drift is a real problem) would need that evidence to design its own sampling/interpolation
+approach against, not a guess made here.
+
 ## Explicitly deferred / open questions
 
-- **OCR Highlight's exact rendering mechanism** (DC5) — a real design decision for that phase's own
-  pass, not pre-committed here.
-- **Whether any of C3-C7 need their own per-clip opt-in toggle** (mirroring `smartSegmentation`/
+- **Whether any of C6-C7 need their own per-clip opt-in toggle** (mirroring `smartSegmentation`/
   `dynamicCaptions`) or should just be unconditional once shipped, the way Auto Zoom/Auto Crop
   already are — a real product decision each phase should surface explicitly when it's actually
-  designed, not assumed now.
+  designed, not assumed now (C3/C4/C5 all resolved this the same way - flag-gated, off by default,
+  no per-clip toggle - but each phase re-decided it explicitly rather than assuming the precedent).
+- **Continuous OCR highlight position tracking** (a possible future C5.x/C8, per the "C5 position
+  tracking" decision above) — would need real production footage showing the static-snapshot
+  limitation actually matters before designing a sampling/interpolation approach, not a guess made
+  ahead of that evidence.
 - **Video Quality Intelligence** (focus/exposure/noise/compression) — named in
   `docs/ai/composition-intelligence.md` as a separate, not-yet-scoped roadmap; genuinely unrelated
   to Visual Emphasis Engine despite both touching "camera," not folded in here.

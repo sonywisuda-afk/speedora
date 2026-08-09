@@ -207,11 +207,13 @@ const computeCropDimensionsMock = jest.fn();
 const buildCropPathMock = jest.fn();
 const buildSendCmdScriptMock = jest.fn();
 const findEmphasisWordsMock = jest.fn();
+const computeOcrHighlightBoxesMock = jest.fn();
 jest.mock('@speedora/reframe', () => ({
   computeCropDimensions: (...args: unknown[]) => computeCropDimensionsMock(...args),
   buildCropPath: (...args: unknown[]) => buildCropPathMock(...args),
   buildSendCmdScript: (...args: unknown[]) => buildSendCmdScriptMock(...args),
   findEmphasisWords: (...args: unknown[]) => findEmphasisWordsMock(...args),
+  computeOcrHighlightBoxes: (...args: unknown[]) => computeOcrHighlightBoxesMock(...args),
 }));
 
 let scratchCounter = 0;
@@ -677,6 +679,7 @@ describe('render-clip worker', () => {
     cleanupTempFileMock.mockResolvedValue(undefined);
     getVideoDimensionsMock.mockResolvedValue({ width: 320, height: 240 });
     computeCropDimensionsMock.mockReturnValue({ width: 136, height: 240 });
+    computeOcrHighlightBoxesMock.mockReturnValue([]);
     detectSceneCutsMock.mockResolvedValue({ cuts: [] });
     classifySceneCutTypesMock.mockResolvedValue({ events: [] });
     analyzeMotionEnergyMock.mockResolvedValue({ samples: [] });
@@ -1205,6 +1208,7 @@ describe('render-clip worker', () => {
       videoWidth: 136,
       videoHeight: 240,
       fontFamily: 'Inter',
+      ocrHighlights: [],
     });
     expect(writeFileMock).toHaveBeenCalledWith(
       expect.stringContaining('captions'),
@@ -2398,6 +2402,115 @@ describe('render-clip worker', () => {
         undefined,
         [],
         [],
+      );
+    });
+  });
+
+  // Visual Emphasis Engine Phase C5 ("OCR Highlight" - docs/ai/
+  // visual-emphasis-engine.md's "C5 mechanism"/"C5 rollout" decisions:
+  // ASS \p1 burn-in, flag-gated, off by default, own independent flag).
+  // graphResult.ocrTracks' category/categoryConfidence come from the REAL
+  // (un-mocked) classifyOcrTrack() - same "pure functions left real"
+  // convention as detectFacialEmotion/detectFaceLandmarks elsewhere in
+  // this spec file - so these tests drive real classification via
+  // detectOcrTextMock rather than fabricating an already-classified track.
+  describe('Visual Emphasis Engine Phase C5 - OCR Highlight render wiring', () => {
+    // scorePrice() is a clean 1.0 for any isPriceLike match (classify-ocr-
+    // text.ts), comfortably beating every other category's score for a
+    // small, mid-frame block - deterministically classifies as 'price'.
+    const priceOcrSample = [
+      {
+        t: 0,
+        textBlocks: [
+          {
+            text: '$9.99',
+            boundingBox: { xCenter: 0.5, yCenter: 0.5, width: 0.1, height: 0.05 },
+            confidence: 0.9,
+          },
+        ],
+      },
+    ];
+    // Bottom-center, wide, single-frame - unambiguously subtitle-shaped
+    // (same fixture as the existing OCR Batch OCR-2 test above), never a
+    // qualifying category for OCR Highlight.
+    const subtitleOcrSample = [
+      {
+        t: 0,
+        textBlocks: [
+          {
+            text: 'hello world',
+            boundingBox: { xCenter: 0.5, yCenter: 0.85, width: 0.6, height: 0.05 },
+            confidence: 0.92,
+          },
+        ],
+      },
+    ];
+
+    beforeEach(() => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      computeOcrHighlightBoxesMock.mockReturnValue([]);
+    });
+
+    afterEach(() => {
+      delete process.env.VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED;
+    });
+
+    it('passes an empty tracks array to computeOcrHighlightBoxes when the flag is off (default), even with a real qualifying (price) track detected', async () => {
+      detectOcrTextMock.mockResolvedValue(priceOcrSample);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(computeOcrHighlightBoxesMock).toHaveBeenCalledWith(
+        [],
+        expect.any(Array),
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
+      );
+    });
+
+    it('passes the real classified track through when the flag is on and it qualifies (category price, confidence above threshold)', async () => {
+      process.env.VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED = 'true';
+      detectOcrTextMock.mockResolvedValue(priceOcrSample);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      const [tracksArg] = computeOcrHighlightBoxesMock.mock.calls[0];
+      expect(tracksArg).toHaveLength(1);
+      expect(tracksArg[0]).toEqual(expect.objectContaining({ text: '$9.99', category: 'price' }));
+    });
+
+    it('passes an empty tracks array when the flag is on but the only detected track does not qualify (category subtitle)', async () => {
+      process.env.VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED = 'true';
+      detectOcrTextMock.mockResolvedValue(subtitleOcrSample);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(computeOcrHighlightBoxesMock).toHaveBeenCalledWith(
+        [],
+        expect.any(Array),
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
+      );
+    });
+
+    it("passes computeOcrHighlightBoxes' own return value through to buildAss as ocrHighlights", async () => {
+      const highlightBox = { start: 1, end: 3, x: 10, y: 20, width: 40, height: 15 };
+      computeOcrHighlightBoxesMock.mockReturnValue([highlightBox]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildAssMock).toHaveBeenCalledWith(
+        expect.objectContaining({ ocrHighlights: [highlightBox] }),
       );
     });
   });

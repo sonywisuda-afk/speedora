@@ -176,6 +176,22 @@ pre-word-timestamp segments). `BOLD_HIGHLIGHT` uses a keyword heuristic (numbers
 ALL-CAPS, quoted phrases) inline via `{\b1\c...}` override tags — no word-timestamp dependency, so
 it works on any transcript.
 
+**Visual Emphasis Engine Phase C5** ("OCR Highlight", flag-gated behind
+`VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED`, off by default) burns in a highlight box around a
+qualifying on-screen `price`/`name` OCR track (`isOcrHighlightWorthy()`, the same filter Phase C1's
+`ocr_highlight` suggestion timeline already uses) — the first thing this pipeline has ever drawn
+from OCR Intelligence's output (every prior consumer was scoring/analytics-only). Reuses the
+existing `subtitles=` filter pipeline rather than a new ffmpeg mechanism: `@speedora/reframe`'s new
+`computeOcrHighlightBoxes()` transforms each qualifying track's source-frame-normalized
+`boundingBox` into absolute output-frame pixel coordinates via the crop window nearest the
+highlight's own `startTime` (a static snapshot, not continuous pan/zoom tracking — see
+`ai/visual-emphasis-engine.md`'s "Phase C5 architecture" section for the documented drift
+limitation), and `@speedora/subtitles`' new `buildOcrHighlightEvent()` draws it as an ASS `\p1`
+vector-drawing rectangle (transparent fill, coloured outline via `\3c`/`\bord`) at
+`\an7\pos(x,y)`, on its own Layer so it renders above any overlapping caption. Verified against a
+real ffmpeg+libass render (frame extraction, visual inspection) before being trusted here, same
+discipline Phase B2 established for its own new ASS tag territory.
+
 ## B-roll
 
 `@speedora/broll` + an adapter-pattern provider layer (Pexels/Pixabay/Unsplash, tiered:

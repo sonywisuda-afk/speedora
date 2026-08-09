@@ -9,6 +9,8 @@ import type {
   CropDimensions,
   EditingSuggestionTimeline,
   FontFamily,
+  OcrHighlightBox,
+  OcrTextTrack,
   PrimarySubjectSample,
   SpeakerTurn,
   SubtitleLine,
@@ -59,13 +61,19 @@ import {
   buildCropPath,
   buildSendCmdScript,
   computeCropDimensions,
+  computeOcrHighlightBoxes,
   findEmphasisWords,
   type FaceSample,
 } from '@speedora/reframe';
 import { getObjectStream, uploadObject } from '@speedora/storage';
 import { isDynamicCaptionEnabled } from '@speedora/dynamic-caption';
 import { isSubtitleRewriteEnabled } from '@speedora/subtitle-rewriter';
-import { isDigitalPushEnabled, isFocusShiftEnabled } from '@speedora/visual-emphasis';
+import {
+  isDigitalPushEnabled,
+  isFocusShiftEnabled,
+  isOcrHighlightEnabled,
+  isOcrHighlightWorthy,
+} from '@speedora/visual-emphasis';
 import { buildAss } from '@speedora/subtitles';
 import { DEFAULT_THUMBNAIL_WEIGHTS } from '@speedora/thumbnail-selection';
 import { UnrecoverableError, Worker, type Job } from 'bullmq';
@@ -561,7 +569,16 @@ async function buildReframePlan(
   // by default so every pre-C3 caller/test keeps buildCropPath()'s exact
   // prior drift/zoom behavior.
   editingSuggestions: EditingSuggestionTimeline = [],
-): Promise<ReframeOptions> {
+  // Visual Emphasis Engine Phase C5 ("OCR Highlight", docs/ai/
+  // visual-emphasis-engine.md) - graphResult.ocrTracks itself, always
+  // computed regardless of any flag (OCR-2's own render-graph node).
+  // Filtered by isOcrHighlightWorthy() (the SAME filter Phase C1's
+  // fromOcrTracks() already uses for the ocr_highlight suggestion
+  // timeline - one filter definition, not two) and gated by
+  // isOcrHighlightEnabled() right here, same "each technique checks its
+  // own flag inside this function" shape C3/C4 already established.
+  ocrTracks: OcrTextTrack[] | null = null,
+): Promise<{ reframe: ReframeOptions; ocrHighlights: OcrHighlightBox[] }> {
   const emphasisWords = findEmphasisWords(toClipRelativeWords(transcript, startTime));
   // Visual Emphasis Engine Phase C3 ("Focus Shift") - @speedora/reframe
   // stays decoupled from @speedora/visual-emphasis's own EditingSuggestion
@@ -599,8 +616,21 @@ async function buildReframePlan(
     focusShifts,
     digitalPushStarts,
   );
+
+  // Visual Emphasis Engine Phase C5 - qualifying tracks (same
+  // isOcrHighlightWorthy() filter Phase C1's own suggestion timeline
+  // uses), computed regardless of which crop-path branch below runs.
+  // computeOcrHighlightBoxes() needs a real (non-empty) crop WINDOW to
+  // anchor a position to - buildCropPath() returning null means a
+  // STATIC center-crop was used for the whole clip, still a real,
+  // constant crop window for this function's purposes (a single-element
+  // synthetic path spanning the whole clip), not "no crop at all".
+  const ocrHighlightTracks = isOcrHighlightEnabled()
+    ? (ocrTracks ?? []).filter(isOcrHighlightWorthy)
+    : [];
+
   if (!cropPath) {
-    return {
+    const staticReframe: ReframeOptions = {
       outputWidth: crop.width,
       outputHeight: crop.height,
       width: crop.width,
@@ -609,11 +639,28 @@ async function buildReframePlan(
       y: Math.round((sourceHeight - crop.height) / 2),
       sendCmdPath: null,
     };
+    const ocrHighlights = computeOcrHighlightBoxes(
+      ocrHighlightTracks,
+      [
+        {
+          t: 0,
+          x: staticReframe.x,
+          y: staticReframe.y,
+          width: staticReframe.width,
+          height: staticReframe.height,
+        },
+      ],
+      sourceWidth,
+      sourceHeight,
+      staticReframe.outputWidth,
+      staticReframe.outputHeight,
+    );
+    return { reframe: staticReframe, ocrHighlights };
   }
 
   const sendCmdPath = await reserveScratchPath('reframe-cmds', '.txt');
   await writeFile(sendCmdPath, buildSendCmdScript(cropPath, 'crop@reframe'));
-  return {
+  const reframe: ReframeOptions = {
     outputWidth: crop.width,
     outputHeight: crop.height,
     width: cropPath[0].width,
@@ -622,6 +669,15 @@ async function buildReframePlan(
     y: cropPath[0].y,
     sendCmdPath,
   };
+  const ocrHighlights = computeOcrHighlightBoxes(
+    ocrHighlightTracks,
+    cropPath,
+    sourceWidth,
+    sourceHeight,
+    reframe.outputWidth,
+    reframe.outputHeight,
+  );
+  return { reframe, ocrHighlights };
 }
 
 // Fase 15 (Auto B-roll) - finds up to a couple of keyword moments in this
@@ -939,18 +995,20 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // second, disconnected face detector call - see buildReframePlan()'s
             // own comment for the full "before/after" story.
             //
-            // Phase C3 ("Focus Shift")/Phase C4 ("Digital Push") -
-            // graphResult.editingSuggestions is ALWAYS computed (Phase C1's
-            // own render-graph node, optional: false), regardless of
-            // VISUAL_EMPHASIS_ENABLED (that flag gates GET /clips/:id/
-            // intelligence's exposure only). Passed through UNFILTERED and
-            // UNCONDITIONALLY here - buildReframePlan() itself checks each
-            // technique's own flag (isFocusShiftEnabled()/
-            // isDigitalPushEnabled()) before acting on that technique's
-            // entries (docs/ai/visual-emphasis-engine.md's "C4 rollout"
-            // note: one flag per technique, never a shared master flag, so
-            // each can be calibrated independently in production).
-            const reframe = await buildReframePlan(
+            // Phase C3 ("Focus Shift")/Phase C4 ("Digital Push")/Phase C5
+            // ("OCR Highlight") - graphResult.editingSuggestions/ocrTracks
+            // are ALWAYS computed (Phase C1/OCR-2's own render-graph nodes,
+            // optional: false), regardless of any Visual Emphasis Engine
+            // flag (those flags gate GET /clips/:id/intelligence's
+            // exposure and/or Ops surfaces only). Passed through UNFILTERED
+            // and UNCONDITIONALLY here - buildReframePlan() itself checks
+            // each technique's own flag (isFocusShiftEnabled()/
+            // isDigitalPushEnabled()/isOcrHighlightEnabled()) before acting
+            // on that technique's entries (docs/ai/visual-emphasis-engine.md's
+            // "C4 rollout" note: one flag per technique, never a shared
+            // master flag, so each can be calibrated independently in
+            // production).
+            const { reframe, ocrHighlights } = await buildReframePlan(
               graphResult.primarySubjectSamples,
               transcript,
               startTime,
@@ -960,6 +1018,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               endTime - startTime,
               resolveZoomInFraction(processingOptions),
               graphResult.editingSuggestions,
+              graphResult.ocrTracks,
             );
             sendCmdPath = reframe.sendCmdPath;
 
@@ -1093,6 +1152,14 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               // above - fontFamily is re-validated against the same
               // FONT_FAMILIES list inside buildAss() regardless.
               fontFamily: (fontFamily ?? 'Inter') as FontFamily,
+              // Visual Emphasis Engine Phase C5 ("OCR Highlight") -
+              // buildReframePlan()'s own computeOcrHighlightBoxes() output,
+              // already clip-relative and already in absolute OUTPUT-frame
+              // pixel coordinates - buildAss() must NOT re-shift these by
+              // clipStart (see buildAssInputSchema's own field comment).
+              // Empty array (isOcrHighlightEnabled() off, the default)
+              // reproduces buildAss()'s exact pre-C5 output byte-for-byte.
+              ocrHighlights,
             });
             if (assContent.length > 0) {
               subtitlesPath = await reserveScratchPath('captions', '.ass');

@@ -66,6 +66,17 @@ annotate `ocrTracks` (predicted category vs. actual category) fast enough to eve
 the 100–300-video / 3,000–10,000-region dataset OCR-2.5's tooling is built to evaluate. Export
 format matches `ocrLabeledTrackSchema` exactly, feeding straight into `pnpm evaluate:ocr`.
 
+## OCR Highlight (Visual Emphasis Engine Phase C5)
+
+Until this phase, every consumer of `ocrTracks` was scoring/analytics-only (the Fusion Engine, Phase
+C1's `ocr_highlight` suggestion timeline). Phase C5 (`docs/ai/visual-emphasis-engine.md`) is the
+first to actually draw something on screen from it — a burned-in highlight box (ASS `\p1` vector
+rectangle, reusing the existing `subtitles=` filter pipeline, real ffmpeg+libass verified) around a
+qualifying `price`/`name` track. Flag-gated behind `VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED`, off by
+default. See that doc's "Phase C5 architecture (as shipped)" section for the coordinate-transform
+design (a static crop-window snapshot at the highlight's own start, not continuous pan/zoom
+tracking) and its documented drift limitation.
+
 ## Deferred
 
 - **OCR-3** — integrate a general object detector (`nearObject`, `objectClass`, text-object

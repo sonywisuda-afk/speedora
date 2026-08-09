@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ocrHighlightBoxSchema } from './reframe';
 import { transcriptWordSchema } from './transcript-word';
 
 // Mirrors CaptionStyle in packages/shared (which itself mirrors
@@ -134,6 +135,16 @@ export const buildAssInputSchema = z.object({
   // build-ass.ts's own comment) for a clip whose Brand Kit has no font
   // choice set yet.
   fontFamily: fontFamilySchema.default(DEFAULT_FONT_FAMILY),
+  // Visual Emphasis Engine Phase C5 ("OCR Highlight", docs/ai/
+  // visual-emphasis-engine.md) - already CLIP-RELATIVE and already in
+  // absolute OUTPUT-frame pixel coordinates (see @speedora/reframe's
+  // computeOcrHighlightBoxes()), UNLIKE `segments` above (which arrive in
+  // ABSOLUTE source-video time and get shifted by `clipStart` internally).
+  // buildAss() must NOT re-shift these - they're already on the same
+  // clip-relative timeline `segments` end up on AFTER that shift. Defaults
+  // to empty (no highlights) so every pre-C5 caller/test produces byte-
+  // identical output.
+  ocrHighlights: z.array(ocrHighlightBoxSchema).default([]),
 });
 
 export type CaptionStyleValue = z.infer<typeof captionStyleSchema>;

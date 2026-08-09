@@ -9,6 +9,7 @@ const baseOptions = {
   videoHeight: 240,
   speakerColorCaptions: false,
   fontFamily: 'Inter' as const,
+  ocrHighlights: [],
 };
 
 describe('buildAss', () => {
@@ -285,5 +286,79 @@ describe('buildAss', () => {
   it('rejects an input that fails the buildAssInputSchema contract', () => {
     const segments: SubtitleSegment[] = [{ start: 10, end: 12, text: 'hi' }];
     expect(() => buildAss({ ...baseOptions, segments, style: 'COMIC_SANS' as never })).toThrow();
+  });
+
+  // Visual Emphasis Engine Phase C5 ("OCR Highlight" - see docs/ai/
+  // visual-emphasis-engine.md). Verified against a real ffmpeg+libass
+  // render separately (this phase's own acceptance gate, per the "C5
+  // mechanism" decision) - these are the unit-level assertions on the ASS
+  // text itself, same split Phase B2 already established.
+  describe('OCR Highlight (Phase C5)', () => {
+    const box = { start: 2, end: 4, x: 10, y: 20, width: 100, height: 50 };
+
+    it('produces exactly no output change when ocrHighlights is empty (default) - byte-identical to pre-C5 behavior', () => {
+      const segments: SubtitleSegment[] = [{ start: 10, end: 12, text: 'hi' }];
+      const withEmpty = buildAss({ ...baseOptions, segments, ocrHighlights: [] });
+      const withoutField = buildAss({ ...baseOptions, segments });
+
+      expect(withEmpty).toBe(withoutField);
+    });
+
+    it("draws a \\p1 rectangle outline at the box's own absolute position, on Layer 1", () => {
+      const ass = buildAss({ ...baseOptions, segments: [], ocrHighlights: [box] });
+
+      expect(ass).toContain('Dialogue: 1,');
+      expect(ass).toContain('\\an7\\pos(10,20)');
+      expect(ass).toContain('\\p1}m 0 0 l 100 0 l 100 50 l 0 50 l 0 0{\\p0}');
+      // Fill is fully transparent (outline-only box) - never a filled
+      // rectangle obscuring the video underneath.
+      expect(ass).toContain('\\1a&HFF&');
+    });
+
+    it("uses the box's own start/end timestamps directly, WITHOUT the clipStart shift segments get", () => {
+      // clipStart is 10 (baseOptions) - a caption segment starting at
+      // absolute time 12 shifts to clip-relative 2; ocrHighlights.start is
+      // ALREADY clip-relative (2 here) and must NOT be shifted a second
+      // time (would land at -8, clamped to 0 - a real, silently-wrong bug
+      // class this codebase has hit before, see Phase A2's own coordinate-
+      // frame fix).
+      const ass = buildAss({ ...baseOptions, segments: [], ocrHighlights: [box] });
+
+      // toAssTimestamp(2) = 0:00:02.00, toAssTimestamp(4) = 0:00:04.00.
+      expect(ass).toContain('Dialogue: 1,0:00:02.00,0:00:04.00,Default,,0,0,0,,');
+    });
+
+    it('emits one Dialogue line per box for multiple highlights', () => {
+      const secondBox = { start: 5, end: 6, x: 30, y: 40, width: 60, height: 20 };
+      const ass = buildAss({ ...baseOptions, segments: [], ocrHighlights: [box, secondBox] });
+
+      expect(ass.match(/Dialogue: 1,/g)).toHaveLength(2);
+      expect(ass).toContain('\\pos(10,20)');
+      expect(ass).toContain('\\pos(30,40)');
+    });
+
+    it('still produces a real, non-empty .ass file for a clip with zero overlapping captions but a real highlight', () => {
+      const ass = buildAss({ ...baseOptions, segments: [], ocrHighlights: [box] });
+
+      expect(ass.length).toBeGreaterThan(0);
+      expect(ass).toContain('[Events]');
+    });
+
+    it('drops a highlight that clamps to zero/negative duration, same as a caption segment would', () => {
+      // clipEnd - clipStart = 10 (baseOptions: 10 to 20) - a highlight
+      // starting at or after that duration has nothing left to show.
+      const outOfRangeBox = { ...box, start: 15, end: 20 };
+      const ass = buildAss({ ...baseOptions, segments: [], ocrHighlights: [outOfRangeBox] });
+
+      expect(ass).toBe('');
+    });
+
+    it('composes with caption segments in the same file - both appear', () => {
+      const segments: SubtitleSegment[] = [{ start: 10, end: 12, text: 'hi' }];
+      const ass = buildAss({ ...baseOptions, segments, ocrHighlights: [box] });
+
+      expect(ass).toContain('Dialogue: 0,'); // the caption
+      expect(ass).toContain('Dialogue: 1,'); // the highlight
+    });
   });
 });
