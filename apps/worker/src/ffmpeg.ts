@@ -1126,3 +1126,146 @@ export async function concatBrandSegment(
 
   await execFfmpegAtomically(() => args, outputPath, RENDER_TIMEOUT_MS);
 }
+
+// Visual Emphasis Engine Phase C6R.2 ("Reaction Hold Temporal Extension" -
+// see docs/ai/visual-emphasis-engine.md's "C6R design" section). Freezes a
+// single video frame (mid-stream trim + tpad clone, the standard ffmpeg
+// freeze-frame technique) at each hold instant, while replacing that same
+// span of audio with silence (a synthesized anullsrc input - same pattern
+// concatBrandSegment() above already established for audio this pipeline
+// needs to fabricate rather than take from a real source, including reuse
+// of its own BRAND_SEGMENT_AUDIO_SAMPLE_RATE/CHANNEL_LAYOUT constants, so
+// the real audio segments and the synthesized silence always match
+// exactly - no new normalization standard invented here). Deliberately
+// NEVER a held/repeated audio SAMPLE (risks broken-syllable/noise-loop
+// artifacts) and NEVER continued audio underneath a frozen frame (would
+// diverge video/audio, needing its own resync point) - both resolved via
+// AskUserQuestion before this function was written, see the design doc's
+// "C6R design" section for the full reasoning. Both streams grow by
+// EXACTLY the same duration (`holdDurationSeconds`) at EXACTLY the same
+// point - the stated invariant this whole sub-phase exists to guarantee:
+// "C6R must never leave the final output with an A/V timestamp offset."
+//
+// Duration is bounded via trim=/atrim= FILTERS inside the filter graph,
+// never a bare -t CLI flag - same reasoning concatBrandSegment()'s own
+// comment already documents (a bare -t silently rebinds onto whichever
+// -i comes next once more than one input exists, exactly the argument-
+// binding bug this codebase has been bitten by before).
+const REACTION_HOLD_EXTENSION_SECONDS = 0.5;
+// A short technical epsilon, not itself part of the requested hold
+// duration - just long enough that the trimmed slice tpad clones from
+// contains at least one real frame regardless of the source's own frame
+// rate (tpad clones whichever frame ends up last in the slice, so exact
+// frame-boundary precision isn't required - grabbing one frame or a
+// couple is visually indistinguishable once frozen). Subtracted back out
+// of tpad's own stop_duration below so the TOTAL inserted time is exactly
+// `holdDurationSeconds`, never `holdDurationSeconds + this`.
+const REACTION_HOLD_FREEZE_SLICE_SECONDS = 0.05;
+
+function round3(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+
+// `holdInstants` are timestamps on the FINAL timeline this function
+// itself operates on - already post-cut, already remapped (see
+// @speedora/cutlist's remapTimestamp(), Phase C6R.1). This function has
+// no notion of cuts or remapping itself, only "freeze here, for this
+// long" - keeping this function's own scope to the ffmpeg mechanism
+// alone, same "each phase owns one concern" discipline as every other
+// Visual Emphasis Engine phase. Callers must pass a sorted-ascending,
+// non-overlapping, well-inside-the-clip list (resolving overlapping
+// reaction windows into one merged window, and clamping instants too
+// close to the clip's own start/end, are C6R.3's job - reusing
+// mergeCutRanges()'s own shape and fromEmotionalPeaks()'s own existing
+// clamp respectively, per the design doc - not reimplemented here).
+// Throws (rather than silently no-op-ing) for an empty `holdInstants` -
+// the caller's job is to skip calling this at all when there's nothing
+// to hold, the same "skip entirely when there's nothing to do" convention
+// trimCutRanges()'s own caller already follows for cuts.
+export async function applyReactionHolds(
+  inputPath: string,
+  outputPath: string,
+  holdInstants: number[],
+  holdDurationSeconds: number = REACTION_HOLD_EXTENSION_SECONDS,
+): Promise<void> {
+  if (holdInstants.length === 0) {
+    throw new Error(
+      'applyReactionHolds() called with no hold instants - the caller should skip calling this entirely when there is nothing to hold.',
+    );
+  }
+
+  const padDuration = round3(Math.max(0, holdDurationSeconds - REACTION_HOLD_FREEZE_SLICE_SECONDS));
+
+  const videoParts: string[] = [];
+  const audioParts: string[] = [];
+  const silenceInputArgs: string[] = [];
+  let cursor = 0;
+
+  holdInstants.forEach((t, i) => {
+    const freezeEnd = round3(t + REACTION_HOLD_FREEZE_SLICE_SECONDS);
+    videoParts.push(`[0:v]trim=start=${cursor}:end=${t},setpts=PTS-STARTPTS[v${i}pre]`);
+    videoParts.push(
+      `[0:v]trim=start=${t}:end=${freezeEnd},setpts=PTS-STARTPTS,` +
+        `tpad=stop_mode=clone:stop_duration=${padDuration}[v${i}hold]`,
+    );
+    audioParts.push(
+      `[0:a]atrim=start=${cursor}:end=${t},asetpts=PTS-STARTPTS,` +
+        `aformat=sample_rates=${BRAND_SEGMENT_AUDIO_SAMPLE_RATE}:` +
+        `channel_layouts=${BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT}[a${i}pre]`,
+    );
+    // Input index 0 is the main clip; 1..N are one anullsrc lavfi input
+    // per hold - simpler than fanning a single lavfi source out via
+    // asplit for what is, in practice, a handful of holds per clip.
+    silenceInputArgs.push(
+      '-f',
+      'lavfi',
+      '-i',
+      `anullsrc=sample_rate=${BRAND_SEGMENT_AUDIO_SAMPLE_RATE}:` +
+        `channel_layout=${BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT}`,
+    );
+    audioParts.push(`[${i + 1}:a]atrim=duration=${holdDurationSeconds}[a${i}hold]`);
+    cursor = freezeEnd;
+  });
+
+  const finalIndex = holdInstants.length;
+  videoParts.push(`[0:v]trim=start=${cursor},setpts=PTS-STARTPTS[v${finalIndex}post]`);
+  audioParts.push(
+    `[0:a]atrim=start=${cursor},asetpts=PTS-STARTPTS,` +
+      `aformat=sample_rates=${BRAND_SEGMENT_AUDIO_SAMPLE_RATE}:` +
+      `channel_layouts=${BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT}[a${finalIndex}post]`,
+  );
+
+  const videoLabels =
+    holdInstants.flatMap((_, i) => [`[v${i}pre]`, `[v${i}hold]`]).join('') + `[v${finalIndex}post]`;
+  const audioLabels =
+    holdInstants.flatMap((_, i) => [`[a${i}pre]`, `[a${i}hold]`]).join('') + `[a${finalIndex}post]`;
+  const segmentCount = holdInstants.length * 2 + 1;
+
+  const filterComplex = [
+    ...videoParts,
+    ...audioParts,
+    `${videoLabels}concat=n=${segmentCount}:v=1:a=0[outv]`,
+    `${audioLabels}concat=n=${segmentCount}:v=0:a=1[outa]`,
+  ].join(';');
+
+  const args = [
+    '-y',
+    '-i',
+    inputPath,
+    ...silenceInputArgs,
+    '-filter_complex',
+    filterComplex,
+    '-map',
+    '[outv]',
+    '-map',
+    '[outa]',
+    '-c:v',
+    'libx264',
+    '-c:a',
+    'aac',
+    '-movflags',
+    '+faststart',
+  ];
+
+  await execFfmpegAtomically(() => args, outputPath, RENDER_TIMEOUT_MS);
+}

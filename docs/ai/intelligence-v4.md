@@ -201,8 +201,19 @@
   `start` always falls inside its own range by `remapTimestamp()`'s own definition, so it would
   return `null` for every cut, not the junction position `computeCutJunctionTimestamps()` actually
   needs) - caught before it shipped as a subtly wrong DRY cleanup, not after. No ffmpeg/worker/flag
-  changes at all - `remapTimestamp()` has no caller anywhere yet, C6R.3's job. C6R.2/C6R.3 remain
-  design only.
+  changes at all - `remapTimestamp()` has no caller anywhere yet, C6R.3's job. **C6R.2 is now
+  shipped too**: `apps/worker/src/ffmpeg.ts`'s new `applyReactionHolds()` freezes one video frame
+  (mid-stream `trim`+`tpad` clone) and replaces that same span of audio with synthesized silence
+  (a per-hold `anullsrc` lavfi input, reusing `concatBrandSegment()`'s own fixed sample-rate/
+  channel-layout constants rather than inventing a second normalization standard) at each hold
+  instant, extending both streams by exactly the same duration at exactly the same point via a
+  generalized N-hold `trim`/`atrim`/`tpad`/`concat` filter-complex. Verified against this sandbox's
+  real ffmpeg 8.1.2 - the acceptance gate the C6R design explicitly required before this sub-phase
+  could ship - confirming duration extension, genuine near-silence inside the hold window (measured
+  via `volumedetect`), A/V sync, and multi-hold/boundary-instant behavior, plus a companion mocked
+  exact-args suite proving the function builds the filter graph it intends to. `applyReactionHolds()`
+  has no caller anywhere yet either - C6R.3's job, still locked pending its own go-ahead. C6R.3
+  remains design only.
 
 ## Why this exists
 
@@ -521,7 +532,7 @@ without a literal file move. `vocalEmotion.ts` itself is untouched.
 | A2 | Wire Subtitle Rewriter into `buildAss()` (7) — **shipped, flag-off** (`Clip.smartSegmentation`) | A1 | M | First phase touching the production render path — karaoke word-sync must survive re-chunking |
 | B1 | Dynamic Caption Engine, data only (8) — **shipped, flag-off** (`DYNAMIC_CAPTION_ENABLED=false`) | A1, Phase 5 | S-M | "Don't overuse animation" needs an explicit documented cooldown heuristic |
 | B2 | Wire Dynamic Caption treatment into `build-ass.ts`'s ASS emission (8) — **shipped, flag-off** (`Clip.dynamicCaptions`) | B1, A2 | L | New `\fscx`/`\fscy`/`\t` ASS tag territory — verified against real ffmpeg+libass, including a visual frame-extraction check |
-| C | Visual Emphasis Engine (9) — **C1 shipped, flag-off** (`Clip.editingSuggestions`), **C2 shipped, no flag** (real behavior change), **C3 shipped, flag-off** (`VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED`), **C4 shipped, flag-off** (`VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED`), **C5 shipped, flag-off** (`VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED`, real ffmpeg+libass verified), **C7 shipped, flag-off** (`VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED`, implemented before C6), **C6 design complete (renamed C6R) - C6R.1 shipped, C6R.2/C6R.3 not yet built**, see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md) | none — signals already exist | M (per original estimate; the real spec text splits into 7 sub-phases, S-L each) | Unify `reframe`'s own face detector with `primary-subject`'s choice, don't layer a second opinion (Phase C2, shipped) |
+| C | Visual Emphasis Engine (9) — **C1 shipped, flag-off** (`Clip.editingSuggestions`), **C2 shipped, no flag** (real behavior change), **C3 shipped, flag-off** (`VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED`), **C4 shipped, flag-off** (`VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED`), **C5 shipped, flag-off** (`VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED`, real ffmpeg+libass verified), **C7 shipped, flag-off** (`VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED`, implemented before C6), **C6 design complete (renamed C6R) - C6R.1/C6R.2 shipped (temporal-remapping primitive + real-ffmpeg-verified freeze/silence mechanism), C6R.3 (wiring) not yet built**, see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md) | none — signals already exist | M (per original estimate; the real spec text splits into 7 sub-phases, S-L each) | Unify `reframe`'s own face detector with `primary-subject`'s choice, don't layer a second opinion (Phase C2, shipped) |
 
 **Update (2026-08-08)**: resolved a real product-shape ambiguity in Part 7's "rewrite subtitle" via
 `AskUserQuestion` before any code was written (same "ask, don't guess" precedent as v2.1's Practical
