@@ -193,7 +193,16 @@
   point, a stated invariant ("C6R must never leave the final output with an A/V timestamp offset").
   Split into C6R.1 (the remapping primitive) → C6R.2 (the freeze+silence ffmpeg mechanism, its own
   real-ffmpeg verification gate) → C6R.3 (wiring, flag-gated `VISUAL_EMPHASIS_REACTION_HOLD_ENABLED`)
-  - each still needing its own explicit go-ahead before implementation starts.
+  - each still needing its own explicit go-ahead before implementation starts. **C6R.1 is now
+  shipped**: `@speedora/cutlist`'s new `remapTimestamp()` maps any original clip-relative instant
+  onto its post-cut position, `null` when that instant was cut away entirely. Deliberately did NOT
+  refactor `computeCutJunctionTimestamps()` to reuse it, despite the surface similarity planned in
+  the original design - a real semantic mismatch surfaced while writing that refactor (a cut's own
+  `start` always falls inside its own range by `remapTimestamp()`'s own definition, so it would
+  return `null` for every cut, not the junction position `computeCutJunctionTimestamps()` actually
+  needs) - caught before it shipped as a subtly wrong DRY cleanup, not after. No ffmpeg/worker/flag
+  changes at all - `remapTimestamp()` has no caller anywhere yet, C6R.3's job. C6R.2/C6R.3 remain
+  design only.
 
 ## Why this exists
 
@@ -512,7 +521,7 @@ without a literal file move. `vocalEmotion.ts` itself is untouched.
 | A2 | Wire Subtitle Rewriter into `buildAss()` (7) — **shipped, flag-off** (`Clip.smartSegmentation`) | A1 | M | First phase touching the production render path — karaoke word-sync must survive re-chunking |
 | B1 | Dynamic Caption Engine, data only (8) — **shipped, flag-off** (`DYNAMIC_CAPTION_ENABLED=false`) | A1, Phase 5 | S-M | "Don't overuse animation" needs an explicit documented cooldown heuristic |
 | B2 | Wire Dynamic Caption treatment into `build-ass.ts`'s ASS emission (8) — **shipped, flag-off** (`Clip.dynamicCaptions`) | B1, A2 | L | New `\fscx`/`\fscy`/`\t` ASS tag territory — verified against real ffmpeg+libass, including a visual frame-extraction check |
-| C | Visual Emphasis Engine (9) — **C1 shipped, flag-off** (`Clip.editingSuggestions`), **C2 shipped, no flag** (real behavior change), **C3 shipped, flag-off** (`VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED`), **C4 shipped, flag-off** (`VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED`), **C5 shipped, flag-off** (`VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED`, real ffmpeg+libass verified), **C7 shipped, flag-off** (`VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED`, implemented before C6), **C6 design complete (renamed C6R), zero code yet** - split into C6R.1/C6R.2/C6R.3, see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md) | none — signals already exist | M (per original estimate; the real spec text splits into 7 sub-phases, S-L each) | Unify `reframe`'s own face detector with `primary-subject`'s choice, don't layer a second opinion (Phase C2, shipped) |
+| C | Visual Emphasis Engine (9) — **C1 shipped, flag-off** (`Clip.editingSuggestions`), **C2 shipped, no flag** (real behavior change), **C3 shipped, flag-off** (`VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED`), **C4 shipped, flag-off** (`VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED`), **C5 shipped, flag-off** (`VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED`, real ffmpeg+libass verified), **C7 shipped, flag-off** (`VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED`, implemented before C6), **C6 design complete (renamed C6R) - C6R.1 shipped, C6R.2/C6R.3 not yet built**, see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md) | none — signals already exist | M (per original estimate; the real spec text splits into 7 sub-phases, S-L each) | Unify `reframe`'s own face detector with `primary-subject`'s choice, don't layer a second opinion (Phase C2, shipped) |
 
 **Update (2026-08-08)**: resolved a real product-shape ambiguity in Part 7's "rewrite subtitle" via
 `AskUserQuestion` before any code was written (same "ask, don't guess" precedent as v2.1's Practical

@@ -136,6 +136,48 @@ export function totalCutSeconds(cuts: CutRange[]): number {
   return cuts.reduce((sum, cut) => sum + (cut.end - cut.start), 0);
 }
 
+// Visual Emphasis Engine Phase C6R.1 ("Reaction Hold Temporal Extension" -
+// see docs/ai/visual-emphasis-engine.md's "C6R design" section) - the
+// reusable temporal-remapping primitive that section called for,
+// generalizing computeCutJunctionTimestamps() below from "map a cut's own
+// start" to "map ANY original clip-relative instant onto its position on
+// the POST-CUT timeline" (the timeline trimCutRanges()'s own
+// select/aselect + setpts/asetpts filters actually produce). Returns
+// `null` when `t` itself falls inside a cut range - that content was
+// removed entirely, so there's no surviving position to map it to; it's
+// the CALLER's job to decide what "no surviving position" means for its
+// own use case (C6R.3's reaction-hold wiring skips that hold entirely
+// rather than fabricating a nearby position, the same "protect rarely,
+// don't guess" conservatism protectPauseHolds() above already
+// established). Order-independent - each cut is checked against `t`
+// independently, not via a cumulative left-to-right walk - so `cuts`
+// need not be pre-sorted, only non-overlapping (mergeCutRanges()'s own
+// guarantee; overlapping input would double-count).
+//
+// Deliberately NOT used to reimplement computeCutJunctionTimestamps()
+// below, despite the surface-level similarity - a cut's own `start` is,
+// by this function's own definition, INSIDE that same cut's range
+// (`t >= cut.start && t < cut.end`), so `remapTimestamp(cut.start, cuts)`
+// would return `null` for every cut, not the junction position
+// computeCutJunctionTimestamps() actually wants (the boundary position
+// right as a cut BEGINS, counting only EARLIER cuts' already-removed
+// time - a different, narrower question than "does this timestamp
+// survive at all"). Two related but genuinely different questions, kept
+// as two functions rather than forcing a shared implementation that
+// would silently get one of them wrong.
+export function remapTimestamp(t: number, cuts: CutRange[]): number | null {
+  let removedBefore = 0;
+  for (const cut of cuts) {
+    if (t >= cut.start && t < cut.end) {
+      return null;
+    }
+    if (cut.end <= t) {
+      removedBefore += cut.end - cut.start;
+    }
+  }
+  return round3(t - removedBefore);
+}
+
 // Fase 14 (Smart Transitions) - where each cut (already merged/sorted by
 // mergeCutRanges) lands on the OUTPUT timeline, i.e. after setpts/asetpts
 // have compressed every earlier cut out of the timeline. This is exactly

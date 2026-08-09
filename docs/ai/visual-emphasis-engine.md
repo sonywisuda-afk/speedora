@@ -1,16 +1,15 @@
 # Visual Emphasis Engine (spec Part 9, AI Intelligence v4 Track B Phase C)
 
-> **Status: Phases C1-C5 and C7 shipped. Phase C6 (Reaction Hold) has a complete redesign
-> (renamed C6R - "Reaction Hold Temporal Extension" - once its own architecture became clear) but
-> zero code yet - deliberately done OUT OF ORDER, C7 before C6, a real decision recorded in the
-> "C7 rollout"/"C6R design" sections below.** This doc is the audit + ADR + dependency graph +
-> phased roadmap requested before any implementation starts, same discipline as
+> **Status: Phases C1-C5 and C7 shipped. Phase C6 (Reaction Hold, renamed C6R - "Reaction Hold
+> Temporal Extension") is split into 3 sub-phases per its own dedicated redesign - C6R.1 shipped,
+> C6R.2/C6R.3 remain design only - deliberately done OUT OF ORDER, C7 before C6, a real decision
+> recorded in the "C7 rollout"/"C6R design" sections below.** This doc is the audit + ADR +
+> dependency graph + phased roadmap requested before any implementation starts, same discipline as
 > [`ai/subtitle-intelligence.md`](./subtitle-intelligence.md) (Track B Phase A/B, now complete) —
 > see that doc for the precedent this one follows. See "Phase C1 architecture (as shipped)" through
-> "Phase C5 architecture (as shipped)" and "Phase C7 architecture (as shipped)" below for what
-> actually exists; "C6R design" is a full audit/ADR/sub-roadmap for the one phase in this initiative
-> not yet built, resolved via `AskUserQuestion` before any code - its own C6R.1-C6R.3 sub-phases
-> each still need their own explicit go-ahead.
+> "Phase C5 architecture (as shipped)", "Phase C7 architecture (as shipped)", and "C6R.1
+> architecture (as shipped)" below for what actually exists; C6R.2/C6R.3 each still need their own
+> explicit go-ahead before implementation.
 
 ## Why this exists
 
@@ -852,7 +851,7 @@ that matters in practice, and a future phase (dynamic tracking, if real footage 
 shows drift is a real problem) would need that evidence to design its own sampling/interpolation
 approach against, not a guess made here.
 
-## C6R design (Reaction Hold Temporal Extension) — redesign complete, not yet built
+## C6R design (Reaction Hold Temporal Extension) — C6R.1 shipped, C6R.2/C6R.3 not yet built
 
 Before starting C6, its own risk note ("extending duration interacts with the existing cutlist/
 render timeline math non-trivially") was reconsidered against C7's actual shape (see "C7 rollout"
@@ -862,9 +861,10 @@ set, or an editing DECISION, but never the clip's own temporal coordinate system
 "extending a shot's on-screen duration" (freeze-frame or slow-motion) would shift every downstream
 timestamp - the first phase in this initiative that would need to. Per explicit user direction -
 "Jangan mengubah timeline duration tanpa terlebih dahulu memiliki explicit temporal-remapping
-layer" - this section is that redesign pass, done before any C6R code. **Status: design complete,
-resolved via `AskUserQuestion` + follow-up review, nothing implemented yet** - see the C6R.1-C6R.3
-sub-roadmap at the end for what's next.
+layer" - this section is that redesign pass, done before any C6R code. **Status: design complete
+(resolved via `AskUserQuestion` + follow-up review); C6R.1 (the temporal-remapping primitive)
+shipped, C6R.2/C6R.3 remain design only** - see the C6R.1-C6R.3 sub-roadmap at the end for what's
+next.
 
 ### The key architectural finding: a THIRD pass, after cuts, needs zero remapping of anything
 
@@ -993,9 +993,51 @@ resume original A/V
 
 | Sub-phase | Deliverable | Depends on | Complexity | Primary risk |
 |---|---|---|---|---|
-| C6R.1 | `remapTimestamp()` in `@speedora/cutlist`, fully unit-tested pure function (including the `null`-for-cut-away-instant case); `computeCutJunctionTimestamps()` refactored to reuse it | none - pure function over existing `CutRange[]` | S | Low - same shape as `protectPauseHolds()`'s own exact/pure-function design |
+| C6R.1 | `remapTimestamp()` in `@speedora/cutlist`, fully unit-tested pure function (including the `null`-for-cut-away-instant case) — **shipped** (see "C6R.1 architecture (as shipped)" below; `computeCutJunctionTimestamps()` deliberately NOT refactored to reuse it once a real semantic mismatch surfaced) | none - pure function over existing `CutRange[]` | S | Low - same shape as `protectPauseHolds()`'s own exact/pure-function design |
 | C6R.2 | The freeze-frame + silence ffmpeg mechanism itself (`apps/worker/src/ffmpeg.ts`, new function) - `trim`/`tpad`/`atrim`/`anullsrc`/`concat` filter-complex, verified against a REAL ffmpeg render (this sandbox has one, same acceptance-gate discipline Phase C5 established) confirming exact A/V sync (both streams grow by the identical duration) and correct freeze position | C6R.1 (needs a remapped timestamp to freeze at) | M | Genuinely new ffmpeg filter-complex territory (mid-stream `concat`, unlike every existing filter in this pipeline which only ever runs once, start-to-end) - needs real verification, not just a plausible-looking filter string |
 | C6R.3 | Wiring into `render-clip.worker.ts` - reads `reaction_hold` suggestions from `graphResult.editingSuggestions` (already computed, Phase C1), remaps + merges overlapping windows, applies C6R.2's mechanism as pass 3, flag-gated (`VISUAL_EMPHASIS_REACTION_HOLD_ENABLED`, off by default, no per-clip toggle, same convention as C3/C4/C5/C7) | C6R.1, C6R.2 | S-M | Ordering bugs (must run strictly after C7's own cuts pass, on ITS output, not the pre-cut one) |
+
+### C6R.1 architecture (as shipped)
+
+```
+packages/cutlist/src/cutlist.ts
+
+  remapTimestamp() NEW      Maps an arbitrary original clip-relative instant `t` onto its
+                              position on the POST-CUT timeline (the same timeline
+                              trimCutRanges()'s select/aselect + setpts/asetpts filters actually
+                              produce) - `null` when `t` itself falls inside a cut range (that
+                              content was removed entirely, no surviving position to map it to).
+                              Order-independent (each cut checked against `t` independently, no
+                              cumulative left-to-right walk) - `cuts` need only be non-overlapping
+                              (mergeCutRanges()'s own guarantee), not pre-sorted.
+```
+
+**What did NOT happen, and why**: the roadmap table above originally planned refactoring
+`computeCutJunctionTimestamps()` to call `remapTimestamp()` internally, as a DRY cleanup. Writing
+the refactor surfaced a real semantic mismatch before it shipped: a cut's own `start` is, by
+`remapTimestamp()`'s own definition, INSIDE that same cut's range (`t >= cut.start && t < cut.end`
+is true when `t = cut.start`), so `remapTimestamp(cut.start, cuts)` would return `null` for
+literally every cut - not the junction position `computeCutJunctionTimestamps()` actually wants
+(the boundary position right as a cut BEGINS, counting only EARLIER cuts' already-removed time - a
+narrower, different question than "does this timestamp survive at all"). The two functions answer
+genuinely different questions that only look identical at a glance; forcing a shared
+implementation would have silently broken Smart Transitions (Fase 14) the first time
+`computeCutJunctionTimestamps()` ran against a real multi-cut clip. `computeCutJunctionTimestamps()`
+is therefore completely untouched - same function, same tests, same behavior, confirmed by its own
+4 pre-existing tests still passing unchanged.
+
+**Verification performed**: `packages/cutlist/src/cutlist.spec.ts` gained 10 new tests for
+`remapTimestamp()` - no cuts (unchanged), before/after a cut, sum of multiple earlier cuts' own
+durations, a cut entirely after `t` (ignored), the inclusive-start/exclusive-end boundary
+distinction (landing exactly on a cut's start returns `null`; landing exactly on its end does not -
+the first surviving instant right after the cut), order-independence (sorted vs. unsorted input
+produce identical results), and millisecond-rounding precision consistent with every other
+timestamp this module produces. `@speedora/cutlist`: 36/36 pass (up from 26, +10).
+`apps/worker`/`@speedora/cutlist` typecheck, lint, and production build all clean; the full
+`render-clip.worker.spec.ts` suite (105/105) passes completely unchanged, confirming zero behavior
+change to Smart Transitions or anything else this function isn't yet wired into - `remapTimestamp()`
+has no caller anywhere in this codebase yet (C6R.3's job). No ffmpeg/worker/flag changes at all,
+exactly matching this sub-phase's own scope boundary.
 
 ## Phase C7 architecture (as shipped)
 

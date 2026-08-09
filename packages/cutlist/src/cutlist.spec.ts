@@ -4,6 +4,7 @@ import {
   computeSilenceCuts,
   mergeCutRanges,
   protectPauseHolds,
+  remapTimestamp,
   totalCutSeconds,
 } from './cutlist';
 
@@ -197,6 +198,73 @@ describe('totalCutSeconds', () => {
 
   it('returns 0 for no ranges', () => {
     expect(totalCutSeconds([])).toBe(0);
+  });
+});
+
+// Visual Emphasis Engine Phase C6R.1 ("Reaction Hold Temporal Extension" -
+// see docs/ai/visual-emphasis-engine.md's "C6R design" section).
+describe('remapTimestamp', () => {
+  it('returns t unchanged when there are no cuts at all', () => {
+    expect(remapTimestamp(5, [])).toBe(5);
+  });
+
+  it('returns t unchanged when it falls entirely before every cut', () => {
+    const cuts = [{ start: 10, end: 12 }];
+    expect(remapTimestamp(3, cuts)).toBe(3);
+  });
+
+  it("shifts t back by one earlier cut's duration", () => {
+    const cuts = [{ start: 2, end: 4 }]; // removes 2s
+    expect(remapTimestamp(10, cuts)).toBe(8);
+  });
+
+  it("shifts t back by the sum of every earlier cut's duration", () => {
+    const cuts = [
+      { start: 2, end: 3 }, // removes 1s
+      { start: 6, end: 6.5 }, // removes 0.5s
+    ];
+    expect(remapTimestamp(20, cuts)).toBe(18.5);
+  });
+
+  it('ignores a cut that comes after t entirely', () => {
+    const cuts = [{ start: 15, end: 16 }];
+    expect(remapTimestamp(10, cuts)).toBe(10);
+  });
+
+  it('returns null when t falls strictly inside a cut range - that content was removed', () => {
+    const cuts = [{ start: 5, end: 7 }];
+    expect(remapTimestamp(6, cuts)).toBeNull();
+  });
+
+  it("returns null when t lands exactly on a cut's own start (inclusive)", () => {
+    const cuts = [{ start: 5, end: 7 }];
+    expect(remapTimestamp(5, cuts)).toBeNull();
+  });
+
+  it("does NOT return null when t lands exactly on a cut's own end (exclusive) - the first surviving instant right after the cut", () => {
+    const cuts = [{ start: 5, end: 7 }];
+    // t=7 is the first instant after the 2s removed range - shifts back by
+    // that cut's own duration, same as anything else after it would.
+    expect(remapTimestamp(7, cuts)).toBe(5);
+  });
+
+  it('does not depend on cuts being pre-sorted - order-independent', () => {
+    const sorted = [
+      { start: 1, end: 2 },
+      { start: 5, end: 6 },
+    ];
+    const unsorted = [
+      { start: 5, end: 6 },
+      { start: 1, end: 2 },
+    ];
+    expect(remapTimestamp(10, sorted)).toBe(remapTimestamp(10, unsorted));
+    expect(remapTimestamp(10, sorted)).toBe(8);
+  });
+
+  it('rounds to millisecond precision, same as every other timestamp this module produces', () => {
+    const cuts = [{ start: 1, end: 1.1 + 0.2 }]; // 0.30000000000000004 duration
+    const result = remapTimestamp(5, cuts);
+    expect(result).toBe(4.7);
   });
 });
 
