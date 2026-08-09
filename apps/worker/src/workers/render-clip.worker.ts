@@ -23,6 +23,7 @@ import {
   computeSilenceCuts,
   mergeCutRanges,
   protectPauseHolds,
+  remapTimestamp,
   totalCutSeconds,
   type CutRange,
 } from '@speedora/cutlist';
@@ -75,6 +76,7 @@ import {
   isOcrHighlightEnabled,
   isOcrHighlightWorthy,
   isPauseHoldEnabled,
+  isReactionHoldEnabled,
 } from '@speedora/visual-emphasis';
 import { buildAss } from '@speedora/subtitles';
 import { DEFAULT_THUMBNAIL_WEIGHTS } from '@speedora/thumbnail-selection';
@@ -87,12 +89,14 @@ import {
   findBRollMoments,
 } from '../broll';
 import {
+  applyReactionHolds,
   concatBrandSegment,
   extractAnimatedPreview,
   extractBlurPlaceholder,
   extractThumbnail,
   fadeOutBRoll,
   getVideoDimensions,
+  REACTION_HOLD_EXTENSION_SECONDS,
   renderClip,
   trimAndFadeInBRoll,
   trimCutRanges,
@@ -514,6 +518,68 @@ function computeClipCuts(
     ...protectPauseHolds(silenceCuts, protectedWindows),
     ...computeFillerCuts(words),
   ]);
+}
+
+// Visual Emphasis Engine Phase C6R.3 ("Reaction Hold Temporal Extension" -
+// see docs/ai/visual-emphasis-engine.md's "C6R design" section) -
+// editingSuggestions is Phase C1's own, ALWAYS computed regardless of any
+// Visual Emphasis Engine flag; filtered to technique === 'reaction_hold'
+// here. Gating on isReactionHoldEnabled() happens at THIS function's own
+// call site below, same "each technique checks its own flag where it's
+// consumed" shape C3/C4/C5/C7 already established - this function itself
+// stays a pure, flag-agnostic computation, easy to unit test in isolation.
+//
+// Three steps, per the C6R design's own "Still open" resolutions:
+// 1. Merge overlapping/adjacent SUGGESTION windows first (reusing
+//    mergeCutRanges()'s own sort-and-merge shape, not inventing a second
+//    one) - two emotional peaks close enough that their reaction_hold
+//    windows overlap read as ONE reaction moment, not two separate
+//    freezes.
+// 2. Each merged window's own MIDPOINT becomes the freeze instant - the
+//    same "peak-centered" convention fromEmotionalPeaks() already
+//    established when it built each window as `peak.t ± window/2` in the
+//    first place (the midpoint of an un-merged window exactly recovers
+//    that original peak.t).
+// 3. Remap each instant from the ORIGINAL clip-relative timeline (where
+//    Phase C1 suggestions live) onto the POST-CUT timeline via
+//    @speedora/cutlist's remapTimestamp() (C6R.1), against THIS SAME
+//    clip's own already-computed `cuts` (whatever computeClipCuts() just
+//    decided to cut, including any Phase C7 pause-hold protection) -
+//    `null` (the instant itself was cut away entirely) means skip that
+//    hold, same "protect/apply rarely, don't guess" conservatism
+//    protectPauseHolds() already established, never fabricate a nearby
+//    position.
+//
+// A final minimum-separation pass drops any surviving instant landing
+// within `holdDurationSeconds` of the previous one - cuts can only ever
+// SHRINK the gap between two original instants, never grow it, so two
+// suggestions comfortably separated pre-cut could still end up too close
+// together post-cut for applyReactionHolds()'s own per-hold segment math
+// to stay well-formed. Conservative by design (drops the later instant
+// rather than trying to reconcile two freezes into one) - the merged/
+// remapped list is already sorted ascending (mergeCutRanges sorts, and
+// remapTimestamp is order-preserving for non-overlapping cuts), so a
+// single forward pass is enough.
+function computeReactionHoldInstants(
+  editingSuggestions: EditingSuggestionTimeline,
+  cuts: CutRange[],
+  holdDurationSeconds: number,
+): number[] {
+  const windows = editingSuggestions
+    .filter((suggestion) => suggestion.technique === 'reaction_hold')
+    .map((suggestion) => ({ start: suggestion.start, end: suggestion.end }));
+
+  const remapped = mergeCutRanges(windows)
+    .map((window) => remapTimestamp((window.start + window.end) / 2, cuts))
+    .filter((t): t is number => t !== null);
+
+  const instants: number[] = [];
+  for (const t of remapped) {
+    if (instants.length === 0 || t - instants[instants.length - 1] >= holdDurationSeconds) {
+      instants.push(t);
+    }
+  }
+  return instants;
 }
 
 // Visual Emphasis Engine Phase C2 (docs/ai/visual-emphasis-engine.md, ADR
@@ -943,6 +1009,12 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           let subtitlesPath: string | null = null;
           let outputPath: string | null = null;
           let trimmedPath: string | null = null;
+          // Visual Emphasis Engine Phase C6R.3 (Reaction Hold) - only ever
+          // set when computeReactionHoldInstants() finds at least one
+          // surviving hold instant; stays null (nothing extra to clean up)
+          // when the flag is off, there are no reaction_hold suggestions,
+          // or every instant got remapped to null (cut away entirely).
+          let reactionHoldPath: string | null = null;
           let sendCmdPath: string | null = null;
           let brollPaths: string[] = [];
           let watermarkPath: string | null = null;
@@ -1245,11 +1317,68 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               }
             }
 
-            // Intro/Outro roadmap (P3d/P3e) - a THIRD (and, when both are
-            // configured, fourth) pass, after the cutlist trim above,
-            // prepending/appending the Brand Kit intro/outro onto the
-            // fully-finished clip (crop/B-roll/subtitles/watermark/cutlist-
-            // trim already applied). finalOutputPath (not renderedPath) is
+            // Visual Emphasis Engine Phase C6R.3 ("Reaction Hold Temporal
+            // Extension", docs/ai/visual-emphasis-engine.md) - the C6R
+            // design's own "third pass, after cuts" (on renderedPath as it
+            // stands right now: cropped + captioned + B-roll composed, AND
+            // already cut-trimmed) - freezing a frame of THIS output
+            // automatically freezes whatever crop/caption/B-roll pixel was
+            // showing at that instant, correctly, for free - no separate
+            // caption/crop-path/B-roll remapping needed, same reasoning
+            // Phase C7's own cuts pass above already relies on.
+            // graphResult.editingSuggestions passed through unconditionally
+            // (Phase C1's own output, always computed); the SAME `cuts`
+            // array just used for trimCutRanges() above is reused here so
+            // reaction_hold instants remap onto the ACTUAL post-cut
+            // timeline, including any Phase C7 pause-hold protection -
+            // computeReactionHoldInstants() itself filters to
+            // technique === 'reaction_hold', and this whole pass is gated
+            // by isReactionHoldEnabled() right here, same "each technique
+            // checks its own flag at its own call site" shape C3/C4/C5/C7
+            // already established.
+            if (isReactionHoldEnabled()) {
+              const holdInstants = computeReactionHoldInstants(
+                graphResult.editingSuggestions,
+                cuts,
+                REACTION_HOLD_EXTENSION_SECONDS,
+              );
+              if (holdInstants.length > 0) {
+                reactionHoldPath = await reserveScratchPath('reaction-hold', '.mp4');
+                // Optional polish, not required for a correct clip - same
+                // "external ffmpeg call, allowed to fail without failing
+                // the whole job" posture as the cutlist trim pass above.
+                try {
+                  await applyReactionHolds(
+                    renderedPath,
+                    reactionHoldPath,
+                    holdInstants,
+                    REACTION_HOLD_EXTENSION_SECONDS,
+                  );
+                  renderedPath = reactionHoldPath;
+                  logger.info('applied reaction holds', {
+                    clipId,
+                    holdCount: holdInstants.length,
+                  });
+                } catch (error) {
+                  logger.warn(
+                    'reaction hold pass failed, keeping the pre-hold render',
+                    { clipId },
+                    error,
+                  );
+                }
+              }
+            }
+
+            // Intro/Outro roadmap (P3d/P3e) - originally documented as "a
+            // THIRD (and, when both are configured, fourth) pass, after the
+            // cutlist trim above" - now the FOURTH (and, when both intro
+            // and outro are configured, fifth) pass, since Visual Emphasis
+            // Engine Phase C6R.3 (Reaction Hold, above) inserted its own
+            // pass between the cutlist trim and this one. Still correct
+            // regardless of the exact count: prepending/appending the
+            // Brand Kit intro/outro onto the fully-finished clip (crop/
+            // B-roll/subtitles/watermark/cutlist-trim/reaction-hold already
+            // applied). finalOutputPath (not renderedPath) is
             // what gets checksummed/uploaded/sized below - thumbnail/
             // storyboard/hover-preview extraction further down deliberately
             // keeps reading renderedPath unchanged, so a thumbnail
@@ -1807,6 +1936,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             if (subtitlesPath) await cleanupTempFile(subtitlesPath);
             if (outputPath) await cleanupTempFile(outputPath);
             if (trimmedPath) await cleanupTempFile(trimmedPath);
+            if (reactionHoldPath) await cleanupTempFile(reactionHoldPath);
             if (sendCmdPath) await cleanupTempFile(sendCmdPath);
             if (thumbPath) await cleanupTempFile(thumbPath);
             if (blurPath) await cleanupTempFile(blurPath);

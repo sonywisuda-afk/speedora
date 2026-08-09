@@ -1151,7 +1151,14 @@ export async function concatBrandSegment(
 // comment already documents (a bare -t silently rebinds onto whichever
 // -i comes next once more than one input exists, exactly the argument-
 // binding bug this codebase has been bitten by before).
-const REACTION_HOLD_EXTENSION_SECONDS = 0.5;
+//
+// Exported (unlike every other constant in this file) so C6R.3's
+// render-clip.worker.ts wiring can pass the SAME value explicitly to both
+// this function and its own computeReactionHoldInstants() helper (whose
+// minimum-separation dedup logic needs to know the exact hold duration
+// being applied) - one source of truth, not two constants that could
+// silently drift apart.
+export const REACTION_HOLD_EXTENSION_SECONDS = 0.5;
 // A short technical epsilon, not itself part of the requested hold
 // duration - just long enough that the trimmed slice tpad clones from
 // contains at least one real frame regardless of the source's own frame
