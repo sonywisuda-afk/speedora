@@ -212,6 +212,94 @@ envelope, both flags on), inspect what `buildCropPath()` actually produces (x/y 
 that instant, ideally a real rendered sample), and let that finding decide whether B1 needs a
 follow-up fix at all.
 
+#### B1 findings (evidence gathered 2026-08-09 — no arbitration decided)
+
+**Fixture**: `crop = {width: 136, height: 240}` (a 320×240 source cropped to 9:16, the same
+dimensions `crop-path.spec.ts` already uses throughout). Two known face samples at t=0 (x=12) and
+t=1 (x=172) — an 80% pan across the frame. A `focus_shift` window `{start: 0.4, end: 0.8}`
+overlapping a `digital_push` trigger at `0.4` — chosen so the zoom envelope's full-peak hold
+(`[start, start+ZOOM_HOLD_SECONDS]` = `[0.4, 0.8]`) exactly matches the snap window, the worst-case
+overlap (peak zoom for the entire snap, not just part of it).
+
+**Numeric evidence** (`packages/reframe/src/crop-path.spec.ts`, "Gate B1 evidence" describe block,
+2 new tests, both passing):
+
+- **They ARE allowed to fire at the same instant — confirmed, not assumed.** At every sampled
+  instant across the overlap (t=0.4, 0.6, 0.8), `width` sits at the exact same peak-zoom value
+  (96, the standard 30% punch-in) a Digital Push moment produces firing completely alone — proving
+  no damping/reduction is applied to the zoom just because a Focus Shift is also active.
+- **Neither wins over the other — they are architecturally independent inputs to the SAME output,
+  not competing for one slot.** Position (from `focusShifts`/`interpolateAt`) and size (from the
+  zoom trigger set) are computed on entirely separate code paths inside `buildCropPath()`, then
+  combined into one `CropWindow`. There is no priority check, no `if` that suppresses one when the
+  other is active — "does zoom win over snap" and "does snap win over zoom" are both the wrong
+  question; the honest answer is **both apply, unconditionally, always**.
+- **An undocumented second coupling was found while building this fixture**: the crop's rendered
+  `x`/`y` is not simply the raw pan target — `buildCropPath()` already re-centers position for
+  whatever zoom level is active (`centerX - width/2`, the same mechanism the pre-existing
+  "re-centers the zoomed crop" test covers for zoom alone). During this overlap that adds a
+  constant +20px offset to the raw 12→92→172 pan trajectory (becoming 32→112→192) — the *relative*
+  pan distance (160px) is unaffected, but this means Focus Shift's own rendered position during a
+  simultaneous Digital Push is not what reading `applyFocusShifts()` in isolation would suggest.
+  Worth carrying into whatever arbitration design comes next.
+- **Quantified**: 160px of pan (**>100% of the crop's own 136px width**) compressed into the same
+  0.4s window the frame is held at its tightest 30% zoom-in. This is the raw magnitude a viewer
+  would need to visually process in under half a second, simultaneously with an aggressive punch-in.
+
+**Real-ffmpeg visual evidence**: the exact same fixture's `CropWindow[]`/sendcmd output was rendered
+through the real `sendcmd`+`crop@reframe`+`scale` filter chain `renderClip()` itself uses (this
+sandbox's real ffmpeg), against a `testsrc2` synthetic source (fixed, highly-differentiated color
+regions — chosen specifically so a pan/zoom is visually unambiguous in extracted frames, not
+because it resembles real footage). Frames extracted at t=0.2 (baseline, before the overlap), 0.4,
+0.6, and 0.8 (start/mid/end of the overlap) show **three visibly, dramatically different regions of
+the source pattern in three consecutive ~0.2s frames** — the crop window moves far enough, fast
+enough, while zoomed in tightly enough, that almost none of what's on screen at t=0.4 is still on
+screen at t=0.6, and almost none of THAT is still on screen at t=0.8. This is a direct, rendered
+confirmation of the numeric finding above (a pan exceeding the crop's own width, compressed into
+a narrow zoomed-in window), not a separate claim.
+
+**Honest limitation of this evidence**: `testsrc2` is an artificial, sharply-color-blocked pattern
+— it makes a large crop displacement maximally obvious, which is exactly what this evidence needed
+to prove ("can a large, fast displacement actually happen" — yes), but it cannot answer "does this
+look chaotic on a real talking-head clip," since real footage doesn't have testsrc2's own sharp,
+arbitrary color boundaries. That question stays exactly where the original plan put it — **B5** (or
+Gate C, once real footage exists) — not answered here.
+
+**What B1 does NOT conclude**: whether 160px/0.4s of combined pan+zoom is actually "too much" for
+real content, and whether an arbitration rule (e.g. damping one signal when the other is active,
+sequencing them instead of overlapping, or leaving both unconditional as today) is warranted. That
+is the explicit next decision, deferred to whoever reviews this evidence — not decided here, per
+the instruction this section opened with.
+
+#### B1 decision (2026-08-09)
+
+**No arbitration rule is introduced at B1. Focus Shift and Digital Push are permitted to coexist.**
+The evidence above establishes technical interaction (they CAN and DO coexist, unconditionally,
+with a real, quantified, real-ffmpeg-confirmed displacement) but not editorial undesirability — a
+distinction worth stating precisely: **"can they coexist?" — yes. "should they always coexist?" —
+not yet established.** Introducing a priority rule (e.g. "Digital Push wins," "Focus Shift wins")
+now would be premature, since the two techniques carry different editorial semantics that can
+legitimately co-occur on purpose:
+
+```
+Focus Shift   → "the subject changed"        → move attention spatially
+Digital Push  → "this moment deserves emphasis" → increase visual intensity
+
+new speaker appears + an emotional/important moment
+        ↓
+move toward the new subject + tighten framing
+        ↓
+potentially a GOOD edit, not chaos
+```
+
+The actual concern is the **velocity and amplitude** of the combined crop trajectory, not the mere
+fact of coexistence — a question only real footage can answer. **B1's status is therefore
+"technically valid, aesthetically uncalibrated,"** not "broken" and not "fixed." The quantified
+160px/0.4s case is retained as a specific, high-priority stress condition for B5 and Gate C, and the
+zoom-dependent recentering coupling found above is preserved as a documented implementation
+constraint for whatever arbitration design (if any) eventually gets built. No code changes follow
+from this decision — B1 remains evidence-only, per this whole gate's own scope.
+
 ### B2 — OCR Highlight × moving crop
 
 Test at multiple movement magnitudes, not just "does it move at all":
@@ -223,6 +311,89 @@ Test at multiple movement magnitudes, not just "does it move at all":
 Goal: determine whether the static-snapshot design (`ocr-highlight.ts`'s own documented limitation)
 is still acceptable at each level, or only acceptable below some movement threshold — an evidence-
 based answer, not the current assumption.
+
+#### B2 findings (evidence gathered 2026-08-09 — no mechanism change)
+
+**Fixture**: a representative on-screen price/name box (`xCenter: 0.5, yCenter: 0.5, width: 0.15,
+height: 0.08`, source-normalized) with a 2-second visible window — long enough for real crop
+movement to happen during it, matching Focus Shift/Digital Push's own real timescales. `output =
+136×240`.
+
+**Technique**: `computeOcrHighlightBoxes()` already picks whichever crop window is NEAREST a
+track's own `startTime`. A second call with the SAME bounding box but `startTime` set to the
+highlight's own `endTime` reuses that exact mechanism to compute "where would this box be if it
+were anchored to the crop window at the highlight's END instead of its START" — a legitimate
+stand-in for a continuously-tracked box, with no new production code. The delta between the two
+calls IS the drift the static design leaves unaddressed.
+
+**Numeric evidence** (`packages/reframe/src/ocr-highlight.spec.ts`, "Gate B2 evidence" describe
+block, 4 new tests, all passing), 4 movement levels tested:
+
+| Level | Crop movement over 2s | Drift (as % of output width) | Verdict |
+|---|---|---|---|
+| **Low** | 10px pan, no zoom | ~3.7% | Static box stays close to where a tracked box would be — acceptable. |
+| **Medium** | 80px pan (Focus-Shift scale), no zoom | ~33% | Drift becomes a real third of the output frame — visually noticeable, likely no longer "close enough." |
+| **Large** | 110px pan + 30% zoom | ~40%, and the tracked box CLAMPS to the frame's left edge | The static box is now substantially wrong — not just offset, but pointing at a materially different region than where the text actually sits. |
+| **Extreme** | 160px pan + 30% zoom — **the exact same combined magnitude B1 found for Focus Shift × Digital Push** | N/A — the tracked box **doesn't exist at all** | **Qualitatively worse than drift**: the real on-screen text has been panned/zoomed entirely out of the crop's field of view by the highlight's own end, while `computeOcrHighlightBoxes()`'s static snapshot (anchored to `t=0`) is still a valid box that the pipeline would keep burning in for the FULL highlight duration regardless. |
+
+**Real-ffmpeg visual evidence**: rendered the Extreme scenario through the real crop+scale
+mechanism (a `testsrc2` source with a fixed magenta marker at the text's own true source position,
+a green box burned in at the STATIC highlight position, same technique as B1's visual check). At
+t=0 the two boxes coincide exactly, confirming the design is correct at the highlight's own start
+by construction. By t=2.1 (just after the crop's large move), **the magenta marker (the real text)
+has left the frame entirely — while the green box (the static highlight, what the real pipeline
+would actually show) is still on screen**, now surrounded by unrelated background content with
+nothing resembling the original text anywhere near it. This is a direct, rendered confirmation of
+the numeric Extreme finding, not a separate claim.
+
+**Answer to B2's own question**: the static-snapshot design is **acceptable at Low movement,
+questionable at Medium, and NOT acceptable at Large/Extreme** — at the combined magnitude B1 itself
+found technically possible (Focus Shift + Digital Push overlapping, unarbitrated), OCR Highlight's
+own static box can end up highlighting nothing at all. This directly couples B1's own eventual
+calibration outcome to B2's severity: if B1's real-footage calibration (Gate C) leaves Focus
+Shift+Digital Push free to combine at full magnitude, OCR Highlight inherits a real, now-quantified
+risk of showing a highlight box over content that isn't there anymore — not merely "slightly
+imprecise" as the original documented limitation implied before this evidence existed.
+
+**What B2 does NOT conclude**: whether to build continuous tracking, whether to add a distance/
+movement THRESHOLD past which the box fades out or clamps to "no highlight," or whether to leave
+the static design as-is and accept the Extreme case as rare on real footage. That decision, like
+B1's, is deferred — this section only replaces "a documented limitation" with "a documented,
+quantified, rendered-and-confirmed limitation."
+
+#### B2 decision (2026-08-09)
+
+**No threshold is introduced. B2's status is "conditional risk — no code change."** There isn't
+enough real-footage data yet to pick a defensible cutoff value for a rule like "if crop movement
+exceeds X, suppress OCR Highlight" — inventing one now would be exactly the kind of premature,
+uncalibrated decision this whole gate exists to avoid. The 4 open questions this evidence raises are
+carried forward to Gate C rather than answered here:
+
+1. How often does OCR Highlight actually coincide with large crop movement on real footage?
+2. At what movement magnitude does the mismatch start to read as visually disruptive, not just
+   numerically large?
+3. Should the eventual fix be suppression (skip the highlight when movement is too large),
+   repositioning (re-anchor the box partway through), or real continuous tracking?
+4. **Does Focus Shift + Digital Push combining (B1) measurably increase how often OCR Highlight's
+   own failure mode fires?**
+
+Question 4 is the one this evidence makes explicit and non-optional: **B1 and B2 are coupled risks,
+not two independent findings.**
+
+```
+Focus Shift + Digital Push (B1, unarbitrated)
+        ↓
+crop moves larger/faster
+        ↓
+OCR Highlight's static snapshot
+        ↓
+increased risk of the highlight pointing at the wrong region (B2)
+```
+
+Both stay recorded as open, linked risks carried into the same Gate C real-footage pass — B1's own
+eventual calibration outcome (does real footage show Focus Shift+Digital Push combining often, and
+at what magnitude) directly determines how often B2's Extreme case actually happens in production.
+Gate C's test plan should measure both together, not resolve them independently.
 
 ### B3 — Pause Hold × Reaction Hold
 
@@ -236,6 +407,42 @@ Explicitly verify both states side by side, using the SAME coincident-instant fi
 Confirm this is the *intentional*, documented C6R.3 behavior (`remapTimestamp()`'s own "protect/
 apply rarely, don't guess" conservatism) — not an accidental side effect nobody decided on. All 4
 `{pauseHold, reactionHold} × {on, off}` combinations should be asserted, not just the 2 states above.
+
+#### B3 findings (evidence gathered 2026-08-09 — no mechanism change)
+
+**Fixture**: the same `[0.45, 9.35]` silence-gap fixture C7/C6R.3's own render-wiring tests already
+use (`"hi"` ends at clip-relative 0.3s, `"there"` starts at 9.5s), a `reaction_hold` suggestion
+whose midpoint (5.0) falls squarely inside that gap, and a `pause_hold` suggestion that EXACTLY
+matches the gap's own `{start, end}` (the precision `protectPauseHolds()` requires).
+`apps/worker/src/workers/render-clip.worker.spec.ts`, "Gate B3 evidence" describe block, 4 new
+tests, all passing, driven through the real render pipeline (not a synthetic probe like B1/B2 —
+this interaction is between two already-fully-implemented worker functions, so the existing
+render-wiring test infrastructure was the correct, direct tool).
+
+| pauseHold | reactionHold | `trimCutRangesMock` | `applyReactionHoldsMock` | Confirmed behavior |
+|---|---|---|---|---|
+| OFF | OFF | called, cuts=`[{0.45,9.35}]` | not called | Gap cut for real; reaction-hold pass never runs (flag off). |
+| OFF | ON | called, cuts=`[{0.45,9.35}]` | **not called** | Gap cut for real → the coincident instant lands inside that cut → `remapTimestamp()` returns `null` → **silently skipped**. |
+| ON | OFF | **not called at all** (`cuts.length === 0`) | not called | Gap fully protected, no candidate cut survives to trim; reaction-hold pass never runs (flag off). |
+| ON | ON | **not called at all** | **called**, `[5]` | Gap fully protected → `remapTimestamp(5.0, [])` returns `5.0` unchanged → **the hold applies, exactly where the original suggestion said it should**. |
+
+**Unlike B1 and B2, B3's evidence is a confirmation, not a new discovery.** All 4 combinations
+behave exactly as C6R.3's own design intended — `remapTimestamp()`'s `null`-for-cut-away-instant
+semantics (C6R.1) and `protectPauseHolds()`'s exact-match conservatism (C7) compose correctly with
+no gap or surprise. The row that matters most (`ON`/`ON`) confirms the hold genuinely survives at
+the ORIGINAL, un-remapped instant when nothing was cut — not a coincidence of the specific numbers
+in this fixture, but the direct, provable consequence of `remapTimestamp()` returning `t` unchanged
+whenever `cuts` is empty.
+
+**What this means for calibration**: whoever eventually tunes Pause Hold and Reaction Hold
+independently should know — not discover by surprise — that **toggling Pause Hold changes Reaction
+Hold's own observable behavior** on any clip where the two coincide. This isn't a bug to fix, and
+it isn't an implementation coupling either (each flag genuinely gates its own independent code
+path, with no shared mutable state or hidden call). The precise term is **product dependency, not
+implementation coupling**: at the IMPLEMENTATION level the two flags are completely independent;
+at the PRODUCT/EDITORIAL level, what one flag protects mechanically changes what the other flag can
+observe and act on. A naive "roll out each flag separately, they don't interact" rollout plan could
+miss exactly this. No code changes follow from this section — B3 is confirmation-only.
 
 ### B4 — All flags ON
 
@@ -252,6 +459,76 @@ all 5 flag-gated techniques triggering:
 
 These are the concrete numbers B5's qualitative judgment gets checked against.
 
+#### B4 findings (evidence gathered 2026-08-09 — no code changes)
+
+**Fixture**: one deliberately adversarial 8.8s clip recreating every conflict B1-B3 already found,
+together, on the SAME timeline — not a clean fixture, per the explicit instruction that a clean
+fixture could pass "all flags on" without exercising any real interaction risk:
+
+- A `focus_shift` window (`[0.85, 1.15]`) overlapping a `digital_push` trigger (`start: 1.0`) — the
+  exact B1 worst-case shape, sitting inside a **protected** silence gap.
+- Two silence gaps: `[0.45, 2.85]` protected by an exact-match `pause_hold` suggestion (survives),
+  `[3.45, 7.85]` unprotected (cut for real) — the same B3 mechanism, both branches, on one clip.
+- A `reaction_hold` instant (`start: 7.9, end: 8.3`, midpoint 8.1) positioned just past the real
+  cut's own end — forcing `remapTimestamp()` to actually shift it, not leave it untouched.
+- A qualifying OCR price track (same fixture C5's own tests use), positioned to co-occur with the
+  Focus Shift/Digital Push zone.
+
+**Category A: technical integration** — verified at two levels, exactly per the 5 items requested:
+
+1. **No crash** — `apps/worker/src/workers/render-clip.worker.spec.ts`, "Gate B4 evidence" describe
+   block (4 new tests, all passing): the job completes successfully with all 5 flags on and this
+   fixture. Full worker suite (53 suites / 630 tests) passes unchanged.
+2. **No timeline corruption, C7 cuts → Pause Hold → Reaction Hold** — verified at BOTH the mocked
+   wiring level (`trimCutRangesMock` receives exactly `[{start: 3.45, end: 7.85}]` — the protected
+   gap correctly excluded, the real one correctly present, no negative/inverted range) AND the real
+   level (see below) — `applyReactionHoldsMock` receives `[3.7]`, the exact hand-computed
+   post-cut position (`8.1 - (7.85 - 3.45) = 3.7`), proving the remap math holds even with 4 other
+   techniques simultaneously active.
+3. **A/V sync — MEASURED, not assumed.** A real, non-mocked run of the entire 3-pass chain (real
+   `buildCropPath()`/`buildSendCmdScript()` → real ffmpeg crop+zoom render → real `trimCutRanges()`
+   → real `applyReactionHolds()`, this sandbox's real ffmpeg 8.1.2) on this exact adversarial
+   fixture produced a **final video/audio duration delta of 2 milliseconds** (4.840s vs. 4.838s) —
+   effectively perfect sync, within ordinary real-encoder frame-boundary tolerance, holding all the
+   way through the most conflict-dense scenario this audit has constructed.
+4. **Crop path validity** — the same real run's `buildCropPath()` output was checked point-by-point
+   (45 sampled points across the clip): **0 invalid points** — every x/y/width/height stayed within
+   `[0, sourceWidth]`/`[0, sourceHeight]` bounds, no degenerate (zero/negative) dimension, no `NaN`,
+   even through the B1-shaped Focus Shift+Digital Push overlap. A visual check of 6 extracted frames
+   from the final rendered output found no black/corrupted frames.
+5. **OCR Highlight still renders** — verified at the wiring level: `computeOcrHighlightBoxesMock`
+   still receives the real, correctly-classified price track (not silently dropped once 4 other
+   flags are also active), and `buildAss()` still receives that computed `ocrHighlights` value.
+   The RENDERING mechanism itself (the ASS `\p1` rectangle) was already verified for real in Phase
+   C5 and is architecturally unaffected by which other flags are on — B4 confirms the DATA still
+   reaches it under load, not a second re-verification of C5's own already-proven mechanism.
+
+**Category A verdict: all 5 items pass.** No crash, no timeline corruption, real-measured A/V sync
+holds to the millisecond, crop-path geometry stays 100% valid, OCR Highlight data still flows
+through — under the single densest, most adversarial combination this audit could construct from
+every prior finding. This is real evidence the underlying mechanics are sound; it says nothing
+about whether the RESULT looks good, which is Category B's job.
+
+**Category B: editorial density (reported, not judged)** — raw measurements from this same fixture,
+explicitly NOT a "too aggressive/fine" verdict, per the instruction that Category B stays with
+B5/Gate C:
+
+- **Visual interventions in this 8.8s clip**: 1 Focus Shift snap + 1 Digital Push zoom envelope
+  (fully overlapping, per B1) + 1 OCR highlight box + 1 protected pause + 1 Reaction Hold freeze —
+  5 distinct interventions across a clip under 9 seconds long.
+- **Timing concentration**: 3 of those 5 (Focus Shift, Digital Push, and the OCR highlight's own
+  start) cluster within roughly a 1-second window (`~0.85s-1.9s`) — the SAME clustering the B1/B2
+  evidence already flagged individually, now confirmed to literally co-occur on one timeline, not
+  just each be individually possible.
+- **Reaction Hold's own contribution**: +0.5s of frozen, silent duration inserted at the clip's own
+  post-cut `3.7s` mark — a duration extension of ~11% relative to the 4.4s post-cut runtime.
+- **Pause preservation**: 1 of 2 candidate silence gaps preserved (50%), removing 4.4s of the
+  original 8.8s (50% of runtime cut) around the one gap that wasn't protected.
+
+**No conclusion is drawn from these numbers about whether this reads as intentional emphasis or as
+noise** — that is explicitly B5's own job, using this same fixture (or one like it) as its primary
+stress case.
+
 ### B5 — Visual chaos stress test (most important gate before Gate C)
 
 The user's own framing, verbatim: **a system can be 100% technically correct, 100% tests green,
@@ -262,22 +539,178 @@ diagram — `zoom → focus → OCR → hold` within ~3 seconds) and judge, on a
 whether the combined result reads as intentional emphasis or as noise. This is a qualitative gate,
 not a numeric one — B4's measurements inform it, but don't replace human judgment here.
 
+#### B5 findings (evidence gathered 2026-08-09 — no code changes, no editorial verdict)
+
+**Method**: 4 metrics computed for TWO fixtures — **Fixture A**, the same worst-case adversarial
+clip Gate B4 used, and **Fixture B**, a 27.75s clip with the same 5 techniques triggering
+independently (a subject change, an emphasis moment, a price tag, a dead-air cut, a dramatic
+protected pause, an emotional beat — each placed on its own, not deliberately co-located) — to test
+whether A's density is representative or an artifact of adversarial construction, per the explicit
+instruction. Every number below comes from the real `@speedora/reframe`/`@speedora/cutlist`
+functions, not estimation.
+
+**1. Intervention density (peak burst count in a sliding window)**
+
+| Window | Fixture A (adversarial) | Fixture B (realistic) |
+|---|---|---|
+| 0.5s | **3 events** overlapping | 1 event (never more) |
+| 1s | **3 events** overlapping | 1 event (never more) |
+| 2s | **3 events** overlapping | 1 event (never more) |
+
+Fixture A's peak (Focus Shift + Digital Push + OCR Highlight all active at once, around t≈1.0-1.15)
+holds at 3 simultaneous events regardless of window size, because the events genuinely overlap in
+time, not just land close together. Fixture B never exceeds 1 — its 4 events never overlap at all,
+at any window size tested.
+
+**2. Crop displacement velocity**
+
+| | Fixture A | Fixture B |
+|---|---|---|
+| Max instantaneous velocity | **531 px/s** (at t≈1.0, inside the Focus Shift+Digital Push overlap) | 255 px/s (at the isolated Focus Shift snap) |
+
+Both numbers come from the real, sampled `CropWindow[]` path (`CROP_PATH_STEP_SECONDS`=0.2s
+resolution). 531px/s is noticeably higher than B1's own already-flagged baseline (160px over 0.4s =
+400px/s average) — the OCR Highlight's own presence in the SAME window doesn't add pan velocity
+directly, but the peak reported here captures the exact instant Focus Shift's snap ramp is
+mid-motion. **Real-ffmpeg visual confirmation**: 8 frames extracted every 0.2s across `[0.7, 2.1]`
+(the cluster window) show the on-screen content changing to an almost entirely different region of
+the source pattern between EACH consecutive 0.2-0.4s frame pair — a direct, rendered look at what
+"531px/s while zoomed to 70%" actually produces on screen, not just a number.
+
+**3. Visual persistence (% of clip under some active intervention)**
+
+| | Fixture A | Fixture B |
+|---|---|---|
+| Union of all event windows | 2.65s of 4.90s | 4.05s of 27.75s |
+| Persistence | **54.1%** | **14.6%** |
+
+Over half of Fixture A's entire (short) runtime has some technique actively changing the frame.
+Fixture B, despite having the same 4 event TYPES, spends the large majority of its (longer) runtime
+with nothing actively intervening.
+
+**4. Recovery time (gap between one event's end and the next event's start)**
+
+| | Fixture A | Fixture B |
+|---|---|---|
+| Gaps (sorted) | **-0.900s, -0.300s, 0.700s** | 2.850s, 3.500s, 4.350s |
+
+Fixture A's two negative values are not "tight gaps" — they mean the events literally overlap (the
+next one starts before the previous one ends), i.e. genuinely zero recovery time for two of the
+three transitions. Its only positive gap (0.700s, between OCR Highlight ending and Reaction Hold
+starting) is still under Reaction Hold's own 0.5s freeze duration. Fixture B's tightest gap (2.85s)
+is, by contrast, several times longer than any single intervention in either fixture.
+
+**Note on Pause Hold**: deliberately excluded from all 4 measurements above — protecting a pause
+doesn't ADD a visible effect, it's the absence of a cut (a real methodological distinction, not an
+oversight; the user's own event-persistence diagram likewise only named Focus Shift/Digital Push/
+OCR Highlight/Reaction Hold as bars). The cut junction itself (`computeCutJunctionTimestamps()`'s
+brief brightness dip, `TRANSITION_FADE_SECONDS`=0.15s) IS a real, distinct visual event and is
+reported separately per fixture, but wasn't folded into the same "intervention" category since it's
+architecturally a different kind of event (an edit transition, not an emphasis effect).
+
+**What this evidence suggests (observation, not verdict)**: Fixture A's density is achievable, real,
+and now precisely quantified — but it required deliberately co-locating triggers that, per Fixture
+B, do NOT co-locate when placed independently. This doesn't establish that real footage behaves like
+either fixture — whether real trigger timing naturally clusters (like A) or spreads out (like B) is
+exactly the open question only real footage can answer, and is deferred to Gate C in full, per the
+instruction that Category B/editorial judgment stays out of B5's own conclusion. What IS
+established: the mechanism CAN produce a 54%-persistent, 3-way-overlapping, zero-recovery-time
+result on some input shape, and the real-ffmpeg cluster render shows concretely what that looks
+like frame-by-frame.
+
 ## Gate sequence (approved 2026-08-09)
 
 ```
 GATE A — Architecture            ✅ COMPLETE (this document)
         │
         ▼
-GATE B — Interaction + visual coherence      ◄── NEXT, start with B1
-        │  (B1 Focus Shift×Digital Push → B2 OCR×moving crop →
-        │   B3 Pause Hold×Reaction Hold → B4 all-flags-on → B5 chaos stress test)
+GATE B — Interaction + visual coherence      ✅ EVIDENCE COMPLETE (B1-B5 all gathered)
+        │  B1 Focus Shift×Digital Push  ✅ coexistence confirmed, no arbitration
+        │  B2 OCR×moving crop           ✅ quantified, conditional risk, coupled to B1
+        │  B3 Pause Hold×Reaction Hold  ✅ confirmed intentional (product dependency)
+        │  B4 all-flags-on              ✅ technical integration PASS, density measured
+        │  B5 chaos stress test         ✅ density/velocity/persistence/recovery measured,
+        │                                  A vs. B comparison run - NO editorial verdict
+        │                                  rendered, per instruction (Gate B review pending)
         ▼
-GATE C — Real-footage calibration            ONLY AFTER GATE B
+GATE C — Real-footage calibration            ONLY AFTER GATE B REVIEW
 ```
 
 **No production flag goes live while Gate B is incomplete.** This restates, not replaces, the
 Gate C section below - Gate B is now the explicit, ordered blocker between "architecture is sound"
 and "footage says it looks good."
+
+## Gate B review & closeout (proposed 2026-08-09 — pending user confirmation)
+
+Per the explicit instruction to review the full B1-B5 evidence before deciding whether Gate B is a
+genuine PASS and what carries to Gate C, this section consolidates all 5 sub-phases into one
+determination. **This is a proposed reading of the evidence, not a unilateral decision** — Gate B's
+own PASS/FAIL call belongs to whoever reviews it next, same as every arbitration/threshold decision
+this gate has deferred so far.
+
+### Consolidated findings
+
+| Sub-phase | What was found | Code changed? |
+|---|---|---|
+| B1 | Focus Shift × Digital Push coexist unconditionally, no arbitration exists; 160px/0.4s (>100% of crop width) combined pan+zoom is technically achievable; a second, undocumented zoom-recentering coupling was found | No |
+| B2 | OCR Highlight's static-snapshot drift is quantified (3.7%→40%→"leaves frame entirely" across low/medium/large/extreme movement); directly coupled to B1's own eventual calibration outcome | No |
+| B3 | Pause Hold × Reaction Hold is a confirmed, intentional **product dependency, not implementation coupling** — toggling one changes the other's observable behavior by design | No |
+| B4 | All 5 flags on, adversarial fixture: 0 crashes, 0 timeline corruption, 2ms A/V sync delta, 0/45 invalid crop points, OCR data confirmed still flowing — **Category A (technical) is unconditionally solid** | No |
+| B5 | Worst-case fixture reaches 3-way event overlap, 54% visual persistence, -0.9s (literal overlap) recovery, 531px/s peak velocity; an independently-timed fixture with the same techniques never overlaps at all (14.6% persistence, 2.85s min recovery) — **Category B (editorial) remains genuinely open** | No |
+
+**Zero production code was changed across all of Gate B.** Every sub-phase added only tests/scripts
+that exercise and measure the EXISTING, already-shipped C1-C7/C6R.1-C6R.3 implementation — this gate
+was evidence-gathering exactly as scoped from the start.
+
+### Proposed Gate B determination
+
+**Gate B PASSES its own defined scope** — but that scope needs to be stated precisely, because
+"Gate B passes" does NOT mean "the system is calibrated" or "safe to enable in production":
+
+- **What Gate B was actually asked to do**: characterize every cross-technique interaction the
+  architecture allows, verify the underlying mechanics hold up under the worst realistic
+  combination, and produce the quantified evidence Gate C needs. **All of that is done.** No
+  interaction was found to be broken, silently wrong, or architecturally unsound. Every risk found
+  (B1, B2, B3) was already knowable from the architecture, now confirmed and quantified rather than
+  theoretical.
+- **What Gate B was explicitly NOT asked to do, and did not do**: decide whether the combined
+  visual result is good editing. That determination requires real footage and human judgment
+  (Category B, explicitly deferred at B4 and B5 both) — synthetic evidence, however rigorous, cannot
+  answer "does this look chaotic" on its own, only "here is exactly what would happen if it did."
+- **No blocking defects were found.** Nothing in B1-B5 suggests the C1-C7/C6R.1-C6R.3
+  implementation itself needs to change before Gate C can proceed — every finding is a
+  characterization of INTENDED (if uncalibrated) behavior, not a bug.
+
+**Recommended reading: Gate B is complete and its own success criterion — a full, evidence-backed
+map of every interaction risk, with nothing broken — is met.** Whether that constitutes "PASS" in
+the sense of "ready for Gate C" is the call being deferred to this review, exactly as instructed.
+
+### What carries forward to Gate C (concrete, not general)
+
+1. **The B1 stress case** (Focus Shift × Digital Push, worst-case 531px/s / 160px-per-0.4s) needs
+   real-footage validation: does this overlap actually occur on real content, how often, and does it
+   read as intentional or chaotic when it does? No arbitration rule should be designed before this
+   is answered (B1's own decision, restated).
+2. **B2's 4 open questions**, carried verbatim from that decision — frequency of OCR Highlight ×
+   large-crop-movement co-occurrence, the magnitude at which mismatch becomes visually disruptive,
+   the eventual fix shape (suppress/reposition/track), and whether B1's own calibration outcome
+   changes B2's failure frequency.
+3. **B3's product dependency** must be documented in whatever rollout/calibration plan Gate C
+   produces — Pause Hold and Reaction Hold cannot be evaluated as fully independent variables in an
+   A/B-style rollout; their interaction is real and by design.
+4. **The B4 adversarial fixture itself** is a reusable asset, not just one-time evidence — the same
+   8.8s clip (or an equivalent) is a natural synthetic regression case for any future change to
+   these 9 techniques, and a natural stand-in "does this break anything" smoke test before real
+   footage is available.
+5. **The B5 density/velocity/persistence/recovery baseline numbers** (3-way overlap / 531px/s /
+   54.1% / -0.9s for the worst case; 1-event-max / 255px/s / 14.6% / 2.85s for the independently-
+   timed case) give Gate C concrete synthetic bounds to compare real-footage measurements against —
+   real content's own numbers, once measured, tell us where reality actually falls on that spectrum,
+   which this synthetic evidence alone cannot.
+6. **The A-vs-B contrast itself** is an open question for Gate C, not an answered one: does real
+   editorial content's own trigger timing naturally cluster (like Fixture A) or spread out (like
+   Fixture B)? This is arguably the single most important unresolved question this whole gate
+   surfaces, and only real footage can answer it.
 
 ## Gate C — Real-footage calibration (deferred, not started)
 

@@ -119,4 +119,151 @@ describe('computeOcrHighlightBoxes', () => {
 
     expect(computeOcrHighlightBoxes(tracks, staticCrop, 320, 240, 136, 240)).toEqual([]);
   });
+
+  // Visual Emphasis Integration Audit, Gate B2 (docs/ai/
+  // visual-emphasis-integration-audit.md) - EVIDENCE GATHERING for the
+  // audit's MEDIUM finding: the static-snapshot design (this module's own
+  // documented limitation) can desync from the real on-screen text if the
+  // crop pans/zooms during a highlight's own visible window. This
+  // describe block does NOT change the design - it quantifies exactly
+  // how much drift results at low/medium/large movement, so Gate C can
+  // judge against real numbers instead of an assumption.
+  //
+  // Technique: computeOcrHighlightBoxes() already picks whichever crop
+  // window is NEAREST a track's own startTime (nearestCropWindow()) - a
+  // SECOND call with the SAME bounding box but startTime set to the
+  // highlight's own endTime reuses that exact mechanism to compute "where
+  // would this box be if it were anchored to the crop window at the
+  // highlight's END instead of its START" - a legitimate stand-in for "a
+  // continuously-tracked box" without needing any new production code.
+  // The delta between the two calls IS the drift the static design
+  // leaves unaddressed for that highlight's own visible duration.
+  describe('Gate B2 evidence: static-snapshot drift at low/medium/large crop movement (no mechanism change)', () => {
+    // A representative on-screen price/name box (the two OCR_HIGHLIGHT_CATEGORIES
+    // this phase actually highlights) - source-normalized, fixed across
+    // all 3 scenarios so movement level is the only variable.
+    const boundingBox: FaceBox = { xCenter: 0.5, yCenter: 0.5, width: 0.15, height: 0.08 };
+    // A 2s highlight - long enough for a crop-path move to actually
+    // happen during its own visible window, matching Focus Shift/Digital
+    // Push's own real timescales (B1's fixture moved 160px in 0.4s).
+    const highlightStart = 0;
+    const highlightEnd = 2;
+
+    // Mirrors computeOcrHighlightBoxes()'s own internal formula exactly
+    // (same technique ocr-highlight.spec.ts's own pre-existing tests
+    // already use, e.g. "picks the crop window nearest...") - self-
+    // verifying against the real transform, not a hand-typed guess.
+    function expectedBoxAt(crop: CropWindow, outputWidth: number, outputHeight: number) {
+      const sourcePixelX = boundingBox.xCenter * 320 - (boundingBox.width * 320) / 2;
+      const sourcePixelY = boundingBox.yCenter * 240 - (boundingBox.height * 240) / 2;
+      const scaleX = outputWidth / crop.width;
+      const scaleY = outputHeight / crop.height;
+      const rawX = (sourcePixelX - crop.x) * scaleX;
+      const rawY = (sourcePixelY - crop.y) * scaleY;
+      return { x: Math.round(rawX), y: Math.round(rawY) };
+    }
+
+    function driftFor(label: string, startCrop: CropWindow, endCrop: CropWindow) {
+      const cropPath = [startCrop, endCrop];
+      const outputWidth = 136;
+      const outputHeight = 240;
+
+      const boxAtStart = computeOcrHighlightBoxes(
+        [
+          track({
+            boundingBox,
+            startTime: highlightStart,
+            endTime: highlightEnd,
+          }),
+        ],
+        cropPath,
+        320,
+        240,
+        outputWidth,
+        outputHeight,
+      )[0];
+      // The counterfactual "continuously tracked" position - same track,
+      // same box, but anchored to the crop window nearest the
+      // highlight's own END instead of its START.
+      const boxIfTrackedAtEnd = computeOcrHighlightBoxes(
+        [
+          track({
+            boundingBox,
+            startTime: highlightEnd,
+            endTime: highlightEnd,
+          }),
+        ],
+        cropPath,
+        320,
+        240,
+        outputWidth,
+        outputHeight,
+      )[0];
+
+      const driftX = boxIfTrackedAtEnd ? Math.abs(boxIfTrackedAtEnd.x - boxAtStart.x) : null;
+      const driftFractionOfOutputWidth = driftX === null ? null : driftX / outputWidth;
+
+      return { label, boxAtStart, boxIfTrackedAtEnd, driftX, driftFractionOfOutputWidth };
+    }
+
+    it('LOW movement (10px pan, no zoom, over 2s) - the static box stays close to where a tracked box would be', () => {
+      const startCrop: CropWindow = { t: highlightStart, x: 40, y: 0, width: 240, height: 240 };
+      const endCrop: CropWindow = { t: highlightEnd, x: 50, y: 0, width: 240, height: 240 };
+      const result = driftFor('low', startCrop, endCrop);
+
+      expect(result.boxAtStart.x).toBe(expectedBoxAt(startCrop, 136, 240).x);
+      expect(result.boxIfTrackedAtEnd!.x).toBe(expectedBoxAt(endCrop, 136, 240).x);
+      // 10px of crop pan -> a small fraction of the output's own width.
+      expect(result.driftX).toBeLessThan(10);
+      expect(result.driftFractionOfOutputWidth!).toBeLessThan(0.05);
+    });
+
+    it('MEDIUM movement (80px pan, no zoom, over 2s - a single Focus-Shift-scale move) - drift becomes visually noticeable', () => {
+      const startCrop: CropWindow = { t: highlightStart, x: 40, y: 0, width: 240, height: 240 };
+      const endCrop: CropWindow = { t: highlightEnd, x: 120, y: 0, width: 240, height: 240 };
+      const result = driftFor('medium', startCrop, endCrop);
+
+      expect(result.boxAtStart.x).toBe(expectedBoxAt(startCrop, 136, 240).x);
+      expect(result.boxIfTrackedAtEnd!.x).toBe(expectedBoxAt(endCrop, 136, 240).x);
+      expect(result.driftFractionOfOutputWidth!).toBeGreaterThan(0.2);
+    });
+
+    it("LARGE movement (110px pan + 30% zoom over 2s) - the static box would be substantially wrong, clamped to the frame edge, by the highlight's own end", () => {
+      const startCrop: CropWindow = { t: highlightStart, x: 40, y: 0, width: 240, height: 240 };
+      // 240 * 0.7 = 168 - the identical 30% punch-in B1's own fixture uses.
+      const endCrop: CropWindow = { t: highlightEnd, x: 150, y: 0, width: 168, height: 240 };
+      const result = driftFor('large', startCrop, endCrop);
+
+      expect(result.boxAtStart.x).toBe(expectedBoxAt(startCrop, 136, 240).x);
+      // Unlike the low/medium cases, the "tracked" box at this movement
+      // level clamps hard against the output frame's left edge (x=0) -
+      // the zoomed-in crop window has moved far enough that the text's
+      // own source position sits mostly outside it by the highlight's
+      // end, not just shifted.
+      expect(result.boxIfTrackedAtEnd!.x).toBe(0);
+      expect(result.driftFractionOfOutputWidth!).toBeGreaterThan(0.3);
+    });
+
+    it('EXTREME movement (160px pan + 30% zoom over 2s - the SAME combined magnitude B1 found for Focus Shift x Digital Push) - the tracked text leaves the crop entirely, but the static box keeps showing anyway', () => {
+      const startCrop: CropWindow = { t: highlightStart, x: 40, y: 0, width: 240, height: 240 };
+      const endCrop: CropWindow = { t: highlightEnd, x: 200, y: 0, width: 168, height: 240 };
+      const result = driftFor('extreme', startCrop, endCrop);
+
+      // The static box (what actually gets burned in, anchored to t=0)
+      // is a real, valid box - this is what the viewer would see for the
+      // highlight's ENTIRE 2s duration, unconditionally.
+      expect(result.boxAtStart).toBeDefined();
+      expect(result.boxAtStart.x).toBe(expectedBoxAt(startCrop, 136, 240).x);
+      // But a continuously-tracked box, anchored to where the crop
+      // ACTUALLY is by the highlight's own end, finds nothing at all -
+      // computeOcrHighlightBoxes()'s own "fully outside the crop window"
+      // guard drops it (the text's real on-screen position has been
+      // panned/zoomed out of frame entirely). This is a qualitatively
+      // WORSE failure mode than drift: the static design keeps a
+      // highlight box on screen pointing at text that, if truly tracked,
+      // wouldn't be visible in the output frame at all by the end of its
+      // own highlight window.
+      expect(result.boxIfTrackedAtEnd).toBeUndefined();
+    });
+  });
 });

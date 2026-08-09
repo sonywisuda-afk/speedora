@@ -2830,6 +2830,313 @@ describe('render-clip worker', () => {
     });
   });
 
+  // Visual Emphasis Integration Audit, Gate B3 (docs/ai/
+  // visual-emphasis-integration-audit.md) - EVIDENCE GATHERING for the
+  // audit's Pause Hold x Reaction Hold finding: toggling Pause Hold
+  // silently changes whether a coincident Reaction Hold instant survives
+  // at all. This describe block does NOT change the implementation - it
+  // explicitly asserts all 4 {pauseHold, reactionHold} x {on, off}
+  // combinations against the SAME coincident-instant fixture, confirming
+  // the behavior is exactly what C6R.3's own remapTimestamp()-based
+  // design intended (see cutlist.ts's own "protect/apply rarely, don't
+  // guess" comment) - not an accidental side effect nobody decided on.
+  describe('Gate B3 evidence: Pause Hold × Reaction Hold interaction (2x2 flag matrix, no mechanism change)', () => {
+    // Same [0.45, 9.35] silence-gap fixture as the C7/C6R.3 describe
+    // blocks above ("hi" ends at clip-relative 0.3s, "there" starts at
+    // 9.5s) - kept as its own local const since those blocks' own
+    // pauseJobData/cutJobData are scoped there, not shared.
+    const jobData: RenderClipJobData = {
+      ...baseJobData,
+      startTime: 10,
+      endTime: 20,
+      transcript: [
+        {
+          start: 10,
+          end: 20,
+          text: 'hi there',
+          words: [
+            { word: 'hi', start: 10, end: 10.3 },
+            { word: 'there', start: 19.5, end: 19.8 },
+          ],
+        },
+      ],
+    };
+    // Midpoint 5.0 falls squarely inside the [0.45, 9.35] gap - the exact
+    // coincident-instant scenario the audit's B3 test plan calls for.
+    const reactionHoldSuggestion = {
+      technique: 'reaction_hold' as const,
+      start: 4.9,
+      end: 5.1,
+      score: 0.8,
+      reason: 'x',
+    };
+    // An EXACT match to the silence cut computeSilenceCuts() itself
+    // produces for this fixture ({start: 0.45, end: 9.35}) -
+    // protectPauseHolds() requires exact equality, not a loose overlap.
+    const pauseHoldSuggestion = {
+      technique: 'pause_hold' as const,
+      start: 0.45,
+      end: 9.35,
+      score: 0.8,
+      reason: 'y',
+    };
+
+    beforeEach(() => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+    });
+
+    afterEach(() => {
+      delete process.env.VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED;
+      delete process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED;
+    });
+
+    it('pauseHold=OFF, reactionHold=OFF: the gap is cut for real; no reaction-hold pass runs at all', async () => {
+      computeEditingSuggestionsMock.mockReturnValueOnce([
+        reactionHoldSuggestion,
+        pauseHoldSuggestion,
+      ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(jobData));
+
+      expect(trimCutRangesMock).toHaveBeenCalledTimes(1);
+      const [, , cuts] = trimCutRangesMock.mock.calls[0];
+      expect(cuts).toEqual([{ start: 0.45, end: 9.35 }]);
+      expect(applyReactionHoldsMock).not.toHaveBeenCalled();
+    });
+
+    it('pauseHold=OFF, reactionHold=ON: the gap is cut for real, so the coincident reaction-hold instant resolves to null (remapTimestamp) and is SKIPPED', async () => {
+      process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED = 'true';
+      computeEditingSuggestionsMock.mockReturnValueOnce([
+        reactionHoldSuggestion,
+        pauseHoldSuggestion,
+      ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(jobData));
+
+      // The cut really happened (pause_hold suggestion present, but the
+      // FLAG that would make computeClipCuts() honor it is off).
+      expect(trimCutRangesMock).toHaveBeenCalledTimes(1);
+      const [, , cuts] = trimCutRangesMock.mock.calls[0];
+      expect(cuts).toEqual([{ start: 0.45, end: 9.35 }]);
+      // The reaction hold instant (midpoint 5.0) falls inside that same
+      // cut -> remapTimestamp() returns null -> skipped, never reaching
+      // applyReactionHolds() at all.
+      expect(applyReactionHoldsMock).not.toHaveBeenCalled();
+    });
+
+    it('pauseHold=ON, reactionHold=OFF: the gap survives (protected); no reaction-hold pass runs (flag off)', async () => {
+      process.env.VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED = 'true';
+      computeEditingSuggestionsMock.mockReturnValueOnce([
+        reactionHoldSuggestion,
+        pauseHoldSuggestion,
+      ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(jobData));
+
+      // protectPauseHolds() removes the only candidate cut entirely, so
+      // computeClipCuts() returns [] and the trim pass never runs at all
+      // (cuts.length > 0 is false).
+      expect(trimCutRangesMock).not.toHaveBeenCalled();
+      expect(applyReactionHoldsMock).not.toHaveBeenCalled();
+    });
+
+    it('pauseHold=ON, reactionHold=ON: the gap survives, so the SAME coincident instant remaps unchanged and the hold APPLIES', async () => {
+      process.env.VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED = 'true';
+      process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED = 'true';
+      computeEditingSuggestionsMock.mockReturnValueOnce([
+        reactionHoldSuggestion,
+        pauseHoldSuggestion,
+      ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(jobData));
+
+      // No cut at all this time (the gap was protected) - the reaction
+      // hold pass runs against the UNTRIMMED output, and
+      // remapTimestamp(5.0, []) returns 5.0 unchanged (no cuts to remap
+      // against), so the hold survives and fires exactly where the
+      // ORIGINAL suggestion said it should.
+      expect(trimCutRangesMock).not.toHaveBeenCalled();
+      expect(applyReactionHoldsMock).toHaveBeenCalledWith(
+        expect.stringContaining('output'),
+        expect.stringContaining('reaction-hold'),
+        [5],
+        0.5,
+      );
+    });
+  });
+
+  // Visual Emphasis Integration Audit, Gate B4 (docs/ai/
+  // visual-emphasis-integration-audit.md) - EVIDENCE GATHERING, ALL 5
+  // flag-gated techniques ON simultaneously, on ONE deliberately
+  // adversarial fixture that intentionally recreates every conflict B1-B3
+  // already found on the SAME clip (a clean fixture could pass "all
+  // flags on" trivially without exercising any of the real interaction
+  // risk this gate exists to catch). Category A only (technical
+  // integration: no crash, no timeline corruption, correct cross-
+  // technique wiring) - Category B (editorial density/aggressiveness) is
+  // explicitly NOT judged here, deferred to B5/Gate C per the user's own
+  // instruction.
+  describe('Gate B4 evidence: all 5 flags ON, adversarial fixture (technical integration only)', () => {
+    // 8.8s clip, 3 words, 2 silence gaps:
+    //   gap 1 [0.45, 2.85] - protected by an EXACT-match pause_hold
+    //     suggestion (survives, same B3 mechanism).
+    //   gap 2 [3.45, 7.85] - NOT protected, cut for real (same B3
+    //     mechanism, opposite branch) - this is the cut
+    //     computeReactionHoldInstants() must remap ACROSS.
+    // A focus_shift + digital_push overlap sits inside the SURVIVING
+    // gap 1 (same worst-case overlap shape as B1's own fixture:
+    // digital_push start matches focus_shift start, so the zoom peak
+    // covers the whole snap). The reaction_hold instant (midpoint 8.1)
+    // sits just after gap 2's own end (7.85), on the far side of the one
+    // real cut - remapTimestamp(8.1, [{3.45,7.85}]) = 8.1 - (7.85-3.45)
+    // = 3.7, the exact post-cut position this test asserts on below.
+    const adversarialJobData: RenderClipJobData = {
+      ...baseJobData,
+      startTime: 10,
+      endTime: 18.8,
+      transcript: [
+        {
+          start: 10,
+          end: 18.8,
+          text: 'hi there friend',
+          words: [
+            { word: 'hi', start: 10, end: 10.3 },
+            { word: 'there', start: 13, end: 13.3 },
+            { word: 'friend', start: 18, end: 18.3 },
+          ],
+        },
+      ],
+    };
+    const adversarialSuggestions = [
+      { technique: 'focus_shift' as const, start: 0.85, end: 1.15, score: 0.7, reason: 'a' },
+      { technique: 'digital_push' as const, start: 1.0, end: 1.3, score: 0.8, reason: 'b' },
+      { technique: 'pause_hold' as const, start: 0.45, end: 2.85, score: 0.8, reason: 'c' },
+      { technique: 'reaction_hold' as const, start: 7.9, end: 8.3, score: 0.9, reason: 'd' },
+    ];
+    // Same qualifying price track fixture Phase C5's own tests use -
+    // real (unmocked) OCR-2 tracking/classification turns this into a
+    // real category='price' OcrTextTrack.
+    const priceOcrSample = [
+      {
+        t: 0,
+        textBlocks: [
+          {
+            text: '$9.99',
+            boundingBox: { xCenter: 0.5, yCenter: 0.5, width: 0.1, height: 0.05 },
+            confidence: 0.9,
+          },
+        ],
+      },
+    ];
+
+    beforeEach(() => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      process.env.VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED = 'true';
+      process.env.VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED = 'true';
+      process.env.VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED = 'true';
+      process.env.VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED = 'true';
+      process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED = 'true';
+      computeEditingSuggestionsMock.mockReturnValueOnce(adversarialSuggestions);
+      detectOcrTextMock.mockResolvedValue(priceOcrSample);
+    });
+
+    afterEach(() => {
+      delete process.env.VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED;
+      delete process.env.VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED;
+      delete process.env.VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED;
+      delete process.env.VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED;
+      delete process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED;
+    });
+
+    it('completes the job successfully with no crash (item 1)', async () => {
+      const processor = getProcessor();
+      const result = await processor(fakeJob(adversarialJobData));
+
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+    });
+
+    it('produces a well-formed, non-corrupted timeline across C7 cuts -> Pause Hold -> Reaction Hold (item 2): the protected gap is excluded, the real cut survives, and the reaction instant remaps correctly across it', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob(adversarialJobData));
+
+      expect(trimCutRangesMock).toHaveBeenCalledTimes(1);
+      const [, , cuts] = trimCutRangesMock.mock.calls[0];
+      // Gap 1 (protected) is NOT present; gap 2 (unprotected) is.
+      expect(cuts).toEqual([{ start: 3.45, end: 7.85 }]);
+      // No negative timestamps, no inverted/degenerate range.
+      for (const cut of cuts) {
+        expect(cut.start).toBeGreaterThanOrEqual(0);
+        expect(cut.end).toBeGreaterThan(cut.start);
+      }
+
+      expect(applyReactionHoldsMock).toHaveBeenCalledTimes(1);
+      const [inputPath, , holdInstants, holdDuration] = applyReactionHoldsMock.mock.calls[0];
+      // Ran on the TRIMMED output (a real cut happened before this pass),
+      // proving pass ordering held even with every other technique also
+      // active.
+      expect(inputPath).toEqual(expect.stringContaining('trimmed'));
+      // remapTimestamp(8.1, [{3.45, 7.85}]) = 8.1 - (7.85 - 3.45) = 3.7 -
+      // correctly shifted onto the post-cut timeline, not the raw
+      // pre-cut instant (8.1) and not negative.
+      expect(holdInstants).toEqual([3.7]);
+      expect(holdInstants.every((t: number) => t >= 0)).toBe(true);
+      expect(holdDuration).toBe(0.5);
+    });
+
+    it('threads focus_shift, digital_push, and the qualifying OCR track through to their respective mocked reframe calls unclobbered by each other or by the other 3 active flags (item 4/5 - crop-path and OCR wiring stay valid with everything else on)', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob(adversarialJobData));
+
+      expect(buildCropPathMock).toHaveBeenCalledTimes(1);
+      const focusShiftsArg = buildCropPathMock.mock.calls[0][7];
+      const digitalPushStartsArg = buildCropPathMock.mock.calls[0][8];
+      expect(focusShiftsArg).toEqual([{ start: 0.85, end: 1.15 }]);
+      expect(digitalPushStartsArg).toEqual([1]);
+
+      expect(computeOcrHighlightBoxesMock).toHaveBeenCalledTimes(1);
+      const tracksArg = computeOcrHighlightBoxesMock.mock.calls[0][0];
+      expect(tracksArg).toHaveLength(1);
+      expect(tracksArg[0]).toEqual(expect.objectContaining({ text: '$9.99', category: 'price' }));
+
+      // buildAss still receives ocrHighlights (item 5 - "OCR Highlight
+      // still renders, don't just check the output file exists") -
+      // computeOcrHighlightBoxesMock's own return value (default []) is
+      // what actually reaches buildAss here since the geometry itself is
+      // mocked in this file (B1/B2's own real-function scripts already
+      // proved the real geometry stays valid); this assertion instead
+      // proves the WIRING itself - the ocrHighlights key is present and
+      // set from computeOcrHighlightBoxes()'s own return value, not
+      // silently dropped once 4 other techniques are also active.
+      expect(buildAssMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          ocrHighlights: computeOcrHighlightBoxesMock.mock.results[0].value,
+        }),
+      );
+    });
+
+    it('keeps every optional pass best-effort even with all 5 techniques active - a reaction-hold failure still uploads the trimmed (pre-hold) output rather than failing the job', async () => {
+      applyReactionHoldsMock.mockRejectedValueOnce(new Error('ffmpeg exited with code 1'));
+
+      const processor = getProcessor();
+      const result = await processor(fakeJob(adversarialJobData));
+
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+      expect(uploadObjectMock).toHaveBeenCalledWith(
+        'renders/clip-1.mp4',
+        { fakeStream: expect.stringContaining('trimmed') },
+        'video/mp4',
+      );
+    });
+  });
+
   describe('Auto B-roll (Fase 15/16)', () => {
     const sunsetAsset = {
       id: 'pexels-123',
