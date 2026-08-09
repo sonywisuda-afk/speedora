@@ -65,7 +65,7 @@ import {
 import { getObjectStream, uploadObject } from '@speedora/storage';
 import { isDynamicCaptionEnabled } from '@speedora/dynamic-caption';
 import { isSubtitleRewriteEnabled } from '@speedora/subtitle-rewriter';
-import { isFocusShiftEnabled } from '@speedora/visual-emphasis';
+import { isDigitalPushEnabled, isFocusShiftEnabled } from '@speedora/visual-emphasis';
 import { buildAss } from '@speedora/subtitles';
 import { DEFAULT_THUMBNAIL_WEIGHTS } from '@speedora/thumbnail-selection';
 import { UnrecoverableError, Worker, type Job } from 'bullmq';
@@ -548,18 +548,46 @@ async function buildReframePlan(
   // Pre-Processing Settings roadmap (Phase 2) - undefined lets
   // buildCropPath() fall back to its own MAX_ZOOM_IN_FRACTION default.
   zoomInFraction?: number,
-  // Visual Emphasis Engine Phase C3 ("Focus Shift", docs/ai/
-  // visual-emphasis-engine.md) - Phase C1's own editingSuggestions
-  // (always computed regardless of VISUAL_EMPHASIS_ENABLED, which gates
-  // only GET /clips/:id/intelligence's exposure). Filtered/mapped to the
-  // plain {start, end} shape buildCropPath() expects right here, at this
-  // orchestration seam - @speedora/reframe stays decoupled from
-  // @speedora/visual-emphasis's own EditingSuggestion vocabulary. Empty
+  // Visual Emphasis Engine Phase C1's own editingSuggestions - ALWAYS
+  // computed regardless of VISUAL_EMPHASIS_ENABLED (that flag gates only
+  // GET /clips/:id/intelligence's exposure). Passed through unfiltered;
+  // each technique below (Phase C3's focus_shift, Phase C4's digital_push,
+  // ...) is filtered out and gated by its OWN flag right here, not at the
+  // call site - a deliberate C4 refactor of C3's original shape, needed
+  // now that two independently-toggleable techniques both read from this
+  // same array (docs/ai/visual-emphasis-engine.md's "C4 rollout" note:
+  // "don't make one master flag for all rendering" - each technique's own
+  // flag decides its own inclusion, checked in exactly one place). Empty
   // by default so every pre-C3 caller/test keeps buildCropPath()'s exact
-  // prior drift behavior.
-  focusShifts: EditingSuggestionTimeline = [],
+  // prior drift/zoom behavior.
+  editingSuggestions: EditingSuggestionTimeline = [],
 ): Promise<ReframeOptions> {
   const emphasisWords = findEmphasisWords(toClipRelativeWords(transcript, startTime));
+  // Visual Emphasis Engine Phase C3 ("Focus Shift") - @speedora/reframe
+  // stays decoupled from @speedora/visual-emphasis's own EditingSuggestion
+  // vocabulary; the filter/map to buildCropPath()'s plain {start, end}
+  // shape happens right here, at this orchestration seam.
+  const focusShifts = isFocusShiftEnabled()
+    ? editingSuggestions
+        .filter((suggestion) => suggestion.technique === 'focus_shift')
+        .map((suggestion) => ({ start: suggestion.start, end: suggestion.end }))
+    : [];
+  // Visual Emphasis Engine Phase C4 ("Digital Push", docs/ai/
+  // visual-emphasis-engine.md) - extends Auto Zoom's (Fase 11) existing
+  // emphasis-word trigger set with Phase C1's own digital_push suggestions
+  // (Phase A1/B1's HighlightTimeline, already thresholded upstream by
+  // computeHighlightTimeline()'s own PUNCH_THRESHOLD before ever becoming
+  // a suggestion). Only `start` is used - buildCropPath()'s existing
+  // zoomEnvelopeAt() attack/hold/release envelope shape is reused
+  // UNCHANGED, exactly like an emphasis word's own trigger (ADR-equivalent
+  // decision recorded in the design doc's "C4 architecture" section) - no
+  // second zoom mechanism, only a second trigger source feeding the same
+  // one.
+  const digitalPushStarts = isDigitalPushEnabled()
+    ? editingSuggestions
+        .filter((suggestion) => suggestion.technique === 'digital_push')
+        .map((suggestion) => suggestion.start)
+    : [];
   const cropPath = buildCropPath(
     toFaceSamples(primarySubjectSamples),
     emphasisWords,
@@ -568,9 +596,8 @@ async function buildReframePlan(
     sourceHeight,
     clipDurationSeconds,
     zoomInFraction,
-    focusShifts
-      .filter((suggestion) => suggestion.technique === 'focus_shift')
-      .map((suggestion) => ({ start: suggestion.start, end: suggestion.end })),
+    focusShifts,
+    digitalPushStarts,
   );
   if (!cropPath) {
     return {
@@ -912,15 +939,17 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // second, disconnected face detector call - see buildReframePlan()'s
             // own comment for the full "before/after" story.
             //
-            // Phase C3 ("Focus Shift") - graphResult.editingSuggestions is
-            // ALWAYS computed (Phase C1's own render-graph node, optional:
-            // false), regardless of VISUAL_EMPHASIS_ENABLED (that flag gates
-            // GET /clips/:id/intelligence's exposure only); isFocusShiftEnabled()
-            // is the SEPARATE flag deciding whether THIS render actually acts
-            // on the focus_shift entries within it (docs/ai/
-            // visual-emphasis-engine.md's "C3 rollout" decision - flag-gated,
-            // off by default, no per-clip toggle). Off keeps buildReframePlan()'s
-            // exact pre-C3 behavior (empty focusShifts default).
+            // Phase C3 ("Focus Shift")/Phase C4 ("Digital Push") -
+            // graphResult.editingSuggestions is ALWAYS computed (Phase C1's
+            // own render-graph node, optional: false), regardless of
+            // VISUAL_EMPHASIS_ENABLED (that flag gates GET /clips/:id/
+            // intelligence's exposure only). Passed through UNFILTERED and
+            // UNCONDITIONALLY here - buildReframePlan() itself checks each
+            // technique's own flag (isFocusShiftEnabled()/
+            // isDigitalPushEnabled()) before acting on that technique's
+            // entries (docs/ai/visual-emphasis-engine.md's "C4 rollout"
+            // note: one flag per technique, never a shared master flag, so
+            // each can be calibrated independently in production).
             const reframe = await buildReframePlan(
               graphResult.primarySubjectSamples,
               transcript,
@@ -930,7 +959,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               sourceHeight,
               endTime - startTime,
               resolveZoomInFraction(processingOptions),
-              isFocusShiftEnabled() ? graphResult.editingSuggestions : [],
+              graphResult.editingSuggestions,
             );
             sendCmdPath = reframe.sendCmdPath;
 

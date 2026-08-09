@@ -34,3 +34,24 @@ export function isVisualEmphasisEnabled(): boolean {
 export function isFocusShiftEnabled(): boolean {
   return process.env.VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED === 'true';
 }
+
+// Visual Emphasis Engine Phase C4 ("Digital Push" - see docs/ai/
+// visual-emphasis-engine.md's "C4 rollout" decision) - a SEPARATE flag
+// from isFocusShiftEnabled() above, same "one flag per technique, never a
+// shared master flag" reasoning: Focus Shift and Digital Push change
+// DIFFERENT parts of the render pipeline (pan vs. zoom) and may need
+// independent production calibration (e.g. Focus Shift confirmed good and
+// left on while Digital Push turns out too aggressive and gets turned back
+// off, or vice versa) - a single combined flag would make that
+// impossible. Gates whether render-clip.worker.ts's buildReframePlan()
+// extends Auto Zoom's (Fase 11) existing emphasis-word trigger set with
+// Phase C1's own digital_push suggestions - NOT a new zoom mechanism, only
+// a second trigger source feeding the SAME existing zoomEnvelopeAt()
+// envelope. Off by default, no per-clip toggle (same rationale as Focus
+// Shift: this phase increases how OFTEN the existing zoom fires, and that
+// distribution shift was never validated against real footage in this
+// sandbox - the risk is over-emphasis/aggressive rhythm, not a
+// correctness bug, but still unvalidated).
+export function isDigitalPushEnabled(): boolean {
+  return process.env.VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED === 'true';
+}

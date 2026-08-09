@@ -1,12 +1,12 @@
 # Visual Emphasis Engine (spec Part 9, AI Intelligence v4 Track B Phase C)
 
-> **Status: Phases C1-C3 shipped. Phases C4-C7 remain design only.** This doc is the audit + ADR +
+> **Status: Phases C1-C4 shipped. Phases C5-C7 remain design only.** This doc is the audit + ADR +
 > dependency graph + phased roadmap requested before any implementation starts, same discipline as
 > [`ai/subtitle-intelligence.md`](./subtitle-intelligence.md) (Track B Phase A/B, now complete) —
-> see that doc for the precedent this one follows. See "Phase C1 architecture (as shipped)",
-> "Phase C2 architecture (as shipped)", and "Phase C3 architecture (as shipped)" below for what
-> actually exists; every other phase (C4-C7, the 4 remaining technique-specific rendering phases)
-> is still the planned design below, not built.
+> see that doc for the precedent this one follows. See "Phase C1 architecture (as shipped)" through
+> "Phase C4 architecture (as shipped)" below for what actually exists; every other phase (C5-C7,
+> the 3 remaining technique-specific rendering phases) is still the planned design below, not
+> built.
 
 ## Why this exists
 
@@ -176,7 +176,7 @@ facialFeatures/emotionalArc ────┘
 | C1 | Editing Suggestion timeline (data only) — names which of the 9 techniques applies, when, why | Hook Prediction, Virality Engine, Phase B1's `HighlightTimeline`, Narrative Graph, Retention Curve Insights, Emotional Arc — all existing | M | Defining one contract shape flexible enough for 9 fairly different techniques (some are instants, some are ranges, some are booleans-per-clip) without it becoming a junk-drawer type |
 | C2 | Unify Face/Object Priority — `buildReframePlan()` consumes `selectPrimarySubject()` instead of its own `detectFaces()`-only decision — **shipped, no flag** (real behavior change, not opt-in) | `primarySubjectSamples` node (existing) | M | Real behavior change to the production crop path for every future render (unlike Track B's flag-gated phases, this fixes a duplication rather than adding an opt-in) — needs a real before/after render comparison, not just unit tests |
 | C3 | Focus Shift — deliberate transition when the primary subject id changes, instead of continuous drift — **shipped, flag-gated** (`VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED`, off by default, no per-clip toggle) | C2 | S-M | Defining "deliberate" (a faster pan? a hard cut? a brief hold?) without real footage to validate against |
-| C4 | Digital Push — extend Auto Zoom's triggers beyond `EMPHASIS_PATTERN` words to include v4's own "this moment matters" signals | C1 | S | Two trigger sources (regex words, v4 signals) firing on overlapping spans needs a real merge rule, not double-triggering |
+| C4 | Digital Push — extend Auto Zoom's triggers beyond `EMPHASIS_PATTERN` words to include v4's own "this moment matters" signals — **shipped, flag-gated** (`VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED`, off by default, no per-clip toggle) | C1 | S | Two trigger sources (regex words, v4 signals) firing on overlapping spans needs a real merge rule, not double-triggering |
 | C5 | OCR Highlight — new overlay rendering | C1, OCR Intelligence (existing) | L | Genuinely new rendering mechanism (Tech Debt #5) — needs the same "verify against real ffmpeg" discipline Track B Phase B2 established, and a real design pass for DC5's open question |
 | C6 | Reaction Hold — extend shot duration for a detected reaction | C1 | M | Extending duration interacts with the existing cutlist/render timeline math non-trivially — a naive implementation could desync captions/crop from the extended audio |
 | C7 | Pause Hold — protect specific pauses from Smart Trim | C1 | S-M | A wrong "protect this pause" call silently reintroduces dead air Smart Trim was built to remove — needs a conservative default (protect rarely, not liberally) |
@@ -544,6 +544,134 @@ apps/worker/src/workers/render-clip.worker.ts
 **Verification performed**: `packages/reframe/src/crop-path.spec.ts` gained 3 new tests - (1) the core snap behavior (a sample pair that would have produced a mid-drift value at t=0.2 without this phase now holds flat at the pre-shift position, snapping only within the shift's own [0.4, 0.6] window), (2) the clip-start edge case (a shift window before the first known sample falls back to the exact pre-C3 path, proven via `toEqual` against the no-shift baseline), (3) an explicit default-empty-array regression lock. `render-clip.worker.spec.ts` gained a new "Visual Emphasis Engine Phase C3 - Focus Shift render wiring" describe block (2 tests: flag on with a real detected subject change passes the exact `[{start: 1.85, end: 2.15}]` window through to `buildCropPath()`; flag off passes `[]` even with the same real subject change present) and had its 3 existing Phase C2 "smart reframe" assertions extended with the new trailing `[]` argument. `@speedora/reframe`: 27/27 pass (up from 24). Full worker suite: 594/594 pass (up from 592, net +2 new Phase C3 tests). `apps/worker`/`@speedora/reframe`/`@speedora/visual-emphasis` typecheck, lint, and production build all clean; `apps/api` typecheck unaffected (no API surface touched - `focusShifts` is a purely internal render-time parameter derived from Phase C1's already-exposed `editingSuggestions`, no new DTO field); `pnpm format:check` clean. No new migration, no new Prisma column, no new DTO field - the entire phase lives inside `packages/reframe` + `packages/visual-emphasis` + `apps/worker`.
 
 **What was explicitly NOT done** (the same honestly-flagged gap C2 already carries, restated for this phase's own new visual effect): no real footage was available in this sandbox to judge whether the 0.3s snap window (reusing Phase C1's own `FOCUS_SHIFT_WINDOW_SECONDS` heuristic, not a new constant) actually reads as "deliberate" versus "jarring" to a real viewer - exactly the risk this doc's own roadmap table flagged for C3 before implementation, and the reason the user chose a flag-gated rollout over an unconditional one for this phase specifically.
+
+## Phase C4 architecture (as shipped)
+
+**"C4 rollout" decision** (resolved via `AskUserQuestion` before implementation, same discipline as
+C3): the user's own framing distinguished this phase's risk shape from C3's - C4 doesn't introduce
+a new visual effect (the zoom/push mechanism already exists, unconditionally, since Fase 11), it
+changes the *distribution* of an existing one by adding a second trigger source:
+
+```
+Before C4                         After C4
+emphasis-word regex               emphasis-word regex ──┐
+        │                                                ├── Auto Zoom (unchanged mechanism)
+        ▼                         digital_push ──────────┘
+   Auto Zoom
+```
+
+A clip that never zoomed before (no emphasis words) can now zoom because a `digital_push`
+suggestion fired. The risk is over-emphasis (too many punch-ins, zooming on highlights that didn't
+need one, an overly aggressive visual rhythm) - not a correctness bug, but still unvalidated
+against real footage, and this doc's own roadmap table already flagged the "two trigger sources
+firing on overlapping spans" risk before implementation. The user chose the **same rollout shape as
+C3** for this reason, with one explicit refinement carried forward from their own review of C3:
+**never a shared master flag** - `VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED` and
+`VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED` are independent, so production calibration can turn one on
+and the other off without a single combined switch forcing them together (e.g. Focus Shift
+confirmed good and left on while Digital Push turns out too aggressive and gets turned back off).
+
+**Explicit implementation requirement carried forward from the user's review** (verbatim intent,
+not paraphrased away): C4 must ADD a trigger, never replace or duplicate the existing mechanism -
+
+```
+existing emphasis-word trigger
+          +
+Phase C1's digital_push suggestions
+          ↓
+existing Auto Zoom mechanism (zoomEnvelopeAt(), UNCHANGED)
+```
+
+not a second, parallel zoom implementation. The code below satisfies this literally: `zoomEnvelopeAt()`
+itself is untouched; only the trigger-start ARRAY feeding into its existing max-reduce grew a
+second source.
+
+```
+packages/reframe/src/crop-path.ts
+
+  buildCropPath() CHANGED     Gained a 9th parameter, `digitalPushStarts: number[] = []` (default
+                              empty - every pre-C4 caller/test keeps the function's exact prior
+                              zoom behavior with no changes needed). The `emphasisStarts` local
+                              was replaced with `zoomTriggerStarts = [...emphasisWords.map(w =>
+                              w.start), ...digitalPushStarts]` - ONE combined array feeding the
+                              SAME `.reduce((max, start) => Math.max(max, zoomEnvelopeAt(t, start)),
+                              0)` every emphasis-word-only case already used. This IS the "real
+                              merge rule" the roadmap flagged as C4's primary risk - it falls out
+                              of the existing max-reduce for free (two triggers overlapping in
+                              time still only ever produce one envelope's peak, 1.0, never summed/
+                              stacked), no new merge logic needed. The `hasFaceData &&
+                              emphasisWords.length === 0` early-return guard was also extended to
+                              `&& digitalPushStarts.length === 0`, so a faceless clip with only a
+                              digital-push moment (no face, no emphasis word) still produces a real
+                              zoom-only path instead of incorrectly returning null.
+
+packages/visual-emphasis/src/feature-flags.ts
+
+  isDigitalPushEnabled() NEW  VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED - a SEPARATE flag from
+                              isFocusShiftEnabled() (per the "never a shared master flag" decision
+                              above), same lazy-env-var-read shape as every other v4 flag.
+
+apps/worker/src/workers/render-clip.worker.ts
+
+  buildReframePlan() CHANGED  Refactored from C3's original shape: the parameter (renamed from
+                              `focusShifts` to `editingSuggestions`) now carries Phase C1's
+                              UNFILTERED EditingSuggestionTimeline, and BOTH isFocusShiftEnabled()
+                              and isDigitalPushEnabled() are checked INSIDE this function, each
+                              filtering to its own technique before mapping to buildCropPath()'s
+                              own plain shapes. This refactor was necessary the moment two
+                              independently-toggleable techniques both needed to read from the
+                              same array - C3's original design (gate the WHOLE array at the call
+                              site) couldn't scale to a second independent flag.
+
+  Call site               Simplified to pass graphResult.editingSuggestions through UNCONDITIONALLY
+                              (always computed regardless of VISUAL_EMPHASIS_ENABLED) - both
+                              per-technique flag checks now live inside buildReframePlan() itself,
+                              in exactly one place each.
+```
+
+**What did NOT change**: `zoomEnvelopeAt()`'s own attack/hold/release envelope math, the pan/
+`interpolateAt()` side of `buildCropPath()`, `buildSendCmdScript()`, and Phase C2/C3's own wiring
+are all byte-for-byte untouched - Digital Push is purely a second array feeding an existing
+computation, exactly the "extend the trigger set, not a new mechanism" requirement.
+
+**Verification performed** (the 5 explicit regression scenarios requested before implementation,
+each with its own test):
+- **flag OFF + a real digital_push moment present → no new zoom**: `render-clip.worker.spec.ts`'s
+  "passes an empty digitalPushStarts array when the flag is off (default), even with a real
+  punch-worthy moment detected" - drives a REAL `digital_push` suggestion (a transcript segment
+  with `emotion: 'ang'`, whose `BASE_INTENSITY` of 0.85 clears `computeHighlightTimeline()`'s own
+  `PUNCH_THRESHOLD` of 0.6 via Phase A1's real, un-mocked `subtitleIntelligenceNode`) and confirms
+  `buildCropPath()` still receives `[]`.
+- **flag ON + digital_push → zoom occurs**: the sibling "passes the detected digital_push start
+  through to buildCropPath when the flag is on" test, same fixture, flag set - confirms
+  `buildCropPath()` receives `[0]`.
+- **old emphasis-word trigger still works when the C4 flag is off**: "still applies the old
+  emphasis-word trigger even when the C4 flag is off" - drives `findEmphasisWordsMock` directly
+  (proving Fase 11's own mechanism is completely unaffected by C4's flag state).
+- **no digital_push suggestions → identical old behavior**: "passes an empty digitalPushStarts
+  array when the flag is on but there is no punch-worthy moment" - flag ON but plain `baseJobData`
+  (no punch-worthy segment) still yields `[]`, proving the flag alone doesn't fabricate a trigger.
+- **multiple suggestions → no duplicate/stacked zoom**: `packages/reframe/src/crop-path.spec.ts`'s
+  "combines an emphasis word and an overlapping digital-push moment by taking the strongest zoom,
+  never stacking them" - asserts the exact same single-trigger peak-shrink expression the
+  pre-existing "combines overlapping emphasis words" test uses, proving two overlapping SOURCES
+  still collapse to one envelope peak. A companion "fires two independent, non-overlapping zoom
+  envelopes for two well-separated digital-push moments" test proves well-separated triggers still
+  each get their own full envelope (not merged into one).
+
+Plus 3 more `crop-path.spec.ts` tests (zoom-only path from a digital-push moment alone with no
+face/emphasis data; exact pre-C4 behavior preserved with the new parameter passed empty; the
+updated null-guard's own regression lock) and a 4th `render-clip.worker.spec.ts` fixture test.
+`@speedora/reframe`: 32/32 pass (up from 27, +5 new). Full worker suite: 598/598 pass (up from 594,
++4 new). `apps/worker`/`@speedora/reframe`/`@speedora/visual-emphasis` typecheck, lint, and
+production build all clean; `apps/api` typecheck unaffected (no API surface touched); `pnpm
+format:check` clean. No new migration, no new Prisma column, no new DTO field.
+
+**What was explicitly NOT done** (same category as C2/C3's own gap): no real footage was available
+in this sandbox to judge whether the WIDER set of zoom triggers (now including highlight-driven
+moments, not just emphasis words) reads as more impactful or as over-emphasis/aggressive rhythm to
+a real viewer - the exact reason this phase ships flag-gated with its own independent flag rather
+than unconditionally alongside the existing Auto Zoom mechanism it extends.
 
 ## Explicitly deferred / open questions
 
