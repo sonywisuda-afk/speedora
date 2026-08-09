@@ -11,7 +11,10 @@
 > "Phase C5 architecture (as shipped)", "Phase C7 architecture (as shipped)", and "C6R.1
 > architecture (as shipped)"/"C6R.2 architecture (as shipped)"/"C6R.3 architecture (as shipped)"
 > below for what actually exists - every phase is flag-off by default, none calibrated against real
-> engagement data yet.
+> engagement data yet. **Next step, per explicit user direction, is NOT flag-by-flag production
+> rollout** - see [`ai/visual-emphasis-integration-audit.md`](./visual-emphasis-integration-audit.md)
+> for the 3-gate calibration sequence (Gate A Static Architecture Audit, complete; Gate B
+> Cross-Technique Integration; Gate C Real-Footage Calibration) that comes next instead.
 
 ## Why this exists
 
