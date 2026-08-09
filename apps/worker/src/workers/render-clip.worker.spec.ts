@@ -203,13 +203,11 @@ jest.mock('@speedora/multimodal-reasoning', () => ({
   reasonMultimodal: (...args: unknown[]) => reasonMultimodalMock(...args),
 }));
 
-const detectFacesMock = jest.fn();
 const computeCropDimensionsMock = jest.fn();
 const buildCropPathMock = jest.fn();
 const buildSendCmdScriptMock = jest.fn();
 const findEmphasisWordsMock = jest.fn();
 jest.mock('@speedora/reframe', () => ({
-  detectFaces: (...args: unknown[]) => detectFacesMock(...args),
   computeCropDimensions: (...args: unknown[]) => computeCropDimensionsMock(...args),
   buildCropPath: (...args: unknown[]) => buildCropPathMock(...args),
   buildSendCmdScript: (...args: unknown[]) => buildSendCmdScriptMock(...args),
@@ -636,7 +634,7 @@ describe('render-clip worker', () => {
     // Fails by default (not "succeeds with nothing") so the many existing
     // exact-literal clipUpdateMock assertions below don't all need a
     // thumbnailUrl key added - same "opt in to exercise the success path"
-    // convention as findBRollMomentsMock/detectFacesMock above. Dedicated
+    // convention as findBRollMomentsMock above. Dedicated
     // tests further down override this to exercise both outcomes.
     extractThumbnailMock.mockRejectedValue(new Error('not configured for this test'));
     extractAnimatedPreviewMock.mockRejectedValue(new Error('not configured for this test'));
@@ -679,7 +677,6 @@ describe('render-clip worker', () => {
     cleanupTempFileMock.mockResolvedValue(undefined);
     getVideoDimensionsMock.mockResolvedValue({ width: 320, height: 240 });
     computeCropDimensionsMock.mockReturnValue({ width: 136, height: 240 });
-    detectFacesMock.mockResolvedValue([{ t: 0, box: null }]);
     detectSceneCutsMock.mockResolvedValue({ cuts: [] });
     classifySceneCutTypesMock.mockResolvedValue({ events: [] });
     analyzeMotionEnergyMock.mockResolvedValue({ samples: [] });
@@ -2037,8 +2034,19 @@ describe('render-clip worker', () => {
     });
   });
 
+  // Visual Emphasis Engine Phase C2 (docs/ai/visual-emphasis-engine.md, ADR
+  // DC3/Tech Debt #1) - buildReframePlan() no longer calls its own
+  // standalone detectFaces() (retired call site, see faceDetectionDeps.ts's
+  // own updated comment); it now derives its crop-path subject from the
+  // render graph's own primarySubjectSamples (Composition Intelligence's
+  // real selectPrimarySubject(), left un-mocked in this spec file - see the
+  // "pure functions left real" convention noted above detectFacialEmotionMock).
+  // These tests drive that real selection chain via the SAME
+  // detectFaceLandmarksMock/detectObjectsMock this spec file already uses
+  // for Composition/Object Intelligence, rather than a since-removed
+  // detectFacesMock.
   describe('smart reframe', () => {
-    it('falls back to a static center-crop when no face is detected anywhere in the clip', async () => {
+    it('falls back to a static center-crop when no face or tracked object is detected anywhere in the clip', async () => {
       clipFindManyMock.mockResolvedValue([
         { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
       ]);
@@ -2048,9 +2056,18 @@ describe('render-clip worker', () => {
       await processor(fakeJob(baseJobData));
 
       expect(getVideoDimensionsMock).toHaveBeenCalledWith(expect.stringContaining('source'));
-      expect(detectFacesMock).toHaveBeenCalledWith(
-        { sourcePath: expect.stringContaining('source'), startTime: 10, endTime: 20 },
-        expect.objectContaining({ pythonPath: expect.any(String) }),
+      // primarySubjectSamples resolves to [] (default empty faceLandmarks/
+      // objects) - buildCropPath() is called with an empty FaceSample[],
+      // not skipped, proving the wiring runs through even with nothing to
+      // report.
+      expect(buildCropPathMock).toHaveBeenCalledWith(
+        [],
+        [],
+        { width: 136, height: 240 },
+        320,
+        240,
+        10,
+        undefined,
       );
       expect(renderClipMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2069,9 +2086,29 @@ describe('render-clip worker', () => {
       expect(reserveScratchPathMock).not.toHaveBeenCalledWith('reframe-cmds', '.txt');
     });
 
-    it('writes a sendcmd file and passes a moving reframe plan when a face is detected', async () => {
+    it("writes a sendcmd file and passes a moving reframe plan when a face is detected, converting primarySubjectSamples into buildCropPath()'s FaceSample shape", async () => {
       clipFindManyMock.mockResolvedValue([
         { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      detectFaceLandmarksMock.mockResolvedValue([
+        {
+          t: 0,
+          boundingBox: { xCenter: 0.5, yCenter: 0.5, width: 0.2, height: 0.2 },
+          sharpness: null,
+          rotation: null,
+          blendshapes: null,
+          brightness: null,
+          mouthContrastRatio: null,
+          faceDescriptor: null,
+          trackId: 1,
+          leftIris: null,
+          rightIris: null,
+          leftEyeInnerCorner: null,
+          leftEyeOuterCorner: null,
+          rightEyeInnerCorner: null,
+          rightEyeOuterCorner: null,
+          mouthWidth: null,
+        },
       ]);
       const cropPath = [
         { t: 0, x: 10, y: 0, width: 136, height: 240 },
@@ -2082,6 +2119,21 @@ describe('render-clip worker', () => {
       const processor = getProcessor();
       await processor(fakeJob(baseJobData));
 
+      // selectPrimarySubject() (real, un-mocked) resolves this one face
+      // sample to source: 'face' (Step 2) since there's no matching active
+      // speaker - buildReframePlan()'s toFaceSamples() then strips
+      // trackId/facingYaw/source, leaving exactly the {t, box} shape
+      // buildCropPath() expects (ADR DC3's own "identical box shape"
+      // finding).
+      expect(buildCropPathMock).toHaveBeenCalledWith(
+        [{ t: 0, box: { xCenter: 0.5, yCenter: 0.5, width: 0.2, height: 0.2 } }],
+        [],
+        { width: 136, height: 240 },
+        320,
+        240,
+        10,
+        undefined,
+      );
       expect(reserveScratchPathMock).toHaveBeenCalledWith('reframe-cmds', '.txt');
       expect(buildSendCmdScriptMock).toHaveBeenCalledWith(cropPath, 'crop@reframe');
       expect(writeFileMock).toHaveBeenCalledWith(
@@ -2106,22 +2158,41 @@ describe('render-clip worker', () => {
       expect(cleanupTempFileMock).toHaveBeenCalledTimes(11);
     });
 
-    it('falls back to a static center-crop without failing the job when face detection itself throws', async () => {
+    it('pans toward a tracked (non-person) object when no face is detected - Object Priority, Tech Debt #2, fixed as a free byproduct of the C2 unification', async () => {
       clipFindManyMock.mockResolvedValue([
         { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
       ]);
-      detectFacesMock.mockRejectedValue(new Error('python3 not found'));
+      detectObjectsMock.mockResolvedValue([
+        {
+          t: 0,
+          objects: [
+            {
+              category: 'product',
+              boundingBox: { xCenter: 0.7, yCenter: 0.4, width: 0.3, height: 0.3 },
+              confidence: 0.9,
+            },
+          ],
+        },
+      ]);
+      buildCropPathMock.mockReturnValue(null);
 
       const processor = getProcessor();
-      const result = await processor(fakeJob(baseJobData));
+      await processor(fakeJob(baseJobData));
 
-      expect(renderClipMock).toHaveBeenCalledWith(
-        expect.objectContaining({ reframe: expect.objectContaining({ sendCmdPath: null }) }),
+      // No face at all (Steps 1-2 skip), no person track (Step 3 skips) -
+      // selectPrimarySubject() falls to Step 4 (highest objectAttentionScore,
+      // the only candidate here), a real pan target buildCropPath() never
+      // received before this phase (Tech Debt #2 - "buildCropPath() has no
+      // object-track input at all").
+      expect(buildCropPathMock).toHaveBeenCalledWith(
+        [{ t: 0, box: { xCenter: 0.7, yCenter: 0.4, width: 0.3, height: 0.3 } }],
+        [],
+        { width: 136, height: 240 },
+        320,
+        240,
+        10,
+        undefined,
       );
-      expect(videoUpdateMock).not.toHaveBeenCalledWith(
-        expect.objectContaining({ data: { status: VideoStatus.FAILED } }),
-      );
-      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
     });
   });
 

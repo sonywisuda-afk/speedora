@@ -1,12 +1,12 @@
 # Visual Emphasis Engine (spec Part 9, AI Intelligence v4 Track B Phase C)
 
-> **Status: Phase C1 shipped (data only, flag-off by default). Phases C2-C7 remain design only.**
-> This doc is the audit + ADR + dependency graph + phased roadmap requested before any
-> implementation starts, same discipline as
+> **Status: Phases C1-C2 shipped. Phases C3-C7 remain design only.** This doc is the audit + ADR +
+> dependency graph + phased roadmap requested before any implementation starts, same discipline as
 > [`ai/subtitle-intelligence.md`](./subtitle-intelligence.md) (Track B Phase A/B, now complete) —
-> see that doc for the precedent this one follows. See "Phase C1 architecture (as shipped)" below
-> for what actually exists; every other phase (C2-C7, the unification fix plus 6 technique-specific
-> rendering phases) is still the planned design below, not built.
+> see that doc for the precedent this one follows. See "Phase C1 architecture (as shipped)" and
+> "Phase C2 architecture (as shipped)" below for what actually exists; every other phase (C3-C7,
+> the 6 remaining technique-specific rendering phases) is still the planned design below, not
+> built.
 
 ## Why this exists
 
@@ -174,7 +174,7 @@ facialFeatures/emotionalArc ────┘
 | Phase | Deliverable | Depends on | Complexity | Primary risk |
 |---|---|---|---|---|
 | C1 | Editing Suggestion timeline (data only) — names which of the 9 techniques applies, when, why | Hook Prediction, Virality Engine, Phase B1's `HighlightTimeline`, Narrative Graph, Retention Curve Insights, Emotional Arc — all existing | M | Defining one contract shape flexible enough for 9 fairly different techniques (some are instants, some are ranges, some are booleans-per-clip) without it becoming a junk-drawer type |
-| C2 | Unify Face/Object Priority — `buildReframePlan()` consumes `selectPrimarySubject()` instead of its own `detectFaces()`-only decision | `primarySubjectSamples` node (existing) | M | Real behavior change to the production crop path for every future render (unlike Track B's flag-gated phases, this fixes a duplication rather than adding an opt-in) — needs a real before/after render comparison, not just unit tests |
+| C2 | Unify Face/Object Priority — `buildReframePlan()` consumes `selectPrimarySubject()` instead of its own `detectFaces()`-only decision — **shipped, no flag** (real behavior change, not opt-in) | `primarySubjectSamples` node (existing) | M | Real behavior change to the production crop path for every future render (unlike Track B's flag-gated phases, this fixes a duplication rather than adding an opt-in) — needs a real before/after render comparison, not just unit tests |
 | C3 | Focus Shift — deliberate transition when the primary subject id changes, instead of continuous drift | C2 | S-M | Defining "deliberate" (a faster pan? a hard cut? a brief hold?) without real footage to validate against |
 | C4 | Digital Push — extend Auto Zoom's triggers beyond `EMPHASIS_PATTERN` words to include v4's own "this moment matters" signals | C1 | S | Two trigger sources (regex words, v4 signals) firing on overlapping spans needs a real merge rule, not double-triggering |
 | C5 | OCR Highlight — new overlay rendering | C1, OCR Intelligence (existing) | L | Genuinely new rendering mechanism (Tech Debt #5) — needs the same "verify against real ffmpeg" discipline Track B Phase B2 established, and a real design pass for DC5's open question |
@@ -359,6 +359,122 @@ got: never leaks into `FusionInput`, casts through as an `InputJsonValue` (never
 `editingSuggestions: expect.any(Array)`. Full typecheck/build/test pass for
 `@speedora/contracts`/`@speedora/visual-emphasis`/`@speedora/worker`/`@speedora/api`/
 `@speedora/web`/`@speedora/shared`, plus `pnpm format:check` - all clean, no regressions.
+
+## Phase C2 architecture (as shipped)
+
+Unlike every phase before it (Track B Phase A/B, Phase C1 above), this phase ships **no new
+package, contract, migration, flag, or DTO field** - ADR DC3's own framing holds: "the bug *is*
+that two code paths already independently produce data, and the fix is making one of them
+authoritative." The entire change is a rewiring inside `apps/worker/src/workers/render-clip.worker.ts`
+(plus one comment update in `render-graph/context.ts`), fixing Tech Debt #1 and #2 for real.
+
+```
+apps/worker/src/workers/render-clip.worker.ts
+
+  computeReframeDimensions() NEW - the old buildReframePlan()'s dimensions-only half, split out
+                              so it can run BEFORE the render graph (unchanged requirement -
+                              compositionFeaturesNode needs ctx.reframe.outputWidth/outputHeight
+                              early). Wraps getVideoDimensions() + computeCropDimensions() - both
+                              already-existing calls, genuinely independent of face/subject
+                              detection, just relocated.
+
+  toFaceSamples() NEW        Converts PrimarySubjectSample[] -> FaceSample[] by dropping
+                              trackId/facingYaw/source - both share the IDENTICAL
+                              {xCenter, yCenter, width, height}|null box shape (ADR DC3's own
+                              finding, confirmed by reading both contracts side by side before
+                              writing this function), so this is a field-drop, not a real
+                              conversion.
+
+  buildReframePlan() CHANGED Now takes primarySubjectSamples (not sourcePath/startTime/endTime)
+                              as its first argument, called AFTER the render graph instead of
+                              before. No longer calls @speedora/reframe's detectFaces() at all -
+                              the render path's only remaining face-shaped input is
+                              graphResult.primarySubjectSamples, Composition Intelligence's own
+                              selectPrimarySubject() output (already computed by the graph for
+                              compositionFeaturesNode's benefit, now read a second time here - no
+                              new detector, no duplicate computation). Dropped the try/catch that
+                              used to swallow detectFaces() subprocess failures - there's no
+                              external I/O left in this function to fail; a thrown error here
+                              would be a real code bug, not the expected-and-handled "Python
+                              subprocess had a problem" case the old code protected against
+                              (primarySubjectSamplesNode is optional: false and already resolves
+                              every upstream null gracefully, proven by Composition Intelligence's
+                              own existing tests).
+
+  Call site (inside the      Restructured into 3 steps instead of 1: (1) computeReframeDimensions()
+  main try block)            before the graph, feeding ctx.reframe with just outputWidth/
+                              outputHeight; (2) the render graph runs, producing
+                              graphResult.primarySubjectSamples along with everything else; (3)
+                              buildReframePlan() runs AFTER the graph, consuming that output to
+                              build the real crop path / sendCmd script. Every downstream consumer
+                              of the full `reframe` object (buildBRollOverlays, buildAss's
+                              videoWidth/videoHeight, the final renderClip() call) is unchanged -
+                              they already ran after where buildReframePlan() now executes.
+
+apps/worker/src/faceDetectionDeps.ts
+
+  Left in place, deliberately not deleted, with a new comment explaining why: 7 other *Deps.ts
+  adapter files reference it by name in their own comments as the pattern they followed, and
+  @speedora/reframe's detectFaces()/face-detection.ts remain real, independently-tested library
+  code a future feature could still reuse. Its only call site (this phase's retired one) is gone;
+  the file itself is not dead code by any codebase convention, just currently unreferenced.
+
+apps/worker/src/render-graph/context.ts
+
+  RenderGraphContext.reframe's own comment updated - previously said "Built by buildReframePlan()
+  BEFORE the graph runs"; now correctly attributes this to computeReframeDimensions() and notes
+  the crop-PATH construction moved to run AFTER the graph instead.
+```
+
+**What Phase C2 fixes, concretely**:
+- **Tech Debt #1** (the core duplication) - closed. There is exactly one "who is the subject"
+  answer computed per clip now; `buildReframePlan()`'s panning and `compositionFeaturesNode`'s
+  scoring read the identical `primarySubjectSamples` array, sourced from the identical
+  `selectPrimarySubject()` call.
+- **Tech Debt #2** (`buildCropPath()` has no object-track input) - closed as a genuinely free
+  byproduct, not separate work: `selectPrimarySubject()`'s Steps 3-5 (tracked person → highest
+  `objectAttentionScore` → tracked object) already produce real `PrimarySubjectSample` entries for
+  a faceless clip; `toFaceSamples()` passes those straight through with no special-casing needed.
+  A product-demo/screen-recording clip with a tracked object but no face now pans toward it
+  instead of rendering a static center-crop.
+
+**What did NOT change**: `buildCropPath()`, `buildSendCmdScript()`, `computeCropDimensions()`,
+`findEmphasisWords()`, the `sendcmd` filtergraph mechanism, and Auto Zoom's emphasis-word trigger
+are all byte-for-byte untouched - this phase only changed WHICH `FaceSample[]` values feed into
+already-existing, already-verified crop-path math. **Focus Shift** (C3) and **Digital Push** (C4)
+remain unbuilt - this phase makes their inputs available (a real per-instant subject id, a real
+"protect this moment" signal source) but adds no new transition/trigger logic itself.
+
+**Verification performed**: the `smart reframe` describe block in `render-clip.worker.spec.ts` was
+rewritten - the old `detectFacesMock`-based tests (which asserted a call to a now-retired function)
+are replaced with 3 tests driving the REAL `selectPrimarySubject()` (left un-mocked in this spec
+file, same "pure functions left real" convention as `trackObjects()`/`deriveFaceLandmarkFeatures()`
+elsewhere in the same file) via this spec file's existing `detectFaceLandmarksMock`/
+`detectObjectsMock`: (1) no face or object anywhere → static center-crop, with an explicit
+assertion that `buildCropPath()` is still called with an empty array rather than skipped; (2) a
+real face sample → asserts `buildCropPath()` receives the EXACT `{t, box}` shape
+`toFaceSamples()` should produce, locking in the conversion; (3) a tracked non-person object with
+no face at all → asserts `buildCropPath()` now receives that object's box, a genuinely new
+regression test proving Tech Debt #2's fix (this exact scenario returned no pan target before this
+phase) - a net-zero test-count swap (3 old tests replaced by these 3 new ones), full worker suite
+still 592/592 pass. `@speedora/reframe`'s own 24 tests (unaffected - `detectFaces()`/
+`buildCropPath()` themselves are untouched) still pass. `apps/worker` typecheck, lint, and
+production build (`tsc -p tsconfig.build.json`) all clean; `pnpm format:check` clean. No new
+migration, so no Prisma/API/shared-type change needed at all - the only doc updates are this
+section, `docs/worker.md`'s "Smart Reframe / Auto Zoom" section, and a cross-reference note in
+`docs/ai/composition-intelligence.md`'s "Primary Subject Selection" section.
+
+**What was explicitly NOT done** (ADR DC3's own flagged risk, honestly left open): a real
+visual/subjective before/after comparison of panning DECISIONS on real footage. This sandbox has
+no MediaPipe/Python runtime available (the same "Known verification gap" `docs/ai/vision.md`
+already documents for every Python-subprocess-backed detector) and this specific change's own
+mechanism (which array of coordinates feeds an already-verified crop-path algorithm) doesn't
+exercise any new ffmpeg/libass rendering surface the way Track B Phase B2's ASS-tag change did, so
+there was no equivalent "real ffmpeg render" proof available to run here. The wiring is verified
+correct (right values reach the right function); whether `selectPrimarySubject()`'s existing
+priority order produces aesthetically better panning than the old face-only detector is a real
+open question for production footage to answer, same category of gap
+`video-import-reliability.md` already carries for its own unverified stderr-regex categories.
 
 ## Explicitly deferred / open questions
 

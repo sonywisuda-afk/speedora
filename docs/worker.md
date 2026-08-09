@@ -119,12 +119,28 @@ adapter pattern every AI module here follows. See `worker-architecture.md` for t
 ## Smart Reframe / Auto Zoom
 
 See `ai/vision.md` for the model/algorithm details. Architecturally: crop *position* (x/y) comes
-from face tracking, crop *size* (w/h) comes from an independent "emphasis word" zoom envelope
+from subject tracking, crop *size* (w/h) comes from an independent "emphasis word" zoom envelope
 (attack/hold/release) — either signal alone is enough to produce a path; both null only when
-neither a face nor an emphasis word was found anywhere in the clip. `ReframeOptions` separates the
-instant crop dimensions from the final encoded output dimensions (`outputWidth`/`outputHeight`) —
-a `scale` filter after `crop` in the FFmpeg filtergraph keeps the encoded resolution constant even
+neither a subject nor an emphasis word was found anywhere in the clip. `ReframeOptions` separates
+the instant crop dimensions from the final encoded output dimensions (`outputWidth`/`outputHeight`)
+— a `scale` filter after `crop` in the FFmpeg filtergraph keeps the encoded resolution constant even
 while the crop window itself shrinks during a zoom.
+
+**Visual Emphasis Engine Phase C2** (`docs/ai/visual-emphasis-engine.md`, ADR DC3) unified the
+subject-tracking source: `render-clip.worker.ts`'s `buildReframePlan()` used to call
+`@speedora/reframe`'s own standalone `detectFaces()` — a second, disconnected MediaPipe Face
+Detector subprocess call, separate from the one `render-graph/nodes/face-speaker.ts`'s
+`faceLandmarksNode` already runs (MediaPipe FaceLandmarker) to feed Composition Intelligence's
+`selectPrimarySubject()` chain (active speaker → face → tracked person → highest
+`objectAttentionScore` → tracked object). The two could disagree about who "the subject" is on the
+same clip, and only the face-only opinion ever drove the actual crop. `buildReframePlan()` now runs
+*after* the render graph and consumes `graphResult.primarySubjectSamples` directly (converted to
+`FaceSample[]` — both share the identical `{xCenter, yCenter, width, height}` box shape) instead of
+calling its own detector — one subject-selection answer for the whole pipeline, and a faceless clip
+with a tracked (non-person) object now pans toward it, which `buildCropPath()` had no input for
+before this phase. `computeCropDimensions()` (the clip's constant output frame size) still runs
+*before* the graph, since it only needs the source video's own width/height and
+`compositionFeaturesNode` needs it early for its own aspect-ratio-aware thresholds.
 
 ## Caption styling
 
