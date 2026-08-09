@@ -95,3 +95,26 @@ export function isOcrHighlightEnabled(): boolean {
 export function isPauseHoldEnabled(): boolean {
   return process.env.VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED === 'true';
 }
+
+// Visual Emphasis Engine Phase C6R.3 ("Reaction Hold Temporal Extension" -
+// see docs/ai/visual-emphasis-engine.md's "C6R design" section) - a
+// SEPARATE flag from every technique above, same "one flag per technique,
+// never a shared master flag" reasoning. Unlike every other technique in
+// this file, C6R changes the clip's own TEMPORAL coordinate system (the
+// output literally grows longer) - the categorically riskiest change this
+// initiative has shipped, per the C6R design's own reasoning for why it
+// got a full redesign pass before any code. Gates render-clip.worker.ts's
+// third pass (after C7's own cuts pass, on that already-composed-and-
+// trimmed output) - reads `reaction_hold` suggestions from Phase C1's
+// always-computed `editingSuggestions`, remaps them onto the post-cut
+// timeline via `@speedora/cutlist`'s `remapTimestamp()` (C6R.1), and
+// applies `apps/worker/src/ffmpeg.ts`'s `applyReactionHolds()` (C6R.2,
+// real-ffmpeg verified) freeze+silence mechanism. Off by default, no
+// per-clip toggle - same rationale as every other C-phase flag: never
+// validated against real footage in this sandbox, and here the failure
+// mode (a wrong/duplicated freeze, or a rare skipped-hold edge case) is
+// more visible than any prior phase's since it changes output duration
+// itself, not just a visual/editing detail.
+export function isReactionHoldEnabled(): boolean {
+  return process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED === 'true';
+}

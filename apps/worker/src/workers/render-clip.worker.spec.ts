@@ -72,6 +72,10 @@ const fadeOutBRollMock = jest.fn();
 const extractThumbnailMock = jest.fn();
 const extractBlurPlaceholderMock = jest.fn();
 const extractAnimatedPreviewMock = jest.fn();
+// Visual Emphasis Engine Phase C6R.3 - default resolved value set in the
+// top-level beforeEach below, same convention as every other ffmpeg mock
+// in this block.
+const applyReactionHoldsMock = jest.fn();
 jest.mock('../ffmpeg', () => ({
   renderClip: (...args: unknown[]) => renderClipMock(...args),
   getVideoDimensions: (...args: unknown[]) => getVideoDimensionsMock(...args),
@@ -81,6 +85,11 @@ jest.mock('../ffmpeg', () => ({
   extractThumbnail: (...args: unknown[]) => extractThumbnailMock(...args),
   extractBlurPlaceholder: (...args: unknown[]) => extractBlurPlaceholderMock(...args),
   extractAnimatedPreview: (...args: unknown[]) => extractAnimatedPreviewMock(...args),
+  applyReactionHolds: (...args: unknown[]) => applyReactionHoldsMock(...args),
+  // C6R.2's own exported constant - real value, not mocked, so
+  // computeReactionHoldInstants()'s minimum-separation math in this spec
+  // file matches production exactly.
+  REACTION_HOLD_EXTENSION_SECONDS: 0.5,
 }));
 
 const findBRollMomentsMock = jest.fn();
@@ -201,6 +210,26 @@ const reasonMultimodalMock = jest.fn();
 jest.mock('@speedora/multimodal-reasoning', () => ({
   ...jest.requireActual('@speedora/multimodal-reasoning'),
   reasonMultimodal: (...args: unknown[]) => reasonMultimodalMock(...args),
+}));
+
+// Visual Emphasis Engine Phase C6R.3 - every feature flag (isPauseHoldEnabled,
+// isReactionHoldEnabled, etc.) stays real via requireActual, same
+// env-var-driven convention every prior C-phase test in this file already
+// uses; only computeEditingSuggestions is overridden, and only so C6R.3's
+// own describe block below can inject a canned reaction_hold suggestion
+// directly instead of manufacturing a real statistically-significant
+// EmotionalArc peak through 3 upstream derive layers. Defaults to
+// DELEGATING to the real implementation (set in the top-level beforeEach
+// below) so every other test in this file - which relies on a REAL
+// editingSuggestions timeline computed from real highlights/ocrTracks/
+// primarySubjectSamples/retentionCurveInsights - is completely unaffected;
+// only tests that explicitly call .mockReturnValueOnce(...)/
+// .mockImplementationOnce(...) see a different value, and only for that
+// one call.
+const computeEditingSuggestionsMock = jest.fn();
+jest.mock('@speedora/visual-emphasis', () => ({
+  ...jest.requireActual('@speedora/visual-emphasis'),
+  computeEditingSuggestions: (...args: unknown[]) => computeEditingSuggestionsMock(...args),
 }));
 
 const computeCropDimensionsMock = jest.fn();
@@ -700,6 +729,21 @@ describe('render-clip worker', () => {
     downloadStockAssetMock.mockResolvedValue(undefined);
     trimAndFadeInBRollMock.mockResolvedValue(undefined);
     fadeOutBRollMock.mockResolvedValue(undefined);
+    // Visual Emphasis Engine Phase C6R.3 - most tests never touch this
+    // pass at all (isReactionHoldEnabled() defaults to off), but the mock
+    // still needs a resolved default for the few that do turn the flag on
+    // without otherwise caring about this pass's outcome.
+    applyReactionHoldsMock.mockResolvedValue(undefined);
+    // Delegates to the REAL computeEditingSuggestions() by default - see
+    // this mock's own declaration comment above for why. Re-set every test
+    // (jest.clearAllMocks() above only clears call history, not a mock's
+    // configured implementation - the exact leak class C7's own describe
+    // block below already documents and guards against for a different
+    // mock) so no earlier test's .mockReturnValueOnce() can ever leak
+    // forward as a persistent (non-Once) override.
+    computeEditingSuggestionsMock.mockImplementation(
+      jest.requireActual('@speedora/visual-emphasis').computeEditingSuggestions,
+    );
   });
 
   // Pre-Processing Settings roadmap (Phase 0/1).
@@ -2591,6 +2635,198 @@ describe('render-clip worker', () => {
       expect(trimCutRangesMock).toHaveBeenCalledTimes(1);
       const [, , cuts] = trimCutRangesMock.mock.calls[0];
       expect(cuts).toEqual([{ start: 0.45, end: 9.35 }]);
+    });
+  });
+
+  // Visual Emphasis Engine Phase C6R.3 ("Reaction Hold Temporal Extension"
+  // - docs/ai/visual-emphasis-engine.md's "C6R design" section: flag-gated,
+  // off by default, own independent flag, same shape as every prior
+  // rendering-behavior phase). Unlike C3/C4/C5/C7 above, this phase's own
+  // editingSuggestions come from computeEditingSuggestionsMock's canned
+  // return value (see this file's own mock declaration comment for why -
+  // manufacturing a real statistically-significant EmotionalArc peak
+  // through 3 upstream derive layers is unnecessary weight for testing
+  // this phase's own merge/remap/dedup wiring logic in isolation), not a
+  // real signal driven through the full render graph.
+  describe('Visual Emphasis Engine Phase C6R.3 - Reaction Hold render wiring', () => {
+    // Same [0.45, 9.35] silence-gap fixture as the C7 describe block above
+    // ("hi" ends at clip-relative 0.3s, "there" starts at 9.5s) - kept as
+    // its own local const since the C7 block's own pauseJobData is scoped
+    // to that describe block, not shared.
+    const cutJobData: RenderClipJobData = {
+      ...baseJobData,
+      startTime: 10,
+      endTime: 20,
+      transcript: [
+        {
+          start: 10,
+          end: 20,
+          text: 'hi there',
+          words: [
+            { word: 'hi', start: 10, end: 10.3 },
+            { word: 'there', start: 19.5, end: 19.8 },
+          ],
+        },
+      ],
+    };
+
+    beforeEach(() => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+    });
+
+    afterEach(() => {
+      delete process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED;
+    });
+
+    it('does not call applyReactionHolds when the flag is off (default), even with a real reaction_hold suggestion present', async () => {
+      computeEditingSuggestionsMock.mockReturnValueOnce([
+        { technique: 'reaction_hold', start: 2, end: 3.5, score: 0.8, reason: 'x' },
+      ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(applyReactionHoldsMock).not.toHaveBeenCalled();
+      expect(uploadObjectMock).toHaveBeenCalledWith(
+        'renders/clip-1.mp4',
+        { fakeStream: expect.stringContaining('output') },
+        'video/mp4',
+      );
+    });
+
+    it("applies a reaction hold at the suggestion's own midpoint when the flag is on and there are no cuts to remap against", async () => {
+      process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED = 'true';
+      computeEditingSuggestionsMock.mockReturnValueOnce([
+        { technique: 'reaction_hold', start: 2, end: 3.5, score: 0.8, reason: 'x' },
+      ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      // baseJobData's transcript has no `words`, so computeSilenceCuts()
+      // returns no cuts at all - the instant passes through
+      // remapTimestamp() unchanged, landing exactly on the suggestion
+      // window's own midpoint: (2 + 3.5) / 2 = 2.75.
+      expect(applyReactionHoldsMock).toHaveBeenCalledWith(
+        expect.stringContaining('output'),
+        expect.stringContaining('reaction-hold'),
+        [2.75],
+        0.5,
+      );
+      expect(uploadObjectMock).toHaveBeenCalledWith(
+        'renders/clip-1.mp4',
+        { fakeStream: expect.stringContaining('reaction-hold') },
+        'video/mp4',
+      );
+    });
+
+    it('remaps the hold instant onto the post-cut timeline when a real silence cut occurred before it', async () => {
+      process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED = 'true';
+      // Same [0.45, 9.35] silence cut as the C7 fixture above (pause_hold
+      // protection off by default here, so it's a real, uncut-protected
+      // cut) - the reaction instant sits just after it, at clip-relative
+      // 9.6 (window 9.4-9.8).
+      computeEditingSuggestionsMock.mockReturnValueOnce([
+        { technique: 'reaction_hold', start: 9.4, end: 9.8, score: 0.8, reason: 'x' },
+      ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(cutJobData));
+
+      // remapTimestamp(9.6, [{start: 0.45, end: 9.35}]) = 9.6 - (9.35 -
+      // 0.45) = 0.7 - the post-cut position of that same instant.
+      expect(applyReactionHoldsMock).toHaveBeenCalledWith(
+        expect.stringContaining('trimmed'),
+        expect.stringContaining('reaction-hold'),
+        [0.7],
+        0.5,
+      );
+    });
+
+    it('skips a hold entirely (never calls applyReactionHolds) when its instant falls inside a cut range', async () => {
+      process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED = 'true';
+      // Midpoint 5.0 falls squarely inside the [0.45, 9.35] cut - that
+      // content was removed entirely, so remapTimestamp() returns null and
+      // this hold is dropped, not fabricated onto a nearby surviving
+      // position.
+      computeEditingSuggestionsMock.mockReturnValueOnce([
+        { technique: 'reaction_hold', start: 4.9, end: 5.1, score: 0.8, reason: 'x' },
+      ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(cutJobData));
+
+      expect(applyReactionHoldsMock).not.toHaveBeenCalled();
+      expect(uploadObjectMock).toHaveBeenCalledWith(
+        'renders/clip-1.mp4',
+        { fakeStream: expect.stringContaining('trimmed') },
+        'video/mp4',
+      );
+    });
+
+    it('merges two overlapping reaction_hold suggestion windows into a single hold, centered on the merged window', async () => {
+      process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED = 'true';
+      // [2, 3.5] and [3, 4.5] overlap (3 <= 3.5) - mergeCutRanges()
+      // combines them into [2, 4.5] before a freeze instant is ever
+      // computed, reading as ONE reaction moment, not two.
+      computeEditingSuggestionsMock.mockReturnValueOnce([
+        { technique: 'reaction_hold', start: 2, end: 3.5, score: 0.6, reason: 'x' },
+        { technique: 'reaction_hold', start: 3, end: 4.5, score: 0.9, reason: 'y' },
+      ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      // Midpoint of the merged [2, 4.5] window: 3.25.
+      expect(applyReactionHoldsMock).toHaveBeenCalledWith(
+        expect.stringContaining('output'),
+        expect.stringContaining('reaction-hold'),
+        [3.25],
+        0.5,
+      );
+    });
+
+    it('drops a later hold instant that lands within the hold duration of the previous one, even when their suggestion windows never overlapped', async () => {
+      process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED = 'true';
+      // [2, 2.4] and [2.45, 2.85] don't overlap or touch (a 0.05s gap), so
+      // mergeCutRanges() keeps them separate - but their midpoints (2.2
+      // and 2.65) end up only 0.45s apart, under the 0.5s hold duration.
+      // Freezing on both would risk a malformed/overlapping ffmpeg
+      // segment - the second is conservatively dropped instead.
+      computeEditingSuggestionsMock.mockReturnValueOnce([
+        { technique: 'reaction_hold', start: 2, end: 2.4, score: 0.6, reason: 'x' },
+        { technique: 'reaction_hold', start: 2.45, end: 2.85, score: 0.9, reason: 'y' },
+      ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(applyReactionHoldsMock).toHaveBeenCalledWith(
+        expect.stringContaining('output'),
+        expect.stringContaining('reaction-hold'),
+        [2.2],
+        0.5,
+      );
+    });
+
+    it('keeps the pre-hold render and does not fail the job when applyReactionHolds itself throws', async () => {
+      process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED = 'true';
+      computeEditingSuggestionsMock.mockReturnValueOnce([
+        { technique: 'reaction_hold', start: 2, end: 3.5, score: 0.8, reason: 'x' },
+      ]);
+      applyReactionHoldsMock.mockRejectedValueOnce(new Error('ffmpeg exited with code 1'));
+
+      const processor = getProcessor();
+      const result = await processor(fakeJob(baseJobData));
+
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+      expect(uploadObjectMock).toHaveBeenCalledWith(
+        'renders/clip-1.mp4',
+        { fakeStream: expect.stringContaining('output') },
+        'video/mp4',
+      );
     });
   });
 

@@ -113,8 +113,9 @@
   "Phase B2 architecture (as shipped)" section. **This completes the full Subtitle & Dynamic
   Caption Intelligence roadmap (Track B Phase A1/A2/B1/B2)** - see that doc's own status banner.
 - **Track B, Phase C (Visual Emphasis Engine, spec Part 9)**: Phases C1-C5 and C7 shipped (C7
-  deliberately implemented BEFORE C6 - see below); C6 needs a dedicated redesign pass before
-  implementation - see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md). Real spec
+  deliberately implemented BEFORE C6 - see below); C6 (renamed C6R after its own dedicated
+  redesign pass) is now fully shipped too (C6R.1/C6R.2/C6R.3), completing the full 9-technique
+  roadmap - see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md). Real spec
   text obtained before any design started (unlike Phase 7's original Virality Engine) - "Generate
   editing suggestions" across Auto Zoom/Auto Crop/Face Priority/Object Priority/OCR Highlight/Focus
   Shift/Digital Push/Reaction Hold/Pause Hold. Audit found 3 of the 9 already shipped (Auto
@@ -211,9 +212,31 @@
   real ffmpeg 8.1.2 - the acceptance gate the C6R design explicitly required before this sub-phase
   could ship - confirming duration extension, genuine near-silence inside the hold window (measured
   via `volumedetect`), A/V sync, and multi-hold/boundary-instant behavior, plus a companion mocked
-  exact-args suite proving the function builds the filter graph it intends to. `applyReactionHolds()`
-  has no caller anywhere yet either - C6R.3's job, still locked pending its own go-ahead. C6R.3
-  remains design only.
+  exact-args suite proving the function builds the filter graph it intends to. **C6R.3 is now
+  shipped too, completing C6R**: `render-clip.worker.ts`'s new `computeReactionHoldInstants()` (a
+  pure, flag-agnostic helper) filters `graphResult.editingSuggestions` to `technique ===
+  'reaction_hold'`, merges overlapping/adjacent suggestion windows (reusing `mergeCutRanges()`,
+  per the design's own "Still open" resolution), takes each merged window's own midpoint as the
+  freeze instant, remaps it onto the post-cut timeline via C6R.1's `remapTimestamp()` against the
+  SAME `cuts` array `computeClipCuts()` already produced (dropping any instant that resolves to
+  `null` - cut away entirely), then drops any surviving instant landing within
+  `holdDurationSeconds` of the previous one (cuts can only shrink the gap between two original
+  instants, never grow it, so two comfortably-separated suggestions could still end up too close
+  together post-cut for `applyReactionHolds()`'s own segment math). The pass itself runs as a
+  third pass, after C7's own cutlist-trim, gated by the new `isReactionHoldEnabled()`
+  (`VISUAL_EMPHASIS_REACTION_HOLD_ENABLED`, off by default, no per-clip toggle, same convention as
+  every other C-phase flag) - same "each technique checks its own flag at its own call site" shape
+  C3/C4/C5/C7 already established, and the same best-effort "log a warning, keep the pre-hold
+  render, never fail the job" posture as the cutlist-trim pass it runs after. Tested via 7 new
+  render-wiring tests injecting a canned `reaction_hold` suggestion through a narrowly-scoped mock
+  of `@speedora/visual-emphasis`'s `computeEditingSuggestions` (every other export, including every
+  feature flag, stays real; the mock delegates to the real implementation by default, confirmed not
+  to change any of the 105 pre-existing tests' behavior) - covering flag-off, the un-cut case,
+  remapping across a real cut, skip-on-cut-away, suggestion-window merging, the post-remap
+  minimum-separation dedup, and best-effort failure handling. Full `apps/worker` suite (53 suites /
+  622 tests) passes unchanged. This completes the Visual Emphasis Engine's full 9-technique
+  roadmap (spec Part 9) - every technique now has a real implementation, all flag-gated off by
+  default pending real-footage/engagement-data calibration.
 
 ## Why this exists
 
@@ -532,7 +555,7 @@ without a literal file move. `vocalEmotion.ts` itself is untouched.
 | A2 | Wire Subtitle Rewriter into `buildAss()` (7) — **shipped, flag-off** (`Clip.smartSegmentation`) | A1 | M | First phase touching the production render path — karaoke word-sync must survive re-chunking |
 | B1 | Dynamic Caption Engine, data only (8) — **shipped, flag-off** (`DYNAMIC_CAPTION_ENABLED=false`) | A1, Phase 5 | S-M | "Don't overuse animation" needs an explicit documented cooldown heuristic |
 | B2 | Wire Dynamic Caption treatment into `build-ass.ts`'s ASS emission (8) — **shipped, flag-off** (`Clip.dynamicCaptions`) | B1, A2 | L | New `\fscx`/`\fscy`/`\t` ASS tag territory — verified against real ffmpeg+libass, including a visual frame-extraction check |
-| C | Visual Emphasis Engine (9) — **C1 shipped, flag-off** (`Clip.editingSuggestions`), **C2 shipped, no flag** (real behavior change), **C3 shipped, flag-off** (`VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED`), **C4 shipped, flag-off** (`VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED`), **C5 shipped, flag-off** (`VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED`, real ffmpeg+libass verified), **C7 shipped, flag-off** (`VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED`, implemented before C6), **C6 design complete (renamed C6R) - C6R.1/C6R.2 shipped (temporal-remapping primitive + real-ffmpeg-verified freeze/silence mechanism), C6R.3 (wiring) not yet built**, see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md) | none — signals already exist | M (per original estimate; the real spec text splits into 7 sub-phases, S-L each) | Unify `reframe`'s own face detector with `primary-subject`'s choice, don't layer a second opinion (Phase C2, shipped) |
+| C | Visual Emphasis Engine (9) — **C1 shipped, flag-off** (`Clip.editingSuggestions`), **C2 shipped, no flag** (real behavior change), **C3 shipped, flag-off** (`VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED`), **C4 shipped, flag-off** (`VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED`), **C5 shipped, flag-off** (`VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED`, real ffmpeg+libass verified), **C7 shipped, flag-off** (`VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED`, implemented before C6), **C6 (renamed C6R) fully shipped - C6R.1/C6R.2/C6R.3 all complete** (temporal-remapping primitive + real-ffmpeg-verified freeze/silence mechanism + `VISUAL_EMPHASIS_REACTION_HOLD_ENABLED` worker wiring) - **all 9 techniques now implemented, every one flag-off pending real-footage/engagement-data calibration**, see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md) | none — signals already exist | M (per original estimate; the real spec text splits into 7 sub-phases, S-L each) | Unify `reframe`'s own face detector with `primary-subject`'s choice, don't layer a second opinion (Phase C2, shipped) |
 
 **Update (2026-08-08)**: resolved a real product-shape ambiguity in Part 7's "rewrite subtitle" via
 `AskUserQuestion` before any code was written (same "ask, don't guess" precedent as v2.1's Practical
