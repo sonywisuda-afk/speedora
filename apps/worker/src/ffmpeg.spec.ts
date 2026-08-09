@@ -30,6 +30,7 @@ jest.mock('node:fs/promises', () => ({
 }));
 
 import {
+  applyReactionHolds,
   concatBrandSegment,
   escapeFfmpegFilterPath,
   extractAnimatedPreview,
@@ -1321,6 +1322,118 @@ describe('concatBrandSegment (P3d intro / P3e outro)', () => {
         '/tmp/output.mp4',
       ),
     ).rejects.toThrow('ffmpeg exited with code 1');
+
+    expect(unlinkMock).toHaveBeenCalledWith('/tmp/output.mp4.tmp');
+    expect(renameMock).not.toHaveBeenCalled();
+  });
+});
+
+// Visual Emphasis Engine Phase C6R.2 ("Reaction Hold Temporal Extension" - see docs/ai/
+// visual-emphasis-engine.md's "C6R design" section). These exact-args assertions can only prove
+// this function BUILDS the filter graph it intends to - see
+// ffmpeg.reaction-hold.integration.spec.ts for the real-ffmpeg proof that the graph actually
+// produces the correct freeze/silence/duration behavior (the acceptance gate the C6R design
+// explicitly required before this sub-phase could ship).
+describe('applyReactionHolds (C6R.2)', () => {
+  beforeEach(() => {
+    execFileMock.mockClear();
+    renameMock.mockClear();
+    unlinkMock.mockClear();
+  });
+
+  it('throws without touching ffmpeg at all for an empty hold-instants array', async () => {
+    await expect(applyReactionHolds('/tmp/clip.mp4', '/tmp/output.mp4', [])).rejects.toThrow(
+      /no hold instants/,
+    );
+    expect(execFileMock).not.toHaveBeenCalled();
+  });
+
+  it('builds a 3-segment (pre/hold/post) filter graph for a single hold instant, at the default hold duration', async () => {
+    await applyReactionHolds('/tmp/clip.mp4', '/tmp/output.mp4', [3]);
+
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    const [file, args] = execFileMock.mock.calls[0];
+    expect(file).toBe('ffmpeg');
+    // Main clip at input 0, one anullsrc silence input at index 1.
+    expect(args).toEqual(expect.arrayContaining(['-i', '/tmp/clip.mp4']));
+    expect(args).toEqual(
+      expect.arrayContaining([
+        '-f',
+        'lavfi',
+        '-i',
+        'anullsrc=sample_rate=44100:channel_layout=stereo',
+      ]),
+    );
+
+    const fc = args[args.indexOf('-filter_complex') + 1];
+    // All video segments are built first, then all audio segments, then the two concat stages -
+    // matching applyReactionHolds()'s own build order (videoParts, then audioParts).
+    expect(fc).toBe(
+      '[0:v]trim=start=0:end=3,setpts=PTS-STARTPTS[v0pre];' +
+        '[0:v]trim=start=3:end=3.05,setpts=PTS-STARTPTS,tpad=stop_mode=clone:stop_duration=0.45[v0hold];' +
+        '[0:v]trim=start=3.05,setpts=PTS-STARTPTS[v1post];' +
+        '[0:a]atrim=start=0:end=3,asetpts=PTS-STARTPTS,' +
+        'aformat=sample_rates=44100:channel_layouts=stereo[a0pre];' +
+        '[1:a]atrim=duration=0.5[a0hold];' +
+        '[0:a]atrim=start=3.05,asetpts=PTS-STARTPTS,' +
+        'aformat=sample_rates=44100:channel_layouts=stereo[a1post];' +
+        '[v0pre][v0hold][v1post]concat=n=3:v=1:a=0[outv];' +
+        '[a0pre][a0hold][a1post]concat=n=3:v=0:a=1[outa]',
+    );
+    expect(args).toEqual(expect.arrayContaining(['-map', '[outv]', '-map', '[outa]']));
+  });
+
+  it('honors a custom hold duration, subtracting the freeze-slice epsilon from tpad stop_duration only', async () => {
+    await applyReactionHolds('/tmp/clip.mp4', '/tmp/output.mp4', [2], 1);
+
+    const [, args] = execFileMock.mock.calls[0];
+    const fc = args[args.indexOf('-filter_complex') + 1];
+    // Total inserted time (freeze slice + stop_duration) is exactly holdDurationSeconds (1s) -
+    // stop_duration is 0.95 (1 - 0.05 epsilon), not the full 1s, so the pad doesn't overshoot.
+    expect(fc).toContain('tpad=stop_mode=clone:stop_duration=0.95[v0hold]');
+    // The synthesized silence input is trimmed to the FULL requested hold duration, not reduced
+    // by the epsilon - only the video pad subtracts it (to account for the freeze slice itself
+    // already contributing 0.05s of frozen video).
+    expect(fc).toContain('[1:a]atrim=duration=1[a0hold]');
+  });
+
+  it('builds a 5-segment filter graph and one anullsrc input per hold, for two hold instants', async () => {
+    await applyReactionHolds('/tmp/clip.mp4', '/tmp/output.mp4', [1.5, 4], 0.5);
+
+    const [, args] = execFileMock.mock.calls[0];
+    const anullsrcCount = args.filter(
+      (a) => a === 'anullsrc=sample_rate=44100:channel_layout=stereo',
+    ).length;
+    expect(anullsrcCount).toBe(2);
+
+    const fc = args[args.indexOf('-filter_complex') + 1];
+    expect(fc).toContain('[v0pre][v0hold][v1pre][v1hold][v2post]concat=n=5:v=1:a=0[outv]');
+    expect(fc).toContain('[a0pre][a0hold][a1pre][a1hold][a2post]concat=n=5:v=0:a=1[outa]');
+    // The second hold's pre-segment starts right where the first hold's frozen slice ended
+    // (1.5 + 0.05 = 1.55), not back at the original 1.5 - each pre-segment picks up from the
+    // previous hold's own freeze-slice end, same cursor-advancing shape as cutlist's own cut
+    // math.
+    expect(fc).toContain('[0:v]trim=start=1.55:end=4,setpts=PTS-STARTPTS[v1pre]');
+    // References input 2 (the second anullsrc) for the second hold's silence.
+    expect(fc).toContain('[2:a]atrim=duration=0.5[a1hold]');
+  });
+
+  it('atomically renames the .tmp output onto the real path only after ffmpeg succeeds', async () => {
+    await applyReactionHolds('/tmp/clip.mp4', '/tmp/output.mp4', [3]);
+
+    expect(renameMock).toHaveBeenCalledWith('/tmp/output.mp4.tmp', '/tmp/output.mp4');
+    expect(unlinkMock).not.toHaveBeenCalled();
+  });
+
+  it('cleans up the .tmp output and does not rename when ffmpeg fails', async () => {
+    execFileMock.mockImplementationOnce((_file, _args, ...rest) => {
+      const callback = rest[rest.length - 1] as (error: Error, result: unknown) => void;
+      callback(new Error('ffmpeg exited with code 1'), { stdout: '', stderr: 'boom' });
+    });
+
+    await expect(applyReactionHolds('/tmp/clip.mp4', '/tmp/output.mp4', [3])).rejects.toThrow(
+      'ffmpeg exited with code 1',
+    );
 
     expect(unlinkMock).toHaveBeenCalledWith('/tmp/output.mp4.tmp');
     expect(renameMock).not.toHaveBeenCalled();

@@ -1,15 +1,15 @@
 # Visual Emphasis Engine (spec Part 9, AI Intelligence v4 Track B Phase C)
 
 > **Status: Phases C1-C5 and C7 shipped. Phase C6 (Reaction Hold, renamed C6R - "Reaction Hold
-> Temporal Extension") is split into 3 sub-phases per its own dedicated redesign - C6R.1 shipped,
-> C6R.2/C6R.3 remain design only - deliberately done OUT OF ORDER, C7 before C6, a real decision
+> Temporal Extension") is split into 3 sub-phases per its own dedicated redesign - C6R.1 and C6R.2
+> shipped, C6R.3 remains design only - deliberately done OUT OF ORDER, C7 before C6, a real decision
 > recorded in the "C7 rollout"/"C6R design" sections below.** This doc is the audit + ADR +
 > dependency graph + phased roadmap requested before any implementation starts, same discipline as
 > [`ai/subtitle-intelligence.md`](./subtitle-intelligence.md) (Track B Phase A/B, now complete) —
 > see that doc for the precedent this one follows. See "Phase C1 architecture (as shipped)" through
 > "Phase C5 architecture (as shipped)", "Phase C7 architecture (as shipped)", and "C6R.1
-> architecture (as shipped)" below for what actually exists; C6R.2/C6R.3 each still need their own
-> explicit go-ahead before implementation.
+> architecture (as shipped)"/"C6R.2 architecture (as shipped)" below for what actually exists;
+> C6R.3 still needs its own explicit go-ahead before implementation.
 
 ## Why this exists
 
@@ -851,7 +851,7 @@ that matters in practice, and a future phase (dynamic tracking, if real footage 
 shows drift is a real problem) would need that evidence to design its own sampling/interpolation
 approach against, not a guess made here.
 
-## C6R design (Reaction Hold Temporal Extension) — C6R.1 shipped, C6R.2/C6R.3 not yet built
+## C6R design (Reaction Hold Temporal Extension) — C6R.1/C6R.2 shipped, C6R.3 not yet built
 
 Before starting C6, its own risk note ("extending duration interacts with the existing cutlist/
 render timeline math non-trivially") was reconsidered against C7's actual shape (see "C7 rollout"
@@ -862,9 +862,9 @@ set, or an editing DECISION, but never the clip's own temporal coordinate system
 timestamp - the first phase in this initiative that would need to. Per explicit user direction -
 "Jangan mengubah timeline duration tanpa terlebih dahulu memiliki explicit temporal-remapping
 layer" - this section is that redesign pass, done before any C6R code. **Status: design complete
-(resolved via `AskUserQuestion` + follow-up review); C6R.1 (the temporal-remapping primitive)
-shipped, C6R.2/C6R.3 remain design only** - see the C6R.1-C6R.3 sub-roadmap at the end for what's
-next.
+(resolved via `AskUserQuestion` + follow-up review); C6R.1 (the temporal-remapping primitive) and
+C6R.2 (the freeze+silence ffmpeg mechanism, real-ffmpeg verified) shipped, C6R.3 remains design
+only** - see the C6R.1-C6R.3 sub-roadmap at the end for what's next.
 
 ### The key architectural finding: a THIRD pass, after cuts, needs zero remapping of anything
 
@@ -994,7 +994,7 @@ resume original A/V
 | Sub-phase | Deliverable | Depends on | Complexity | Primary risk |
 |---|---|---|---|---|
 | C6R.1 | `remapTimestamp()` in `@speedora/cutlist`, fully unit-tested pure function (including the `null`-for-cut-away-instant case) — **shipped** (see "C6R.1 architecture (as shipped)" below; `computeCutJunctionTimestamps()` deliberately NOT refactored to reuse it once a real semantic mismatch surfaced) | none - pure function over existing `CutRange[]` | S | Low - same shape as `protectPauseHolds()`'s own exact/pure-function design |
-| C6R.2 | The freeze-frame + silence ffmpeg mechanism itself (`apps/worker/src/ffmpeg.ts`, new function) - `trim`/`tpad`/`atrim`/`anullsrc`/`concat` filter-complex, verified against a REAL ffmpeg render (this sandbox has one, same acceptance-gate discipline Phase C5 established) confirming exact A/V sync (both streams grow by the identical duration) and correct freeze position | C6R.1 (needs a remapped timestamp to freeze at) | M | Genuinely new ffmpeg filter-complex territory (mid-stream `concat`, unlike every existing filter in this pipeline which only ever runs once, start-to-end) - needs real verification, not just a plausible-looking filter string |
+| C6R.2 | The freeze-frame + silence ffmpeg mechanism itself (`apps/worker/src/ffmpeg.ts`'s new `applyReactionHolds()`) - `trim`/`tpad`/`atrim`/`anullsrc`/`concat` filter-complex — **shipped** (see "C6R.2 architecture (as shipped)" below; verified against a REAL ffmpeg 8.1.2 render, confirming exact A/V sync and correct freeze position/silence duration, plus a companion mocked exact-args suite) | C6R.1 (needs a remapped timestamp to freeze at) | M | Genuinely new ffmpeg filter-complex territory (mid-stream `concat`, unlike every existing filter in this pipeline which only ever runs once, start-to-end) - resolved via real verification, not just a plausible-looking filter string |
 | C6R.3 | Wiring into `render-clip.worker.ts` - reads `reaction_hold` suggestions from `graphResult.editingSuggestions` (already computed, Phase C1), remaps + merges overlapping windows, applies C6R.2's mechanism as pass 3, flag-gated (`VISUAL_EMPHASIS_REACTION_HOLD_ENABLED`, off by default, no per-clip toggle, same convention as C3/C4/C5/C7) | C6R.1, C6R.2 | S-M | Ordering bugs (must run strictly after C7's own cuts pass, on ITS output, not the pre-cut one) |
 
 ### C6R.1 architecture (as shipped)
@@ -1038,6 +1038,89 @@ timestamp this module produces. `@speedora/cutlist`: 36/36 pass (up from 26, +10
 change to Smart Transitions or anything else this function isn't yet wired into - `remapTimestamp()`
 has no caller anywhere in this codebase yet (C6R.3's job). No ffmpeg/worker/flag changes at all,
 exactly matching this sub-phase's own scope boundary.
+
+### C6R.2 architecture (as shipped)
+
+```
+apps/worker/src/ffmpeg.ts
+
+  applyReactionHolds() NEW   (inputPath, outputPath, holdInstants: number[],
+                              holdDurationSeconds = REACTION_HOLD_EXTENSION_SECONDS) - freezes one
+                              video frame and replaces that same span of audio with silence at
+                              each hold instant, extending both streams by exactly the same
+                              duration at exactly the same point. `holdInstants` are already
+                              FINAL-timeline timestamps (post-cut, post-remapTimestamp()) - this
+                              function has no notion of cuts/remapping itself, only "freeze here,
+                              for this long" (C6R.3's own job to remap/merge/clamp before calling
+                              this). Throws for an empty `holdInstants` array - the caller's job to
+                              skip calling this entirely when there's nothing to hold, same
+                              convention trimCutRanges()'s own caller already follows for cuts.
+```
+
+**The mechanism, generalizing `concatBrandSegment()`'s established pattern rather than inventing a
+new one** (per this sub-phase's own scope, and the precedent every phase in this initiative
+follows - "extend, don't rebuild"):
+
+- **Video**: for each hold instant `t`, `[0:v]trim=start=t:end=t+0.05,setpts=PTS-STARTPTS,
+  tpad=stop_mode=clone:stop_duration=<holdDurationSeconds-0.05>` - trims a short slice starting at
+  `t` (0.05s, `REACTION_HOLD_FREEZE_SLICE_SECONDS`, a technical epsilon guaranteeing the slice
+  contains at least one real frame regardless of source fps - `tpad`'s clone mode freezes whichever
+  frame ends up last in the slice, so sub-frame precision isn't needed), then `tpad` clones that
+  frame for the REMAINDER of the requested hold duration. The epsilon is subtracted back out of
+  `stop_duration` so the TOTAL inserted time is exactly `holdDurationSeconds`, never
+  `holdDurationSeconds + 0.05`.
+- **Audio**: one `anullsrc=sample_rate=44100:channel_layout=stereo` lavfi input PER hold instant
+  (reusing `concatBrandSegment()`'s own `BRAND_SEGMENT_AUDIO_SAMPLE_RATE`/
+  `BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT` constants directly, so real audio segments and synthesized
+  silence always match the exact same format - no second normalization standard invented), trimmed
+  via `atrim=duration=<holdDurationSeconds>` to the FULL requested duration (not reduced by the
+  video epsilon - the freeze slice itself already accounts for that 0.05s on the video side only).
+  One `anullsrc` input per hold rather than fanning a single source out via `asplit` - simpler for
+  the expected small number of holds per clip.
+- **Multi-hold generalization**: `N` hold instants become `2N+1` video segments and `2N+1` audio
+  segments (pre/hold pairs, ending in one final post segment), each concatenated via a single
+  `concat=n=<2N+1>:v=1:a=0[outv]` / `concat=n=<2N+1>:v=0:a=1[outa]` pair - two SEPARATE concat
+  filters (not one `v=1:a=1` combined filter, unlike `concatBrandSegment()`'s 2-segment case) since
+  video and audio segment boundaries here are NOT the same set of labels paired 1:1 the way a brand
+  segment's start/end concat is.
+- Duration bounds use `trim=`/`atrim=` FILTERS throughout, never a bare `-t` CLI flag - the same
+  argument-binding footgun `concatBrandSegment()`'s own comment documents (once more than one
+  input exists, a bare `-t` silently rebinds onto whichever `-i` comes next).
+- No new audio-format normalization standard was invented - every audio branch (real segments and
+  synthesized silence alike) converges on `concatBrandSegment()`'s existing fixed
+  `aformat=sample_rates=44100:channel_layouts=stereo`, not a value probed from the source.
+
+**Real-ffmpeg acceptance test** (`apps/worker/src/ffmpeg.reaction-hold.integration.spec.ts`, the
+exact `describeIfFfmpeg`-skip-if-unavailable template `ffmpeg.brand-segment-concat.integration.spec.ts`
+established, run against this sandbox's real ffmpeg 8.1.2) - the acceptance gate the C6R design
+explicitly required before this sub-phase could ship, confirming what a mocked exact-args test
+alone cannot:
+
+- A single hold extends total output duration by exactly `holdDurationSeconds` (measured via real
+  `ffprobe`), with video and audio stream durations matching each other within 0.1s (the observable
+  consequence of the stated A/V-sync invariant holding).
+- The inserted hold window is genuinely near-silent (`ffmpeg`'s own `volumedetect` filter measures
+  mean volume < -60dB inside the hold window, vs. clearly audible real tone immediately before and
+  after it) - proving the freeze+silence mechanism actually produces silence, not just "some
+  audio".
+- Multiple, well-separated hold instants sum correctly (2 holds extend duration by
+  `2 × holdDurationSeconds`), and the output still has a real audio stream.
+- A hold instant placed very close to clip start or clip end does not crash (a real edge case this
+  sandbox's ffmpeg was actually run against, not just reasoned about).
+- An empty `holdInstants` array throws before ever invoking ffmpeg.
+
+All 5 integration tests pass against real ffmpeg. A companion mocked exact-args suite
+(`ffmpeg.spec.ts`'s `applyReactionHolds` describe block, following `concatBrandSegment`'s own
+split) separately proves the function builds the filter-complex string it intends to, including the
+epsilon-subtraction arithmetic and the multi-hold cursor-advancing segment boundaries - the same
+"exact-args proves intent, integration test proves ffmpeg semantics" division this codebase's
+ffmpeg test suite has followed since Phase B2.
+
+**Verification performed**: `apps/worker`: typecheck clean; `ffmpeg.spec.ts` 72/72 pass (+6 new for
+`applyReactionHolds`); `ffmpeg.reaction-hold.integration.spec.ts` 5/5 pass against real ffmpeg
+8.1.2. `applyReactionHolds()` has no caller anywhere in this codebase yet (C6R.3's job, still
+locked pending its own go-ahead) - same "ships with zero call sites, proven correct in isolation"
+posture C6R.1 already established for `remapTimestamp()`.
 
 ## Phase C7 architecture (as shipped)
 
