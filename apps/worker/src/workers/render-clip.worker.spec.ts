@@ -2069,6 +2069,7 @@ describe('render-clip worker', () => {
         10,
         undefined,
         [],
+        [],
       );
       expect(renderClipMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2135,6 +2136,7 @@ describe('render-clip worker', () => {
         10,
         undefined,
         [],
+        [],
       );
       expect(reserveScratchPathMock).toHaveBeenCalledWith('reframe-cmds', '.txt');
       expect(buildSendCmdScriptMock).toHaveBeenCalledWith(cropPath, 'crop@reframe');
@@ -2194,6 +2196,7 @@ describe('render-clip worker', () => {
         240,
         10,
         undefined,
+        [],
         [],
       );
     });
@@ -2268,6 +2271,7 @@ describe('render-clip worker', () => {
         expect.any(Number),
         undefined,
         [{ start: 1.85, end: 2.15 }],
+        [],
       );
     });
 
@@ -2283,6 +2287,116 @@ describe('render-clip worker', () => {
         expect.any(Number),
         expect.any(Number),
         undefined,
+        [],
+        [],
+      );
+    });
+  });
+
+  // Visual Emphasis Engine Phase C4 ("Digital Push" - docs/ai/
+  // visual-emphasis-engine.md's "C4 rollout" decision: flag-gated, off by
+  // default, no per-clip toggle, a SEPARATE flag from Phase C3's own).
+  // graphResult.editingSuggestions' digital_push entries come from the
+  // REAL (un-mocked) computeEditingSuggestions()'s fromHighlights(), fed by
+  // Phase A1's own real subtitleIntelligenceNode - a segment with a
+  // vocally "angry" emotion label (BASE_INTENSITY 0.85, well above
+  // computeHighlightTimeline()'s PUNCH_THRESHOLD of 0.6) is enough to
+  // produce one real highlight/digital_push suggestion without needing to
+  // drive semantic events or momentum too.
+  describe('Visual Emphasis Engine Phase C4 - Digital Push render wiring', () => {
+    const punchWorthyJobData: RenderClipJobData = {
+      ...baseJobData,
+      transcript: [{ start: 10, end: 12, text: 'hi', emotion: 'ang' }],
+    };
+
+    beforeEach(() => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      buildCropPathMock.mockReturnValue(null);
+    });
+
+    afterEach(() => {
+      delete process.env.VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED;
+    });
+
+    it('passes the detected digital_push start through to buildCropPath when the flag is on', async () => {
+      process.env.VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED = 'true';
+
+      const processor = getProcessor();
+      await processor(fakeJob(punchWorthyJobData));
+
+      // The clip-relative subtitle line covering this segment starts at
+      // t=0 (segment.start 10 - clipStart 10) - fromHighlights() carries
+      // the highlight's own `start` through as the suggestion's `start`.
+      expect(buildCropPathMock).toHaveBeenCalledWith(
+        expect.any(Array),
+        [], // emphasisWords - "hi" has no word-level timestamps and no emphasis pattern match
+        expect.any(Object),
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
+        undefined,
+        [],
+        [0],
+      );
+    });
+
+    it('passes an empty digitalPushStarts array when the flag is off (default), even with a real punch-worthy moment detected', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob(punchWorthyJobData));
+
+      expect(buildCropPathMock).toHaveBeenCalledWith(
+        expect.any(Array),
+        [],
+        expect.any(Object),
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
+        undefined,
+        [],
+        [],
+      );
+    });
+
+    it('still applies the old emphasis-word trigger even when the C4 flag is off - C4 only ADDS a trigger source, never replaces the existing one', async () => {
+      // findEmphasisWords() itself is mocked in this spec file (see
+      // findEmphasisWordsMock's own jest.mock('@speedora/reframe', ...)
+      // above) - this simulates "Fase 11's own regex already found a real
+      // emphasis word", independent of Phase C4 entirely.
+      findEmphasisWordsMock.mockReturnValueOnce([{ word: 'NEVER', start: 0, end: 2 }]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildCropPathMock).toHaveBeenCalledWith(
+        expect.any(Array),
+        [{ word: 'NEVER', start: 0, end: 2 }],
+        expect.any(Object),
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
+        undefined,
+        [],
+        [], // no digital_push - the flag is off, even though an emphasis word fired
+      );
+    });
+
+    it('passes an empty digitalPushStarts array when the flag is on but there is no punch-worthy moment (default baseJobData)', async () => {
+      process.env.VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED = 'true';
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildCropPathMock).toHaveBeenCalledWith(
+        [],
+        [],
+        expect.any(Object),
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
+        undefined,
+        [],
         [],
       );
     });

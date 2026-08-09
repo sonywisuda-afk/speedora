@@ -154,6 +154,20 @@ always computed regardless of `VISUAL_EMPHASIS_ENABLED`); `isFocusShiftEnabled()
 this phase's own flag is actually checked, deciding whether `render-clip.worker.ts` passes those
 windows through at all.
 
+**Visual Emphasis Engine Phase C4** ("Digital Push", flag-gated behind
+`VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED`, off by default, a separate flag from Focus Shift's) extends
+Auto Zoom's existing emphasis-word trigger set with Phase C1's own `digital_push` suggestion
+instants — real filmmaking terminology for the same push-in-zoom motion Fase 11 already does, so
+this phase adds a second trigger SOURCE rather than a second zoom mechanism. `buildCropPath()`
+gained a 9th, optional `digitalPushStarts: number[]` parameter; the existing `emphasisStarts` local
+became `zoomTriggerStarts = [...emphasisWords.map(w => w.start), ...digitalPushStarts]`, one
+combined array feeding the same `zoomEnvelopeAt()` max-reduce every overlapping-emphasis-word case
+already used — two triggers landing near the same instant still only ever produce one envelope's
+peak, never a stacked/doubled zoom. `buildReframePlan()` (`render-clip.worker.ts`) now receives
+Phase C1's full, unfiltered `editingSuggestions` array and checks `isFocusShiftEnabled()`/
+`isDigitalPushEnabled()` independently inside itself, one technique-specific flag per phase, never
+a shared master flag.
+
 ## Caption styling
 
 `Clip.captionStyle` (`DEFAULT`/`KARAOKE`/`BOLD_HIGHLIGHT`) drives `buildAss()`. `KARAOKE` uses

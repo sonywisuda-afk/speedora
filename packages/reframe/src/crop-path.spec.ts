@@ -306,6 +306,118 @@ describe('buildCropPath', () => {
       expect(at04.x).toBe(76);
     });
   });
+
+  // Visual Emphasis Engine Phase C4 ("Digital Push" - see docs/ai/
+  // visual-emphasis-engine.md). Extends the SAME zoomEnvelopeAt() envelope
+  // "auto zoom (emphasis words)" above already exercises - these tests
+  // deliberately reuse that describe block's own numbers/shape wherever
+  // possible to prove digitalPushStarts is a second TRIGGER SOURCE, not a
+  // second zoom MECHANISM.
+  describe('digital push (Phase C4)', () => {
+    it('builds a zoom-only path (no face data, no emphasis words) from a digital-push moment alone', () => {
+      const samples: FaceSample[] = [{ t: 0, box: null }];
+
+      const path = buildCropPath(
+        samples,
+        [],
+        crop,
+        sourceWidth,
+        sourceHeight,
+        2,
+        undefined,
+        [],
+        [1],
+      )!;
+
+      expect(path).not.toBeNull();
+      // Identical peak shrink to the plain emphasis-word test above -
+      // exactly the same envelope, just a different trigger source.
+      const atPeak = path.find((p) => Math.abs(p.t - 1) < 1e-6)!;
+      expect(atPeak.width).toBeLessThan(crop.width);
+      const before = path.find((p) => Math.abs(p.t - 0) < 1e-6)!;
+      expect(before.width).toBe(crop.width);
+    });
+
+    it('keeps the exact pre-C4 behavior when no digital-push moments are passed (default empty array)', () => {
+      const samples: FaceSample[] = [{ t: 0, box: null }];
+      const emphasisWords = [word('NEVER', 1, 1.3)];
+
+      const withoutArg = buildCropPath(samples, emphasisWords, crop, sourceWidth, sourceHeight, 2)!;
+      const withEmptyArg = buildCropPath(
+        samples,
+        emphasisWords,
+        crop,
+        sourceWidth,
+        sourceHeight,
+        2,
+        undefined,
+        [],
+        [],
+      )!;
+
+      expect(withEmptyArg).toEqual(withoutArg);
+    });
+
+    it('does not fire a zoom-only path when digitalPushStarts is empty and there is no other signal (regression: still returns null)', () => {
+      const samples: FaceSample[] = [{ t: 0, box: null }];
+
+      expect(
+        buildCropPath(samples, [], crop, sourceWidth, sourceHeight, 2, undefined, [], []),
+      ).toBeNull();
+    });
+
+    it('combines an emphasis word and an overlapping digital-push moment by taking the strongest zoom, never stacking them', () => {
+      const samples: FaceSample[] = [{ t: 0, box: null }];
+      const emphasisWords = [word('NEVER', 1, 1.2)];
+      // Lands close enough to the emphasis word's own envelope to overlap.
+      const digitalPushStarts = [1.05];
+
+      const path = buildCropPath(
+        samples,
+        emphasisWords,
+        crop,
+        sourceWidth,
+        sourceHeight,
+        2,
+        undefined,
+        [],
+        digitalPushStarts,
+      )!;
+      const atPeak = path.find((p) => Math.abs(p.t - 1) < 1e-6)!;
+
+      // Still exactly the single-trigger peak shrink (same expression the
+      // "combines overlapping emphasis words" test above uses) - two
+      // overlapping trigger SOURCES read as one combined trigger SET, the
+      // same max-reduce every emphasis-word-only case already goes
+      // through, not two independent zooms added together.
+      expect(atPeak.width).toBe(Math.round((crop.width * 0.7) / 2) * 2);
+    });
+
+    it('fires two independent, non-overlapping zoom envelopes for two well-separated digital-push moments', () => {
+      const samples: FaceSample[] = [{ t: 0, box: null }];
+      const digitalPushStarts = [1, 5];
+
+      const path = buildCropPath(
+        samples,
+        [],
+        crop,
+        sourceWidth,
+        sourceHeight,
+        6,
+        undefined,
+        [],
+        digitalPushStarts,
+      )!;
+
+      const firstPeak = path.find((p) => Math.abs(p.t - 1) < 1e-6)!;
+      const secondPeak = path.find((p) => Math.abs(p.t - 5) < 1e-6)!;
+      const between = path.find((p) => Math.abs(p.t - 3) < 1e-6)!;
+      expect(firstPeak.width).toBeLessThan(crop.width);
+      expect(secondPeak.width).toBeLessThan(crop.width);
+      // Back to base size well between the two, unaffected envelopes.
+      expect(between.width).toBe(crop.width);
+    });
+  });
 });
 
 describe('buildSendCmdScript', () => {

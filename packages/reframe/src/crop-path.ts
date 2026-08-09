@@ -163,20 +163,23 @@ function applyFocusShifts(
 // Builds a fine-grained (CROP_PATH_STEP_SECONDS) crop-window path spanning
 // the whole clip, combining two independent signals: x/y panning
 // interpolated from sparse (FACE_SAMPLE_INTERVAL_SECONDS) face samples
-// (Fase 2, unchanged math), and width/height "zoom" punch-ins timed to
-// emphasis words (Fase 11, new). Either signal alone is enough to produce a
-// real path - a video with a tracked face but no emphasis words still pans;
-// one with emphasis words but no detected face still zooms, centered on the
+// (Fase 2, unchanged math), and width/height "zoom" punch-ins timed to a
+// trigger set - emphasis words (Fase 11) plus, since Visual Emphasis
+// Engine Phase C4 (docs/ai/visual-emphasis-engine.md), Phase C1's own
+// digital_push suggestion instants when VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED
+// is on. Either the pan or the zoom signal alone is enough to produce a
+// real path - a video with a tracked face but no zoom triggers still pans;
+// one with zoom triggers but no detected face still zooms, centered on the
 // frame. Only moves pan along whichever axis computeCropDimensions() axis
 // actually crops (x for a landscape source, y for a portrait one) - the
 // other axis stays centered the whole clip.
 //
 // Returns null when NEITHER signal has anything to contribute (no face
-// detected anywhere in the clip AND no emphasis words) - the caller
-// (render-clip.worker.ts) falls back to a plain static center-crop in that
-// case rather than rendering a pointless "moving" path that's actually
-// constant, per CLAUDE.md's Fase 2 fallback decision (now extended to
-// cover zoom too).
+// detected anywhere in the clip, no emphasis words, and no digital-push
+// moments) - the caller (render-clip.worker.ts) falls back to a plain
+// static center-crop in that case rather than rendering a pointless
+// "moving" path that's actually constant, per CLAUDE.md's Fase 2 fallback
+// decision (now extended to cover zoom too).
 export function buildCropPath(
   samples: FaceSample[],
   emphasisWords: TranscriptWordInput[],
@@ -194,9 +197,21 @@ export function buildCropPath(
   // only ever passes a non-empty list when VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED
   // is on.
   focusShifts: Array<{ start: number; end: number }> = [],
+  // Visual Emphasis Engine Phase C4 ("Digital Push", docs/ai/
+  // visual-emphasis-engine.md) - extends the emphasis-word zoom trigger
+  // set below with Phase C1's own digital_push suggestion instants. A
+  // SECOND trigger source feeding the SAME zoomEnvelopeAt() envelope
+  // (attack/hold/release, UNCHANGED) - deliberately not a duration/end-
+  // aware envelope of its own, so this stays "extend the trigger set", not
+  // "build a second zoom mechanism" (the explicit product requirement).
+  // Empty array (the default) keeps this function's exact prior behavior
+  // for every existing caller/test - render-clip.worker.ts only ever
+  // passes a non-empty list when VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED is
+  // on.
+  digitalPushStarts: number[] = [],
 ): CropWindow[] | null {
   const hasFaceData = samples.some((sample) => sample.box !== null);
-  if (!hasFaceData && emphasisWords.length === 0) {
+  if (!hasFaceData && emphasisWords.length === 0 && digitalPushStarts.length === 0) {
     return null;
   }
 
@@ -223,7 +238,16 @@ export function buildCropPath(
   const defaultX = Math.round((sourceWidth - crop.width) / 2);
   const defaultY = Math.round((sourceHeight - crop.height) / 2);
 
-  const emphasisStarts = emphasisWords.map((word) => word.start);
+  // Two independent trigger SOURCES (a regex over transcript words, and
+  // Phase C1's own fused emotion/semantic-event/momentum signal) feeding
+  // one COMBINED trigger set - the max-reduce below already treats every
+  // start uniformly regardless of which source produced it, so two
+  // triggers landing on/near the same instant still only ever produce ONE
+  // envelope's peak (1.0), never a stacked/doubled zoom. This is the "real
+  // merge rule" the roadmap flagged as this phase's primary risk - it
+  // falls out of the existing reduce() for free, no new merge logic
+  // needed.
+  const zoomTriggerStarts = [...emphasisWords.map((word) => word.start), ...digitalPushStarts];
 
   const path: CropWindow[] = [];
   for (let t = 0; t <= clipDurationSeconds + 1e-9; t += CROP_PATH_STEP_SECONDS) {
@@ -231,7 +255,7 @@ export function buildCropPath(
     const { x: baseX, y: baseY } =
       known.length > 0 ? interpolateAt(known, clampedT) : { x: defaultX, y: defaultY };
 
-    const zoom = emphasisStarts.reduce(
+    const zoom = zoomTriggerStarts.reduce(
       (max, start) => Math.max(max, zoomEnvelopeAt(clampedT, start)),
       0,
     );
