@@ -2068,6 +2068,7 @@ describe('render-clip worker', () => {
         240,
         10,
         undefined,
+        [],
       );
       expect(renderClipMock).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -2133,6 +2134,7 @@ describe('render-clip worker', () => {
         240,
         10,
         undefined,
+        [],
       );
       expect(reserveScratchPathMock).toHaveBeenCalledWith('reframe-cmds', '.txt');
       expect(buildSendCmdScriptMock).toHaveBeenCalledWith(cropPath, 'crop@reframe');
@@ -2192,6 +2194,96 @@ describe('render-clip worker', () => {
         240,
         10,
         undefined,
+        [],
+      );
+    });
+  });
+
+  // Visual Emphasis Engine Phase C3 ("Focus Shift" - docs/ai/
+  // visual-emphasis-engine.md's "C3 rollout" decision: flag-gated, off by
+  // default, no per-clip toggle). VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED is
+  // read directly by isFocusShiftEnabled() (left real, not mocked, same
+  // "read env vars for real" convention as SUBTITLE_REWRITE_ENABLED/
+  // DYNAMIC_CAPTION_ENABLED above). graphResult.editingSuggestions itself
+  // comes from the REAL (un-mocked) computeEditingSuggestions() -
+  // fromPrimarySubjectSamples() flags a focus_shift once a real trackId
+  // change (via detectFaceLandmarksMock) is held long enough - same
+  // fixture shape @speedora/visual-emphasis's own
+  // "suggests focus_shift when trackId changes after a long-enough hold"
+  // test uses.
+  describe('Visual Emphasis Engine Phase C3 - Focus Shift render wiring', () => {
+    function faceLandmarkSample(t: number, trackId: number) {
+      return {
+        t,
+        boundingBox: { xCenter: 0.5, yCenter: 0.5, width: 0.2, height: 0.2 },
+        sharpness: null,
+        rotation: null,
+        blendshapes: null,
+        brightness: null,
+        mouthContrastRatio: null,
+        faceDescriptor: null,
+        trackId,
+        leftIris: null,
+        rightIris: null,
+        leftEyeInnerCorner: null,
+        leftEyeOuterCorner: null,
+        rightEyeInnerCorner: null,
+        rightEyeOuterCorner: null,
+        mouthWidth: null,
+      };
+    }
+
+    beforeEach(() => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      // Subject held (trackId 1) from t=0 to t=1 (>= the 1.0s minimum hold
+      // fromPrimarySubjectSamples() requires), then switches to trackId 2 -
+      // @speedora/visual-emphasis's own documented math: a focus_shift
+      // window centered on t=2, [1.85, 2.15].
+      detectFaceLandmarksMock.mockResolvedValue([
+        faceLandmarkSample(0, 1),
+        faceLandmarkSample(1, 1),
+        faceLandmarkSample(2, 2),
+      ]);
+      buildCropPathMock.mockReturnValue(null);
+    });
+
+    afterEach(() => {
+      delete process.env.VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED;
+    });
+
+    it('passes the detected focus_shift window through to buildCropPath when the flag is on', async () => {
+      process.env.VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED = 'true';
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildCropPathMock).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.any(Array),
+        expect.any(Object),
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
+        undefined,
+        [{ start: 1.85, end: 2.15 }],
+      );
+    });
+
+    it('passes an empty focusShifts array when the flag is off (default), even with a real subject change detected', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildCropPathMock).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.any(Array),
+        expect.any(Object),
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
+        undefined,
+        [],
       );
     });
   });

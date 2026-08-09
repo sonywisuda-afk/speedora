@@ -236,6 +236,76 @@ describe('buildCropPath', () => {
       expect(atPeak.width).toBe(Math.round((crop.width * 0.7) / 2) * 2);
     });
   });
+
+  // Visual Emphasis Engine Phase C3 ("Focus Shift" - see docs/ai/
+  // visual-emphasis-engine.md).
+  describe('focus shift (Phase C3)', () => {
+    it('holds flat before/after a focus-shift window and snaps within it, instead of drifting across the full sample gap', () => {
+      const samples: FaceSample[] = [
+        { t: 0, box: { xCenter: 0.25, yCenter: 0.5, width: 0.1, height: 0.1 } }, // x = 12
+        { t: 1, box: { xCenter: 0.75, yCenter: 0.5, width: 0.1, height: 0.1 } }, // x = 172
+      ];
+      const focusShifts = [{ start: 0.4, end: 0.6 }];
+
+      const withShift = buildCropPath(
+        samples,
+        [],
+        crop,
+        sourceWidth,
+        sourceHeight,
+        1,
+        undefined,
+        focusShifts,
+      )!;
+      const at = (t: number) => withShift.find((p) => Math.abs(p.t - t) < 1e-6)!;
+
+      // Without Phase C3, t=0.2 would already be 20% of the way from 12 to
+      // 172 (x=44, see the plain "linearly interpolates" test above) - held
+      // flat at the pre-shift position instead.
+      expect(at(0.2).x).toBe(12);
+      // Held exactly at the pre-shift position right up to the window start.
+      expect(at(0.4).x).toBe(12);
+      // Snapped to the post-shift position by the window end.
+      expect(at(0.6).x).toBe(172);
+      // Held flat at the post-shift position afterward too.
+      expect(at(0.8).x).toBe(172);
+    });
+
+    it('falls back to the default drift for a shift window with no bracketing known sample (clip-start edge case)', () => {
+      const samples: FaceSample[] = [
+        { t: 0, box: { xCenter: 0.25, yCenter: 0.5, width: 0.1, height: 0.1 } },
+        { t: 1, box: { xCenter: 0.75, yCenter: 0.5, width: 0.1, height: 0.1 } },
+      ];
+      // Starts before the first known sample - no `pre` point exists.
+      const focusShifts = [{ start: -0.5, end: -0.3 }];
+
+      const withShift = buildCropPath(
+        samples,
+        [],
+        crop,
+        sourceWidth,
+        sourceHeight,
+        1,
+        undefined,
+        focusShifts,
+      )!;
+      const withoutShift = buildCropPath(samples, [], crop, sourceWidth, sourceHeight, 1)!;
+
+      expect(withShift).toEqual(withoutShift);
+    });
+
+    it('keeps the exact pre-C3 drift behavior when no focus shifts are passed (default empty array)', () => {
+      const samples: FaceSample[] = [
+        { t: 0, box: { xCenter: 0.25, yCenter: 0.5, width: 0.1, height: 0.1 } },
+        { t: 1, box: { xCenter: 0.75, yCenter: 0.5, width: 0.1, height: 0.1 } },
+      ];
+
+      const path = buildCropPath(samples, [], crop, sourceWidth, sourceHeight, 1)!;
+      const at04 = path.find((p) => Math.abs(p.t - 0.4) < 1e-6)!;
+
+      expect(at04.x).toBe(76);
+    });
+  });
 });
 
 describe('buildSendCmdScript', () => {
