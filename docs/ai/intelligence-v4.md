@@ -178,7 +178,22 @@
   `protectPauseHolds()` requiring an EXACT match against a Phase C1 `pause_hold` suggestion window),
   never the timeline itself. Ships behind its own `VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED` flag, off by
   default, no per-clip toggle, same shape as every prior rendering-behavior phase despite being
-  lower-risk than all of them.
+  lower-risk than all of them. **The C6R redesign itself is now complete** (resolved via
+  `AskUserQuestion`, zero code yet): the key finding is that a THIRD ffmpeg pass, running AFTER
+  C7's own cuts on the already fully-composed-and-trimmed output, needs no caption/crop-path/B-roll
+  remapping at all - those are already baked into pixels by that point, the same reason C7's cuts
+  pass itself never needed to touch them. The one real "temporal-remapping primitive" needed is a
+  generalization of the existing `computeCutJunctionTimestamps()` (Fase 14, Smart Transitions) into
+  a `remapTimestamp()` function mapping any original clip-relative instant onto its post-cut
+  position (`null` when that instant itself was cut away - resolved as "skip that hold", the same
+  conservative posture C7 already established). The mechanism itself: **freeze-frame** (not
+  slow-motion) plus a **brief inserted silence** (not a held/repeated audio sample, which risks
+  broken-syllable/noise-loop artifacts, and not continued audio playback, which would create a new
+  A/V-divergence contract) - both streams extended by the exact same duration at the exact same
+  point, a stated invariant ("C6R must never leave the final output with an A/V timestamp offset").
+  Split into C6R.1 (the remapping primitive) → C6R.2 (the freeze+silence ffmpeg mechanism, its own
+  real-ffmpeg verification gate) → C6R.3 (wiring, flag-gated `VISUAL_EMPHASIS_REACTION_HOLD_ENABLED`)
+  - each still needing its own explicit go-ahead before implementation starts.
 
 ## Why this exists
 
@@ -497,7 +512,7 @@ without a literal file move. `vocalEmotion.ts` itself is untouched.
 | A2 | Wire Subtitle Rewriter into `buildAss()` (7) — **shipped, flag-off** (`Clip.smartSegmentation`) | A1 | M | First phase touching the production render path — karaoke word-sync must survive re-chunking |
 | B1 | Dynamic Caption Engine, data only (8) — **shipped, flag-off** (`DYNAMIC_CAPTION_ENABLED=false`) | A1, Phase 5 | S-M | "Don't overuse animation" needs an explicit documented cooldown heuristic |
 | B2 | Wire Dynamic Caption treatment into `build-ass.ts`'s ASS emission (8) — **shipped, flag-off** (`Clip.dynamicCaptions`) | B1, A2 | L | New `\fscx`/`\fscy`/`\t` ASS tag territory — verified against real ffmpeg+libass, including a visual frame-extraction check |
-| C | Visual Emphasis Engine (9) — **C1 shipped, flag-off** (`Clip.editingSuggestions`), **C2 shipped, no flag** (real behavior change), **C3 shipped, flag-off** (`VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED`), **C4 shipped, flag-off** (`VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED`), **C5 shipped, flag-off** (`VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED`, real ffmpeg+libass verified), **C7 shipped, flag-off** (`VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED`, implemented before C6), **C6 redesign required, not built**, see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md) | none — signals already exist | M (per original estimate; the real spec text splits into 7 sub-phases, S-L each) | Unify `reframe`'s own face detector with `primary-subject`'s choice, don't layer a second opinion (Phase C2, shipped) |
+| C | Visual Emphasis Engine (9) — **C1 shipped, flag-off** (`Clip.editingSuggestions`), **C2 shipped, no flag** (real behavior change), **C3 shipped, flag-off** (`VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED`), **C4 shipped, flag-off** (`VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED`), **C5 shipped, flag-off** (`VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED`, real ffmpeg+libass verified), **C7 shipped, flag-off** (`VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED`, implemented before C6), **C6 design complete (renamed C6R), zero code yet** - split into C6R.1/C6R.2/C6R.3, see [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md) | none — signals already exist | M (per original estimate; the real spec text splits into 7 sub-phases, S-L each) | Unify `reframe`'s own face detector with `primary-subject`'s choice, don't layer a second opinion (Phase C2, shipped) |
 
 **Update (2026-08-08)**: resolved a real product-shape ambiguity in Part 7's "rewrite subtitle" via
 `AskUserQuestion` before any code was written (same "ask, don't guess" precedent as v2.1's Practical

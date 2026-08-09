@@ -1,14 +1,16 @@
 # Visual Emphasis Engine (spec Part 9, AI Intelligence v4 Track B Phase C)
 
-> **Status: Phases C1-C5 and C7 shipped. Phase C6 needs a dedicated redesign pass before
-> implementation (see its own status note below) - deliberately done OUT OF ORDER, C7 before C6,
-> a real decision recorded in the "C7 rollout"/C6 sections below.** This doc is the audit + ADR +
-> dependency graph + phased roadmap requested before any implementation starts, same discipline as
+> **Status: Phases C1-C5 and C7 shipped. Phase C6 (Reaction Hold) has a complete redesign
+> (renamed C6R - "Reaction Hold Temporal Extension" - once its own architecture became clear) but
+> zero code yet - deliberately done OUT OF ORDER, C7 before C6, a real decision recorded in the
+> "C7 rollout"/"C6R design" sections below.** This doc is the audit + ADR + dependency graph +
+> phased roadmap requested before any implementation starts, same discipline as
 > [`ai/subtitle-intelligence.md`](./subtitle-intelligence.md) (Track B Phase A/B, now complete) —
 > see that doc for the precedent this one follows. See "Phase C1 architecture (as shipped)" through
 > "Phase C5 architecture (as shipped)" and "Phase C7 architecture (as shipped)" below for what
-> actually exists; C6 is the one phase in this roadmap not yet built and not yet even fully
-> designed - see its own roadmap-table row and the "C6 redesign" note.
+> actually exists; "C6R design" is a full audit/ADR/sub-roadmap for the one phase in this initiative
+> not yet built, resolved via `AskUserQuestion` before any code - its own C6R.1-C6R.3 sub-phases
+> each still need their own explicit go-ahead.
 
 ## Why this exists
 
@@ -180,7 +182,7 @@ facialFeatures/emotionalArc ────┘
 | C3 | Focus Shift — deliberate transition when the primary subject id changes, instead of continuous drift — **shipped, flag-gated** (`VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED`, off by default, no per-clip toggle) | C2 | S-M | Defining "deliberate" (a faster pan? a hard cut? a brief hold?) without real footage to validate against |
 | C4 | Digital Push — extend Auto Zoom's triggers beyond `EMPHASIS_PATTERN` words to include v4's own "this moment matters" signals — **shipped, flag-gated** (`VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED`, off by default, no per-clip toggle) | C1 | S | Two trigger sources (regex words, v4 signals) firing on overlapping spans needs a real merge rule, not double-triggering |
 | C5 | OCR Highlight — new overlay rendering — **shipped, flag-gated** (`VISUAL_EMPHASIS_OCR_HIGHLIGHT_ENABLED`, off by default, no per-clip toggle; ASS `\p1` mechanism, real ffmpeg+libass verified) | C1, OCR Intelligence (existing) | L | Genuinely new rendering mechanism (Tech Debt #5) — needs the same "verify against real ffmpeg" discipline Track B Phase B2 established, and a real design pass for DC5's open question |
-| C6 | Reaction Hold — extend shot duration for a detected reaction — **redesign required, not built** (see "C6 redesign" note below; likely renamed **C6R** once designed) | C1 | M (likely underestimated - see redesign note) | Extending duration interacts with the existing cutlist/render timeline math non-trivially — a naive implementation could desync captions/crop from the extended audio. Confirmed real during C7's own design pass, not just a theoretical risk - deliberately deferred rather than attempted with a naive implementation |
+| C6 | Reaction Hold — freeze-frame + brief silence at a detected reaction, as a THIRD pass after cuts — **design complete (renamed C6R), zero code yet** - split into C6R.1 (temporal-remapping primitive, S)/C6R.2 (freeze+silence ffmpeg mechanism, real ffmpeg verified, M)/C6R.3 (wiring, flag-gated, S-M), see "C6R design" below | C1, C7 (runs strictly after its cuts pass) | S+M+S-M across 3 sub-phases (down from the original single-phase M estimate, once "third pass after cuts" made captions/crop-path/B-roll remapping unnecessary) | Ordering (must run after C7's cuts, on their output) and genuinely new ffmpeg filter-complex territory (mid-stream `concat`) — both scoped into their own sub-phase (C6R.3, C6R.2 respectively) rather than one big undertaking |
 | C7 | Pause Hold — protect specific pauses from Smart Trim — **shipped, flag-gated** (`VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED`, off by default, no per-clip toggle) - **implemented before C6**, a deliberate reordering (see "C7 rollout" note) | C1 | S-M | A wrong "protect this pause" call silently reintroduces dead air Smart Trim was built to remove — needs a conservative default (protect rarely, not liberally) |
 
 Each phase, per this codebase's established convention: implement → run the full test suite →
@@ -850,7 +852,7 @@ that matters in practice, and a future phase (dynamic tracking, if real footage 
 shows drift is a real problem) would need that evidence to design its own sampling/interpolation
 approach against, not a guess made here.
 
-## C6 status: redesign required (Reaction Hold deferred, C7 done first)
+## C6R design (Reaction Hold Temporal Extension) — redesign complete, not yet built
 
 Before starting C6, its own risk note ("extending duration interacts with the existing cutlist/
 render timeline math non-trivially") was reconsidered against C7's actual shape (see "C7 rollout"
@@ -858,33 +860,142 @@ below) and found to be a materially bigger, categorically different undertaking 
 C-phase shipped so far - **C2-C5 and C7 all change spatial positioning, a visual effect's trigger
 set, or an editing DECISION, but never the clip's own temporal coordinate system.** Literally
 "extending a shot's on-screen duration" (freeze-frame or slow-motion) would shift every downstream
-timestamp (captions, crop path, B-roll, the cut junctions Phase 14's Smart Transitions already
-anchors to) - the first phase in this initiative that would need to.
+timestamp - the first phase in this initiative that would need to. Per explicit user direction -
+"Jangan mengubah timeline duration tanpa terlebih dahulu memiliki explicit temporal-remapping
+layer" - this section is that redesign pass, done before any C6R code. **Status: design complete,
+resolved via `AskUserQuestion` + follow-up review, nothing implemented yet** - see the C6R.1-C6R.3
+sub-roadmap at the end for what's next.
 
-**Decision** (the user's own explicit framing, preserved close to verbatim since it's the actual
-design mandate for whenever C6 is picked back up): don't build a Reaction-Hold-specific timeline
-hack. Build a general, reusable temporal-remapping PRIMITIVE first, then implement duration
-extension on top of it - "Jangan mengubah timeline duration tanpa terlebih dahulu memiliki
-explicit temporal-remapping layer." A future dedicated phase (tentatively **C6R - "Reaction Hold
-Temporal Extension"**, name not final) needs its own audit/ADR pass designing, at minimum:
+### The key architectural finding: a THIRD pass, after cuts, needs zero remapping of anything
 
-- the timeline transformation primitive itself (reusable, not Reaction-Hold-specific)
-- timestamp rebasing
-- caption timestamp propagation
-- crop-path remapping
-- B-roll remapping
-- segment boundary handling
-- audio behavior (freeze vs. continue vs. fade)
-- freeze-frame vs. slow-motion semantics (a real open question, not pre-decided)
-- max extension duration (a "scale honesty" heuristic, like every other numeric constant in this
-  initiative)
-- overlapping reaction windows
-- clip-start/clip-end edge cases
-- idempotency (a re-render must not compound the extension)
+Every open question in the original deferral note (caption propagation, crop-path remapping,
+B-roll remapping, segment boundary handling) turns out to share one root cause - they all assumed
+the extension has to happen somewhere INSIDE the existing render graph/first-pass composition,
+where captions/crop-path/B-roll timing all still live as separate, not-yet-composed data. It
+doesn't. `render-clip.worker.ts`'s existing pipeline already has a precedent for exactly this
+shape: **Phase C7's own cuts pass runs on the ALREADY fully-composed (cropped + captioned + B-roll
+overlaid) output**, which is why cuts need no separate remap logic for any of those three things -
+by the time cuts run, they're not separate signals anymore, they're just pixels.
 
-Until that design pass happens, C6 stays exactly where the original roadmap left it - "M" complexity
-was the estimate BEFORE this reconsideration; the real scope is likely larger once temporal
-remapping is designed for real, not a naive first attempt.
+Reaction Hold gets the identical benefit by running as a **third pass, after cuts**, on that same
+already-composed-and-trimmed output:
+
+```
+pass 1 (existing)   crop/zoom + B-roll + captions -> composed output
+pass 2 (C7)         silence/filler cuts (pause_hold-protected) -> trimmed output
+pass 3 (C6R, NEW)   freeze-frame + silence hold at each reaction_hold instant -> final output
+```
+
+Freezing a frame of the ALREADY-COMPOSED output automatically freezes whatever crop position/
+caption/B-roll pixel was showing at that instant, correctly, for free - there is no "crop-path
+remapping" or "caption timestamp propagation" left to design, because nothing downstream of pass 1
+is still a separate timeline by the time pass 3 runs. This is a smaller redesign outcome than the
+original deferral note anticipated, not a bigger one - most of the original open-question list
+dissolves once the insertion point is chosen correctly.
+
+**What's actually left to design** (the real remaining surface, confirmed via `AskUserQuestion`
+before any code): (1) how a timestamp maps from the ORIGINAL clip-relative timeline (where
+`reaction_hold` suggestions already live, computed by Phase C1) onto the POST-CUT timeline pass 3
+actually operates on, and (2) the freeze-frame/audio mechanism itself.
+
+### The reusable temporal-remapping primitive: generalize, don't invent
+
+`@speedora/cutlist` already has a timestamp-remapping function - `computeCutJunctionTimestamps()`
+(Fase 14, Smart Transitions), which maps each cut's own start onto its post-cut position. C6R's
+"primitive" is generalizing this from "map a cut's own start" to "map ANY original timestamp":
+
+```ts
+// packages/cutlist/src/cutlist.ts (planned, C6R.1)
+export function remapTimestamp(t: number, cuts: CutRange[]): number | null {
+  let removedBefore = 0;
+  for (const cut of cuts) {
+    if (t >= cut.start && t < cut.end) return null; // t itself was cut away
+    if (cut.end <= t) removedBefore += cut.end - cut.start;
+  }
+  return round3(t - removedBefore);
+}
+```
+
+`null` covers the one real edge case this generalization must handle that
+`computeCutJunctionTimestamps()` never had to: a `reaction_hold` instant whose ORIGINAL timestamp
+falls INSIDE a range that got cut away entirely (e.g. a reaction expressed only through facial
+expression during an otherwise-silent gap, with no speech to anchor the moment to). Resolution:
+**skip that hold entirely** - same "protect rarely, don't guess" conservatism C7's own exact-match
+design already established; there's no surviving frame at that instant to freeze on, and snapping
+to the nearest surviving frame would be fabricating a position, not respecting a real one.
+`computeCutJunctionTimestamps()` itself can be refactored to call `remapTimestamp()` internally
+(`cuts.map((cut) => remapTimestamp(cut.start, cuts))`) once this exists, so there's exactly one
+remapping algorithm in the codebase, not two - a real DRY opportunity, not just a coincidence.
+
+### Resolved via `AskUserQuestion` (all three, before any code)
+
+1. **Insertion point**: confirmed - third pass, after cuts (above).
+2. **Hold mechanism: freeze-frame**, not slow-motion. Duplicates a single frame for an extra,
+   fixed duration via ffmpeg's mid-stream freeze technique (`trim`+`tpad`+`concat`, splitting the
+   video around the hold instant, padding the frozen slice, concatenating before/frozen/after back
+   together) - the classic "freeze on the reaction" editing technique, unambiguous to verify.
+   Slow-motion (variable-rate `setpts`/`atempo` stretching, needing pitch-correction) was
+   explicitly rejected as unnecessary complexity for a first version.
+3. **Audio: brief silence, not a held/repeated sample, not continued playback.** The user's own
+   explicit reasoning, preserved verbatim since it's the actual design constraint: repeating the
+   last audio sample literally risks "syllable patah/terulang, noise loop, consonant yang terdengar
+   aneh" (a broken/repeated syllable, a noise loop, a strange-sounding consonant) - artifacts worse
+   than silence. Letting audio continue underneath a frozen frame was also rejected: it creates a
+   NEW contract (video and audio diverge during the hold, needing an explicit resync point after)
+   that adds complexity not needed to prove C6R works. **The stated invariant**: video duration and
+   audio duration both grow by exactly the same amount, at exactly the same point - "C6R must never
+   leave the final output with an A/V timestamp offset." Implementation-wise, this means the SAME
+   `-filter_complex` pass splits and re-concatenates BOTH streams around the identical remapped
+   timestamp, with the video's frozen slice and the audio's inserted silence sized to the exact
+   same duration:
+
+```
+reaction_hold instant (Phase C1, clip-relative)
+        ↓
+remapTimestamp() against C7's own cuts (may resolve to null -> skip)
+        ↓
+video: trim/tpad/concat - freeze one frame for N seconds
+audio: atrim/anullsrc/concat - insert N seconds of silence at the SAME point
+        ↓
+both streams now exactly N seconds longer, still perfectly in sync
+        ↓
+resume original A/V
+```
+
+### Still open - resolved here as documented, reasoned defaults (lower-stakes than the three
+### above; revisit if real footage says otherwise, same "scale honesty" posture as every other
+### heuristic in this initiative)
+
+- **Hold duration**: a fixed heuristic constant (tentatively ~0.5s extra, not the `reaction_hold`
+  suggestion's own ~1.5s WINDOW size, which represents when the peak reads as significant, not how
+  long to freeze on it) - deliberately NOT scaled by the suggestion's own `score`, since that score
+  is documented elsewhere as "not comparable across clips," and turning it into a literal duration
+  multiplier would be a second, uncalibrated heuristic stacked on the first. A single constant is
+  simpler to reason about and verify for a first version, matching the user's own "MVP jauh lebih
+  deterministic" preference.
+- **Overlapping/multiple reaction windows**: process hold points in chronological order, splitting
+  the already-cut timeline into `N+1` "pass-through" segments interleaved with `N` frozen+silence
+  segments (one `concat` filter, not `N` separate ffmpeg invocations). Two reaction instants close
+  enough together that their own extra-duration windows would overlap need a merge rule before
+  splitting - reusing `mergeCutRanges()`'s own sort-and-merge shape (already proven, already
+  tested) rather than inventing a second one.
+- **Clip-start/clip-end edge cases**: a reaction instant near either boundary clamps the same way
+  `fromEmotionalPeaks()`'s own `Math.max(0, peak.t - REACTION_HOLD_WINDOW_SECONDS / 2)` already
+  does for the suggestion's own start - no new clamping logic, reuse what Phase C1 already
+  established at the signal-detection layer.
+- **Idempotency**: not a new mechanism to build - `render-clip.worker.ts` already re-renders a
+  clip from the original SOURCE video on every real render (the existing `existingClip.outputUrl`
+  check skips a genuinely-already-rendered clip entirely; it never re-processes a PREVIOUS render's
+  own output), so C6R inherits the same "always fresh from source, never incremental" guarantee
+  every other pass in this pipeline already has, with no additional idempotency logic needed.
+
+### Sub-phase roadmap (each still needs its own explicit "Start Phase C6R.N" go-ahead)
+
+| Sub-phase | Deliverable | Depends on | Complexity | Primary risk |
+|---|---|---|---|---|
+| C6R.1 | `remapTimestamp()` in `@speedora/cutlist`, fully unit-tested pure function (including the `null`-for-cut-away-instant case); `computeCutJunctionTimestamps()` refactored to reuse it | none - pure function over existing `CutRange[]` | S | Low - same shape as `protectPauseHolds()`'s own exact/pure-function design |
+| C6R.2 | The freeze-frame + silence ffmpeg mechanism itself (`apps/worker/src/ffmpeg.ts`, new function) - `trim`/`tpad`/`atrim`/`anullsrc`/`concat` filter-complex, verified against a REAL ffmpeg render (this sandbox has one, same acceptance-gate discipline Phase C5 established) confirming exact A/V sync (both streams grow by the identical duration) and correct freeze position | C6R.1 (needs a remapped timestamp to freeze at) | M | Genuinely new ffmpeg filter-complex territory (mid-stream `concat`, unlike every existing filter in this pipeline which only ever runs once, start-to-end) - needs real verification, not just a plausible-looking filter string |
+| C6R.3 | Wiring into `render-clip.worker.ts` - reads `reaction_hold` suggestions from `graphResult.editingSuggestions` (already computed, Phase C1), remaps + merges overlapping windows, applies C6R.2's mechanism as pass 3, flag-gated (`VISUAL_EMPHASIS_REACTION_HOLD_ENABLED`, off by default, no per-clip toggle, same convention as C3/C4/C5/C7) | C6R.1, C6R.2 | S-M | Ordering bugs (must run strictly after C7's own cuts pass, on ITS output, not the pre-cut one) |
 
 ## Phase C7 architecture (as shipped)
 
