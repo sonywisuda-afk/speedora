@@ -1280,6 +1280,59 @@ worker suite: 604/604 pass (up from 602, +2). `apps/worker`/`@speedora/cutlist`/
 unaffected (no API surface touched); `pnpm format:check` clean. No new migration, no new contract
 type, no new DTO field - the entire phase lives inside `packages/cutlist` + `apps/worker`.
 
+## Attention Curve Optimization — a Phase 10 follow-up, NOT one of the 9 spec Part 9 techniques
+
+> **This is not part of the Visual Emphasis Engine's own 9-technique roadmap above, which stays
+> complete and closed.** It reuses this doc/package's `EditingSuggestionTimeline` delivery shape for
+> a separate initiative (item 10 of the user's own gap-analysis list vs. reference platforms:
+> "Attention Curve Optimization" — predict where a viewer starts losing interest, act on it) because
+> that shape already fit, not because this is a 10th official technique.
+
+Audited before building: `RetentionCurveInsights.dropPoints` (Phase 10) already predicts a
+momentum-curve local minimum — "the viewer plausibly starts getting bored here." Two things were
+already true before this addition: (1) `render-clip.worker.ts`'s `computeClipCuts()` already has a
+proven pattern for merging multiple cut-range sources (silence + filler-word, via
+`@speedora/cutlist`'s `mergeCutRanges()`) and runs *after* the render-graph (so `dropPoints` is
+already available by the time cuts get computed) — the mechanical integration point this signal would
+need if ever wired into an actual cut; (2) `dropPoints` was already consumed once, by `from-pauses.ts`
+— but only to *protect* a nearby pause as a deliberate dramatic beat, never to suggest removing
+anything. Genuinely new work, not a duplicate of existing usage.
+
+**Resolved via `AskUserQuestion` before writing code** (same "ask, don't guess" precedent as every
+other genuinely open design choice in this initiative): auto-cut (destructive, like Smart Trim) vs.
+suggestion-only (data, like every other Track B technique's own Phase-1-before-action split) vs.
+ranking-only. User chose **suggestion-only** — matches the same "data first, action is a later
+phase's job" split C1 already established for the 9 real techniques, and sidesteps the real risk of
+auto-removing content based on an unvalidated heuristic signal.
+
+`packages/visual-emphasis/src/from-drop-points.ts` (new) — `fromDropPoints()`: filters `dropPoints`
+to a severity threshold (`score >= 0.6`, deliberately conservative given the signal is unvalidated —
+a small momentum wobble in an otherwise-lively clip isn't "boredom," it's normal pacing variance),
+maps each survivor to a fixed 2.5s window centered on the drop instant (not word-boundary-snapped,
+unlike `computeFillerCuts`/`computeSilenceCuts` — getting the exact edges right is explicitly left to
+whatever future phase wires this into an actual cut) as an `attention_cut`-technique
+`EditingSuggestion`. Wired into `computeEditingSuggestions()` alongside the 5 real techniques.
+`EDITING_TECHNIQUES`/`EditingTechnique` grew a 6th value (`'attention_cut'`) in both
+`@speedora/contracts` and its `packages/shared` mirror — the one required change to the closed
+9-technique enum, with an explicit comment at both declaration sites explaining why it's there.
+
+**Deliberately not done in this phase**: no wiring into `computeClipCuts()` or any other actual
+rendering decision. `Clip.editingSuggestions` already computes unconditionally (Phase C1, `Json`
+column, no migration needed for a new possible `technique` value inside it) and is exposed via
+`GET /clips/:id/intelligence` behind the existing `isVisualEmphasisEnabled()` flag — this addition
+rides that exact same exposure path with no new flag of its own, matching every prior technique's own
+"no per-technique exposure flag, only per-technique *action* flags once C2+ wires something in"
+pattern. A future phase (mirroring C3-C7's own two-step shape) would add the actual cut-application
+step, its own flag, and its own explicit go-ahead — not assumed here.
+
+**Verification**: `packages/visual-emphasis` 34/34 (27 pre-existing unchanged + 7 new — severity
+threshold at both extremes and exactly-at-boundary, window clamping at both clip edges, multiple
+independent drop points, and one orchestration-level test proving the new technique actually merges
+into the composed timeline). `render-clip.worker.spec.ts` 124/124 unchanged (the new technique's
+severity threshold means none of that spec file's existing fixtures happen to trigger it).
+`typecheck`/`build`/`lint`/`format` all green across `contracts`/`shared`/`visual-emphasis`/`worker`/
+`web`.
+
 ## Explicitly deferred / open questions
 
 - **Whether any of C6-C7 need their own per-clip opt-in toggle** (mirroring `smartSegmentation`/
