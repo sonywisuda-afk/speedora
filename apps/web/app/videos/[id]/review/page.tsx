@@ -130,8 +130,8 @@ export default function ReviewModePage({ params }: { params: Promise<{ id: strin
                 </div>
 
                 <div className="space-y-6">
-                  <ApprovalPanel videoId={id} clips={video.clips} />
-                  <CommentsPanel videoId={id} />
+                  <ApprovalPanel videoId={id} clips={video.clips} workspaceId={video.workspaceId} />
+                  <CommentsPanel videoId={id} workspaceId={video.workspaceId} />
                 </div>
               </div>
             )}

@@ -42,6 +42,11 @@ export default function EditVideoPage({ params }: { params: Promise<{ id: string
   const load = useTimelineStore((s) => s.load);
   const selectClip = useTimelineStore((s) => s.selectClip);
   const timelineClips = useTimelineStore((s) => s.clips);
+  // Collaboration roadmap follow-up (member-picker) - not part of
+  // useTimelineStore's own shape (that store only tracks clip-editing
+  // state), so tracked separately here purely to thread through to
+  // ApprovalPanel/CommentsPanel's own workspaceId prop.
+  const [workspaceId, setWorkspaceId] = useState<string | null>(null);
   // Set by the gallery grid (Fase 4) so clicking a specific clip's card
   // opens the editor on that clip, not always the first one - load()
   // itself defaults selectedClipId to clips[0].
@@ -62,6 +67,7 @@ export default function EditVideoPage({ params }: { params: Promise<{ id: string
           );
           return;
         }
+        setWorkspaceId(video.workspaceId);
         load(id, video.clips, transcript);
         if (requestedClipId && video.clips.some((c) => c.id === requestedClipId)) {
           selectClip(requestedClipId);
@@ -111,8 +117,8 @@ export default function EditVideoPage({ params }: { params: Promise<{ id: string
                 <VideoAnalysisDashboard />
                 <TimelineEditor videoId={id} />
                 <VersionHistoryPanel />
-                <ApprovalPanel videoId={id} clips={timelineClips} />
-                <CommentsPanel videoId={id} />
+                <ApprovalPanel videoId={id} clips={timelineClips} workspaceId={workspaceId} />
+                <CommentsPanel videoId={id} workspaceId={workspaceId} />
               </div>
             )}
           </>
