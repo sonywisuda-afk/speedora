@@ -1,6 +1,7 @@
 export * from './active-speaker';
 export * from './analytics-report';
 export * from './audio-intelligence';
+export * from './candidate-shortlist';
 export * from './clip-scoring';
 export * from './composition-intelligence';
 export * from './contextual-momentum';

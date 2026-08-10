@@ -42,6 +42,24 @@ jest.mock('@speedora/clip-scoring', () => ({
   scoreClipCandidates: (...args: unknown[]) => scoreClipCandidatesMock(...args),
 }));
 
+// AI Intelligence v4 Phase 13.2 (Clip Ranking Engine, Stage B) -
+// @speedora/candidate-shortlist itself is left REAL (unmocked) here, same
+// "mock the seam, leave real orchestration real" convention as
+// isCandidateExpansionEnabled() above - its own passthrough behavior (the
+// common case in this file's existing tests, all well under the shortlist
+// target) is exercised for real with zero extra setup. Only the two true
+// external LLM seams it calls into are mocked, at the same packages
+// nodes/semantic-events.ts and nodes/narrative-graph.ts already mock this
+// way for the render-graph side of this codebase.
+const detectSemanticEventsMock = jest.fn();
+jest.mock('@speedora/semantic-events', () => ({
+  detectSemanticEvents: (...args: unknown[]) => detectSemanticEventsMock(...args),
+}));
+const buildNarrativeGraphMock = jest.fn();
+jest.mock('@speedora/narrative-graph', () => ({
+  buildNarrativeGraph: (...args: unknown[]) => buildNarrativeGraphMock(...args),
+}));
+
 let clipIdCounter = 0;
 const clipCreateMock = jest.fn((args: { data: Record<string, unknown> }) => {
   clipIdCounter += 1;
@@ -174,6 +192,11 @@ describe('detect-clips worker (adapter)', () => {
     notificationCreateMock.mockResolvedValue({ id: 'notif-1' });
     notificationPreferenceFindUniqueMock.mockResolvedValue(null);
     publishNotificationMock.mockResolvedValue(undefined);
+    // AI Intelligence v4 Phase 13.2 - only reached when a test's raw
+    // candidate pool exceeds the shortlist target; harmless defaults for
+    // every other (passthrough) test.
+    detectSemanticEventsMock.mockResolvedValue([]);
+    buildNarrativeGraphMock.mockResolvedValue({ segments: [], relations: [], unsegmented: true });
     // Video exists and is at its precondition status (TRANSCRIBED) by
     // default - individual tests override this to exercise the
     // orphaned-job (deleted-video) and already-processed (idempotency) skip
@@ -310,6 +333,87 @@ describe('detect-clips worker (adapter)', () => {
         expect.objectContaining({ maxCandidates: 5 }),
         { openai: {} },
       );
+    });
+  });
+
+  // AI Intelligence v4 Phase 13.2 (Clip Ranking Engine, Stage B - see
+  // docs/ai/clip-ranking-engine.md).
+  describe('candidate shortlisting (Phase 13.2)', () => {
+    const COMPLETE_SCORES = {
+      hookStrength: 50,
+      educationalValue: 50,
+      practicalValue: 50,
+      curiosity: 50,
+      emotion: 50,
+      storytelling: 50,
+      novelty: 50,
+      trustAuthority: 50,
+      ctaStrength: 50,
+    };
+
+    // Ascending viralityScore (index 0 weakest, last strongest) with every
+    // other Tier-1 signal held identical, so the shortlist's own composite
+    // score ranks purely on viralityScore - a deterministic way to assert
+    // which candidates survive.
+    function manyScoredCandidates(count: number) {
+      return Array.from({ length: count }, (_, i) =>
+        scoredCandidate({
+          startTime: i * 30,
+          endTime: i * 30 + 25,
+          viralityScore: i,
+          hookText: `hook-${i}`,
+          scores: COMPLETE_SCORES,
+        }),
+      );
+    }
+
+    it('does not call the shortlist LLM signals when the raw pool is already at or under the shortlist target', async () => {
+      const segments: TranscriptSegment[] = [{ start: 0, end: 600, text: 'video' }];
+      scoreClipCandidatesMock.mockResolvedValue({ candidates: manyScoredCandidates(10) });
+      videoFindUniqueOrThrowMock.mockResolvedValue({ id: 'video-1', sourceUrl: 'videos/abc.mp4' });
+
+      const processor = getProcessor();
+      const result = (await processor(fakeJob({ videoId: 'video-1', segments }))) as {
+        candidates: unknown[];
+      };
+
+      expect(detectSemanticEventsMock).not.toHaveBeenCalled();
+      expect(buildNarrativeGraphMock).not.toHaveBeenCalled();
+      expect(result.candidates).toHaveLength(10);
+      expect(renderClipQueueAdd).toHaveBeenCalledTimes(10);
+    });
+
+    it('shortlists a raw pool larger than the target down to 15 before persisting or rendering anything', async () => {
+      const segments: TranscriptSegment[] = [{ start: 0, end: 600, text: 'video' }];
+      scoreClipCandidatesMock.mockResolvedValue({ candidates: manyScoredCandidates(20) });
+      videoFindUniqueOrThrowMock.mockResolvedValue({ id: 'video-1', sourceUrl: 'videos/abc.mp4' });
+
+      const processor = getProcessor();
+      const result = (await processor(fakeJob({ videoId: 'video-1', segments }))) as {
+        candidates: Array<{ viralityScore: number }>;
+      };
+
+      expect(detectSemanticEventsMock).toHaveBeenCalledTimes(20);
+      expect(buildNarrativeGraphMock).toHaveBeenCalledTimes(20);
+      expect(result.candidates).toHaveLength(15);
+      expect(renderClipQueueAdd).toHaveBeenCalledTimes(15);
+      // Every other Tier-1 signal is identical across fixtures (see
+      // manyScoredCandidates), so the 5 lowest-viralityScore candidates
+      // (0-4) are exactly the ones the shortlist cuts.
+      expect(result.candidates.map((c) => c.viralityScore).sort((a, b) => a - b)).toEqual(
+        Array.from({ length: 15 }, (_, i) => i + 5),
+      );
+    });
+
+    it('never persists a Clip row for a candidate the shortlist cut', async () => {
+      const segments: TranscriptSegment[] = [{ start: 0, end: 600, text: 'video' }];
+      scoreClipCandidatesMock.mockResolvedValue({ candidates: manyScoredCandidates(18) });
+      videoFindUniqueOrThrowMock.mockResolvedValue({ id: 'video-1', sourceUrl: 'videos/abc.mp4' });
+
+      const processor = getProcessor();
+      await processor(fakeJob({ videoId: 'video-1', segments }));
+
+      expect(clipCreateMock).toHaveBeenCalledTimes(15);
     });
   });
 

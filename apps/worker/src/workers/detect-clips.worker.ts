@@ -1,12 +1,14 @@
 import * as Sentry from '@sentry/node';
+import { selectShortlist } from '@speedora/candidate-shortlist';
 import {
   CANDIDATE_EXPANSION_POOL_SIZE,
   isCandidateExpansionEnabled,
   scoreClipCandidates,
 } from '@speedora/clip-scoring';
-import type { ClipScoringInput } from '@speedora/contracts';
+import type { ClipScoringCandidate, ClipScoringInput } from '@speedora/contracts';
 import { updateVideoStatus, VideoStatus } from '@speedora/database';
 import {
+  filterSegmentsForClip,
   migrateProcessingOptions,
   QueueName,
   type DetectClipsJobData,
@@ -101,6 +103,36 @@ function toScoringInput(
 // (Generate More Clips roadmap, Phase C) so generate-more-clips.worker.ts
 // can reuse them without duplication - see that file's own module comment.
 
+// AI Intelligence v4 Phase 13.2 (Clip Ranking Engine, Stage B - see
+// docs/ai/clip-ranking-engine.md). Runs BEFORE createCandidateClips() below
+// so a candidate that doesn't survive the shortlist never gets a Clip row
+// or a render job at all - not a post-persistence filter/delete (ADR D18:
+// non-destructive output only applies to what's already been created;
+// candidates that never got that far were never "created" in the first
+// place). @speedora/candidate-shortlist's own passthrough (pool already at
+// or under its target) makes this a genuine no-op, zero extra LLM calls,
+// whenever Phase 13.1's expansion isn't in play - the common case today.
+async function shortlistRawCandidates(
+  rawCandidates: ClipScoringCandidate[],
+  segments: TranscriptSegment[],
+): Promise<ClipScoringCandidate[]> {
+  const { shortlisted } = await selectShortlist(
+    {
+      candidates: rawCandidates.map((candidate) => ({
+        startTime: candidate.startTime,
+        endTime: candidate.endTime,
+        scores: candidate.scores,
+        viralityScore: candidate.viralityScore,
+        segments: filterSegmentsForClip(segments, candidate.startTime, candidate.endTime).map(
+          (segment) => ({ start: segment.start, end: segment.end, text: segment.text }),
+        ),
+      })),
+    },
+    { openai },
+  );
+  return shortlisted.map((entry) => rawCandidates[entry.index]);
+}
+
 export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClipsJobResult> {
   return new Worker<DetectClipsJobData, DetectClipsJobResult>(
     QueueName.DETECT_CLIPS,
@@ -147,6 +179,10 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
               },
             );
 
+            // AI Intelligence v4 Phase 13.2 (Clip Ranking Engine, Stage B) -
+            // see shortlistRawCandidates()'s own comment.
+            const shortlistedCandidates = await shortlistRawCandidates(rawCandidates, segments);
+
             // Generate More Clips roadmap (Phase C) - clip creation and
             // render-enqueue now live in ./clip-persistence.ts, shared with
             // generate-more-clips.worker.ts. Split into two calls (not one)
@@ -156,7 +192,7 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
             // module comment.
             const { clips, candidates } = await createCandidateClips(
               videoId,
-              rawCandidates,
+              shortlistedCandidates,
               segments,
               processingOptions,
             );
