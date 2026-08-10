@@ -1294,6 +1294,7 @@ model Clip {
   jobExecutions  JobExecution[]
   comments       Comment[]
   approvals      Approval[]
+  shareLinks     ShareLink[]
   versions       ClipVersion[]
   platformCopies ClipPlatformCopy[]
 
@@ -2637,6 +2638,17 @@ model ShareLink {
   tokenHash   String    @unique
   videoId     String
   video       Video     @relation(fields: [videoId], references: [id], onDelete: Cascade)
+  // Collaboration roadmap follow-up (clip-level Share scoping, 2026-08-10) -
+  // null (the pre-existing, still-default behavior) means this link grants
+  // access to the whole video and every one of its clips. Non-null means
+  // this link is restricted to exactly this one clip - enforced in
+  // ShareService's public-route methods, not just a display-layer filter.
+  // Same optional-clip-scope shape as Approval.clipId, including the
+  // onDelete: Cascade choice - a link that exists purely to point at one
+  // clip has no remaining purpose once that clip is gone, same reasoning
+  // Approval.clip already established.
+  clipId      String?
+  clip        Clip?     @relation(fields: [clipId], references: [id], onDelete: Cascade)
   createdById String
   createdBy   User      @relation(fields: [createdById], references: [id], onDelete: Cascade)
   role        ShareRole @default(VIEWER)
@@ -2650,6 +2662,7 @@ model ShareLink {
 
   @@index([videoId])
   @@index([createdById, createdAt])
+  @@index([clipId])
 }
 
 // Authentication Foundation Sprint 1 (Tahap 1 roadmap) - one row per logged-in

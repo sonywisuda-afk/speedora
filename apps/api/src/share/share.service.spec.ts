@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ShareRole } from '@speedora/shared';
 import type { PrismaService } from '../prisma/prisma.service';
 import type { WorkspaceAccessService } from '../workspace/workspace-access.service';
@@ -42,6 +42,7 @@ describe('ShareService', () => {
       prisma.shareLink.create.mockResolvedValue({
         id: 'link-1',
         videoId: 'video-1',
+        clipId: null,
         role: 'VIEWER',
         expiresAt: null,
         revokedAt: null,
@@ -54,6 +55,7 @@ describe('ShareService', () => {
       expect(prisma.shareLink.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           videoId: 'video-1',
+          clipId: null,
           createdById: 'user-1',
           role: 'VIEWER',
           expiresAt: null,
@@ -83,6 +85,7 @@ describe('ShareService', () => {
       prisma.shareLink.create.mockResolvedValue({
         id: 'link-1',
         videoId: 'video-1',
+        clipId: null,
         role: 'VIEWER',
         expiresAt: new Date('2026-07-25T00:00:00.000Z'),
         revokedAt: null,
@@ -94,6 +97,49 @@ describe('ShareService', () => {
       const call = prisma.shareLink.create.mock.calls[0][0];
       expect(call.data.expiresAt).toBeInstanceOf(Date);
     });
+
+    // Collaboration roadmap follow-up (clip-level Share scoping, 2026-08-10).
+    it('validates and stores clipId when creating a clip-scoped link', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ id: 'clip-1', videoId: 'video-1' });
+      prisma.shareLink.create.mockResolvedValue({
+        id: 'link-1',
+        videoId: 'video-1',
+        clipId: 'clip-1',
+        role: 'VIEWER',
+        expiresAt: null,
+        revokedAt: null,
+        createdAt: new Date('2026-07-18T00:00:00.000Z'),
+      });
+
+      const result = await service.create(
+        'user-1',
+        'video-1',
+        { clipId: 'clip-1' },
+        'https://app.test',
+      );
+
+      expect(prisma.shareLink.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ clipId: 'clip-1' }),
+      });
+      expect(result.clipId).toBe('clip-1');
+    });
+
+    it('throws BadRequestException when clipId does not belong to this video', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ id: 'clip-1', videoId: 'other-video' });
+
+      await expect(
+        service.create('user-1', 'video-1', { clipId: 'clip-1' }, 'https://app.test'),
+      ).rejects.toThrow(BadRequestException);
+      expect(prisma.shareLink.create).not.toHaveBeenCalled();
+    });
+
+    it('throws BadRequestException when clipId does not exist at all', async () => {
+      prisma.clip.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.create('user-1', 'video-1', { clipId: 'missing' }, 'https://app.test'),
+      ).rejects.toThrow(BadRequestException);
+    });
   });
 
   describe('listForVideo', () => {
@@ -102,6 +148,7 @@ describe('ShareService', () => {
         {
           id: 'link-1',
           videoId: 'video-1',
+          clipId: null,
           role: 'VIEWER',
           expiresAt: null,
           revokedAt: new Date('2026-07-18T01:00:00.000Z'),
@@ -168,6 +215,7 @@ describe('ShareService', () => {
       prisma.shareLink.findUnique.mockResolvedValue({
         id: 'link-1',
         videoId: 'video-1',
+        clipId: null,
         role: 'VIEWER',
         revokedAt: null,
         expiresAt: null,
@@ -194,6 +242,7 @@ describe('ShareService', () => {
       const result = await service.getPublicView('raw-token');
 
       expect(result.role).toBe('VIEWER');
+      expect(result.scopedClipId).toBeNull();
       expect(result.video.sourceStreamUrl).toBe('/share/raw-token/source');
       expect(result.clips[0]).toMatchObject({
         id: 'clip-1',
@@ -234,6 +283,7 @@ describe('ShareService', () => {
       prisma.shareLink.findUnique.mockResolvedValue({
         id: 'link-1',
         videoId: 'video-1',
+        clipId: null,
         revokedAt: null,
         expiresAt: null,
       });
@@ -241,6 +291,105 @@ describe('ShareService', () => {
 
       await expect(service.getClipStreamForToken('raw-token', 'clip-1')).rejects.toThrow(
         NotFoundException,
+      );
+    });
+  });
+
+  // Collaboration roadmap follow-up (clip-level Share scoping, 2026-08-10) - the real security
+  // enforcement: a clip-scoped link must never be able to reach the full source video or any
+  // clip other than its own, regardless of what a client requests directly (not just what
+  // getPublicView's own DTO happens to expose).
+  describe('clip-scoped access control', () => {
+    const scopedLink = {
+      id: 'link-1',
+      videoId: 'video-1',
+      clipId: 'clip-1',
+      role: 'VIEWER',
+      revokedAt: null,
+      expiresAt: null,
+    };
+
+    it('getPublicView lists only the scoped clip and nulls out sourceStreamUrl/video.thumbnailUrl', async () => {
+      prisma.shareLink.findUnique.mockResolvedValue(scopedLink);
+      prisma.video.findUniqueOrThrow.mockResolvedValue({
+        id: 'video-1',
+        title: 'My video',
+        durationSeconds: 30,
+        thumbnailUrl: 'thumbnails/video-1.webp',
+        createdAt: new Date('2026-07-18T00:00:00.000Z'),
+        clips: [
+          {
+            id: 'clip-1',
+            startTime: 0,
+            endTime: 5,
+            hookText: 'Scoped clip',
+            hashtags: [],
+            outputUrl: 'renders/clip-1.mp4',
+            thumbnailUrl: 'thumbnails/clip-1.webp',
+          },
+          {
+            id: 'clip-2',
+            startTime: 5,
+            endTime: 10,
+            hookText: 'Other clip',
+            hashtags: [],
+            outputUrl: 'renders/clip-2.mp4',
+            thumbnailUrl: 'thumbnails/clip-2.webp',
+          },
+        ],
+      });
+
+      const result = await service.getPublicView('raw-token');
+
+      expect(result.scopedClipId).toBe('clip-1');
+      expect(result.video.sourceStreamUrl).toBeNull();
+      expect(result.video.thumbnailUrl).toBeNull();
+      expect(result.clips).toHaveLength(1);
+      expect(result.clips[0].id).toBe('clip-1');
+    });
+
+    it('getVideoSourceForToken throws Forbidden for a clip-scoped link, even if requested directly', async () => {
+      prisma.shareLink.findUnique.mockResolvedValue(scopedLink);
+
+      await expect(service.getVideoSourceForToken('raw-token')).rejects.toThrow(ForbiddenException);
+      expect(prisma.video.findUniqueOrThrow).not.toHaveBeenCalled();
+    });
+
+    it('getVideoThumbnailForToken throws Forbidden for a clip-scoped link', async () => {
+      prisma.shareLink.findUnique.mockResolvedValue(scopedLink);
+
+      await expect(service.getVideoThumbnailForToken('raw-token')).rejects.toThrow(
+        ForbiddenException,
+      );
+    });
+
+    it('getClipStreamForToken succeeds for the scoped clip itself', async () => {
+      prisma.shareLink.findUnique.mockResolvedValue(scopedLink);
+      prisma.clip.findUnique.mockResolvedValue({
+        id: 'clip-1',
+        videoId: 'video-1',
+        outputUrl: 'renders/clip-1.mp4',
+      });
+
+      const result = await service.getClipStreamForToken('raw-token', 'clip-1');
+
+      expect(result.outputUrl).toBe('renders/clip-1.mp4');
+    });
+
+    it('getClipStreamForToken throws Forbidden for a different clip in the SAME video, before even looking it up', async () => {
+      prisma.shareLink.findUnique.mockResolvedValue(scopedLink);
+
+      await expect(service.getClipStreamForToken('raw-token', 'clip-2')).rejects.toThrow(
+        ForbiddenException,
+      );
+      expect(prisma.clip.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('getClipThumbnailForToken throws Forbidden for a different clip', async () => {
+      prisma.shareLink.findUnique.mockResolvedValue(scopedLink);
+
+      await expect(service.getClipThumbnailForToken('raw-token', 'clip-2')).rejects.toThrow(
+        ForbiddenException,
       );
     });
   });

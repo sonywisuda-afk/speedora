@@ -2437,7 +2437,7 @@ export async function deleteProcessingPreset(id: string): Promise<void> {
 // works the same way).
 export async function createShareLink(
   videoId: string,
-  input: { role?: ShareRole; expiresInDays?: number },
+  input: { role?: ShareRole; expiresInDays?: number; clipId?: string },
 ): Promise<ShareLinkCreatedDto> {
   const res = await apiFetch(`/videos/${videoId}/share-links`, {
     method: 'POST',
