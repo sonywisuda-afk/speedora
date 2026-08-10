@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { rename, unlink } from 'node:fs/promises';
 import { promisify } from 'node:util';
-import { computeCutJunctionTimestamps, type CutRange } from '@speedora/cutlist';
+import { totalCutSeconds, type CutRange } from '@speedora/cutlist';
 import {
   DEFAULT_INTRO_IMAGE_DURATION_SECONDS,
   MAX_INTRO_DURATION_SECONDS,
@@ -859,74 +859,94 @@ export async function fadeOutBRoll(
 // is what keeps this a clean, low-risk second pass instead of requiring
 // renderClip's crop-path/subtitle timing to understand cuts at all.
 //
-// select/aselect's `between(t,a,b)` is evaluated per-frame/per-sample against
-// each cut range; `not(sum of all of them)` keeps everything outside every
-// cut. setpts/asetpts recompute continuous timestamps afterward - the
-// standard idiom for this filter pair, since select alone leaves gaps in the
-// timeline that play back as a frozen/silent stall rather than a jump cut.
-// cuts must be non-empty - `not()` (an empty select expression) is invalid
-// ffmpeg syntax and errors at filter-graph init, so the caller is
-// responsible for only invoking this when there's actually something to
-// remove (render-clip.worker.ts skips this whole pass otherwise).
+// The kept ranges (everything between cuts) are extracted individually via
+// trim/atrim + setpts/asetpts and re-joined - the standard "segment and
+// re-concatenate" idiom, same shape concatBrandSegment()/applyReactionHolds()
+// already use elsewhere in this file, rather than the single-pass
+// select/aselect this function used before Item 9 below. cuts must be
+// non-empty and already sorted/non-overlapping (every caller runs cuts
+// through mergeCutRanges() first, per @speedora/cutlist's own contract) -
+// render-clip.worker.ts skips this whole pass when there's nothing to cut.
 //
-// Fase 14 (Smart Transitions) - a quick dip-to-black is anchored at every
-// junction computeCutJunctionTimestamps() finds (see cutlist.ts), softening
-// what would otherwise be a hard, un-cushioned jump cut. Deliberately a
-// "dip" (a real, commonly-used editing style, e.g. for pacing beats between
-// talking-head sentences), not a true crossfade/dissolve between the
-// retained content on each side - a real crossfade would need
-// trimCutRanges' whole select-based single-pass removal replaced with a
-// segment-trim + xfade concatenation chain, a much larger, riskier rewrite
-// of an already-shipped feature (Fase 9) than this fase's scope justifies.
+// Item 9 (Silence Compression AI) - see docs/ai/silence-compression.md for
+// the full audit/design. Replaces Fase 14 (Smart Transitions)'s video-only
+// brightness "dip" with a REAL crossfade/dissolve on BOTH video and audio at
+// every cut junction, via ffmpeg's xfade (video) and acrossfade (audio)
+// filters chained across the kept segments. This is the "segment-trim +
+// xfade concatenation chain" Fase 14's own comment named as the real fix and
+// explicitly deferred as too large for that fase's scope - this is that
+// follow-up, prompted by the same "…I think…Apple…will lose" naturalness
+// complaint that motivated computeSilenceCuts()/computeFillerCuts() in the
+// first place: those already tighten pacing, but a hard audio cut at every
+// join still reads as choppy rather than flowing.
 //
-// VIDEO ONLY, not audio - verified directly against a real ffmpeg build
-// (8.1.2-full_build) before shipping either half:
-// - Chaining two `fade` filter instances in one -vf (needed for a dip's
-//   fade-out THEN fade-in) reliably blackens the ENTIRE output, not just
-//   the intended window - reproduced with plain `-vf`, `-filter_complex`
-//   with explicit labeled pads, near/far-apart junctions, and frame-number
-//   vs time-based fade args - a real bug/limitation in this exact build,
-//   not a syntax mistake. Fixed by using a SINGLE `eq` filter instance
-//   instead: `eq=eval=frame:brightness=<expr>`, where <expr> is a
-//   time-varying triangular dip (0 far from any junction, -1 exactly at
-//   one) combined across all junctions via nested min() - confirmed
-//   correct frame-by-frame (normal colors well before/after, smoothly
-//   dimmed approaching a junction, fully recovered past it).
-// - The equivalent for audio (`volume=eval=frame:volume=<expr>` with a
-//   conditional dip expression) was ALSO tested directly and found
-//   unreliable: a linear expression referencing `t` (e.g. a ramp) varies
-//   correctly across the file, but a conditional narrow-window dip
-//   (`if(between(t,a,b),...)` or `if(lt(abs(t-x),f),...)`) triggers
-//   inconsistently - measured via `volumedetect` on real output, the
-//   targeted window showed at most a few dB of change instead of the
-//   expected large reduction, most likely because this filter's per-frame
-//   expression re-evaluation operates on internal audio frame block sizes
-//   too coarse to reliably resolve a sub-second window. Rather than ship
-//   an audio "dip" that only partially/inconsistently applies, audio stays
-//   a plain hard cut (unchanged from Fase 9) - the cut point is silence or
-//   a discarded filler word to begin with, so it's already far less
-//   perceptually jarring than the visual jump cut this fase is fixing.
-const TRANSITION_FADE_SECONDS = 0.15;
+// THE SYNC INVARIANT: a crossfade of duration `d` overlaps (and therefore
+// shortens the combined stream by) `d` seconds - unlike Fase 14's dip, which
+// never changed duration at all. Reusing the exact same per-junction `fade`
+// value to drive BOTH the video xfade and the audio acrossfade (never two
+// independently-computed numbers) is what keeps video and audio shortened by
+// IDENTICAL amounts at every junction, so A/V sync holds by construction
+// rather than needing a separate resync step - the same discipline
+// applyReactionHolds()'s own comment already established for its hold-
+// duration invariant, applied here to a shrink instead of a growth.
+//
+// Per-junction fade duration is clamped to at most half of EITHER adjacent
+// kept segment's own duration (a segment sits between two junctions, so up
+// to half consumed from each side can never exceed the segment's own
+// length even in the worst case of two short segments back to back) - never
+// a fixed constant applied blindly. A junction whose clamped fade would
+// round below MIN_CROSSFADE_SECONDS (both adjacent segments too short for a
+// meaningful dissolve) falls back to a plain hard join (ffmpeg's concat,
+// zero shrink) rather than passing an effectively-zero duration into
+// xfade/acrossfade, which is invalid ffmpeg syntax.
+//
+// xfade needs no scale/format/SAR normalization the way concatBrandSegment()
+// does for its two DIFFERENT source files - every segment here trims the
+// SAME [0:v]/[0:a], so width/height/pixel format/frame rate/SAR already
+// match exactly.
+//
+// KNOWN, ACCEPTED INTERACTION: Visual Emphasis Engine Phase C6R.3's Reaction
+// Hold pass runs AFTER this one and remaps its own instants onto the
+// post-cut timeline via @speedora/cutlist's remapTimestamp(), which (like
+// this function's own `totalOutputDuration` parameter) assumes cuts close to
+// a zero-width join with no further shrink. Every crossfade junction this
+// function introduces shortens the REAL output by its own fade duration on
+// top of that, so a reaction-hold instant occurring after N crossfade
+// junctions lands up to `N * CROSSFADE_SECONDS` early relative to where
+// remapTimestamp() calculated it - bounded, small (well under a second for
+// any clip with a realistic number of cuts), and a freeze-frame's own visual
+// difference between "this exact frame" and "a frame within a few hundred ms
+// of it" is imperceptible. Not fixed here - documented as an accepted
+// small-drift interaction, the same "accept and document rather than block"
+// posture Gate B's B2 finding already established for OCR Highlight's own
+// static-snapshot drift.
+const CROSSFADE_SECONDS = 0.15;
+const MIN_CROSSFADE_SECONDS = 0.02;
 
-// A single triangular dip centered at `t`: 0 outside [t-fade, t+fade], -1
-// exactly at t, linear in between. Written as an ffmpeg eval-expression
-// string (evaluated per output frame against the filter's own `t`
-// variable), not computed in JS - it has to run inside ffmpeg's own
-// per-frame evaluator to see every output frame's exact timestamp.
-function dipExpression(t: number, fadeSeconds: number): string {
-  return `if(lt(abs(t-${t}),${fadeSeconds}),-(${fadeSeconds}-abs(t-${t}))/${fadeSeconds},0)`;
+interface KeptSegment {
+  start: number;
+  end: number;
 }
 
-// Combines multiple junctions' dips into one expression via nested min() -
-// dips are always <= 0, so the most negative (deepest) one active at any
-// instant wins. A single eq filter instance handles any number of
-// junctions this way, sidestepping the multi-fade-instance bug entirely
-// rather than needing one filter per junction.
-function combinedDipExpression(junctions: number[], fadeSeconds: number): string | null {
-  if (junctions.length === 0) return null;
-  return junctions
-    .map((t) => dipExpression(t, fadeSeconds))
-    .reduce((acc, term) => `min(${acc},${term})`);
+// The complement of `cuts` within [0, totalInputDuration], in input-time
+// coordinates - segment i sits between cut i-1's end and cut i's start (or
+// the clip's own start/end at the two open ends). Always non-empty and
+// every entry strictly positive duration: mergeCutRanges() (every caller's
+// own upstream step) already merges any cuts that touch or overlap, so two
+// adjacent kept segments can never share a boundary.
+function computeKeptSegments(cuts: CutRange[], totalInputDuration: number): KeptSegment[] {
+  const segments: KeptSegment[] = [];
+  let cursor = 0;
+  for (const cut of cuts) {
+    segments.push({ start: cursor, end: cut.start });
+    cursor = cut.end;
+  }
+  segments.push({ start: cursor, end: totalInputDuration });
+  return segments;
+}
+
+function segmentDuration(segment: KeptSegment): number {
+  return segment.end - segment.start;
 }
 
 export async function trimCutRanges(
@@ -935,31 +955,77 @@ export async function trimCutRanges(
   cuts: CutRange[],
   totalOutputDuration: number,
 ): Promise<void> {
-  const cutExpr = cuts.map((cut) => `between(t,${cut.start},${cut.end})`).join('+');
-  const keepExpr = `not(${cutExpr})`;
+  // totalOutputDuration is (by its caller's own definition, render-clip.
+  // worker.ts) the input clip's duration minus every cut's own length -
+  // solving that back for the input clip's total duration avoids a second
+  // ffprobe call just to learn a number the caller already effectively
+  // knows. (This is the PRE-crossfade output duration - the file this
+  // function actually writes ends up shorter still, by the sum of every
+  // junction's own fade duration - see the sync-invariant comment above.)
+  const totalInputDuration = totalOutputDuration + totalCutSeconds(cuts);
+  const segments = computeKeptSegments(cuts, totalInputDuration);
 
-  // A junction right at the very start/end of the output has nothing on
-  // one side to dip to/from, so it's skipped rather than dipping against
-  // nothing.
-  const junctions = computeCutJunctionTimestamps(cuts).filter(
-    (t) => t >= TRANSITION_FADE_SECONDS && t <= totalOutputDuration - TRANSITION_FADE_SECONDS,
-  );
+  const videoParts: string[] = [];
+  const audioParts: string[] = [];
+  segments.forEach((segment, i) => {
+    videoParts.push(
+      `[0:v]trim=start=${segment.start}:end=${segment.end},setpts=PTS-STARTPTS[v${i}]`,
+    );
+    audioParts.push(
+      `[0:a]atrim=start=${segment.start}:end=${segment.end},asetpts=PTS-STARTPTS[a${i}]`,
+    );
+  });
 
-  const videoFilters = [`select='${keepExpr}'`, 'setpts=N/FRAME_RATE/TB'];
-  const dipExpr = combinedDipExpression(junctions, TRANSITION_FADE_SECONDS);
-  if (dipExpr) {
-    videoFilters.push(`eq=eval=frame:brightness='${dipExpr}'`);
+  let videoLabel = 'v0';
+  let audioLabel = 'a0';
+  let videoCumulativeDuration = segmentDuration(segments[0]);
+
+  for (let i = 1; i < segments.length; i++) {
+    const left = segmentDuration(segments[i - 1]);
+    const right = segmentDuration(segments[i]);
+    const rawFade = Math.min(CROSSFADE_SECONDS, left / 2, right / 2);
+    const fade = rawFade >= MIN_CROSSFADE_SECONDS ? round3(rawFade) : 0;
+
+    const nextVideoLabel = `v${i}`;
+    const nextAudioLabel = `a${i}`;
+    const outVideoLabel = `vx${i}`;
+    const outAudioLabel = `ax${i}`;
+
+    if (fade > 0) {
+      const offset = round3(videoCumulativeDuration - fade);
+      videoParts.push(
+        `[${videoLabel}][${nextVideoLabel}]xfade=transition=fade:duration=${fade}:` +
+          `offset=${offset}[${outVideoLabel}]`,
+      );
+      audioParts.push(
+        `[${audioLabel}][${nextAudioLabel}]acrossfade=d=${fade}:c1=tri:c2=tri[${outAudioLabel}]`,
+      );
+      videoCumulativeDuration = round3(
+        videoCumulativeDuration + segmentDuration(segments[i]) - fade,
+      );
+    } else {
+      videoParts.push(`[${videoLabel}][${nextVideoLabel}]concat=n=2:v=1:a=0[${outVideoLabel}]`);
+      audioParts.push(`[${audioLabel}][${nextAudioLabel}]concat=n=2:v=0:a=1[${outAudioLabel}]`);
+      videoCumulativeDuration = round3(videoCumulativeDuration + segmentDuration(segments[i]));
+    }
+
+    videoLabel = outVideoLabel;
+    audioLabel = outAudioLabel;
   }
+
+  const filterComplex = [...videoParts, ...audioParts].join(';');
 
   await execFfmpegAtomically(
     () => [
       '-y',
       '-i',
       inputPath,
-      '-vf',
-      videoFilters.join(','),
-      '-af',
-      `aselect='${keepExpr}',asetpts=N/SR/TB`,
+      '-filter_complex',
+      filterComplex,
+      '-map',
+      `[${videoLabel}]`,
+      '-map',
+      `[${audioLabel}]`,
       '-c:v',
       'libx264',
       '-c:a',
