@@ -39,7 +39,19 @@ function llmScore(scores: ClipScores, viralityScore: number): number {
 // as every render-graph node's own fallback: null. A real empty result
 // (the model ran and found nothing significant) is different information
 // than a failure and scores below neutral, not at it.
-function semanticImportanceScore(events: SemanticEvent[] | null): number {
+//
+// Exported (not module-private) - AI Intelligence v4 Phase 14.1 (Clip
+// Ranking Engine, Stage D - see docs/ai/clip-ranking-engine.md) reuses this
+// exact formula to score Stage C's GROUNDED SemanticEvent[] post-render,
+// rather than duplicating the heuristic. The formula itself is agnostic to
+// grounding richness - it only reads type/importance, both present either
+// way - so the same function is valid for both an ungrounded pre-render
+// pass (this package's own selectShortlist()) and a grounded post-render
+// one. Phase 14.1 handles its own null-vs-neutral semantics differently
+// (excludes a null input from its composite entirely rather than scoring
+// it 50) - by simply not calling this function when its own input is
+// null, not by changing this function's behavior.
+export function deriveSemanticEventsScore(events: SemanticEvent[] | null): number {
   if (events === null) return 50;
   if (events.length === 0) return 20;
   const averageImportance =
@@ -60,7 +72,10 @@ function semanticImportanceScore(events: SemanticEvent[] | null): number {
 // (isPayoffSegmentType(), reused from @speedora/virality-engine rather
 // than re-implemented) - a narrative that never resolves is weaker even if
 // well-segmented.
-function narrativeScore(graph: NarrativeGraph | null): number {
+//
+// Exported for the same Phase 14.1 reuse reason as
+// deriveSemanticEventsScore above.
+export function deriveNarrativeGraphScore(graph: NarrativeGraph | null): number {
   if (graph === null) return 50;
   if (graph.unsegmented || graph.segments.length === 0) return 40;
   const averageConfidence =
@@ -76,7 +91,7 @@ function narrativeScore(graph: NarrativeGraph | null): number {
 export function deriveShortlistScore(input: DeriveShortlistScoreInput): number {
   return (
     llmScore(input.scores, input.viralityScore) * LLM_SCORE_WEIGHT +
-    semanticImportanceScore(input.semanticEvents) * SEMANTIC_SCORE_WEIGHT +
-    narrativeScore(input.narrativeGraph) * NARRATIVE_SCORE_WEIGHT
+    deriveSemanticEventsScore(input.semanticEvents) * SEMANTIC_SCORE_WEIGHT +
+    deriveNarrativeGraphScore(input.narrativeGraph) * NARRATIVE_SCORE_WEIGHT
   );
 }

@@ -1,6 +1,6 @@
 # Clip Ranking Engine (spec Part 10, AI Intelligence v4 Track A Phase 13-14)
 
-> **Status: audit + ADR + roadmap complete; Phase 13.1 and 13.2 shipped.** This document is
+> **Status: audit + ADR + roadmap complete; Phase 13.1, 13.2, and 14.1 shipped.** This document is
 > the required audit-first deliverable (repo audit, reuse map, tech debt, ADR, dependency graph,
 > phased roadmap, complexity/risk) for what `docs/ai/intelligence-v4.md`'s roadmap table already
 > named **Phase 13 (Candidate Expansion, spec Part 10 generation half)** and **Phase 14 (Ranking
@@ -146,7 +146,7 @@ exists in the current per-clip-independent render pipeline).
 |---|---|---|---|---|
 | 13.1 | Fix hardcoded candidate-count prompt + raise ceiling — **shipped, flag-off** | none | S-M | Quality dilution at 30-in-one-call (D17) — needs a before/after measurement, not just a prompt edit |
 | 13.2 | Cheap pre-rank shortlist stage (Stage B) — **shipped** | 13.1 | **L** (biggest single piece, matches original Phase 13 estimate) | New pre-render adapter stage; LLM cost — up to 2 extra calls x 30 candidates per video, bounded via a fixed concurrency batch (5); double-paying for Semantic Events/Narrative Graph on shortlisted survivors (Stage C's render-graph recomputes both, WITH real grounding) is a deliberate, documented scope decision for this phase, not solved — see "Phase 13.2 architecture" below |
-| 14.1 | Composite ranking function (Stage D scoring) | 13.2 (shape only, can build against fixtures) | M | Weighting 12 heterogeneous, mostly-uncalibrated signals into one order — same "scale honesty" caveat every v4 phase already carries; mirrors `fusion-engine/rank-clips.ts`'s shape but multi-signal |
+| 14.1 | Composite ranking function (Stage D scoring) — **shipped** | 13.2 (shape only, can build against fixtures) | M | Weighting 12 heterogeneous, mostly-uncalibrated signals into one order — resolved by equal-weighting every non-null dimension (same "average of non-null" pattern `ViralityPrediction.overallViralScore` already established) rather than an arbitrary hand-picked weighting; mirrors `fusion-engine/rank-clips.ts`'s shape but multi-signal |
 | 14.2 | Pipeline wiring — the join point | 13.2, 14.1 | **L** | Needs a new "all shortlisted renders complete" barrier that doesn't exist in today's per-clip-independent pipeline; **flagged as needing its own design confirmation at planning time**, same as D16 was — not decided in this document |
 | 14.3 | Personalization (`WorkspaceContentProfile`, D10) | 14.1 | M | **Out of scope for this delivery** — the mission asked for a Ranking Engine, not personalization; left as a documented future follow-up reusing `platform-fit`'s weighted-sum pattern, per the project's own scope-boundary convention |
 
@@ -269,6 +269,58 @@ unchanged via the real passthrough path + 3 new tests exercising the real cut-an
 mocked only at the true `@speedora/semantic-events`/`@speedora/narrative-graph` LLM boundary, not at
 `@speedora/candidate-shortlist` itself), `generate-more-clips.worker.spec.ts` 8/8 confirmed
 unaffected, `typecheck`/`build`/`lint`/`format` all green across every touched/new package.
+
+## Phase 14.1 architecture (as shipped)
+
+New package `packages/clip-ranking` (`@speedora/clip-ranking`):
+
+- `derive-sub-scores.ts` — `deriveSubScores()` maps each of the 12 named dimensions from
+  already-computed post-render signals onto a `[0, 100]` (or `null`) sub-score: **Fusion** =
+  `Clip.highlightScore` directly; **Virality** = `viralityPrediction.overallViralScore` scaled from
+  `0-1` to `0-100`; **Narrative**/**Semantic Importance** = delegate to
+  `@speedora/candidate-shortlist`'s own `deriveNarrativeGraphScore()`/`deriveSemanticEventsScore()`
+  (exported publicly this phase, previously module-private) — the formula is agnostic to whether the
+  underlying detection was grounded, so Stage D's real grounded post-render `NarrativeGraph`/
+  `SemanticEvent[]` reuses the exact same scoring shape Stage B already validated, rather than a
+  second hand-written heuristic drifting apart from the first; **Hook** = `hookPrediction.
+  hookProbability` directly; **Retention** = a new two-component score over `RetentionCurveInsights`'
+  4 point arrays (a penalty from `dropPoints`' own already-computed severity, a bonus from
+  `replayZones`/`emotionalPeaks`/`curiosityPeaks`, both around a neutral 60 baseline so a genuinely
+  flat momentum curve is neither penalized nor rewarded) — this is the one genuinely NEW scoring
+  formula this phase adds, since nothing before it collapses `RetentionCurveInsights`' 4 arrays into
+  one scalar; **Novelty/Emotion/Practical Value/Educational Value/Curiosity/Trust** = the 6
+  `ClipScores` fields mapped straight through, unaltered. `Narrative`/`Hook`/`Semantic Importance`/
+  `Fusion` are `null` (excluded, not defaulted) when their source is unavailable; `Retention` and the
+  6 `ClipScores` dimensions are never null.
+- `rank-clips.ts` — `rankClipCandidates()` takes a batch, computes each clip's `compositeScore` as
+  the average of every non-null sub-score (equal weighting across all 12 — deliberately not a
+  hand-picked weighting scheme, for the same "avoid defending an arbitrary priority order" reasoning
+  Stage B's own `averageClipScores()` already used) and `confidence` as `count(non-null)/12`, then
+  sorts desc (nulls last, stable by input order) and assigns `rank`, mirroring
+  `@speedora/fusion-engine`'s own `rankClips()` shape.
+
+**Scope, exactly as planned**: this phase is scoring only. `rankClipCandidates()` takes an
+already-assembled `ComputeClipRankInput[]` and has no opinion on where that array comes from or when
+it's safe to call it — assembling it from real `Clip` rows, and deciding when enough of a shortlist
+has finished rendering to call this function, is Phase 14.2's own job, not started here. No new
+migration, render-graph node, or worker wiring in this phase — `packages/clip-ranking` currently has
+no consumer in `apps/worker`/`apps/api`, same "framework proven on fixtures before any caller exists"
+precedent Fusion Engine v3's M2A milestone already set.
+
+**Verification**: `packages/clip-ranking` new suite 13/13 (every sub-score's null-vs-delegate
+behavior, retention's penalty/bonus/neutral-baseline behavior and its `[0, 100]` bound, rank
+ordering, confidence coverage at both full and reduced availability, an empty-batch edge case),
+`packages/candidate-shortlist` 13/13 (unchanged - the two functions it now exports were only renamed
+from module-private, not behaviorally changed), `packages/contracts` 183/183 (unchanged count, no
+dedicated spec needed for the new contract file), `typecheck`/`build`/`lint`/`format` all green.
+Hit one real infra snag during verification, not a logic bug: this monorepo's
+`injectWorkspacePackages: true` setting means a workspace package's `node_modules` entry for a
+transitive dependency can be an injected (copied) snapshot rather than a live symlink to source - a
+brand-new file added to an already-injected package's `dist/` (this phase added
+`packages/contracts/src/clip-ranking.ts`) isn't picked up by a plain `pnpm install`, even with
+`--force`. Required a full `node_modules` wipe and clean reinstall to resolve, confirmed via `ls`
+against the actual injected copy's contents before and after - a new failure mode worth remembering
+for any future phase that adds a new file to a package other phases already depend on transitively.
 
 ## 7. Verification convention
 
