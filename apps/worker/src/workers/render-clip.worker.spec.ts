@@ -802,7 +802,11 @@ describe('render-clip worker', () => {
       await processor(fakeJob(baseJobData));
 
       expect(computeCropDimensionsMock).toHaveBeenCalledWith(320, 240, 9 / 16);
-      expect(resolveOutputResolutionMock).toHaveBeenCalledWith({ width: 136, height: 240 }, null);
+      expect(resolveOutputResolutionMock).toHaveBeenCalledWith(
+        { width: 136, height: 240 },
+        9 / 16,
+        null,
+      );
       expect(clipUpdateMock).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({ outputAspectRatio: '9:16' }),
@@ -933,6 +937,7 @@ describe('render-clip worker', () => {
 
       expect(resolveOutputResolutionMock).toHaveBeenCalledWith(
         { width: 136, height: 240 },
+        9 / 16,
         '1080p',
       );
     });
@@ -950,7 +955,11 @@ describe('render-clip worker', () => {
       const processor = getProcessor();
       await processor(fakeJob(baseJobData));
 
-      expect(resolveOutputResolutionMock).toHaveBeenCalledWith({ width: 136, height: 240 }, '720p');
+      expect(resolveOutputResolutionMock).toHaveBeenCalledWith(
+        { width: 136, height: 240 },
+        9 / 16,
+        '720p',
+      );
     });
 
     it('writes Clip.outputWidth/outputHeight from whatever resolveOutputResolution actually returned (the capped size, not the natural crop)', async () => {

@@ -222,14 +222,16 @@ function resolveTargetAspectRatio(
   }
 }
 
-// Output Resolution/Quality audit, Phase 1 (foundation) - translates the export.resolutionTier
-// setting into @speedora/reframe's resolveOutputResolution() tier vocabulary. null (every video
-// predating this phase, or one that simply never set it) means NO cap at all - the pipeline's
-// exact pre-Phase-1 behavior (output resolution follows the source with no ceiling). 'auto'
-// applies the '1080p' cap - a sane ceiling that never upscales past the source (satisfying the
-// audit's "1080p should be the default high-quality output, but never fake it from a smaller
-// source" rule via the same never-upscale mechanism resolveOutputResolution() already has for
-// free) - a real, distinct choice from null, not a synonym for "no cap".
+// Output Resolution/Quality audit - translates the export.resolutionTier setting into
+// @speedora/reframe's resolveOutputResolution() tier vocabulary. null (every video predating
+// Phase 1, or one that simply never set it) means NO normalization at all - the pipeline's exact
+// pre-Phase-1 behavior (output resolution follows the natural crop, uncapped). 'auto' applies the
+// '1080p' tier - real-ffmpeg verification (Phase 2) found the natural crop for the single most
+// common conversion (a typical landscape source cropped to 9:16) lands far below any canonical
+// delivery size, so resolveOutputResolution() now scales UP to the tier's canonical size when the
+// natural crop supports it, subject to its own floor against upscaling too-small source detail
+// (see that function's own MIN_NATURAL_SHORT_SIDE_FOR_SCALE_UP comment) - 'auto' is a real,
+// distinct choice from null, not a synonym for "no normalization".
 function resolveResolutionTier(
   processingOptions: ProcessingOptions | null,
 ): '1080p' | '720p' | null {
@@ -696,28 +698,41 @@ function computeReactionHoldInstants(
 // its own aspect-ratio-aware thresholds, and the graph must exist before
 // buildReframePlan() below can consume its primarySubjectSamples output.
 //
-// Output Resolution/Quality audit, Phase 1 (foundation) - now also resolves the target aspect
-// ratio (resolveTargetAspectRatio(), defaulting to the fixed 9/16 every clip has always used) and
-// applies the resolution-tier cap (resolveOutputResolution(), defaulting to no cap - today's
-// exact behavior) right here, at the single point `crop` is produced - every downstream consumer
-// (buildReframePlan/buildCropPath, captions via reframe.outputWidth/outputHeight, B-roll,
-// watermark, compositionFeaturesNode) already reads `crop`/outputWidth/outputHeight rather than
-// re-deriving dimensions itself, so both the ratio and the cap propagate everywhere for free with
-// no other call site needing to change.
+// Output Resolution/Quality audit - now also resolves the target aspect ratio
+// (resolveTargetAspectRatio(), defaulting to the fixed 9/16 every clip has always used) and
+// normalizes the crop to a resolution tier's canonical size (resolveOutputResolution() - Phase 1
+// shipped this as a cap only; Phase 2 found real-ffmpeg verification requires scaling UP too for
+// the common case, see that function's own comment - defaulting to no normalization at all,
+// today's exact behavior, unless a tier is actually set).
+//
+// `crop` and `outputSize` are DELIBERATELY two separate values now, not one - a real Phase 2
+// wiring bug (caught by ffmpeg.output-profile.integration.spec.ts crashing ffmpeg outright, not
+// just an assertion failure) is exactly what happens if they get collapsed back into one: `crop`
+// is the NATURAL crop region, always bounded by the source's own pixel dimensions (what
+// buildCropPath()'s pan/zoom math and computeOcrHighlightBoxes() must stay within, and what the
+// ffmpeg `crop=` filter's own w/h/x/y literally are) - it can never exceed sourceWidth/
+// sourceHeight. `outputSize` is the FINAL delivered resolution after normalization, which CAN be
+// bigger than `crop` when resolveOutputResolution() scales up - feeding that into ffmpeg's `crop=`
+// filter directly (instead of just `scale=` after it) asks ffmpeg to crop a region larger than the
+// source frame, which fails outright ("Invalid too big ... size"), not just look wrong. Every
+// consumer of the FINAL coordinate system (captions, B-roll, watermark, OCR highlight,
+// compositionFeaturesNode) must read `outputSize`/`reframe.outputWidth`/`outputHeight`, never
+// `crop`, for exactly this reason.
 async function computeReframeDimensions(
   sourcePath: string,
   processingOptions: ProcessingOptions | null,
 ): Promise<{
   crop: CropDimensions;
+  outputSize: CropDimensions;
   sourceWidth: number;
   sourceHeight: number;
   aspectRatioLabel: ResolvedAspectRatio['label'];
 }> {
   const { width: sourceWidth, height: sourceHeight } = await getVideoDimensions(sourcePath);
   const { ratio, label } = resolveTargetAspectRatio(processingOptions, sourceWidth, sourceHeight);
-  const naturalCrop = computeCropDimensions(sourceWidth, sourceHeight, ratio);
-  const crop = resolveOutputResolution(naturalCrop, resolveResolutionTier(processingOptions));
-  return { crop, sourceWidth, sourceHeight, aspectRatioLabel: label };
+  const crop = computeCropDimensions(sourceWidth, sourceHeight, ratio);
+  const outputSize = resolveOutputResolution(crop, ratio, resolveResolutionTier(processingOptions));
+  return { crop, outputSize, sourceWidth, sourceHeight, aspectRatioLabel: label };
 }
 
 // Composition Intelligence's PrimarySubjectSample already shares
@@ -758,6 +773,13 @@ async function buildReframePlan(
   transcript: RenderClipJobData['transcript'],
   startTime: number,
   crop: CropDimensions,
+  // Output Resolution/Quality audit, Phase 2 - the FINAL delivered resolution, separate from
+  // `crop` on purpose (see computeReframeDimensions()'s own comment for the real bug this
+  // separation fixes: `crop` is source-bounded and feeds the ffmpeg `crop=` filter's literal
+  // w/h/x/y; `outputSize` can be bigger when resolveOutputResolution() scaled up, and feeds ONLY
+  // outputWidth/outputHeight below, which ffmpeg.ts's renderClip() turns into a `scale=` filter
+  // AFTER the crop).
+  outputSize: CropDimensions,
   sourceWidth: number,
   sourceHeight: number,
   clipDurationSeconds: number,
@@ -839,8 +861,8 @@ async function buildReframePlan(
 
   if (!cropPath) {
     const staticReframe: ReframeOptions = {
-      outputWidth: crop.width,
-      outputHeight: crop.height,
+      outputWidth: outputSize.width,
+      outputHeight: outputSize.height,
       width: crop.width,
       height: crop.height,
       x: Math.round((sourceWidth - crop.width) / 2),
@@ -869,8 +891,8 @@ async function buildReframePlan(
   const sendCmdPath = await reserveScratchPath('reframe-cmds', '.txt');
   await writeFile(sendCmdPath, buildSendCmdScript(cropPath, 'crop@reframe'));
   const reframe: ReframeOptions = {
-    outputWidth: crop.width,
-    outputHeight: crop.height,
+    outputWidth: outputSize.width,
+    outputHeight: outputSize.height,
     width: cropPath[0].width,
     height: cropPath[0].height,
     x: cropPath[0].x,
@@ -1187,7 +1209,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // here: dimensions only need the source video's own width/height,
             // genuinely independent of face/subject detection - see
             // computeReframeDimensions()'s own comment.
-            const { crop, sourceWidth, sourceHeight, aspectRatioLabel } =
+            const { crop, outputSize, sourceWidth, sourceHeight, aspectRatioLabel } =
               await computeReframeDimensions(sourcePath, processingOptions);
 
             // Composing multiple modules: the render-clip Feature Orchestrator (see
@@ -1205,7 +1227,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               scores,
               audioActivityWindows: toAudioActivityWindows(transcript, startTime),
               speakerTurns: toSpeakerTurns(transcript, startTime),
-              reframe: { outputWidth: crop.width, outputHeight: crop.height },
+              reframe: { outputWidth: outputSize.width, outputHeight: outputSize.height },
               sceneAnalysis: resolveSceneAnalysisFlags(processingOptions),
               thumbnailWeights: resolveThumbnailWeights(processingOptions),
             };
@@ -1244,6 +1266,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               transcript,
               startTime,
               crop,
+              outputSize,
               sourceWidth,
               sourceHeight,
               endTime - startTime,
@@ -1776,13 +1799,15 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                   data: toClipUpdateData(graphResult, {
                     outputUrl: outputKey,
                     outputSizeBytes,
-                    // Output Resolution/Quality audit, Phase 1 (foundation) - the RENDERED
-                    // output's actual pixel dimensions (crop.width/height, already through both
-                    // computeReframeDimensions()'s aspect-ratio resolution AND the resolution-tier
-                    // cap) and the concrete aspect-ratio label this render actually used - see
+                    // Output Resolution/Quality audit - the RENDERED output's actual pixel
+                    // dimensions. outputSize (NOT crop) - crop is the natural, source-bounded
+                    // crop region; outputSize is what the clip is actually ENCODED at after
+                    // resolveOutputResolution()'s normalization (see computeReframeDimensions()'s
+                    // own comment for why these two are deliberately different values) - and the
+                    // concrete aspect-ratio label this render actually used. See
                     // Clip.outputWidth/outputHeight/outputAspectRatio's own schema comment.
-                    outputWidth: crop.width,
-                    outputHeight: crop.height,
+                    outputWidth: outputSize.width,
+                    outputHeight: outputSize.height,
                     outputAspectRatio: aspectRatioLabel,
                     ...(thumbnailKey ? { thumbnailUrl: thumbnailKey } : {}),
                     ...(thumbnailBlurDataUrl ? { thumbnailBlurDataUrl } : {}),
