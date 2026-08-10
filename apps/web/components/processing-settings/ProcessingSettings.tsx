@@ -745,6 +745,7 @@ export function ProcessingSettings({
             onChange={(e) =>
               update({
                 export: {
+                  ...options.export,
                   qualityPreset:
                     (e.target.value as ProcessingOptions['export']['qualityPreset']) || null,
                 },

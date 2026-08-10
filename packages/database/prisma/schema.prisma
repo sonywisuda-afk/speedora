@@ -672,6 +672,23 @@ model Clip {
   // Dashboard's per-owner "Storage Used" stat - see Video.sourceSizeBytes.
   // Null until the clip finishes rendering, or for pre-existing rows.
   outputSizeBytes             Int?
+  // Output Resolution/Quality audit, Phase 1 (foundation) - the RENDERED output's actual pixel
+  // dimensions and the requested-aspect-ratio label that produced them, written once alongside
+  // outputUrl/outputSizeBytes by render-clip.worker.ts. Purely descriptive - nothing reads these
+  // back into the render pipeline itself (the crop math is re-derived fresh from the source every
+  // render, same as before this phase). Exists so a future API/UI layer can know a clip's actual
+  // output shape without re-probing the file (there was previously no way to know this at all -
+  // an audit finding from the Output Resolution/Quality initiative this phase belongs to). All
+  // three null for every pre-existing row and never backfilled, same as every other "written
+  // going forward only" column in this model
+  // (outputSizeBytes, thumbnailSelectionTimestamp, ...). outputAspectRatio is the resolved label
+  // ('9:16'/'16:9'/'1:1') this render actually used, NOT the raw processingOptions.export.aspectRatio
+  // setting - 'auto'/null resolve to a concrete value before render (see
+  // render-clip.worker.ts's resolveTargetAspectRatio()), so this column is always one of the
+  // three concrete labels once set, never 'auto' or null-as-a-string.
+  outputWidth                 Int?
+  outputHeight                Int?
+  outputAspectRatio           String?
   // Object storage key for a single extracted thumbnail frame
   // (thumbnails/<id>.webp - .jpg for pre-Phase-2 rows, see Video.thumbnailUrl's
   // own comment), set by render-clip.worker.ts (best-effort) from the midpoint

@@ -312,7 +312,11 @@ describe('VideosService', () => {
           speakerColorCaptions: true,
           fontFamily: null,
         },
-        export: { qualityPreset: 'maximum_quality' as const },
+        export: {
+          qualityPreset: 'maximum_quality' as const,
+          aspectRatio: null,
+          resolutionTier: null,
+        },
         sceneAnalysis: {
           detectSceneCuts: true,
           detectMotionEnergy: true,
@@ -487,7 +491,7 @@ describe('VideosService', () => {
           speakerColorCaptions: false,
           fontFamily: null,
         },
-        export: { qualityPreset: 'small_size' as const },
+        export: { qualityPreset: 'small_size' as const, aspectRatio: null, resolutionTier: null },
         sceneAnalysis: {
           detectSceneCuts: true,
           detectMotionEnergy: true,
@@ -2264,7 +2268,11 @@ describe('VideosService', () => {
         speakerColorCaptions: true,
         fontFamily: null,
       },
-      export: { qualityPreset: 'maximum_quality' as const },
+      export: {
+        qualityPreset: 'maximum_quality' as const,
+        aspectRatio: null,
+        resolutionTier: null,
+      },
       sceneAnalysis: { detectSceneCuts: true, detectMotionEnergy: true, detectCameraMotion: true },
       highlightFocus: { intents: [], confidenceThreshold: null },
       smartCrop: { zoomInFraction: null },

@@ -27,6 +27,10 @@ import { toSharedCaptionStyle } from '../../videos/transcript-segment.util';
 
 const CLIP_COUNT_VALUES = [1, 2, 3, 5, 10, 20, 'unlimited'] as const;
 const EXPORT_QUALITY_PRESETS = ['maximum_quality', 'balanced', 'small_size'] as const;
+// Output Resolution/Quality audit, Phase 1 (foundation) - see @speedora/shared's
+// ProcessingOptions.export.aspectRatio/resolutionTier comments for what each value means.
+const EXPORT_ASPECT_RATIOS = ['auto', '9:16', '16:9', '1:1'] as const;
+const EXPORT_RESOLUTION_TIERS = ['auto', '1080p', '720p'] as const;
 const MAX_ZOOM_IN_FRACTION_LIMIT = 0.6;
 // A generous upper bound over broll.ts's own MAX_BROLL_MOMENTS default (2) - more than this
 // starts to feel like a slideshow rather than a talking-head clip with the occasional B-roll
@@ -78,6 +82,18 @@ class ExportOptionsDto {
   @IsOptional()
   @IsIn(EXPORT_QUALITY_PRESETS)
   qualityPreset?: (typeof EXPORT_QUALITY_PRESETS)[number] | null;
+
+  // Output Resolution/Quality audit, Phase 1 (foundation) - accepted/validated here even though
+  // ProcessingSettings.tsx has no UI for either field yet (this phase is backend-only, see the
+  // audit doc's own phasing) - a preset/API caller can already set them, and the render pipeline
+  // already honors them (see render-clip.worker.ts).
+  @IsOptional()
+  @IsIn(EXPORT_ASPECT_RATIOS)
+  aspectRatio?: (typeof EXPORT_ASPECT_RATIOS)[number] | null;
+
+  @IsOptional()
+  @IsIn(EXPORT_RESOLUTION_TIERS)
+  resolutionTier?: (typeof EXPORT_RESOLUTION_TIERS)[number] | null;
 }
 
 // Phase 2 - see @speedora/shared's ProcessingOptions.sceneAnalysis comment.
@@ -304,7 +320,11 @@ export function toProcessingOptions(dto: ProcessingOptionsDto): ProcessingOption
       speakerColorCaptions: dto.subtitle.speakerColorCaptions,
       fontFamily: (dto.subtitle.fontFamily ?? null) as ProcessingOptions['subtitle']['fontFamily'],
     },
-    export: { qualityPreset: dto.export?.qualityPreset ?? null },
+    export: {
+      qualityPreset: dto.export?.qualityPreset ?? null,
+      aspectRatio: dto.export?.aspectRatio ?? null,
+      resolutionTier: dto.export?.resolutionTier ?? null,
+    },
     sceneAnalysis: {
       detectSceneCuts: dto.sceneAnalysis?.detectSceneCuts ?? true,
       detectMotionEnergy: dto.sceneAnalysis?.detectMotionEnergy ?? true,

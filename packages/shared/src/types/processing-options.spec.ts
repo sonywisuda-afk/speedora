@@ -28,7 +28,7 @@ describe('migrateProcessingOptions', () => {
       project: { name: 'My Project', tags: ['a', 'b'] },
       clipGeneration: { clipCount: 5, minClipDurationSeconds: 30, maxClipDurationSeconds: 90 },
       subtitle: { captionStyle: 'KARAOKE', speakerColorCaptions: true, fontFamily: 'Poppins' },
-      export: { qualityPreset: 'maximum_quality' },
+      export: { qualityPreset: 'maximum_quality', aspectRatio: '16:9', resolutionTier: '1080p' },
       sceneAnalysis: {
         detectSceneCuts: false,
         detectMotionEnergy: true,
@@ -93,5 +93,21 @@ describe('migrateProcessingOptions', () => {
     const result = migrateProcessingOptions(partial);
 
     expect(result.broll).toEqual({ enabled: false, maxCutaways: null });
+  });
+
+  // Output Resolution/Quality audit, Phase 1 (foundation).
+  it('fills in missing export.aspectRatio/resolutionTier from defaults while preserving a present export.qualityPreset', () => {
+    const partial = {
+      version: PROCESSING_OPTIONS_VERSION,
+      export: { qualityPreset: 'balanced' },
+    };
+
+    const result = migrateProcessingOptions(partial);
+
+    expect(result.export).toEqual({
+      qualityPreset: 'balanced',
+      aspectRatio: null,
+      resolutionTier: null,
+    });
   });
 });

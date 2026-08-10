@@ -96,8 +96,26 @@ export interface ProcessingOptions {
   // Section 14 (Export Settings) - maps to real ffmpeg -crf/-preset values
   // (see ffmpeg.ts's renderClip). null means the pipeline's existing
   // implicit ffmpeg defaults (unchanged from before this option existed).
+  //
+  // aspectRatio/resolutionTier (Output Resolution/Quality audit, Phase 1 - foundation) - null on
+  // BOTH means the pipeline's exact pre-Phase-1 behavior (always a 9:16 crop, uncapped
+  // resolution) - this is a backend-only foundation phase, not yet exposed in
+  // ProcessingSettings.tsx (see the audit doc's own phasing), so every existing/default video
+  // keeps rendering byte-for-byte identically. 'auto' is a real, distinct choice from null for
+  // both fields (not a synonym) - see render-clip.worker.ts's resolveTargetAspectRatio()/
+  // resolveResolutionTier() for what each one actually resolves to.
   export: {
     qualityPreset: 'maximum_quality' | 'balanced' | 'small_size' | null;
+    // '9:16'/'16:9'/'1:1' pin the crop to that ratio outright; 'auto' picks one from the
+    // source's own orientation (see resolveTargetAspectRatio()); null keeps the fixed 9:16
+    // every clip has always rendered at.
+    aspectRatio: 'auto' | '9:16' | '16:9' | '1:1' | null;
+    // '1080p'/'720p' cap the rendered output's short side (see @speedora/reframe's
+    // resolveOutputResolution()); 'auto' applies the '1080p' cap (a sane ceiling that never
+    // upscales past the source, satisfying the audit's "1080p should be the default
+    // high-quality output, but never fake it from a smaller source" rule); null keeps today's
+    // uncapped behavior (output resolution follows the source with no ceiling at all).
+    resolutionTier: 'auto' | '1080p' | '720p' | null;
   };
   // Owner: apps/worker/render-graph (nodes/scene.ts). Section 11 (Scene
   // Analysis), Phase 2 - each flag gates whether the matching render-graph
@@ -238,7 +256,7 @@ export const DEFAULT_PROCESSING_OPTIONS: ProcessingOptions = {
     speakerColorCaptions: false,
     fontFamily: null,
   },
-  export: { qualityPreset: null },
+  export: { qualityPreset: null, aspectRatio: null, resolutionTier: null },
   sceneAnalysis: {
     detectSceneCuts: true,
     detectMotionEnergy: true,
@@ -337,7 +355,7 @@ export const BUILT_IN_PROCESSING_PRESETS: BuiltInProcessingPreset[] = [
         clipCount: 1,
         maxClipDurationSeconds: 60,
       },
-      export: { qualityPreset: 'small_size' },
+      export: { ...DEFAULT_PROCESSING_OPTIONS.export, qualityPreset: 'small_size' },
     },
   },
   {
@@ -353,7 +371,7 @@ export const BUILT_IN_PROCESSING_PRESETS: BuiltInProcessingPreset[] = [
     config: {
       ...DEFAULT_PROCESSING_OPTIONS,
       clipGeneration: { ...DEFAULT_PROCESSING_OPTIONS.clipGeneration, clipCount: 5 },
-      export: { qualityPreset: 'maximum_quality' },
+      export: { ...DEFAULT_PROCESSING_OPTIONS.export, qualityPreset: 'maximum_quality' },
     },
   },
   {
@@ -363,7 +381,7 @@ export const BUILT_IN_PROCESSING_PRESETS: BuiltInProcessingPreset[] = [
     config: {
       ...DEFAULT_PROCESSING_OPTIONS,
       clipGeneration: { ...DEFAULT_PROCESSING_OPTIONS.clipGeneration, clipCount: 'unlimited' },
-      export: { qualityPreset: 'maximum_quality' },
+      export: { ...DEFAULT_PROCESSING_OPTIONS.export, qualityPreset: 'maximum_quality' },
     },
   },
   {
