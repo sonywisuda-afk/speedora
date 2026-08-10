@@ -85,6 +85,9 @@ quirk: an all-caps acronym (`"NASA"`) also matches - arguably correct, not a bug
   revisiting if the capitalization heuristic's false-negative rate turns out to matter in practice.
 - **Company-name → domain resolution refinement** - Clearbit's Autocomplete API already does fuzzy
   name matching internally; no additional heuristic needed on this side for v1.
+- **Live network calls to Pexels/Pixabay/Unsplash/Clearbit in CI** - deliberately out of scope for
+  the real-ffmpeg gate below too (would make the suite flaky/secret-dependent); everything
+  downstream of "an asset file already sits on local disk" is covered by real ffmpeg instead.
 
 ## Verification
 
@@ -97,3 +100,21 @@ for the same literal keyword stay independent), `broll.spec.ts` (+6 new tests fo
 `render-clip.worker.spec.ts` (+1 new test proving the `isBrandCandidate` flag actually threads through
 to `searchAssets()`, existing B-roll tests updated for the new call signature) - full suite
 125/125. `typecheck`/`lint`/`format` all green.
+
+**Follow-up (real-ffmpeg acceptance gate).** The above was all mocked - this feature originally
+shipped with no real-render proof, a standing gap explicitly named in this doc. Closed by a new
+`ffmpeg.broll.integration.spec.ts`, following the same `describeIfFfmpeg`-skip / real-lavfi-test-
+media template `ffmpeg.reaction-hold.integration.spec.ts`/`ffmpeg.crossfade.integration.spec.ts`
+already established, run against a real ffmpeg 8.1.2-full_build - 5 tests: `trimAndFadeInBRoll()`
+genuinely normalizes a mismatched-size/fps stock asset to the target dimensions and produces an
+alpha-capable frame, alpha measurably fades in from near-transparent to fully opaque by
+`BROLL_FADE_SECONDS`, a still-image asset (`-loop 1`) produces a real video stream of the requested
+duration despite the source having no inherent duration, `fadeOutBRoll()`'s alpha measurably fades
+back out without changing duration, and `renderClip()`'s overlay compositing places the cutaway's
+own color only within its own `enable=between(...)` window (verified via real per-instant pixel
+sampling, not just filter-args assertions) while leaving the clip's own total duration unchanged.
+One real finding from running against actual ffmpeg (not assumed): the qtrle encoder's own output
+`pix_fmt` is `argb`, not a pass-through of the filter chain's `format=yuva420p` - still genuinely
+alpha-capable, just a different exact tag, corrected in the test rather than forcing reality to
+match the original assumption. Full `apps/worker` suite: 56 suites / 668 tests passing.
+`typecheck`/`lint`/`format` all green.
