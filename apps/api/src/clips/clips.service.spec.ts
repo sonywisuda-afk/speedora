@@ -1017,6 +1017,10 @@ describe('ClipsService', () => {
         thumbnailSelectionFallback: undefined,
         thumbnailSelectionReason: undefined,
         publishRecords: [],
+        compositeRankScore: undefined,
+        compositeRank: undefined,
+        compositeRankConfidence: undefined,
+        compositeRankSubScores: null,
         updatedAt: existingClip.updatedAt,
       });
     });
@@ -1277,6 +1281,10 @@ describe('ClipsService', () => {
         thumbnailSelectionFallback: undefined,
         thumbnailSelectionReason: undefined,
         publishRecords: [],
+        compositeRankScore: undefined,
+        compositeRank: undefined,
+        compositeRankConfidence: undefined,
+        compositeRankSubScores: null,
         updatedAt: cleared.updatedAt,
       });
     });

@@ -88,6 +88,7 @@ import {
   toSharedSubtitleIntelligence,
   toSharedCaptionTreatment,
   toSharedEditingSuggestions,
+  toSharedCompositeRankSubScores,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
   toSharedOcrText,
@@ -1267,6 +1268,12 @@ export class ClipsService {
     thumbnailSelectionFallback: string | null;
     thumbnailSelectionReason: string | null;
     publishRecords: Parameters<typeof toSharedPublishRecord>[0][];
+    // AI Intelligence v4 Phase 14.1/14.2 (Clip Ranking Engine, Stage D -
+    // see docs/ai/clip-ranking-engine.md).
+    compositeRankScore: number | null;
+    compositeRank: number | null;
+    compositeRankConfidence: number | null;
+    compositeRankSubScores: unknown;
     updatedAt: Date;
   }) {
     return {
@@ -1364,6 +1371,10 @@ export class ClipsService {
       thumbnailSelectionFallback: clip.thumbnailSelectionFallback as ThumbnailFallbackLevel | null,
       thumbnailSelectionReason: clip.thumbnailSelectionReason,
       publishRecords: clip.publishRecords.map(toSharedPublishRecord) satisfies PublishRecord[],
+      compositeRankScore: clip.compositeRankScore,
+      compositeRank: clip.compositeRank,
+      compositeRankConfidence: clip.compositeRankConfidence,
+      compositeRankSubScores: toSharedCompositeRankSubScores(clip.compositeRankSubScores),
       updatedAt: clip.updatedAt,
     };
   }

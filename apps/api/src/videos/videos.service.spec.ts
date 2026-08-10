@@ -606,6 +606,7 @@ describe('VideosService', () => {
           captionTreatment: null,
           editingSuggestions: null,
           publishRecords: [],
+          compositeRankSubScores: null,
         },
         {
           id: 'clip-2',
@@ -666,6 +667,7 @@ describe('VideosService', () => {
           captionTreatment: null,
           editingSuggestions: null,
           publishRecords: [],
+          compositeRankSubScores: null,
         },
       ]);
       expect(result.videos[0].clips[0]).not.toHaveProperty('outputUrl');

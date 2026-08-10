@@ -1420,6 +1420,25 @@ export interface Video {
   updatedAt: string;
 }
 
+// AI Intelligence v4 Phase 14.1 (Clip Ranking Engine, Stage D - see
+// docs/ai/clip-ranking-engine.md). Mirrors @speedora/contracts'
+// ClipRankSubScores rather than importing it - same duplication precedent
+// as ViralitySubProbabilities/RetentionPoint above.
+export interface ClipRankSubScores {
+  fusion: number | null;
+  virality: number | null;
+  narrative: number | null;
+  hook: number | null;
+  retention: number;
+  semanticImportance: number | null;
+  novelty: number;
+  emotion: number;
+  practicalValue: number;
+  educationalValue: number;
+  curiosity: number;
+  trustAuthority: number;
+}
+
 // Client-facing shape for a Clip - deliberately not the same as
 // packages/database's Prisma `Clip` model (that's the DB row, including
 // `outputUrl`, the raw object storage key; this is the API/UI-facing DTO,
@@ -1747,6 +1766,30 @@ export interface Clip {
   // most one per connected platform account), so returned inline rather
   // than via a separate endpoint.
   publishRecords: PublishRecord[];
+  // AI Intelligence v4 Phase 14.1/14.2 (Clip Ranking Engine, Stage D - see
+  // docs/ai/clip-ranking-engine.md). A SECOND, additive ranking system
+  // alongside highlightScore/highlightRank above (which stay completely
+  // untouched, including their own thumbnail cover-clip-selection use) -
+  // averages 12 dimensions (Fusion, Virality, Narrative, Hook, Retention,
+  // Semantic Importance, and the 6 ClipScores dimensions) into one
+  // compositeScore. Recomputed after every sibling clip's own render
+  // completes (@speedora/render-clip.worker.ts), scoped to every RENDERED
+  // clip for the video. Null for pre-existing rows and for any clip that
+  // hasn't finished rendering yet - an unrendered sibling is excluded from
+  // the ranked batch entirely, not scored with a placeholder.
+  compositeRankScore: number | null;
+  // 1 = highest compositeRankScore among this video's rendered clips at
+  // the time this was last written - same "last computed at, not a live
+  // view" semantics as highlightRank.
+  compositeRank: number | null;
+  // CODE-COMPUTED coverage: count(non-null of the 12 dimensions)/12 - same
+  // "kind of confidence" as ViralityPrediction's own confidence field.
+  compositeRankConfidence: number | null;
+  // The full 12-dimension breakdown behind compositeRankScore - kept for
+  // the same transparency/future-explainability reason
+  // highlightBreakdown/highlightExplainability exist alongside
+  // highlightScore.
+  compositeRankSubScores: ClipRankSubScores | null;
   updatedAt: string;
 }
 
