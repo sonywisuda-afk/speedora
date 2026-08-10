@@ -5,7 +5,25 @@ import { useState } from 'react';
 import useSWR from 'swr';
 import { decideApproval, listApprovals, requestApproval, resubmitApproval } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { formatRelativeTime } from '@/lib/dashboard';
+import { formatDuration, formatRelativeTime } from '@/lib/dashboard';
+
+// Gap follow-up (2026-08-10) - the clip picker RequestApprovalDto.clipId's own comment always
+// said was server-ready but never built (see this file's own comment below, and
+// docs/collaboration.md if one exists by the time this is read). Deliberately narrow: id/hookText/
+// startTime/endTime only, not a full Clip - this panel only needs enough to label options in a
+// <select>, not the whole clip shape every caller of this component would otherwise need to
+// thread through.
+export interface ApprovalClipOption {
+  id: string;
+  hookText: string | null;
+  startTime: number;
+  endTime: number;
+}
+
+function clipOptionLabel(clip: ApprovalClipOption, index: number): string {
+  const duration = formatDuration(clip.endTime - clip.startTime);
+  return clip.hookText ? `${clip.hookText} (${duration})` : `Clip ${index + 1} (${duration})`;
+}
 
 const STATUS_STYLE: Record<ApprovalDto['status'], string> = {
   PENDING: 'bg-warning/10 text-warning',
@@ -22,17 +40,27 @@ const STATUS_LABEL: Record<ApprovalDto['status'], string> = {
 };
 
 // Sprint 5D (Approval) - a self-contained panel (same shape as
-// CommentsPanel) embedded in the Timeline Editor. Video-level requests
-// only for this pass (RequestApprovalDto.clipId exists and is fully
-// supported server-side, but there's no clip picker here yet - out of
-// scope for this component, same deliberate "video-first" scoping
-// ShareDialog/CommentsPanel already established). Reviewer assignment is
-// likewise left to the server default (notifies the video owner) - no
-// reviewer picker UI yet, same reasoning CommentsPanel's mention picker
-// was deferred for.
-export function ApprovalPanel({ videoId }: { videoId: string }) {
+// CommentsPanel) embedded in the Timeline Editor. RequestApprovalDto.clipId
+// was always fully supported server-side (validated - must belong to this
+// video); `clips` (optional, defaults to []) lets a caller that already has
+// the video's clip list (both current call sites do) opt into a clip
+// picker - omitting it keeps every pre-existing "video-level requests only"
+// behavior identical. Reviewer assignment is still left to the server
+// default (notifies the video owner) - no reviewer picker UI yet, same
+// reasoning CommentsPanel's mention picker was deferred for; that's a
+// separate, still-open gap.
+export function ApprovalPanel({
+  videoId,
+  clips = [],
+}: {
+  videoId: string;
+  clips?: ApprovalClipOption[];
+}) {
   const { data, mutate } = useSWR(['approvals', videoId], () => listApprovals(videoId));
   const [note, setNote] = useState('');
+  // '' means "whole video" (clipId: undefined, the pre-existing behavior) - not a sentinel value
+  // that could collide with a real clip id, since real clip ids are always non-empty cuids.
+  const [selectedClipId, setSelectedClipId] = useState('');
   const [requesting, setRequesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedHistory, setExpandedHistory] = useState<string | null>(null);
@@ -54,8 +82,12 @@ export function ApprovalPanel({ videoId }: { videoId: string }) {
   async function handleRequest() {
     setRequesting(true);
     await withErrorHandling(async () => {
-      await requestApproval(videoId, { note: note.trim() || undefined });
+      await requestApproval(videoId, {
+        note: note.trim() || undefined,
+        clipId: selectedClipId || undefined,
+      });
       setNote('');
+      setSelectedClipId('');
     });
     setRequesting(false);
   }
@@ -77,7 +109,22 @@ export function ApprovalPanel({ videoId }: { videoId: string }) {
       </h2>
 
       {!hasActive && (
-        <div className="mt-2 flex gap-2">
+        <div className="mt-2 flex flex-wrap gap-2">
+          {clips.length > 0 && (
+            <select
+              value={selectedClipId}
+              onChange={(e) => setSelectedClipId(e.target.value)}
+              aria-label="Lingkup review"
+              className="h-9 rounded-md border border-input bg-background px-2 font-body text-sm text-foreground"
+            >
+              <option value="">Seluruh Video</option>
+              {clips.map((clip, index) => (
+                <option key={clip.id} value={clip.id}>
+                  {clipOptionLabel(clip, index)}
+                </option>
+              ))}
+            </select>
+          )}
           <input
             value={note}
             onChange={(e) => setNote(e.target.value)}

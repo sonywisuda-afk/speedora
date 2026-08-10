@@ -41,6 +41,7 @@ export default function EditVideoPage({ params }: { params: Promise<{ id: string
   const [loaded, setLoaded] = useState(false);
   const load = useTimelineStore((s) => s.load);
   const selectClip = useTimelineStore((s) => s.selectClip);
+  const timelineClips = useTimelineStore((s) => s.clips);
   // Set by the gallery grid (Fase 4) so clicking a specific clip's card
   // opens the editor on that clip, not always the first one - load()
   // itself defaults selectedClipId to clips[0].
@@ -110,7 +111,7 @@ export default function EditVideoPage({ params }: { params: Promise<{ id: string
                 <VideoAnalysisDashboard />
                 <TimelineEditor videoId={id} />
                 <VersionHistoryPanel />
-                <ApprovalPanel videoId={id} />
+                <ApprovalPanel videoId={id} clips={timelineClips} />
                 <CommentsPanel videoId={id} />
               </div>
             )}
