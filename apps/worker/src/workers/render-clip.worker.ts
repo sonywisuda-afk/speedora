@@ -822,7 +822,7 @@ async function buildBRollOverlays(
       let rawPath: string | null = null;
       let fadedInPath: string | null = null;
       try {
-        const asset = await stockAssetService.searchAssets(moment.keyword);
+        const asset = await stockAssetService.searchAssets(moment.keyword, moment.isBrandCandidate);
         if (!asset) return null;
 
         // Extension doesn't functionally matter (trimAndFadeInBRoll forces

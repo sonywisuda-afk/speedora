@@ -23,6 +23,31 @@ export interface BRollMoment {
   // This is when the cutaway BEGINS (the keyword's own first mention
   // start), not its center.
   t: number;
+  // AI B-roll Recommendation (item 8) - see looksLikeBrandName()'s own
+  // comment. Threaded through to stockAssetService.searchAssets() so it
+  // knows whether to try the logo tier first.
+  isBrandCandidate: boolean;
+}
+
+// A deliberately cheap heuristic, not an LLM call - see
+// docs/ai/broll-recommendation.md for why. This module runs BEFORE the
+// render-graph (buildBRollOverlays() needs its downloaded/prepped assets
+// ready before the main ffmpeg composition pass), so it has no access to
+// Hook Prediction's own LLM-derived namedEntities (a render-graph node
+// output) without either a second, duplicate LLM call or reordering the
+// render pipeline - both rejected as bigger than this feature warrants.
+// `keywords` itself already comes from an LLM (clip-scoring), so a real
+// proper noun is very likely already properly capitalized by that model,
+// not raw ASR text where capitalization is far less reliable. False
+// positives are cheap (one extra Clearbit lookup that finds nothing
+// useful, falling through to the exact same stock-footage tiers as
+// today - see stockAssetService.ts); false negatives just mean this
+// keyword gets today's baseline behavior. Single common words that
+// happen to be capitalized (e.g. a sentence-initial word) are the main
+// known false-positive source - accepted given the fallback is free.
+export function looksLikeBrandName(keyword: string): boolean {
+  const words = keyword.trim().split(/\s+/);
+  return words.length > 0 && words.every((word) => /^[A-Z]/.test(word));
 }
 
 // First character offset of `keyword` (case-insensitive) in the words
@@ -74,7 +99,7 @@ export function findBRollMoments(
     if (t + BROLL_DURATION_SECONDS > clipDurationSeconds) continue;
     if (moments.some((m) => Math.abs(m.t - t) < MIN_GAP_BETWEEN_MOMENTS_SECONDS)) continue;
 
-    moments.push({ keyword, t });
+    moments.push({ keyword, t, isBrandCandidate: looksLikeBrandName(keyword) });
   }
   return moments;
 }

@@ -3151,13 +3151,13 @@ describe('render-clip worker', () => {
       clipFindManyMock.mockResolvedValue([
         { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
       ]);
-      findBRollMomentsMock.mockReturnValue([{ keyword: 'sunset', t: 2 }]);
+      findBRollMomentsMock.mockReturnValue([{ keyword: 'sunset', t: 2, isBrandCandidate: false }]);
       searchAssetsMock.mockResolvedValue(sunsetAsset);
 
       const processor = getProcessor();
       await processor(fakeJob({ ...baseJobData, keywords: ['sunset'] }));
 
-      expect(searchAssetsMock).toHaveBeenCalledWith('sunset');
+      expect(searchAssetsMock).toHaveBeenCalledWith('sunset', false);
       expect(downloadStockAssetMock).toHaveBeenCalledWith(
         'https://example.com/sunset.mp4',
         expect.stringContaining('broll-raw'),
@@ -3196,11 +3196,28 @@ describe('render-clip worker', () => {
       expect(cleanupTempFileMock).toHaveBeenCalledWith(expect.stringContaining('broll-final'));
     });
 
+    // AI B-roll Recommendation (item 8) - proves the wiring, not just the
+    // shape: a moment findBRollMoments already tagged as a brand candidate
+    // threads that flag through to StockAssetService, which is what
+    // decides whether to try the logo tier first.
+    it('threads isBrandCandidate through to searchAssets for a moment findBRollMoments tagged as a brand candidate', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      findBRollMomentsMock.mockReturnValue([{ keyword: 'OpenAI', t: 2, isBrandCandidate: true }]);
+      searchAssetsMock.mockResolvedValue({ ...sunsetAsset, sourceName: 'clearbit', type: 'image' });
+
+      const processor = getProcessor();
+      await processor(fakeJob({ ...baseJobData, keywords: ['OpenAI'] }));
+
+      expect(searchAssetsMock).toHaveBeenCalledWith('OpenAI', true);
+    });
+
     it('reserves a .jpg scratch path and passes assetType "image" for an Unsplash photo asset', async () => {
       clipFindManyMock.mockResolvedValue([
         { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
       ]);
-      findBRollMomentsMock.mockReturnValue([{ keyword: 'sunset', t: 2 }]);
+      findBRollMomentsMock.mockReturnValue([{ keyword: 'sunset', t: 2, isBrandCandidate: false }]);
       searchAssetsMock.mockResolvedValue({ ...sunsetAsset, sourceName: 'unsplash', type: 'image' });
 
       const processor = getProcessor();
@@ -3222,7 +3239,7 @@ describe('render-clip worker', () => {
       clipFindManyMock.mockResolvedValue([
         { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
       ]);
-      findBRollMomentsMock.mockReturnValue([{ keyword: 'sunset', t: 2 }]);
+      findBRollMomentsMock.mockReturnValue([{ keyword: 'sunset', t: 2, isBrandCandidate: false }]);
       searchAssetsMock.mockResolvedValue(null);
 
       const processor = getProcessor();
@@ -3236,7 +3253,7 @@ describe('render-clip worker', () => {
       clipFindManyMock.mockResolvedValue([
         { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
       ]);
-      findBRollMomentsMock.mockReturnValue([{ keyword: 'sunset', t: 2 }]);
+      findBRollMomentsMock.mockReturnValue([{ keyword: 'sunset', t: 2, isBrandCandidate: false }]);
       searchAssetsMock.mockResolvedValue(sunsetAsset);
       downloadStockAssetMock.mockRejectedValue(new Error('network error'));
 
