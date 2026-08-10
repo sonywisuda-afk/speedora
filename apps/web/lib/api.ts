@@ -40,6 +40,8 @@ import type {
   ExportJobDto,
   ExportJobListDto,
   ExportType,
+  FolderDto,
+  FolderListDto,
   FollowersDto,
   LeaderboardMetric,
   NotificationChannel,
@@ -877,11 +879,18 @@ export async function listVideos(params?: {
   cursor?: string;
   limit?: number;
   workspaceId?: string;
+  // Project/Folder sidebar navigation follow-up - GET /videos already
+  // accepted these server-side (videos.controller.ts); this function just
+  // never threaded them through until now.
+  projectId?: string;
+  folderId?: string;
 }): Promise<PaginatedVideos> {
   const query = new URLSearchParams();
   if (params?.cursor) query.set('cursor', params.cursor);
   if (params?.limit) query.set('limit', String(params.limit));
   if (params?.workspaceId) query.set('workspaceId', params.workspaceId);
+  if (params?.projectId) query.set('projectId', params.projectId);
+  if (params?.folderId) query.set('folderId', params.folderId);
   const qs = query.toString();
   const res = await apiFetch(`/videos${qs ? `?${qs}` : ''}`);
   return parseJsonOrThrow<PaginatedVideos>(res);
@@ -1642,6 +1651,52 @@ export async function moveProject(id: string, targetWorkspaceId: string): Promis
     body: JSON.stringify({ targetWorkspaceId }),
   });
   return parseJsonOrThrow<ProjectDto>(res);
+}
+
+// Project/Folder sidebar navigation (Collaboration roadmap follow-up) - the
+// Folder CRUD API (Sprint 5A) had zero frontend consumers until now; these
+// four functions are a direct, unopinionated wrap of it. listFolders returns
+// a FLAT list (server-side, no tree assembly) - the caller (see
+// ProjectFolderSidebar.tsx) builds the parentId-based tree client-side, same
+// division of responsibility GET /videos already has with its own
+// project/folder query params.
+export async function listFolders(projectId: string): Promise<FolderListDto> {
+  const res = await apiFetch(`/projects/${projectId}/folders`);
+  return parseJsonOrThrow<FolderListDto>(res);
+}
+
+export async function createFolder(
+  projectId: string,
+  input: { name: string; parentId?: string },
+): Promise<FolderDto> {
+  const res = await apiFetch(`/projects/${projectId}/folders`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return parseJsonOrThrow<FolderDto>(res);
+}
+
+export async function updateFolder(
+  id: string,
+  input: { name?: string; parentId?: string | null },
+): Promise<FolderDto> {
+  const res = await apiFetch(`/folders/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input),
+  });
+  return parseJsonOrThrow<FolderDto>(res);
+}
+
+export async function deleteFolder(id: string): Promise<void> {
+  const res = await apiFetch(`/folders/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    const message =
+      body && typeof body === 'object' && 'message' in body ? body.message : res.statusText;
+    throw new Error(typeof message === 'string' ? message : 'Gagal menghapus folder');
+  }
 }
 
 // Bulk Actions roadmap - each id runs through the single-item endpoint's own

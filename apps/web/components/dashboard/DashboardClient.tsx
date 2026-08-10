@@ -51,6 +51,7 @@ import { cn } from '@/lib/utils';
 import { useWorkspaceStore } from '@/lib/workspaceStore';
 import { Nav } from '../Nav';
 import { ProcessingQueue } from './ProcessingQueue';
+import { type FolderSelection, ProjectFolderSidebar } from './ProjectFolderSidebar';
 import { QuickActions } from './QuickActions';
 import { RecentProjectsGrid } from './RecentProjectsGrid';
 import { SearchBar } from './SearchBar';
@@ -935,19 +936,39 @@ export function DashboardClient({
 }: DashboardClientProps) {
   const { user, logout } = useAuth(initialUser);
 
+  // Project/Folder sidebar navigation (Collaboration roadmap follow-up) -
+  // {projectId: null, folderId: null} means "no filter", the exact
+  // pre-existing default view. Declared before the videos SWR hook below so
+  // its key/fetcher can react to a selection change.
+  const [folderSelection, setFolderSelection] = useState<FolderSelection>({
+    projectId: null,
+    folderId: null,
+  });
+  const isFiltered = folderSelection.projectId !== null || folderSelection.folderId !== null;
+
   // Page 1 is server-rendered (fallbackData) then SWR-polled every 2s, same
   // cadence as the original hand-rolled setInterval - just with dedup/
   // revalidate-on-focus for free. Pages beyond 1 (via "Load More") are kept
-  // in separate, un-polled state and merged for rendering.
+  // in separate, un-polled state and merged for rendering. fallbackData only
+  // applies to the exact unfiltered key (SWR keys the cache on the whole
+  // array) - selecting a project/folder always forces a real fetch rather
+  // than briefly flashing the unfiltered SSR data under a mismatched filter.
   const {
     data,
     error: videosError,
     mutate,
   } = useSWR<PaginatedVideos>(
-    ['videos', DEFAULT_LIMIT],
-    () => listVideos({ limit: DEFAULT_LIMIT }),
+    ['videos', DEFAULT_LIMIT, folderSelection.projectId, folderSelection.folderId],
+    () =>
+      listVideos({
+        limit: DEFAULT_LIMIT,
+        projectId: folderSelection.projectId ?? undefined,
+        folderId: folderSelection.folderId ?? undefined,
+      }),
     {
-      fallbackData: { videos: initialVideos, nextCursor: initialNextCursor },
+      fallbackData: isFiltered
+        ? undefined
+        : { videos: initialVideos, nextCursor: initialNextCursor },
       refreshInterval: (latestData) =>
         (latestData?.videos ?? initialVideos).every((v) => isTerminal(v.status))
           ? 0
@@ -958,6 +979,15 @@ export function DashboardClient({
   const [extraCursor, setExtraCursor] = useState<string | null>(null);
   const [hasLoadedMore, setHasLoadedMore] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
+
+  // A "load more" cursor from one filter is meaningless once the selection
+  // changes - same reset-on-filter-change convention the Clip Library page
+  // already established for its own extraClips/extraCursor.
+  useEffect(() => {
+    setExtraVideos([]);
+    setExtraCursor(null);
+    setHasLoadedMore(false);
+  }, [folderSelection.projectId, folderSelection.folderId]);
 
   const videos = useMemo(() => {
     const seen = new Set<string>();
@@ -984,7 +1014,12 @@ export function DashboardClient({
     if (!cursorForNextLoad) return;
     setLoadingMore(true);
     try {
-      const result = await listVideos({ cursor: cursorForNextLoad, limit: DEFAULT_LIMIT });
+      const result = await listVideos({
+        cursor: cursorForNextLoad,
+        limit: DEFAULT_LIMIT,
+        projectId: folderSelection.projectId ?? undefined,
+        folderId: folderSelection.folderId ?? undefined,
+      });
       setExtraVideos((prev) => [...prev, ...result.videos]);
       setExtraCursor(result.nextCursor);
       setHasLoadedMore(true);
@@ -1320,117 +1355,133 @@ export function DashboardClient({
 
   return (
     <main className="min-h-screen bg-background px-6 py-8">
-      <div className="mx-auto max-w-3xl">
-        <h1 className="font-display text-2xl uppercase tracking-wide text-foreground">Speedora</h1>
-        <p className="mt-1 font-body text-sm text-muted-foreground">Riwayat video dan klip kamu.</p>
+      <div className="mx-auto flex max-w-6xl items-start gap-6">
+        {/* Project/Folder sidebar navigation (Collaboration roadmap follow-up) - a fixed-width
+            column beside the existing content, which keeps its own original max-w-3xl reading
+            width unchanged below rather than stretching to fill the wider container. */}
+        <ProjectFolderSidebar
+          workspaceId={activeWorkspaceId}
+          selection={folderSelection}
+          onSelect={setFolderSelection}
+        />
+        <div className="max-w-3xl flex-1">
+          <h1 className="font-display text-2xl uppercase tracking-wide text-foreground">
+            Speedora
+          </h1>
+          <p className="mt-1 font-body text-sm text-muted-foreground">
+            Riwayat video dan klip kamu.
+          </p>
 
-        <Nav user={user} onLogout={logout} />
+          <Nav user={user} onLogout={logout} />
 
-        <div className="mt-6 space-y-6">
-          <SearchBar />
-          <QuickActions videos={videos} />
-          {children}
-          <ProcessingQueue videos={videos} />
-          {videos.length > 0 && (
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <h2 className="font-display text-sm uppercase tracking-wide text-muted-foreground">
-                  Recent Projects
-                </h2>
-                {/* Dashboard Improvement Sprint Phase B - read-only, so
+          <div className="mt-6 space-y-6">
+            <SearchBar />
+            <QuickActions videos={videos} />
+            {children}
+            <ProcessingQueue videos={videos} />
+            {videos.length > 0 && (
+              <div>
+                <div className="mb-2 flex items-center justify-between">
+                  <h2 className="font-display text-sm uppercase tracking-wide text-muted-foreground">
+                    Recent Projects
+                  </h2>
+                  {/* Dashboard Improvement Sprint Phase B - read-only, so
                     unlike UploadVideoQuickAction this is a plain link, not
                     gated on activeWorkspaceId (falls back to the requester's
                     personal workspace the same way GET /videos itself
                     does). */}
-                <Button size="sm" variant="outline" asChild>
-                  <Link href="/videos/history">View All</Link>
-                </Button>
-              </div>
-              <RecentProjectsGrid videos={videos} />
-              {hasMore && (
-                <div className="mt-3 flex justify-center">
-                  <Button size="sm" variant="outline" disabled={loadingMore} onClick={loadMore}>
-                    {loadingMore ? 'Memuat...' : 'Load More'}
+                  <Button size="sm" variant="outline" asChild>
+                    <Link href="/videos/history">View All</Link>
                   </Button>
                 </div>
-              )}
+                <RecentProjectsGrid videos={videos} />
+                {hasMore && (
+                  <div className="mt-3 flex justify-center">
+                    <Button size="sm" variant="outline" disabled={loadingMore} onClick={loadMore}>
+                      {loadingMore ? 'Memuat...' : 'Load More'}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {videosError && (
+            <p className="mt-4 font-body text-sm text-destructive">
+              {videosError instanceof Error ? videosError.message : 'Gagal memuat video'}
+            </p>
+          )}
+
+          {videos.length === 0 ? (
+            <div className="mt-8 flex flex-col items-center rounded-lg border border-dashed border-border bg-muted px-6 py-16 text-center">
+              <UploadCloud className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
+              <p className="mt-4 font-display text-xl uppercase tracking-wide text-foreground">
+                Belum Ada Video
+              </p>
+              <p className="mt-1 max-w-sm font-body text-sm text-muted-foreground">
+                Upload rekaman pertama kamu dan lihat klip siap-viral pertama muncul di sini.
+              </p>
+              <UploadVideoQuickAction
+                workspaceId={activeWorkspaceId}
+                label="Upload Video Sekarang"
+                size="lg"
+                className="mt-6"
+              />
             </div>
+          ) : (
+            <ul className="mt-6 space-y-4">
+              {videos.map((video) => (
+                <VideoRow
+                  key={video.id}
+                  video={video}
+                  bestClipId={bestClipId}
+                  isConfirmingDeleteVideo={confirmDeleteId === video.id}
+                  setConfirmDeleteId={setConfirmDeleteId}
+                  isDeletingVideo={deletingId === video.id}
+                  deleteErrorMessage={
+                    deleteError?.videoId === video.id ? deleteError.message : null
+                  }
+                  setDeleteError={setDeleteError}
+                  onDeleteVideo={handleDeleteVideo}
+                  isRetrying={retryingId === video.id}
+                  retryErrorMessage={retryError?.videoId === video.id ? retryError.message : null}
+                  onRetry={handleRetry}
+                  confirmDeleteClipId={confirmDeleteClipId}
+                  setConfirmDeleteClipId={setConfirmDeleteClipId}
+                  deletingClipId={deletingClipId}
+                  deleteClipError={deleteClipError}
+                  setDeleteClipError={setDeleteClipError}
+                  onDeleteClip={handleDeleteClip}
+                  accounts={accounts}
+                  selectedAccountId={selectedAccountId}
+                  setSelectedAccountId={setSelectedAccountId}
+                  publishingClipId={publishingClipId}
+                  schedulingClipId={schedulingClipId}
+                  publishError={publishError}
+                  scheduleInput={scheduleInput}
+                  setScheduleInput={setScheduleInput}
+                  selectedCampaignId={selectedCampaignId}
+                  setSelectedCampaignId={setSelectedCampaignId}
+                  selectedRecurringScheduleId={selectedRecurringScheduleId}
+                  setSelectedRecurringScheduleId={setSelectedRecurringScheduleId}
+                  publishableCampaigns={publishableCampaigns}
+                  publishableSchedules={publishableSchedules}
+                  onPublish={handlePublish}
+                  onSchedule={handleSchedule}
+                  onQueueToSchedule={handleQueueToSchedule}
+                  cancelingRecordId={cancelingRecordId}
+                  onCancelScheduled={handleCancelScheduled}
+                  reschedulingRecordId={reschedulingRecordId}
+                  setReschedulingRecordId={setReschedulingRecordId}
+                  rescheduleInput={rescheduleInput}
+                  setRescheduleInput={setRescheduleInput}
+                  onReschedule={handleReschedule}
+                  scheduleActionError={scheduleActionError}
+                />
+              ))}
+            </ul>
           )}
         </div>
-
-        {videosError && (
-          <p className="mt-4 font-body text-sm text-destructive">
-            {videosError instanceof Error ? videosError.message : 'Gagal memuat video'}
-          </p>
-        )}
-
-        {videos.length === 0 ? (
-          <div className="mt-8 flex flex-col items-center rounded-lg border border-dashed border-border bg-muted px-6 py-16 text-center">
-            <UploadCloud className="h-10 w-10 text-muted-foreground" aria-hidden="true" />
-            <p className="mt-4 font-display text-xl uppercase tracking-wide text-foreground">
-              Belum Ada Video
-            </p>
-            <p className="mt-1 max-w-sm font-body text-sm text-muted-foreground">
-              Upload rekaman pertama kamu dan lihat klip siap-viral pertama muncul di sini.
-            </p>
-            <UploadVideoQuickAction
-              workspaceId={activeWorkspaceId}
-              label="Upload Video Sekarang"
-              size="lg"
-              className="mt-6"
-            />
-          </div>
-        ) : (
-          <ul className="mt-6 space-y-4">
-            {videos.map((video) => (
-              <VideoRow
-                key={video.id}
-                video={video}
-                bestClipId={bestClipId}
-                isConfirmingDeleteVideo={confirmDeleteId === video.id}
-                setConfirmDeleteId={setConfirmDeleteId}
-                isDeletingVideo={deletingId === video.id}
-                deleteErrorMessage={deleteError?.videoId === video.id ? deleteError.message : null}
-                setDeleteError={setDeleteError}
-                onDeleteVideo={handleDeleteVideo}
-                isRetrying={retryingId === video.id}
-                retryErrorMessage={retryError?.videoId === video.id ? retryError.message : null}
-                onRetry={handleRetry}
-                confirmDeleteClipId={confirmDeleteClipId}
-                setConfirmDeleteClipId={setConfirmDeleteClipId}
-                deletingClipId={deletingClipId}
-                deleteClipError={deleteClipError}
-                setDeleteClipError={setDeleteClipError}
-                onDeleteClip={handleDeleteClip}
-                accounts={accounts}
-                selectedAccountId={selectedAccountId}
-                setSelectedAccountId={setSelectedAccountId}
-                publishingClipId={publishingClipId}
-                schedulingClipId={schedulingClipId}
-                publishError={publishError}
-                scheduleInput={scheduleInput}
-                setScheduleInput={setScheduleInput}
-                selectedCampaignId={selectedCampaignId}
-                setSelectedCampaignId={setSelectedCampaignId}
-                selectedRecurringScheduleId={selectedRecurringScheduleId}
-                setSelectedRecurringScheduleId={setSelectedRecurringScheduleId}
-                publishableCampaigns={publishableCampaigns}
-                publishableSchedules={publishableSchedules}
-                onPublish={handlePublish}
-                onSchedule={handleSchedule}
-                onQueueToSchedule={handleQueueToSchedule}
-                cancelingRecordId={cancelingRecordId}
-                onCancelScheduled={handleCancelScheduled}
-                reschedulingRecordId={reschedulingRecordId}
-                setReschedulingRecordId={setReschedulingRecordId}
-                rescheduleInput={rescheduleInput}
-                setRescheduleInput={setRescheduleInput}
-                onReschedule={handleReschedule}
-                scheduleActionError={scheduleActionError}
-              />
-            ))}
-          </ul>
-        )}
       </div>
     </main>
   );
