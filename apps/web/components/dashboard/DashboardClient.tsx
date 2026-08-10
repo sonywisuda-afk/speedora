@@ -775,7 +775,7 @@ const VideoRow = memo(function VideoRow({
               Performance
             </Link>
           )}
-          <ShareDialog videoId={video.id} />
+          <ShareDialog videoId={video.id} clips={video.clips} />
           {isConfirmingDeleteVideo ? (
             <span className="flex items-center gap-2">
               <span className="font-body text-xs text-muted-foreground">Hapus?</span>

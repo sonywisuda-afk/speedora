@@ -1,5 +1,10 @@
 import * as crypto from 'crypto';
-import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import {
   recordAuditLog,
   WorkspaceRole,
@@ -44,6 +49,7 @@ function toDto(link: ShareLink): ShareLinkDto {
   return {
     id: link.id,
     videoId: link.videoId,
+    clipId: link.clipId,
     role: mapShareRole(link.role),
     expiresAt: link.expiresAt?.toISOString() ?? null,
     revoked: link.revokedAt !== null,
@@ -67,7 +73,7 @@ export class ShareService {
   async create(
     userId: string,
     videoId: string,
-    input: { role?: ShareLink['role']; expiresInDays?: number },
+    input: { role?: ShareLink['role']; expiresInDays?: number; clipId?: string },
     webOrigin: string,
   ): Promise<ShareLinkCreatedDto> {
     const video = await this.workspaceAccess.assertVideoAccess(
@@ -75,6 +81,15 @@ export class ShareService {
       videoId,
       WorkspaceRole.EDITOR,
     );
+
+    // Same "clipId must belong to this video" check ApprovalsService.request
+    // already established for its own optional clipId.
+    if (input.clipId) {
+      const clip = await this.prisma.clip.findUnique({ where: { id: input.clipId } });
+      if (!clip || clip.videoId !== video.id) {
+        throw new BadRequestException('clipId must belong to this video');
+      }
+    }
 
     // Same "raw token only ever exists here and in the returned URL, only
     // its SHA-256 hash is persisted" convention as WorkspaceService's
@@ -86,6 +101,7 @@ export class ShareService {
       data: {
         tokenHash,
         videoId: video.id,
+        clipId: input.clipId ?? null,
         createdById: userId,
         role: input.role ?? 'VIEWER',
         expiresAt: input.expiresInDays
@@ -100,7 +116,7 @@ export class ShareService {
       actorId: userId,
       targetType: 'ShareLink',
       targetId: link.id,
-      metadata: { videoId: video.id, role: link.role },
+      metadata: { videoId: video.id, role: link.role, clipId: link.clipId },
     }).catch(() => {});
 
     return { ...toDto(link), url: `${webOrigin}/share/${rawToken}` };
@@ -166,7 +182,21 @@ export class ShareService {
       include: { clips: { orderBy: { viralityScore: 'desc' } } },
     });
 
-    const clips: SharedClipDto[] = video.clips.map((clip) => ({
+    // Collaboration roadmap follow-up (clip-level Share scoping) - a
+    // clip-scoped link only ever lists ITS OWN clip, never the video's
+    // other clips, and never exposes a URL for the raw source video at
+    // all (sourceStreamUrl/video.thumbnailUrl both null) - the whole point
+    // of scoping a link to one clip is that the recipient never gets the
+    // full video. This is a display-layer reflection of the REAL
+    // enforcement, which lives in getVideoSourceForToken/
+    // getVideoThumbnailForToken/getClipStreamForToken/
+    // getClipThumbnailForToken below - a client that ignores this DTO and
+    // hits those routes directly still gets rejected there.
+    const visibleClips = link.clipId
+      ? video.clips.filter((clip) => clip.id === link.clipId)
+      : video.clips;
+
+    const clips: SharedClipDto[] = visibleClips.map((clip) => ({
       id: clip.id,
       startTime: clip.startTime,
       endTime: clip.endTime,
@@ -178,25 +208,43 @@ export class ShareService {
 
     return {
       role: mapShareRole(link.role),
+      scopedClipId: link.clipId,
       video: {
         title: video.title,
         durationSeconds: video.durationSeconds,
-        thumbnailUrl: video.thumbnailUrl ? `/share/${rawToken}/thumbnail` : null,
-        sourceStreamUrl: `/share/${rawToken}/source`,
+        thumbnailUrl: link.clipId
+          ? null
+          : video.thumbnailUrl
+            ? `/share/${rawToken}/thumbnail`
+            : null,
+        sourceStreamUrl: link.clipId ? null : `/share/${rawToken}/source`,
         createdAt: video.createdAt.toISOString(),
       },
       clips,
     };
   }
 
+  // Real enforcement, not just a DTO-shape convenience - throws even if a
+  // client bypasses getPublicView's own null sourceStreamUrl and hits this
+  // route directly with a clip-scoped token. A clip-scoped link must never
+  // be able to reach the full, uncut source video - that would defeat the
+  // entire point of scoping it to one clip.
   async getVideoSourceForToken(rawToken: string): Promise<{ sourceUrl: string }> {
     const link = await this.resolveActiveLink(rawToken);
+    if (link.clipId) {
+      throw new ForbiddenException('This share link is scoped to a single clip');
+    }
     const video = await this.prisma.video.findUniqueOrThrow({ where: { id: link.videoId } });
     return { sourceUrl: video.sourceUrl };
   }
 
+  // Same enforcement as getVideoSourceForToken above - the full video's own
+  // thumbnail can reveal a frame from outside the scoped clip's own range.
   async getVideoThumbnailForToken(rawToken: string): Promise<{ thumbnailUrl: string | null }> {
     const link = await this.resolveActiveLink(rawToken);
+    if (link.clipId) {
+      throw new ForbiddenException('This share link is scoped to a single clip');
+    }
     const video = await this.prisma.video.findUniqueOrThrow({ where: { id: link.videoId } });
     return { thumbnailUrl: video.thumbnailUrl };
   }
@@ -206,6 +254,12 @@ export class ShareService {
     clipId: string,
   ): Promise<{ outputUrl: string | null }> {
     const link = await this.resolveActiveLink(rawToken);
+    // A clip-scoped link may only ever serve ITS OWN clip - checked before
+    // even looking the clip up, so a scoped link can't be used to probe
+    // for other clips' existence within the same video either.
+    if (link.clipId && link.clipId !== clipId) {
+      throw new ForbiddenException('This share link is scoped to a different clip');
+    }
     const clip = await this.prisma.clip.findUnique({ where: { id: clipId } });
     if (!clip || clip.videoId !== link.videoId) {
       throw new NotFoundException(`Clip ${clipId} not found`);
@@ -218,6 +272,9 @@ export class ShareService {
     clipId: string,
   ): Promise<{ thumbnailUrl: string | null }> {
     const link = await this.resolveActiveLink(rawToken);
+    if (link.clipId && link.clipId !== clipId) {
+      throw new ForbiddenException('This share link is scoped to a different clip');
+    }
     const clip = await this.prisma.clip.findUnique({ where: { id: clipId } });
     if (!clip || clip.videoId !== link.videoId) {
       throw new NotFoundException(`Clip ${clipId} not found`);

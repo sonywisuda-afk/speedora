@@ -33,6 +33,44 @@ export default function SharedVideoPage({ params }: { params: Promise<{ token: s
           <p className="mt-8 font-body text-sm text-destructive">{error}</p>
         ) : !data ? (
           <p className="mt-8 font-body text-sm text-muted-foreground">Memuat...</p>
+        ) : data.scopedClipId ? (
+          // Collaboration roadmap follow-up (clip-level Share scoping, 2026-08-10) - a
+          // clip-scoped link's own SharedVideoDto never carries a sourceStreamUrl at all (real
+          // server-side enforcement, not just this page choosing not to render it - see
+          // ShareService.getVideoSourceForToken's own comment), so there is no full-video
+          // player here, deliberately - only the one clip this link was scoped to.
+          <div className="mt-6 space-y-3">
+            <p className="font-body text-sm text-muted-foreground">
+              Klip dibagikan sebagai <span className="text-foreground">{data.role}</span>
+              {data.video.title && <> dari &quot;{data.video.title}&quot;</>}
+            </p>
+            {data.clips[0] && (
+              <div className="mx-auto max-w-xs overflow-hidden rounded-md border border-border bg-muted">
+                {data.clips[0].streamUrl ? (
+                  <video
+                    src={sharedVideoStreamUrl(data.clips[0].streamUrl)}
+                    controls
+                    preload="metadata"
+                    poster={
+                      data.clips[0].thumbnailUrl
+                        ? sharedThumbnailUrl(data.clips[0].thumbnailUrl)
+                        : undefined
+                    }
+                    className="aspect-[9/16] w-full bg-slate-950 object-cover"
+                  />
+                ) : (
+                  <div className="flex aspect-[9/16] items-center justify-center">
+                    <span className="font-body text-xs text-muted-foreground">Merender...</span>
+                  </div>
+                )}
+                {data.clips[0].hookText && (
+                  <p className="p-2 font-body text-xs italic text-foreground">
+                    &quot;{data.clips[0].hookText}&quot;
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         ) : (
           <div className="mt-6 space-y-8">
             <div>
@@ -42,15 +80,19 @@ export default function SharedVideoPage({ params }: { params: Promise<{ token: s
               <h2 className="mt-1 font-display text-lg text-foreground">
                 {data.video.title ?? 'Video tanpa judul'}
               </h2>
-              <video
-                src={sharedVideoStreamUrl(data.video.sourceStreamUrl)}
-                controls
-                preload="metadata"
-                poster={
-                  data.video.thumbnailUrl ? sharedThumbnailUrl(data.video.thumbnailUrl) : undefined
-                }
-                className="mt-3 max-h-[70vh] w-full rounded-lg bg-slate-950"
-              />
+              {data.video.sourceStreamUrl && (
+                <video
+                  src={sharedVideoStreamUrl(data.video.sourceStreamUrl)}
+                  controls
+                  preload="metadata"
+                  poster={
+                    data.video.thumbnailUrl
+                      ? sharedThumbnailUrl(data.video.thumbnailUrl)
+                      : undefined
+                  }
+                  className="mt-3 max-h-[70vh] w-full rounded-lg bg-slate-950"
+                />
+              )}
             </div>
 
             {data.clips.length > 0 && (
