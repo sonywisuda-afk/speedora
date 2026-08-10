@@ -90,4 +90,23 @@ describe('computeEditingSuggestions', () => {
     const starts = result.map((s) => s.start);
     expect(starts).toEqual([...starts].sort((a, b) => a - b));
   });
+
+  // Attention Curve Optimization - a Phase 10 follow-up, NOT one of spec
+  // Part 9's 9 named techniques (see from-drop-points.ts's own comment) -
+  // a separate test from the "5 techniques" one above since it's a
+  // conceptually distinct addition.
+  it('includes an attention_cut suggestion when a sufficiently severe drop point is present', () => {
+    const input: ComputeEditingSuggestionsInput = {
+      highlights: [],
+      ocrTracks: null,
+      primarySubjectSamples: [],
+      retentionCurveInsights: insights({ dropPoints: [{ t: 7, score: 0.8 }] }),
+      words: [],
+      clipDurationSeconds: 15,
+    };
+
+    const result = computeEditingSuggestions(input);
+
+    expect(result).toEqual([expect.objectContaining({ technique: 'attention_cut' })]);
+  });
 });

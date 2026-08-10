@@ -992,9 +992,16 @@ export type CaptionTreatmentTimeline = TreatmentMoment[];
 // rather than importing them - same duplication precedent as every other
 // v4 type in this file. `score` is RELATIVE within this clip's own
 // suggestions only, same "not comparable across clips" caveat every other
-// v4 0-1 score already carries.
+// v4 0-1 score already carries. 'attention_cut' is NOT one of spec Part
+// 9's 9 named techniques - see @speedora/contracts' own comment on
+// EDITING_TECHNIQUES for why it reuses this same shape anyway.
 export type EditingTechnique =
-  'digital_push' | 'ocr_highlight' | 'focus_shift' | 'reaction_hold' | 'pause_hold';
+  | 'digital_push'
+  | 'ocr_highlight'
+  | 'focus_shift'
+  | 'reaction_hold'
+  | 'pause_hold'
+  | 'attention_cut';
 
 export interface EditingSuggestion {
   technique: EditingTechnique;

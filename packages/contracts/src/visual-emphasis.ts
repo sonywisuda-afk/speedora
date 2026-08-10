@@ -30,12 +30,21 @@ import { transcriptWordSchema } from './transcript-word';
 // triggered only; this suggestion type is where v4's own richer "this
 // moment matters" signals get a say, for a future phase (C4) to actually
 // wire in.
+// 'attention_cut' is NOT one of spec Part 9's 9 named Visual Emphasis
+// techniques (that roadmap is complete as its own closed set - see
+// docs/ai/visual-emphasis-engine.md). It reuses this same
+// EditingSuggestionTimeline delivery shape for a separate initiative
+// ("Attention Curve Optimization," a Phase 10/Retention Curve Insights
+// follow-up: flag a moment where predicted momentum drops sharply enough
+// that a viewer plausibly starts losing interest) rather than inventing a
+// parallel data structure - see from-drop-points.ts's own comment.
 export const EDITING_TECHNIQUES = [
   'digital_push',
   'ocr_highlight',
   'focus_shift',
   'reaction_hold',
   'pause_hold',
+  'attention_cut',
 ] as const;
 export const editingTechniqueSchema = z.enum(EDITING_TECHNIQUES);
 export type EditingTechnique = z.infer<typeof editingTechniqueSchema>;
