@@ -1,7 +1,7 @@
 import type { ClipScores, ShortlistCandidateInput } from '@speedora/contracts';
+import type { StructuredCallDeps } from '@speedora/llm-client';
 import { detectSemanticEvents } from '@speedora/semantic-events';
 import { buildNarrativeGraph } from '@speedora/narrative-graph';
-import type OpenAI from 'openai';
 import { DEFAULT_SHORTLIST_TARGET_SIZE, selectShortlist } from './select-shortlist';
 
 // Mocks the two seams this module orchestrates, same "mock the seam, leave
@@ -43,7 +43,19 @@ function candidate(overrides: Partial<ShortlistCandidateInput> = {}): ShortlistC
   };
 }
 
-const fakeOpenAI = {} as unknown as OpenAI;
+// AI Intelligence v4 Phase 14.1 follow-up fix - typed via
+// StructuredCallDeps['openai'] (@speedora/llm-client, already a real
+// dependency of this package, resolved as a plain workspace symlink)
+// rather than importing the `openai` package directly. This package never
+// needs `openai` as its own dependency (deps.openai is only ever passed
+// through opaquely to detectSemanticEvents/buildNarrativeGraph, both
+// mocked below) - importing it just for this one test-only type caused
+// `openai`'s own peer-dependency-affected resolution to make pnpm's
+// injectWorkspacePackages treat this package as needing an isolated
+// injected copy for ITS OWN sibling-package consumers (see
+// docs/ai/clip-ranking-engine.md's Phase 14.1 CI-fix note) - a real,
+// reproduced-in-CI bug, not a hypothetical one.
+const fakeOpenAI = {} as unknown as StructuredCallDeps['openai'];
 
 describe('selectShortlist', () => {
   beforeEach(() => {

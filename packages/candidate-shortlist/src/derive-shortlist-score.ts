@@ -1,5 +1,5 @@
 import type { ClipScores, NarrativeGraph, SemanticEvent } from '@speedora/contracts';
-import { isPayoffSegmentType } from '@speedora/virality-engine';
+import { deriveNarrativeGraphScore, deriveSemanticEventsScore } from '@speedora/virality-engine';
 
 export interface DeriveShortlistScoreInput {
   scores: ClipScores;
@@ -33,41 +33,24 @@ function llmScore(scores: ClipScores, viralityScore: number): number {
   return (viralityScore + averageClipScores(scores)) / 2;
 }
 
-// Semantic Importance (Tier 2, cheap transcript-only LLM call). `null`
-// means the LLM call failed - a neutral midpoint (50), not a penalty, same
-// "an optional signal failing never counts against a candidate" convention
-// as every render-graph node's own fallback: null. A real empty result
-// (the model ran and found nothing significant) is different information
-// than a failure and scores below neutral, not at it.
-function semanticImportanceScore(events: SemanticEvent[] | null): number {
-  if (events === null) return 50;
-  if (events.length === 0) return 20;
-  const averageImportance =
-    events.reduce((sum, event) => sum + event.importance, 0) / events.length;
-  return averageImportance * 100;
-}
-
-// Narrative (Tier 2, cheap transcript-only LLM call). `null` means the LLM
-// call failed - same neutral-midpoint reasoning as above.
-// `unsegmented: true` is a REAL, successful result (validateGraph()'s own
-// structural fallback - see NarrativeGraph's doc comment in
-// packages/contracts/src/narrative-graph.ts), not a failure, but it does
-// mean this candidate has no clean detected story arc - scored below
-// neutral, not zero (an unsegmented clip can still be a good candidate for
-// reasons this signal alone can't see). A segmented graph scores on two
-// things: average segment-type confidence (the LLM's own certainty in its
-// structure) and whether any segment reaches a payoff type
-// (isPayoffSegmentType(), reused from @speedora/virality-engine rather
-// than re-implemented) - a narrative that never resolves is weaker even if
-// well-segmented.
-function narrativeScore(graph: NarrativeGraph | null): number {
-  if (graph === null) return 50;
-  if (graph.unsegmented || graph.segments.length === 0) return 40;
-  const averageConfidence =
-    graph.segments.reduce((sum, segment) => sum + segment.confidence, 0) / graph.segments.length;
-  const hasPayoff = graph.segments.some((segment) => isPayoffSegmentType(segment.type));
-  return averageConfidence * 60 + (hasPayoff ? 40 : 0);
-}
+// Semantic Importance and Narrative (Tier 2, cheap transcript-only LLM
+// calls) - both formulas now live in @speedora/virality-engine
+// (deriveSemanticEventsScore/deriveNarrativeGraphScore), not here. AI
+// Intelligence v4 Phase 14.1 follow-up fix: they were originally defined
+// in THIS package and exported for Phase 14.1's `@speedora/clip-ranking`
+// to reuse, but that created a real, CI-reproduced bug - this package
+// transitively depends on `openai` (via @speedora/llm-client), and pnpm's
+// `injectWorkspacePackages: true` isolates any workspace package that
+// touches openai's own peer-dependency-affected resolution when it's
+// depended on by a THIRD sibling package with no openai anchor of its own
+// (clip-ranking) - the injected copy silently never gets its `dist/`
+// populated by a plain `pnpm --filter "./packages/**" build` (see
+// docs/ai/clip-ranking-engine.md's Phase 14.1 CI-fix note for the full
+// diagnosis). @speedora/virality-engine has no openai/llm-client anywhere
+// in its own dependency tree, so it doesn't trigger this - moving the
+// functions there (which this package already depended on for
+// isPayoffSegmentType) fixes the root cause rather than working around
+// the symptom.
 
 // Pure, synchronous composite - the module's own scoring step, separate
 // from the async orchestration (select-shortlist.ts) that gathers its
@@ -76,7 +59,7 @@ function narrativeScore(graph: NarrativeGraph | null): number {
 export function deriveShortlistScore(input: DeriveShortlistScoreInput): number {
   return (
     llmScore(input.scores, input.viralityScore) * LLM_SCORE_WEIGHT +
-    semanticImportanceScore(input.semanticEvents) * SEMANTIC_SCORE_WEIGHT +
-    narrativeScore(input.narrativeGraph) * NARRATIVE_SCORE_WEIGHT
+    deriveSemanticEventsScore(input.semanticEvents) * SEMANTIC_SCORE_WEIGHT +
+    deriveNarrativeGraphScore(input.narrativeGraph) * NARRATIVE_SCORE_WEIGHT
   );
 }

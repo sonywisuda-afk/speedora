@@ -1,8 +1,8 @@
 {
-  "name": "@speedora/candidate-shortlist",
+  "name": "@speedora/clip-ranking",
   "version": "0.1.0",
   "private": true,
-  "description": "Stateless module (JSON-in/JSON-out): AI Intelligence v4 Phase 13.2 (Clip Ranking Engine, Stage B) - a cheap, transcript-only pre-rank shortlisting an expanded candidate pool (Phase 13.1) down to a size the render-graph can affordably run on, combining already-computed ClipScores/viralityScore with two new transcript-only LLM calls (Semantic Event Detection, Narrative Graph). No DB/queue access at all; see root ARCHITECTURE.md and docs/ai/clip-ranking-engine.md. Consumed by apps/worker's detect-clips adapter.",
+  "description": "Stateless module (JSON-in/JSON-out): AI Intelligence v4 Phase 14.1 (Clip Ranking Engine, Stage D) - composes 12 dimensions (Fusion, Virality, Narrative, Hook, Retention, Semantic Importance, and the 6 ClipScores dimensions) over a batch of already-rendered clips into one final rank. Scoring only - does not decide when to run or how to assemble its own input, see docs/ai/clip-ranking-engine.md's Phase 14.2. No DB/queue access at all; see root ARCHITECTURE.md.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
@@ -14,9 +14,6 @@
   },
   "dependencies": {
     "@speedora/contracts": "workspace:*",
-    "@speedora/llm-client": "workspace:*",
-    "@speedora/narrative-graph": "workspace:*",
-    "@speedora/semantic-events": "workspace:*",
     "@speedora/virality-engine": "workspace:*"
   },
   "devDependencies": {
