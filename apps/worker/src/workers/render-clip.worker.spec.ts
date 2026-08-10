@@ -856,6 +856,49 @@ describe('render-clip worker', () => {
       );
     });
 
+    // Output Resolution/Quality audit, Phase 4 - '4:5'/'4:3' explicit pins.
+    it('pins the crop to 4:5 when export.aspectRatio is explicitly set', async () => {
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, export: { aspectRatio: '4:5' } },
+        },
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(computeCropDimensionsMock).toHaveBeenCalledWith(320, 240, 4 / 5);
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ outputAspectRatio: '4:5' }),
+        }),
+      );
+    });
+
+    it('pins the crop to 4:3 when export.aspectRatio is explicitly set', async () => {
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, export: { aspectRatio: '4:3' } },
+        },
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(computeCropDimensionsMock).toHaveBeenCalledWith(320, 240, 4 / 3);
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ outputAspectRatio: '4:3' }),
+        }),
+      );
+    });
+
     it("'auto' resolves to 16:9 for a landscape source", async () => {
       getVideoDimensionsMock.mockResolvedValue({ width: 1920, height: 1080 });
       clipFindUniqueMock.mockResolvedValue({

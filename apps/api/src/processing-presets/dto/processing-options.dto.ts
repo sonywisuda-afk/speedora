@@ -29,7 +29,8 @@ const CLIP_COUNT_VALUES = [1, 2, 3, 5, 10, 20, 'unlimited'] as const;
 const EXPORT_QUALITY_PRESETS = ['maximum_quality', 'balanced', 'small_size'] as const;
 // Output Resolution/Quality audit, Phase 1 (foundation) - see @speedora/shared's
 // ProcessingOptions.export.aspectRatio/resolutionTier comments for what each value means.
-const EXPORT_ASPECT_RATIOS = ['auto', '9:16', '16:9', '1:1'] as const;
+// '4:5'/'4:3' added Phase 4 (explicit-only pins, not part of 'auto's own heuristic).
+const EXPORT_ASPECT_RATIOS = ['auto', '9:16', '16:9', '1:1', '4:5', '4:3'] as const;
 const EXPORT_RESOLUTION_TIERS = ['auto', '1080p', '720p'] as const;
 const MAX_ZOOM_IN_FRACTION_LIMIT = 0.6;
 // A generous upper bound over broll.ts's own MAX_BROLL_MOMENTS default (2) - more than this

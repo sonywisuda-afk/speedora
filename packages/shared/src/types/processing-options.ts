@@ -106,10 +106,12 @@ export interface ProcessingOptions {
   // resolveResolutionTier() for what each one actually resolves to.
   export: {
     qualityPreset: 'maximum_quality' | 'balanced' | 'small_size' | null;
-    // '9:16'/'16:9'/'1:1' pin the crop to that ratio outright; 'auto' picks one from the
-    // source's own orientation (see resolveTargetAspectRatio()); null keeps the fixed 9:16
-    // every clip has always rendered at.
-    aspectRatio: 'auto' | '9:16' | '16:9' | '1:1' | null;
+    // '9:16'/'16:9'/'1:1'/'4:5'/'4:3' pin the crop to that ratio outright; 'auto' picks one from
+    // the source's own orientation (see resolveTargetAspectRatio()) - deliberately only ever
+    // resolves to 9:16/16:9/1:1, never 4:5/4:3 (Output Resolution/Quality audit, Phase 4 - '4:5'/
+    // '4:3' are explicit-only choices, not part of the orientation heuristic's 3-way vocabulary);
+    // null keeps the fixed 9:16 every clip has always rendered at.
+    aspectRatio: 'auto' | '9:16' | '16:9' | '1:1' | '4:5' | '4:3' | null;
     // '1080p'/'720p' cap the rendered output's short side (see @speedora/reframe's
     // resolveOutputResolution()); 'auto' applies the '1080p' cap (a sane ceiling that never
     // upscales past the source, satisfying the audit's "1080p should be the default

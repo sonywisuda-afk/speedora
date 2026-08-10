@@ -63,6 +63,9 @@ const EXPORT_ASPECT_RATIO_LABELS: Record<
   '9:16': '9:16 Vertical',
   '16:9': '16:9 Landscape',
   '1:1': '1:1 Square',
+  // Output Resolution/Quality audit, Phase 4 - explicit-only pins, not reachable via "Auto".
+  '4:5': '4:5 Portrait (Instagram)',
+  '4:3': '4:3 Klasik',
 };
 
 const EXPORT_RESOLUTION_TIER_LABELS: Record<
