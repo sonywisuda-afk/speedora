@@ -667,9 +667,6 @@ importers:
       jest:
         specifier: ^29.5.0
         version: 29.7.0(@types/node@22.20.1)(supports-color@8.1.1)(ts-node@10.9.2(@types/node@22.20.1)(typescript@5.9.3))
-      openai:
-        specifier: ^6.45.0
-        version: 6.45.0(@aws-sdk/credential-provider-node@3.972.61)(@smithy/signature-v4@5.6.1)(ws@8.21.1)(zod@3.25.76)
       ts-jest:
         specifier: ^29.1.0
         version: 29.4.11(@babel/core@7.29.7(supports-color@8.1.1))(@jest/transform@29.7.0(supports-color@8.1.1))(@jest/types@29.6.3)(babel-jest@29.7.0(@babel/core@7.29.7(supports-color@8.1.1))(supports-color@8.1.1))(esbuild@0.28.1)(jest-util@29.7.0)(jest@29.7.0(supports-color@8.1.1))(typescript@5.9.3)
@@ -701,12 +698,12 @@ importers:
 
   packages/clip-ranking:
     dependencies:
-      '@speedora/candidate-shortlist':
-        specifier: workspace:*
-        version: file:packages/candidate-shortlist(@aws-sdk/credential-provider-node@3.972.61)(@smithy/signature-v4@5.6.1)(ws@8.21.1)(zod@3.25.76)
       '@speedora/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@speedora/virality-engine':
+        specifier: workspace:*
+        version: link:../virality-engine
     devDependencies:
       '@types/jest':
         specifier: ^29.5.2
@@ -3378,27 +3375,6 @@ packages:
   '@smithy/types@4.15.1':
     resolution: {integrity: sha512-x3L0XSACF6UYzKpa9biqiRMgvH5+wnFFew9Tm/grFYqgaupPwx/+ojDPpPJM8dZON3S9tjz5U+PQYsCBd1Mw5Q==}
     engines: {node: '>=18.0.0'}
-
-  '@speedora/candidate-shortlist@file:packages/candidate-shortlist':
-    resolution: {directory: packages/candidate-shortlist, type: directory}
-
-  '@speedora/contracts@file:packages/contracts':
-    resolution: {directory: packages/contracts, type: directory}
-
-  '@speedora/llm-client@file:packages/llm-client':
-    resolution: {directory: packages/llm-client, type: directory}
-
-  '@speedora/multimodal-reasoning@file:packages/multimodal-reasoning':
-    resolution: {directory: packages/multimodal-reasoning, type: directory}
-
-  '@speedora/narrative-graph@file:packages/narrative-graph':
-    resolution: {directory: packages/narrative-graph, type: directory}
-
-  '@speedora/semantic-events@file:packages/semantic-events':
-    resolution: {directory: packages/semantic-events, type: directory}
-
-  '@speedora/virality-engine@file:packages/virality-engine':
-    resolution: {directory: packages/virality-engine, type: directory}
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
@@ -10053,73 +10029,6 @@ snapshots:
   '@smithy/types@4.15.1':
     dependencies:
       tslib: 2.8.1
-
-  '@speedora/candidate-shortlist@file:packages/candidate-shortlist(@aws-sdk/credential-provider-node@3.972.61)(@smithy/signature-v4@5.6.1)(ws@8.21.1)(zod@3.25.76)':
-    dependencies:
-      '@speedora/contracts': file:packages/contracts
-      '@speedora/llm-client': file:packages/llm-client(@aws-sdk/credential-provider-node@3.972.61)(@smithy/signature-v4@5.6.1)(ws@8.21.1)(zod@3.25.76)
-      '@speedora/narrative-graph': file:packages/narrative-graph(@aws-sdk/credential-provider-node@3.972.61)(@smithy/signature-v4@5.6.1)(ws@8.21.1)(zod@3.25.76)
-      '@speedora/semantic-events': file:packages/semantic-events(@aws-sdk/credential-provider-node@3.972.61)(@smithy/signature-v4@5.6.1)(ws@8.21.1)(zod@3.25.76)
-      '@speedora/virality-engine': file:packages/virality-engine
-    transitivePeerDependencies:
-      - '@aws-sdk/credential-provider-node'
-      - '@smithy/hash-node'
-      - '@smithy/signature-v4'
-      - ws
-      - zod
-
-  '@speedora/contracts@file:packages/contracts':
-    dependencies:
-      zod: 3.25.76
-
-  '@speedora/llm-client@file:packages/llm-client(@aws-sdk/credential-provider-node@3.972.61)(@smithy/signature-v4@5.6.1)(ws@8.21.1)(zod@3.25.76)':
-    dependencies:
-      '@speedora/contracts': file:packages/contracts
-      openai: 6.45.0(@aws-sdk/credential-provider-node@3.972.61)(@smithy/signature-v4@5.6.1)(ws@8.21.1)(zod@3.25.76)
-    transitivePeerDependencies:
-      - '@aws-sdk/credential-provider-node'
-      - '@smithy/hash-node'
-      - '@smithy/signature-v4'
-      - ws
-      - zod
-
-  '@speedora/multimodal-reasoning@file:packages/multimodal-reasoning(@aws-sdk/credential-provider-node@3.972.61)(@smithy/signature-v4@5.6.1)(ws@8.21.1)(zod@3.25.76)':
-    dependencies:
-      '@speedora/contracts': file:packages/contracts
-      '@speedora/llm-client': file:packages/llm-client(@aws-sdk/credential-provider-node@3.972.61)(@smithy/signature-v4@5.6.1)(ws@8.21.1)(zod@3.25.76)
-    transitivePeerDependencies:
-      - '@aws-sdk/credential-provider-node'
-      - '@smithy/hash-node'
-      - '@smithy/signature-v4'
-      - ws
-      - zod
-
-  '@speedora/narrative-graph@file:packages/narrative-graph(@aws-sdk/credential-provider-node@3.972.61)(@smithy/signature-v4@5.6.1)(ws@8.21.1)(zod@3.25.76)':
-    dependencies:
-      '@speedora/contracts': file:packages/contracts
-      '@speedora/llm-client': file:packages/llm-client(@aws-sdk/credential-provider-node@3.972.61)(@smithy/signature-v4@5.6.1)(ws@8.21.1)(zod@3.25.76)
-    transitivePeerDependencies:
-      - '@aws-sdk/credential-provider-node'
-      - '@smithy/hash-node'
-      - '@smithy/signature-v4'
-      - ws
-      - zod
-
-  '@speedora/semantic-events@file:packages/semantic-events(@aws-sdk/credential-provider-node@3.972.61)(@smithy/signature-v4@5.6.1)(ws@8.21.1)(zod@3.25.76)':
-    dependencies:
-      '@speedora/contracts': file:packages/contracts
-      '@speedora/llm-client': file:packages/llm-client(@aws-sdk/credential-provider-node@3.972.61)(@smithy/signature-v4@5.6.1)(ws@8.21.1)(zod@3.25.76)
-      '@speedora/multimodal-reasoning': file:packages/multimodal-reasoning(@aws-sdk/credential-provider-node@3.972.61)(@smithy/signature-v4@5.6.1)(ws@8.21.1)(zod@3.25.76)
-    transitivePeerDependencies:
-      - '@aws-sdk/credential-provider-node'
-      - '@smithy/hash-node'
-      - '@smithy/signature-v4'
-      - ws
-      - zod
-
-  '@speedora/virality-engine@file:packages/virality-engine':
-    dependencies:
-      '@speedora/contracts': file:packages/contracts
 
   '@standard-schema/spec@1.1.0': {}
 

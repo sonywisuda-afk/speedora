@@ -307,20 +307,43 @@ migration, render-graph node, or worker wiring in this phase — `packages/clip-
 no consumer in `apps/worker`/`apps/api`, same "framework proven on fixtures before any caller exists"
 precedent Fusion Engine v3's M2A milestone already set.
 
-**Verification**: `packages/clip-ranking` new suite 13/13 (every sub-score's null-vs-delegate
-behavior, retention's penalty/bonus/neutral-baseline behavior and its `[0, 100]` bound, rank
-ordering, confidence coverage at both full and reduced availability, an empty-batch edge case),
-`packages/candidate-shortlist` 13/13 (unchanged - the two functions it now exports were only renamed
-from module-private, not behaviorally changed), `packages/contracts` 183/183 (unchanged count, no
+**Verification**: `packages/clip-ranking` suite 13/13 (every sub-score's null-vs-delegate behavior,
+retention's penalty/bonus/neutral-baseline behavior and its `[0, 100]` bound, rank ordering,
+confidence coverage at both full and reduced availability, an empty-batch edge case),
+`packages/candidate-shortlist` 13/13 (unchanged behavior), `packages/virality-engine` 56/56 (43
+pre-existing + 13 new, see the CI-fix note below), `packages/contracts` 183/183 (unchanged count, no
 dedicated spec needed for the new contract file), `typecheck`/`build`/`lint`/`format` all green.
-Hit one real infra snag during verification, not a logic bug: this monorepo's
-`injectWorkspacePackages: true` setting means a workspace package's `node_modules` entry for a
-transitive dependency can be an injected (copied) snapshot rather than a live symlink to source - a
-brand-new file added to an already-injected package's `dist/` (this phase added
-`packages/contracts/src/clip-ranking.ts`) isn't picked up by a plain `pnpm install`, even with
-`--force`. Required a full `node_modules` wipe and clean reinstall to resolve, confirmed via `ls`
-against the actual injected copy's contents before and after - a new failure mode worth remembering
-for any future phase that adds a new file to a package other phases already depend on transitively.
+
+**A real CI-only bug, caught and fixed after this phase's first PR push** (not caught by any local
+verification before pushing — worth internalizing, not just documenting): this monorepo's
+`injectWorkspacePackages: true` setting causes pnpm to resolve a `packages/*` → `packages/*` sibling
+dependency as an isolated, self-contained copy (`file:packages/X(<peer-dep-suffix>)`) rather than a
+live symlink (`link:../X`) whenever the target package transitively touches a dependency with
+peer-dependency-affected resolution AND the consumer has no matching anchor of its own. Concretely:
+`clip-ranking` originally depended on `candidate-shortlist` to reuse its `deriveNarrativeGraphScore`/
+`deriveSemanticEventsScore` functions — `candidate-shortlist` transitively depends on `openai` (via
+`@speedora/llm-client`), and `openai`'s own package.json declares peer dependencies
+(`@aws-sdk/credential-provider-node`/`@smithy/signature-v4`/`ws`/`zod`). `apps/worker` (which also
+depends on `candidate-shortlist`) resolves it as a plain `link:` because `worker` itself directly
+depends on `openai`, giving pnpm a consistent anchor; `clip-ranking` has no such anchor, so pnpm
+isolated it instead. The injected copy's `dist/` is a snapshot taken at `pnpm install` time and does
+NOT get refreshed by a later `pnpm --filter "./packages/**" build` step building the SOURCE package —
+so `candidate-shortlist` building successfully right before `clip-ranking` in CI's own log didn't
+help; `clip-ranking`'s `tsc` still failed with `TS2307: Cannot find module '@speedora/
+candidate-shortlist'`. A `node_modules` wipe "fixed" it locally only because local dev already had
+stale-but-present `dist/` output on disk from earlier builds in the same working tree — it never
+reproduced CI's genuinely fresh-checkout state, which is why the bug shipped past local verification.
+**Real fix**: relocated both functions into `@speedora/virality-engine` (already the shared home for
+`isPayoffSegmentType`), which has zero `openai`/`llm-client` anywhere in its own dependency tree —
+`candidate-shortlist` now imports them FROM `virality-engine` (a dependency it already had) instead
+of defining them, and `clip-ranking` depends on `virality-engine` directly instead of
+`candidate-shortlist`. Confirmed via the same reproduction methodology that first caught the bug: a
+full `node_modules` + every package's `dist/` wipe, a `pnpm install` to check the lockfile's
+resolution (`virality-engine` now resolves `link:` from `clip-ranking`, confirmed), then
+`pnpm --filter "./packages/**" build` from that genuinely clean state. **Lesson for future phases**:
+when verifying a new `packages/*` → `packages/*` sibling dependency, a `node_modules`-only wipe is
+NOT sufficient to catch this class of bug — wipe every package's `dist/` too, or the local repro will
+silently pass while CI still fails.
 
 ## 7. Verification convention
 

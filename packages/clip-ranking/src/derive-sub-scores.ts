@@ -4,10 +4,7 @@ import type {
   RetentionCurveInsights,
   RetentionPoint,
 } from '@speedora/contracts';
-import {
-  deriveNarrativeGraphScore,
-  deriveSemanticEventsScore,
-} from '@speedora/candidate-shortlist';
+import { deriveNarrativeGraphScore, deriveSemanticEventsScore } from '@speedora/virality-engine';
 
 function average(points: RetentionPoint[]): number {
   return points.reduce((sum, point) => sum + point.score, 0) / points.length;
@@ -47,12 +44,12 @@ function retentionScore(insights: RetentionCurveInsights): number {
 
 // Pure, synchronous - the module's own per-clip sub-score derivation, one
 // dimension at a time. Narrative/Semantic Importance reuse
-// @speedora/candidate-shortlist's own scoring formulas (the formula itself
-// is agnostic to whether the underlying detection was grounded - see that
-// package's own doc comment on why sharing is correct here) but apply
-// Stage D's own null-handling: excluded from the composite entirely
-// (null) rather than scored at that package's neutral midpoint (50) -
-// achieved by simply not calling the shared function when the input
+// @speedora/virality-engine's own scoring formulas (also used by Stage B's
+// @speedora/candidate-shortlist - see that package's own doc comment on
+// why they were relocated there rather than kept package-private) but
+// apply Stage D's own null-handling: excluded from the composite entirely
+// (null) rather than scored at virality-engine's own neutral midpoint (50)
+// - achieved by simply not calling the shared function when the input
 // itself is null, not by changing that function's behavior.
 export function deriveSubScores(input: ComputeClipRankInput): ClipRankSubScores {
   return {

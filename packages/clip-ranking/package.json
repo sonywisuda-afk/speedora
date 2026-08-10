@@ -13,8 +13,8 @@
     "test": "jest"
   },
   "dependencies": {
-    "@speedora/candidate-shortlist": "workspace:*",
-    "@speedora/contracts": "workspace:*"
+    "@speedora/contracts": "workspace:*",
+    "@speedora/virality-engine": "workspace:*"
   },
   "devDependencies": {
     "@types/jest": "^29.5.2",

@@ -5,10 +5,7 @@ import type {
   RetentionPoint,
   ViralityPrediction,
 } from '@speedora/contracts';
-import {
-  deriveNarrativeGraphScore,
-  deriveSemanticEventsScore,
-} from '@speedora/candidate-shortlist';
+import { deriveNarrativeGraphScore, deriveSemanticEventsScore } from '@speedora/virality-engine';
 import { deriveSubScores } from './derive-sub-scores';
 
 const NEUTRAL_SCORES: ClipScores = {
