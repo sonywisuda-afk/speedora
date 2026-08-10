@@ -167,6 +167,24 @@ function resolveZoomInFraction(processingOptions: ProcessingOptions | null): num
   return processingOptions?.smartCrop.zoomInFraction ?? undefined;
 }
 
+// AI B-roll Recommendation UI control - `enabled` true (run it) with no
+// processingOptions at all, matching every pre-existing render exactly
+// (same "null means the pipeline's own default" convention as every other
+// resolveXxx above). `maxMoments` mirrors resolveZoomInFraction's
+// undefined-not-null convention so findBRollMoments()'s own default
+// parameter (broll.ts's exported MAX_BROLL_MOMENTS) applies unchanged when
+// nothing was configured, rather than this function duplicating that
+// constant.
+function resolveBRollOptions(processingOptions: ProcessingOptions | null): {
+  enabled: boolean;
+  maxMoments: number | undefined;
+} {
+  return {
+    enabled: processingOptions?.broll.enabled ?? true,
+    maxMoments: processingOptions?.broll.maxCutaways ?? undefined,
+  };
+}
+
 // Pre-Processing Settings roadmap (Phase 3) - boosts (not replaces) each
 // preferred signal's own DEFAULT_THUMBNAIL_WEIGHTS entry, so a preference
 // shifts which instant wins without zeroing out every other signal's real
@@ -799,8 +817,9 @@ async function buildBRollOverlays(
   clipDurationSeconds: number,
   outputWidth: number,
   outputHeight: number,
+  maxMoments: number | undefined,
 ): Promise<{ overlays: BRollOverlay[]; finalPaths: string[] }> {
-  const moments = findBRollMoments(keywords, clipRelativeWords, clipDurationSeconds);
+  const moments = findBRollMoments(keywords, clipRelativeWords, clipDurationSeconds, maxMoments);
 
   // Reliability/performance hardening pass - each moment's search/download/
   // fade-in/fade-out is independent of every other moment (its own
@@ -1128,13 +1147,21 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // below.
             const highlight = computeHighlightScore(toFusionInput(graphResult, clipId, scores));
 
-            const { overlays: broll, finalPaths } = await buildBRollOverlays(
-              keywords,
-              toClipRelativeWords(transcript, startTime),
-              endTime - startTime,
-              reframe.outputWidth,
-              reframe.outputHeight,
-            );
+            // AI B-roll Recommendation UI control - resolved once, same "resolve then branch"
+            // shape resolveRenderQuality/resolveSceneAnalysisFlags already use. Disabled skips
+            // buildBRollOverlays() (and therefore findBRollMoments()/every stock-asset search)
+            // entirely, rather than running the search and discarding its results.
+            const brollOptions = resolveBRollOptions(processingOptions);
+            const { overlays: broll, finalPaths } = brollOptions.enabled
+              ? await buildBRollOverlays(
+                  keywords,
+                  toClipRelativeWords(transcript, startTime),
+                  endTime - startTime,
+                  reframe.outputWidth,
+                  reframe.outputHeight,
+                  brollOptions.maxMoments,
+                )
+              : { overlays: [], finalPaths: [] };
             brollPaths = finalPaths;
 
             // Watermark roadmap (P3c) - same "getObjectStream + scratch path

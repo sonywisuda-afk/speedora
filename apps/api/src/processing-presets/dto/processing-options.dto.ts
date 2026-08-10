@@ -28,6 +28,10 @@ import { toSharedCaptionStyle } from '../../videos/transcript-segment.util';
 const CLIP_COUNT_VALUES = [1, 2, 3, 5, 10, 20, 'unlimited'] as const;
 const EXPORT_QUALITY_PRESETS = ['maximum_quality', 'balanced', 'small_size'] as const;
 const MAX_ZOOM_IN_FRACTION_LIMIT = 0.6;
+// A generous upper bound over broll.ts's own MAX_BROLL_MOMENTS default (2) - more than this
+// starts to feel like a slideshow rather than a talking-head clip with the occasional B-roll
+// accent (see broll.ts's own MAX_BROLL_MOMENTS comment), so the UI/API shouldn't allow it at all.
+const MAX_BROLL_CUTAWAYS_LIMIT = 5;
 
 class ProjectOptionsDto {
   @IsOptional()
@@ -192,6 +196,21 @@ class ThumbnailOptionsDto {
   preferredSignals?: ThumbnailSignal[];
 }
 
+// AI B-roll Recommendation - see @speedora/shared's ProcessingOptions.broll comment for why this
+// isn't numbered like the sections above (it's item 8 of a separate, later gap-analysis list, not
+// part of the original 24-section spec).
+class BRollOptionsDto {
+  @IsOptional()
+  @IsBoolean()
+  enabled?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  @Max(MAX_BROLL_CUTAWAYS_LIMIT)
+  maxCutaways?: number | null;
+}
+
 // Validates @speedora/shared's ProcessingOptions shape - every field here
 // maps to a real, wired pipeline parameter (see that type's own comment for
 // which ones); nothing here is decorative. `version` is deliberately NOT a
@@ -253,6 +272,11 @@ export class ProcessingOptionsDto {
   @ValidateNested()
   @Type(() => ThumbnailOptionsDto)
   thumbnail?: ThumbnailOptionsDto;
+
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => BRollOptionsDto)
+  broll?: BRollOptionsDto;
 }
 
 // A validated ProcessingOptionsDto has every field the class-validator
@@ -305,5 +329,9 @@ export function toProcessingOptions(dto: ProcessingOptionsDto): ProcessingOption
       scheduledAt: dto.publishing?.scheduledAt ?? null,
     },
     thumbnail: { preferredSignals: dto.thumbnail?.preferredSignals ?? [] },
+    broll: {
+      enabled: dto.broll?.enabled ?? true,
+      maxCutaways: dto.broll?.maxCutaways ?? null,
+    },
   };
 }

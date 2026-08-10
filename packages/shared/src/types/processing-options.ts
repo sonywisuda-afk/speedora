@@ -208,6 +208,21 @@ export interface ProcessingOptions {
   thumbnail: {
     preferredSignals: ThumbnailSignal[];
   };
+  // Owner: apps/worker/broll.ts (AI B-roll Recommendation) - NOT part of
+  // the original 24-section spec every other group above traces back to;
+  // this is item 8 of a separate, later gap-analysis list against
+  // reference platforms (see docs/ai/broll-recommendation.md). `enabled`
+  // (true by default, matching every pre-existing render - B-roll has
+  // always run unconditionally until this control existed) skips
+  // findBRollMoments()/buildBRollOverlays() entirely rather than running
+  // the search and discarding results. `maxCutaways` overrides
+  // broll.ts's own MAX_BROLL_MOMENTS constant (2) when set; null keeps
+  // that default - same "null means pipeline default" convention as
+  // clipGeneration.clipCount/smartCrop.zoomInFraction.
+  broll: {
+    enabled: boolean;
+    maxCutaways: number | null;
+  };
 }
 
 export const DEFAULT_PROCESSING_OPTIONS: ProcessingOptions = {
@@ -235,6 +250,7 @@ export const DEFAULT_PROCESSING_OPTIONS: ProcessingOptions = {
   seo: { autoGeneratePlatformCopy: false, platforms: [] },
   publishing: { autoPublish: false, socialAccountIds: [], scheduledAt: null },
   thumbnail: { preferredSignals: [] },
+  broll: { enabled: true, maxCutaways: null },
 };
 
 // Every DB-stored ProcessingOptions value (Video.processingOptions,
@@ -280,6 +296,7 @@ export function migrateProcessingOptions(raw: unknown): ProcessingOptions {
     seo: { ...DEFAULT_PROCESSING_OPTIONS.seo, ...value.seo },
     publishing: { ...DEFAULT_PROCESSING_OPTIONS.publishing, ...value.publishing },
     thumbnail: { ...DEFAULT_PROCESSING_OPTIONS.thumbnail, ...value.thumbnail },
+    broll: { ...DEFAULT_PROCESSING_OPTIONS.broll, ...value.broll },
   };
 }
 

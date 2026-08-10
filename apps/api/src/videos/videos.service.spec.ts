@@ -324,6 +324,7 @@ describe('VideosService', () => {
         seo: { autoGeneratePlatformCopy: false, platforms: [] },
         publishing: { autoPublish: false, socialAccountIds: [], scheduledAt: null },
         thumbnail: { preferredSignals: [] },
+        broll: { enabled: true, maxCutaways: null },
       };
 
       await service.upload(
@@ -498,6 +499,7 @@ describe('VideosService', () => {
         seo: { autoGeneratePlatformCopy: false, platforms: [] },
         publishing: { autoPublish: false, socialAccountIds: [], scheduledAt: null },
         thumbnail: { preferredSignals: [] },
+        broll: { enabled: true, maxCutaways: null },
       };
 
       await service.importFromYoutube(
@@ -2270,6 +2272,7 @@ describe('VideosService', () => {
       seo: { autoGeneratePlatformCopy: false, platforms: [] },
       publishing: { autoPublish: false, socialAccountIds: [], scheduledAt: null },
       thumbnail: { preferredSignals: [] },
+      broll: { enabled: true, maxCutaways: null },
     };
 
     it('persists processingOptions, transitions PENDING_SETTINGS to UPLOADED, and enqueues transcribe', async () => {

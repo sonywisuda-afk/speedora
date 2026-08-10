@@ -64,12 +64,30 @@ describe('findBRollMoments', () => {
     expect(findBRollMoments(['range'], words, 6.5)).toEqual([]);
   });
 
-  it('caps at 2 moments even when more keywords match', () => {
+  it('caps at 2 moments even when more keywords match (default maxMoments, matching MAX_BROLL_MOMENTS)', () => {
     const manyWords = [word('alpha', 0, 0.3), word('beta', 10, 10.3), word('gamma', 20, 20.3)];
     const moments = findBRollMoments(['alpha', 'beta', 'gamma'], manyWords, 30);
 
     expect(moments).toHaveLength(2);
     expect(moments.map((m) => m.keyword)).toEqual(['alpha', 'beta']);
+  });
+
+  // AI B-roll Recommendation UI control (Pre-Processing Settings' broll.maxCutaways) - an
+  // explicit maxMoments overrides the default cap, both up and down.
+  it('honors an explicit maxMoments override, capping below the default', () => {
+    const words2 = [word('alpha', 0, 0.3), word('beta', 10, 10.3), word('gamma', 20, 20.3)];
+    const moments = findBRollMoments(['alpha', 'beta', 'gamma'], words2, 30, 1);
+
+    expect(moments).toHaveLength(1);
+    expect(moments.map((m) => m.keyword)).toEqual(['alpha']);
+  });
+
+  it('honors an explicit maxMoments override, allowing more than the default', () => {
+    const words3 = [word('alpha', 0, 0.3), word('beta', 10, 10.3), word('gamma', 20, 20.3)];
+    const moments = findBRollMoments(['alpha', 'beta', 'gamma'], words3, 30, 3);
+
+    expect(moments).toHaveLength(3);
+    expect(moments.map((m) => m.keyword)).toEqual(['alpha', 'beta', 'gamma']);
   });
 
   it('skips a keyword whose moment would crowd an already-chosen one', () => {

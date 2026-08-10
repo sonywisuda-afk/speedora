@@ -118,3 +118,60 @@ One real finding from running against actual ffmpeg (not assumed): the qtrle enc
 alpha-capable, just a different exact tag, corrected in the test rather than forcing reality to
 match the original assumption. Full `apps/worker` suite: 56 suites / 668 tests passing.
 `typecheck`/`lint`/`format` all green.
+
+## Follow-up: Pre-Processing Settings UI control
+
+The other standing gap this doc named ("no user-facing UI control at all") is closed. B-roll joins
+the existing Pre-Processing Settings system (`ProcessingOptions`, see
+`packages/shared/src/types/processing-options.ts` and
+`apps/web/components/processing-settings/ProcessingSettings.tsx`) as a new `broll` group - the same
+versioned/migrated, one-owner-per-group pattern every other settings-screen section already
+follows, rather than a bespoke one-off control.
+
+**Scope resolved via `AskUserQuestion`**: three options presented (a plain on/off toggle only; on/off
+plus an asset-type picker logo/stock/both; on/off plus a max-cutaways-per-clip override). **User
+chose on/off + max cutaways** - the asset-type picker was set aside as more complexity than
+requested for a first pass.
+
+**Shipped**:
+
+- `packages/shared/src/types/processing-options.ts` - `ProcessingOptions.broll: { enabled: boolean;
+  maxCutaways: number | null }`, owner `apps/worker/broll.ts`. `enabled` defaults to `true` (matches
+  every pre-existing render - B-roll has always run unconditionally until this control existed).
+  `maxCutaways: null` means "use broll.ts's own default", the same convention
+  `clipGeneration.clipCount`/`smartCrop.zoomInFraction` already use. Explicitly documented as NOT
+  part of the original 24-section spec every other group traces back to - this is item 8 of the
+  separate, later gap-analysis list.
+- `apps/api/src/processing-presets/dto/processing-options.dto.ts` - new `BRollOptionsDto`
+  (`enabled?: boolean`, `maxCutaways?: number | null` bounded `1-5` via a new
+  `MAX_BROLL_CUTAWAYS_LIMIT`), wired into `ProcessingOptionsDto`/`toProcessingOptions()` - reused
+  automatically by every existing caller (upload, YouTube import, start-processing, processing
+  presets) with no per-caller change needed.
+- `apps/worker/src/broll.ts` - `findBRollMoments()` gained an optional `maxMoments` parameter
+  (default `MAX_BROLL_MOMENTS`, now exported so the worker's own resolver can fall back to the exact
+  same constant instead of a second, independently-chosen number).
+- `apps/worker/src/workers/render-clip.worker.ts` - a new `resolveBRollOptions()`, matching the
+  established `resolveRenderQuality()`/`resolveSceneAnalysisFlags()`/`resolveZoomInFraction()` shape
+  exactly. When disabled, `buildBRollOverlays()` (and therefore `findBRollMoments()`/every
+  stock-asset search) is skipped entirely rather than run and its results discarded.
+- `apps/web/components/processing-settings/ProcessingSettings.tsx` - a new "B-roll Otomatis"
+  `SectionCard` (checkbox + bounded number input), placed alongside every other functional section,
+  using the exact same `update()`/`options.<group>` pattern as Scene Analysis/Smart Crop.
+- No migration (the whole feature lives in the existing `Video.processingOptions` JSON column, no
+  schema change needed).
+
+**Explicitly deferred**: an asset-type picker (logo only / stock only / both) - set aside by the
+user's own scope decision above, worth revisiting if a real need for finer-grained control surfaces.
+**A pre-existing, unrelated gap noted but not fixed here**: `ProcessingSettings.tsx` (800+ lines, ~12
+sections) has never had a dedicated component test file, unlike ~23 other `apps/web` components -
+this addition follows that same pre-existing state rather than retroactively building test
+infrastructure for the whole component as a side effect of one new section.
+
+**Verification**: `packages/shared` (`processing-options.spec.ts` - the fully-populated-value
+round-trip test, the partial-value fill-in test, and 1 new dedicated `broll` test, all updated/added);
+`apps/api` (`videos.service.spec.ts`'s 3 literal `ProcessingOptions` fixtures updated); `apps/worker`
+(`broll.spec.ts` +2 new `maxMoments` tests, `render-clip.worker.spec.ts` +3 new tests: disabled skips
+the pipeline entirely, an explicit `maxCutaways` threads through, the unconfigured case passes
+`undefined` rather than a duplicated constant). Full suites: `packages/shared` 83/83,
+`apps/api` 1268/1268, `apps/worker` 673/673. `typecheck`/`lint`/`format` all green across all four
+touched packages (`shared`/`api`/`worker`/`web`).
