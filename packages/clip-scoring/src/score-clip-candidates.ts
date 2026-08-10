@@ -22,6 +22,13 @@ export interface ScoreClipCandidatesDeps {
   openai: OpenAI;
 }
 
+// AI Intelligence v4 Phase 13.1 (Clip Ranking Engine, see
+// docs/ai/clip-ranking-engine.md) - this was the module's own hard default
+// AND, until this phase, the number baked into the system prompt text below
+// regardless of what a caller passed as `maxCandidates`. It's still the
+// default for every caller that omits `maxCandidates` (unchanged), but the
+// prompt itself is now templated off the real `maxCandidates` value instead
+// of a literal "1-3" - see the system prompt below.
 const MAX_CANDIDATES = 3;
 
 // Clip length bounds. The minimum is enforced (not just asked of the model)
@@ -267,8 +274,14 @@ export async function scoreClipCandidates(
         role: 'system',
         content:
           'You select the most engaging, shareable moments from a video transcript for ' +
-          'short-form vertical clips (TikTok/Reels/Shorts). Pick 1-3 non-overlapping clips, ' +
-          'using only timestamps within ' +
+          'short-form vertical clips (TikTok/Reels/Shorts). Pick between 1 and ' +
+          `${maxCandidates} non-overlapping clips - find as many genuinely distinct, ` +
+          'high-quality moments as the video actually contains, up to that maximum. Do NOT ' +
+          'pad the list with weak, repetitive, or filler candidates just to reach the ' +
+          'maximum, and do NOT stop early if the video has more good moments available than ' +
+          'your current count - a longer source video with many strong moments should ' +
+          `produce more candidates than a short one, up to ${maxCandidates}. Use only ` +
+          'timestamps within ' +
           `${videoStart.toFixed(1)}-${videoEnd.toFixed(1)} seconds. Prioritize completeness ` +
           'over hitting an exact duration: each clip must capture a COMPLETE, self-contained ' +
           'moment - the full build-up AND its payoff/conclusion, long enough to make sense on ' +

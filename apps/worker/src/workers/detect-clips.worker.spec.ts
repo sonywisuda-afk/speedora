@@ -30,7 +30,15 @@ jest.mock('../queues', () => ({
 // packages/clip-scoring's own fixture-based spec, with no DB/queue mocking
 // at all.
 const scoreClipCandidatesMock = jest.fn();
+// AI Intelligence v4 Phase 13.1 (Clip Ranking Engine) - isCandidateExpansionEnabled
+// is left REAL (via requireActual), not mocked, so tests can flip the real
+// env var and assert the real read - same "mock the seam, leave real
+// classes/pure functions real" convention this file's other jest.mock calls
+// already follow (see the bullmq mock's own comment above).
+// CANDIDATE_EXPANSION_POOL_SIZE is also left real since it's a plain
+// constant, not a seam.
 jest.mock('@speedora/clip-scoring', () => ({
+  ...jest.requireActual('@speedora/clip-scoring'),
   scoreClipCandidates: (...args: unknown[]) => scoreClipCandidatesMock(...args),
 }));
 
@@ -240,6 +248,69 @@ describe('detect-clips worker (adapter)', () => {
     const call = scoreClipCandidatesMock.mock.calls[0][0] as { maxCandidates: number };
     expect(Number.isFinite(call.maxCandidates)).toBe(true);
     expect(call.maxCandidates).toBeGreaterThan(3);
+  });
+
+  // AI Intelligence v4 Phase 13.1 (Clip Ranking Engine, see
+  // docs/ai/clip-ranking-engine.md).
+  describe('CANDIDATE_EXPANSION_ENABLED', () => {
+    const original = process.env.CANDIDATE_EXPANSION_ENABLED;
+
+    afterEach(() => {
+      if (original === undefined) delete process.env.CANDIDATE_EXPANSION_ENABLED;
+      else process.env.CANDIDATE_EXPANSION_ENABLED = original;
+    });
+
+    it('requests the funnel pool size when the flag is on and clipCount is omitted', async () => {
+      process.env.CANDIDATE_EXPANSION_ENABLED = 'true';
+      scoreClipCandidatesMock.mockResolvedValue({ candidates: [] });
+      videoFindUniqueMock.mockResolvedValue({
+        status: VideoStatus.TRANSCRIBED,
+        processingOptions: null,
+      });
+      const segments: TranscriptSegment[] = [{ start: 0, end: 5, text: 'hi' }];
+
+      const processor = getProcessor();
+      await processor(fakeJob({ videoId: 'video-1', segments }));
+
+      expect(scoreClipCandidatesMock).toHaveBeenCalledWith(
+        expect.objectContaining({ maxCandidates: 30 }),
+        { openai: {} },
+      );
+    });
+
+    it('leaves the module default untouched when the flag is off, even with no processingOptions', async () => {
+      delete process.env.CANDIDATE_EXPANSION_ENABLED;
+      scoreClipCandidatesMock.mockResolvedValue({ candidates: [] });
+      videoFindUniqueMock.mockResolvedValue({
+        status: VideoStatus.TRANSCRIBED,
+        processingOptions: null,
+      });
+      const segments: TranscriptSegment[] = [{ start: 0, end: 5, text: 'hi' }];
+
+      const processor = getProcessor();
+      await processor(fakeJob({ videoId: 'video-1', segments }));
+
+      const call = scoreClipCandidatesMock.mock.calls[0][0] as { maxCandidates?: number };
+      expect(call.maxCandidates).toBeUndefined();
+    });
+
+    it("an explicit clipCount still wins over the flag's pool size", async () => {
+      process.env.CANDIDATE_EXPANSION_ENABLED = 'true';
+      scoreClipCandidatesMock.mockResolvedValue({ candidates: [] });
+      videoFindUniqueMock.mockResolvedValue({
+        status: VideoStatus.TRANSCRIBED,
+        processingOptions: { version: 1, clipGeneration: { clipCount: 5 } },
+      });
+      const segments: TranscriptSegment[] = [{ start: 0, end: 5, text: 'hi' }];
+
+      const processor = getProcessor();
+      await processor(fakeJob({ videoId: 'video-1', segments }));
+
+      expect(scoreClipCandidatesMock).toHaveBeenCalledWith(
+        expect.objectContaining({ maxCandidates: 5 }),
+        { openai: {} },
+      );
+    });
   });
 
   it('applies processingOptions.subtitle as the new clip default instead of the schema default', async () => {

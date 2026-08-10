@@ -1,13 +1,18 @@
-# Visual Emphasis Integration Audit (Gate A)
+# Visual Emphasis Integration Audit (Gate A & B)
 
-> **Status: Gate A audit document — no code changes.** Written after PR #68-#77 (all 9 spec Part 9
-> techniques implemented, all flag-off) per the user's explicit direction (2026-08-09): before any
-> flag goes live, audit the 9 techniques as ONE system, test cross-technique interactions (Gate B),
-> then run systematic real-footage calibration (Gate C). This document is Gate A's deliverable — a
-> single audit matrix answering "do these 9 rendering behaviors form one coherent editing system?"
-> instead of 9 separate per-phase audits. See [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md)
-> for each phase's own "architecture (as shipped)" section — this doc doesn't repeat that detail,
-> it cross-references and synthesizes it.
+> **Status: Gate A and Gate B both CONFIRMED CLOSED — no production code changes across either
+> gate.** Written after PR #68-#77 (all 9 spec Part 9 techniques implemented, all flag-off) per the
+> user's explicit direction (2026-08-09): before any flag goes live, audit the 9 techniques as ONE
+> system (Gate A), test cross-technique interactions (Gate B), then run systematic real-footage
+> calibration (Gate C). Gate A is the single audit matrix answering "do these 9 rendering behaviors
+> form one coherent editing system?" Gate B (sub-phases B1-B5, see their own findings/decision
+> subsections below, plus the consolidated "Gate B review & closeout" section) is the
+> evidence-gathering pass this matrix's own findings demanded — user-confirmed PASS for its
+> evidence-gathering scope, with editorial calibration explicitly deferred to Gate C. **Gate C is
+> next, blocked on real footage this sandbox doesn't have — needs its own planning session.** See
+> [`ai/visual-emphasis-engine.md`](./visual-emphasis-engine.md) for each phase's own "architecture
+> (as shipped)" section — this doc doesn't repeat that detail, it cross-references and synthesizes
+> it.
 
 Every fact below was re-verified against the real source in this pass (not recalled from memory) —
 `packages/visual-emphasis/src/*.ts`, `packages/reframe/src/crop-path.ts` +`ocr-highlight.ts`,
@@ -624,29 +629,33 @@ like frame-by-frame.
 GATE A — Architecture            ✅ COMPLETE (this document)
         │
         ▼
-GATE B — Interaction + visual coherence      ✅ EVIDENCE COMPLETE (B1-B5 all gathered)
+GATE B — Interaction + visual coherence      ✅ CONFIRMED CLOSED (B1-B5 + review, 2026-08-09)
         │  B1 Focus Shift×Digital Push  ✅ coexistence confirmed, no arbitration
         │  B2 OCR×moving crop           ✅ quantified, conditional risk, coupled to B1
         │  B3 Pause Hold×Reaction Hold  ✅ confirmed intentional (product dependency)
         │  B4 all-flags-on              ✅ technical integration PASS, density measured
         │  B5 chaos stress test         ✅ density/velocity/persistence/recovery measured,
         │                                  A vs. B comparison run - NO editorial verdict
-        │                                  rendered, per instruction (Gate B review pending)
+        │                                  rendered, per instruction
+        │  Gate B determination: PASS for its own evidence-gathering scope
+        │  (Category A technical - solid; Category B editorial - open,
+        │  carried to Gate C) - user-confirmed, not a unilateral call
         ▼
-GATE C — Real-footage calibration            ONLY AFTER GATE B REVIEW
+GATE C — Real-footage calibration            NEXT (blocked: needs real footage - none
+                                              available in this sandbox; own planning
+                                              session required)
 ```
 
 **No production flag goes live while Gate B is incomplete.** This restates, not replaces, the
 Gate C section below - Gate B is now the explicit, ordered blocker between "architecture is sound"
 and "footage says it looks good."
 
-## Gate B review & closeout (proposed 2026-08-09 — pending user confirmation)
+## Gate B review & closeout (CONFIRMED 2026-08-09)
 
 Per the explicit instruction to review the full B1-B5 evidence before deciding whether Gate B is a
 genuine PASS and what carries to Gate C, this section consolidates all 5 sub-phases into one
-determination. **This is a proposed reading of the evidence, not a unilateral decision** — Gate B's
-own PASS/FAIL call belongs to whoever reviews it next, same as every arbitration/threshold decision
-this gate has deferred so far.
+determination. **The user reviewed this determination and explicitly confirmed it as written
+(2026-08-09) — Gate B is officially closed.**
 
 ### Consolidated findings
 
@@ -681,9 +690,10 @@ was evidence-gathering exactly as scoped from the start.
   implementation itself needs to change before Gate C can proceed — every finding is a
   characterization of INTENDED (if uncalibrated) behavior, not a bug.
 
-**Recommended reading: Gate B is complete and its own success criterion — a full, evidence-backed
-map of every interaction risk, with nothing broken — is met.** Whether that constitutes "PASS" in
-the sense of "ready for Gate C" is the call being deferred to this review, exactly as instructed.
+**Confirmed determination: Gate B PASSES its own evidence-gathering scope** — a full, evidence-
+backed map of every interaction risk, with nothing broken, is met. This is explicitly NOT the same
+as "ready to enable any flag in production" — Category B (editorial quality) remains open and
+carries into Gate C in full, per the itemized list below.
 
 ### What carries forward to Gate C (concrete, not general)
 
