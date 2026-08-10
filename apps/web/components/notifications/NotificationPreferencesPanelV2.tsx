@@ -120,8 +120,17 @@ export function NotificationPreferencesPanelV2() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h3 className="font-display text-xs uppercase tracking-wide text-muted-foreground">
+      {/* P1 accessibility follow-up (Notification Center V2 post-release backlog) -
+          role="group" + aria-labelledby is the WAI-ARIA equivalent of fieldset/legend for a
+          group of checkboxes, chosen over restructuring into a real <fieldset> to avoid that
+          element's own cross-browser layout quirks (default border/padding/min-width) in a
+          component the user explicitly asked to keep simple ("tidak perlu terlalu kompleks") -
+          zero visual change, screen readers now announce which section a checkbox belongs to. */}
+      <div role="group" aria-labelledby="notification-prefs-group-in-app">
+        <h3
+          id="notification-prefs-group-in-app"
+          className="font-display text-xs uppercase tracking-wide text-muted-foreground"
+        >
           In-App
         </h3>
         <div className="mt-1 divide-y divide-border">
@@ -137,34 +146,40 @@ export function NotificationPreferencesPanelV2() {
         </div>
       </div>
 
-      {data.channels.map((channelPreference) => (
-        <div key={channelPreference.channel}>
-          <h3 className="font-display text-xs uppercase tracking-wide text-muted-foreground">
-            {CHANNEL_LABELS[channelPreference.channel]}
-          </h3>
-          <div className="mt-1 divide-y divide-border">
-            {channelPreference.comingSoon ? (
-              <div className="flex items-center justify-between py-2 font-body text-sm text-muted-foreground">
-                <span>{CHANNEL_LABELS[channelPreference.channel]}</span>
-                <span className="rounded-full border border-border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide">
-                  Coming Soon
-                </span>
-              </div>
-            ) : (
-              <PreferenceRow
-                label="Enabled"
-                checked={channelPreference.enabled}
-                disabled={
-                  !channelPreference.configured ||
-                  pending === `channel:${channelPreference.channel}`
-                }
-                hint={!channelPreference.configured ? 'belum dikonfigurasi' : undefined}
-                onChange={(checked) => handleChannelToggle(channelPreference.channel, checked)}
-              />
-            )}
+      {data.channels.map((channelPreference) => {
+        const groupId = `notification-prefs-group-channel-${channelPreference.channel}`;
+        return (
+          <div key={channelPreference.channel} role="group" aria-labelledby={groupId}>
+            <h3
+              id={groupId}
+              className="font-display text-xs uppercase tracking-wide text-muted-foreground"
+            >
+              {CHANNEL_LABELS[channelPreference.channel]}
+            </h3>
+            <div className="mt-1 divide-y divide-border">
+              {channelPreference.comingSoon ? (
+                <div className="flex items-center justify-between py-2 font-body text-sm text-muted-foreground">
+                  <span>{CHANNEL_LABELS[channelPreference.channel]}</span>
+                  <span className="rounded-full border border-border px-2 py-0.5 font-mono text-[10px] uppercase tracking-wide">
+                    Coming Soon
+                  </span>
+                </div>
+              ) : (
+                <PreferenceRow
+                  label="Enabled"
+                  checked={channelPreference.enabled}
+                  disabled={
+                    !channelPreference.configured ||
+                    pending === `channel:${channelPreference.channel}`
+                  }
+                  hint={!channelPreference.configured ? 'belum dikonfigurasi' : undefined}
+                  onChange={(checked) => handleChannelToggle(channelPreference.channel, checked)}
+                />
+              )}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       <div className="flex items-start gap-2 rounded-md border border-border bg-muted/40 p-3">
         <Info className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
