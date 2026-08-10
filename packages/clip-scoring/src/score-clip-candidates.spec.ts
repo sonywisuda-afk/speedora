@@ -301,6 +301,39 @@ describe('scoreClipCandidates', () => {
       expect(systemMessage.content).toContain('45 seconds long');
     });
 
+    // AI Intelligence v4 Phase 13.1 (Clip Ranking Engine, see
+    // docs/ai/clip-ranking-engine.md) - the real bug fix: the prompt used to
+    // hardcode "Pick 1-3 non-overlapping clips" regardless of maxCandidates,
+    // so raising the cap had no effect on what the model was actually asked
+    // for. These two tests lock in that the prompt text now tracks the real
+    // value in both directions.
+    it('tells the model the real maxCandidates ceiling in the prompt when raised', async () => {
+      const segments: ClipScoringSegment[] = [{ start: 0, end: 600, text: 'long video' }];
+      const openai = fakeOpenAI([
+        rawCandidate({ startTime: 0, endTime: 30, viralityScore: 90, hookText: 'a' }),
+      ]);
+
+      await scoreClipCandidates({ segments, maxCandidates: 30 }, { openai });
+
+      const call = (openai.chat.completions.create as jest.Mock).mock.calls[0][0];
+      const systemMessage = call.messages.find((m: { role: string }) => m.role === 'system');
+      expect(systemMessage.content).toContain('Pick between 1 and 30 non-overlapping clips');
+      expect(systemMessage.content).not.toContain('Pick 1-3');
+    });
+
+    it('keeps the module default of 3 in the prompt when maxCandidates is omitted', async () => {
+      const segments: ClipScoringSegment[] = [{ start: 0, end: 60, text: 'video' }];
+      const openai = fakeOpenAI([
+        rawCandidate({ startTime: 0, endTime: 30, viralityScore: 90, hookText: 'a' }),
+      ]);
+
+      await scoreClipCandidates({ segments }, { openai });
+
+      const call = (openai.chat.completions.create as jest.Mock).mock.calls[0][0];
+      const systemMessage = call.messages.find((m: { role: string }) => m.role === 'system');
+      expect(systemMessage.content).toContain('Pick between 1 and 3 non-overlapping clips');
+    });
+
     // Pre-Processing Settings roadmap (Phase 2).
     it('filters out candidates below minConfidence before the length/cap filters', async () => {
       const segments: ClipScoringSegment[] = [{ start: 0, end: 120, text: 'video' }];

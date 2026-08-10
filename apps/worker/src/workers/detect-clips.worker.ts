@@ -1,5 +1,9 @@
 import * as Sentry from '@sentry/node';
-import { scoreClipCandidates } from '@speedora/clip-scoring';
+import {
+  CANDIDATE_EXPANSION_POOL_SIZE,
+  isCandidateExpansionEnabled,
+  scoreClipCandidates,
+} from '@speedora/clip-scoring';
 import type { ClipScoringInput } from '@speedora/contracts';
 import { updateVideoStatus, VideoStatus } from '@speedora/database';
 import {
@@ -44,11 +48,14 @@ const logger = forStage('detect-clips');
 // into @speedora/clip-scoring's own maxCandidates/minClipSeconds/
 // maxClipSeconds override fields. 'unlimited' maps to a very high cap
 // rather than literally uncapped - the module always needs a real number to
-// .slice() against, and the LLM itself is already asked for "1-3" clips in
-// its system prompt regardless, so this just removes this adapter's own
-// additional ceiling. Every field left null/absent (including a video with
+// .slice() against. Every field left null/absent (including a video with
 // no processingOptions at all - the common case for anything created before
-// this roadmap) resolves to the module's own untouched defaults.
+// this roadmap) resolves to the module's own untouched defaults - see
+// toScoringInput() below for the AI Intelligence v4 Phase 13.1 addition to
+// that omitted-clipCount case. (Pre-Phase-13.1, the LLM's own system prompt
+// hardcoded "Pick 1-3" regardless of maxCandidates, so raising this cap had
+// no real effect - that bug is now fixed in @speedora/clip-scoring itself,
+// see docs/ai/clip-ranking-engine.md.)
 const UNLIMITED_CLIP_COUNT_CAP = 50;
 
 function toScoringInput(
@@ -56,6 +63,19 @@ function toScoringInput(
   processingOptions: ProcessingOptions | null,
 ): ClipScoringInput {
   const clipCount = processingOptions?.clipGeneration.clipCount;
+  // AI Intelligence v4 Phase 13.1 (Clip Ranking Engine, see
+  // docs/ai/clip-ranking-engine.md) - an explicit clipCount (a number or
+  // 'unlimited') is always the user's own Pre-Processing Settings choice and
+  // wins unconditionally, same as before this phase. Only the OMITTED case
+  // (the common case - most videos have no processingOptions at all) now
+  // considers isCandidateExpansionEnabled(): when on, it asks for the
+  // funnel's Stage A pool size instead of silently falling through to
+  // @speedora/clip-scoring's own small MAX_CANDIDATES default. Flag off (the
+  // default) reproduces every pre-Phase-13 render exactly.
+  const maxCandidates =
+    clipCount === 'unlimited'
+      ? UNLIMITED_CLIP_COUNT_CAP
+      : (clipCount ?? (isCandidateExpansionEnabled() ? CANDIDATE_EXPANSION_POOL_SIZE : undefined));
   return {
     segments: segments.map((segment) => ({
       start: segment.start,
@@ -63,7 +83,7 @@ function toScoringInput(
       text: segment.text,
       words: segment.words,
     })),
-    maxCandidates: clipCount === 'unlimited' ? UNLIMITED_CLIP_COUNT_CAP : (clipCount ?? undefined),
+    maxCandidates,
     minClipSeconds: processingOptions?.clipGeneration.minClipDurationSeconds ?? undefined,
     maxClipSeconds: processingOptions?.clipGeneration.maxClipDurationSeconds ?? undefined,
     // Pre-Processing Settings roadmap (Phase 2) - Section 7 (Highlight

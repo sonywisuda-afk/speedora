@@ -1,6 +1,6 @@
 # Clip Ranking Engine (spec Part 10, AI Intelligence v4 Track A Phase 13-14)
 
-> **Status: audit + ADR + roadmap complete, Phase 13.1 starting implementation.** This document is
+> **Status: audit + ADR + roadmap complete; Phase 13.1 shipped, flag-off.** This document is
 > the required audit-first deliverable (repo audit, reuse map, tech debt, ADR, dependency graph,
 > phased roadmap, complexity/risk) for what `docs/ai/intelligence-v4.md`'s roadmap table already
 > named **Phase 13 (Candidate Expansion, spec Part 10 generation half)** and **Phase 14 (Ranking
@@ -144,7 +144,7 @@ exists in the current per-clip-independent render pipeline).
 
 | Phase | Name | Depends on | Complexity | Primary risk |
 |---|---|---|---|---|
-| 13.1 | Fix hardcoded candidate-count prompt + raise ceiling | none | S-M | Quality dilution at 30-in-one-call (D17) — needs a before/after measurement, not just a prompt edit |
+| 13.1 | Fix hardcoded candidate-count prompt + raise ceiling — **shipped, flag-off** | none | S-M | Quality dilution at 30-in-one-call (D17) — needs a before/after measurement, not just a prompt edit |
 | 13.2 | Cheap pre-rank shortlist stage (Stage B) | 13.1 | **L** (biggest single piece, matches original Phase 13 estimate) | New pre-render adapter stage; LLM cost — up to 2 extra calls x 30 candidates per video needs batching/cost control; must avoid double-paying for Semantic Events/Narrative Graph on shortlisted survivors (Stage C's render-graph nodes should reuse Stage B's results, not recompute) |
 | 14.1 | Composite ranking function (Stage D scoring) | 13.2 (shape only, can build against fixtures) | M | Weighting 12 heterogeneous, mostly-uncalibrated signals into one order — same "scale honesty" caveat every v4 phase already carries; mirrors `fusion-engine/rank-clips.ts`'s shape but multi-signal |
 | 14.2 | Pipeline wiring — the join point | 13.2, 14.1 | **L** | Needs a new "all shortlisted renders complete" barrier that doesn't exist in today's per-clip-independent pipeline; **flagged as needing its own design confirmation at planning time**, same as D16 was — not decided in this document |
@@ -169,6 +169,44 @@ findings rather than scope-creep the current feature:
 Also deferred: `render-clip.worker.ts`'s analysis/encode decoupling (would let Stage C run on all 30
 candidates instead of just the shortlist) — a legitimate future cost optimization, not ruled out,
 just bigger than this delivery needs.
+
+## Phase 13.1 architecture (as shipped)
+
+`packages/clip-scoring/src/score-clip-candidates.ts` — the system prompt's hardcoded
+`"Pick 1-3 non-overlapping clips"` is now `` `Pick between 1 and ${maxCandidates} non-overlapping
+clips` ``, plus explicit "don't pad with filler, don't stop early" guidance. `maxCandidates` still
+defaults to 3 (`MAX_CANDIDATES`) for any caller that omits it, so the rendered prompt text for every
+existing caller is byte-for-byte `"Pick between 1 and 3 non-overlapping clips"` — a wording change
+from the literal old string, but not a behavior change (no test asserted the old exact string, only
+`.toContain` checks on unrelated substrings).
+
+`packages/clip-scoring/src/feature-flags.ts` (new) — `isCandidateExpansionEnabled()` (env var
+`CANDIDATE_EXPANSION_ENABLED`, same lazy-read/ADR-D8 shape as every prior v4 flag) and
+`CANDIDATE_EXPANSION_POOL_SIZE = 30` (the Stage A pool size target). Unlike most v4 flags (which
+gate DTO exposure while computation always runs), this one gates real computation — how many
+candidates `detect-clips.worker.ts` asks the paid LLM call for by default — because raising it is a
+real cost change, not a free/idempotent analysis step.
+
+`apps/worker/src/workers/detect-clips.worker.ts`'s `toScoringInput()` — an explicit
+`Video.processingOptions.clipGeneration.clipCount` (a number or `'unlimited'`) still wins
+unconditionally, exactly as before this phase. Only the omitted-clipCount case (the common case)
+now checks the flag: on, it requests `CANDIDATE_EXPANSION_POOL_SIZE` instead of silently falling
+through to the module's own small default. Flag off (the default) reproduces every pre-Phase-13
+render exactly.
+
+**Not yet done**: the D17-mandated before/after quality measurement (candidate diversity, overlap
+rate, duration-bound compliance at 30-in-one-call vs. today's 1-3) — needed before flipping
+`CANDIDATE_EXPANSION_ENABLED` on anywhere, and before Phase 13.2 builds the shortlist stage on top
+of this pool. Also not yet done: any change to `response_format`'s JSON schema or an explicit
+`max_tokens` budget — at ~30 verbose candidate objects (9 numeric scores + several string fields
+each), a rough estimate lands comfortably under gpt-4o-mini's default output ceiling, but this is
+worth re-checking once real output is measured, not assumed safe indefinitely.
+
+**Verification**: `packages/clip-scoring` 30/30 (2 new prompt-scaling tests + a new
+`feature-flags.spec.ts`), `apps/worker`'s `detect-clips.worker.spec.ts` 22/22 (3 new flag-behavior
+tests) and `generate-more-clips.worker.spec.ts` 8/8 (confirms its own, differently-shaped
+`@speedora/clip-scoring` mock is unaffected), both packages' `typecheck`/`build`/`lint` green,
+`prettier --check` green on every touched file.
 
 ## 7. Verification convention
 
