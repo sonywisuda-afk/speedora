@@ -1464,6 +1464,15 @@ export interface Clip {
   durationSeconds: number | null;
   viralityScore: number;
   downloadUrl: string | null;
+  // Output Resolution/Quality audit, Phase 3 (API exposure) - the RENDERED output's actual pixel
+  // dimensions and the concrete aspect-ratio label ('9:16'/'16:9'/'1:1') this render actually
+  // used (see schema.prisma's comment on Clip.outputWidth/outputHeight/outputAspectRatio). All
+  // three null until the clip finishes rendering, or for any row that predates Phase 1 and was
+  // never re-rendered since - consumers (e.g. the Dashboard's clip preview player) must fall back
+  // to the legacy fixed 9:16 assumption when outputAspectRatio is null, not assume a value.
+  outputWidth: number | null;
+  outputHeight: number | null;
+  outputAspectRatio: string | null;
   // Sprint 1-2 (Dashboard Redesign) - feeds the Dashboard's per-owner
   // Storage Used stat (see schema.prisma's comment on Clip.outputSizeBytes).
   // Null until the clip finishes rendering.

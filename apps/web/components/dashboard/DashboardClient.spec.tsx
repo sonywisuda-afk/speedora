@@ -1,6 +1,7 @@
 /** @jest-environment jsdom */
 import '@testing-library/jest-dom';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { SWRConfig } from 'swr';
 import type { UserDto, VideoWithClipsDto } from '@/lib/api';
 import { DashboardClient } from './DashboardClient';
 
@@ -137,5 +138,56 @@ describe('DashboardClient - ClipRow memoization', () => {
       ([props]) => (props as { clipId: string }).clipId === 'clip-2',
     );
     expect(clip2Calls).toHaveLength(0);
+  });
+});
+
+// Output Resolution/Quality audit, Phase 3 (UI exposure) - the clip preview player used to
+// hardcode `aspectRatio: '9/16'` unconditionally, which would letterbox/crop a 16:9 or 1:1 clip
+// incorrectly now that Phase 1/2 can actually render those. Verifies the real rendered <video>
+// element's inline style, not just a pure-function unit test, since the bug this closes was in
+// the JSX itself.
+describe('DashboardClient - clip preview player aspect ratio', () => {
+  it("uses the clip's real outputWidth/outputHeight when set", async () => {
+    const v = video({
+      clips: [clip({ id: 'clip-1', outputWidth: 1920, outputHeight: 1080 })],
+    });
+    const { listVideos } = jest.requireMock('@/lib/api');
+    (listVideos as jest.Mock).mockResolvedValue({ videos: [v], nextCursor: null });
+
+    // A fresh, isolated SWR cache (a new Map per render) - without this, SWR's module-level cache
+    // (keyed by ['videos', limit, projectId, folderId], the exact same key every test in this
+    // file shares) can serve a STALE result cached by an earlier describe block's own render,
+    // never even calling this test's own listVideos mock.
+    const { container } = render(
+      <SWRConfig value={{ provider: () => new Map() }}>
+        <DashboardClient user={user} initialVideos={[v]} initialNextCursor={null} />
+      </SWRConfig>,
+    );
+
+    await screen.findAllByRole('link', { name: 'Unduh' });
+    // Neither toHaveStyle() nor getAttribute('style') surface the CSS `aspect-ratio` shorthand
+    // through this jsdom version's cssstyle implementation (it doesn't recognize the property, so
+    // it never reaches cssText/the style attribute) - the raw style object property still
+    // reflects exactly what was assigned, so read that directly instead.
+    const videoEl = container.querySelector('video') as HTMLVideoElement;
+    expect(videoEl.style.aspectRatio).toBe('1920/1080');
+  });
+
+  it('falls back to the legacy fixed 9/16 when outputWidth/outputHeight are both null (pre-Phase-1 clip)', async () => {
+    const v = video({
+      clips: [clip({ id: 'clip-1', outputWidth: null, outputHeight: null })],
+    });
+    const { listVideos } = jest.requireMock('@/lib/api');
+    (listVideos as jest.Mock).mockResolvedValue({ videos: [v], nextCursor: null });
+
+    const { container } = render(
+      <SWRConfig value={{ provider: () => new Map() }}>
+        <DashboardClient user={user} initialVideos={[v]} initialNextCursor={null} />
+      </SWRConfig>,
+    );
+
+    await screen.findAllByRole('link', { name: 'Unduh' });
+    const videoEl = container.querySelector('video') as HTMLVideoElement;
+    expect(videoEl.style.aspectRatio).toBe('9/16');
   });
 });

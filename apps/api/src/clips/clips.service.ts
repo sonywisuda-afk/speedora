@@ -1187,6 +1187,10 @@ export class ClipsService {
     durationSeconds: number | null;
     viralityScore: number;
     outputUrl: string | null;
+    // Output Resolution/Quality audit, Phase 3 (API exposure).
+    outputWidth: number | null;
+    outputHeight: number | null;
+    outputAspectRatio: string | null;
     thumbnailUrl: string | null;
     thumbnailBlurDataUrl: string | null;
     animatedThumbnailUrl: string | null;
@@ -1284,6 +1288,9 @@ export class ClipsService {
       durationSeconds: clip.durationSeconds,
       viralityScore: clip.viralityScore,
       downloadUrl: clip.outputUrl ? `/clips/${clip.id}/download` : null,
+      outputWidth: clip.outputWidth,
+      outputHeight: clip.outputHeight,
+      outputAspectRatio: clip.outputAspectRatio,
       thumbnailUrl: clip.thumbnailUrl ? `/clips/${clip.id}/thumbnail` : null,
       thumbnailBlurDataUrl: clip.thumbnailBlurDataUrl,
       animatedThumbnailUrl: clip.animatedThumbnailUrl

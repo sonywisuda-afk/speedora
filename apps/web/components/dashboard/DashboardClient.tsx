@@ -59,6 +59,20 @@ import { UploadVideoQuickAction } from './UploadVideoQuickAction';
 
 type VideoClip = VideoWithClipsDto['clips'][number];
 
+// Output Resolution/Quality audit, Phase 3 (UI exposure) - the clip preview player used to
+// hardcode `aspectRatio: '9/16'` unconditionally, a real gap the audit flagged: once a clip can
+// actually render at 16:9/1:1 (Phase 1/2), a fixed 9:16 player box would letterbox/crop the
+// preview incorrectly. Prefers the RENDERED output's own real pixel dimensions
+// (outputWidth/outputHeight - exact, reflects any resolution-tier scaling too) over the coarser
+// outputAspectRatio label, and falls back to the legacy fixed 9:16 assumption only when both are
+// null - every clip that predates Phase 1, or hasn't finished rendering yet.
+function clipPreviewAspectRatio(clip: VideoClip): string {
+  if (clip.outputWidth && clip.outputHeight) {
+    return `${clip.outputWidth}/${clip.outputHeight}`;
+  }
+  return '9/16';
+}
+
 // GET /videos is now cursor-paginated (see PaginatedVideos in
 // packages/shared) - this page only ever polls page 1 (the videos a user is
 // actively waiting on are always the newest ones); older pages loaded via
@@ -365,7 +379,7 @@ const ClipRow = memo(function ClipRow({
           controls
           preload="metadata"
           className="mt-3 max-h-80 rounded-md bg-slate-950"
-          style={{ aspectRatio: '9/16' }}
+          style={{ aspectRatio: clipPreviewAspectRatio(clip) }}
         />
       )}
 
