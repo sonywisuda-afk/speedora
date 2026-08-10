@@ -60,6 +60,26 @@ describe('resolveOutputResolution', () => {
 
       expect(result).toEqual({ width: 1080, height: 1920 });
     });
+
+    // Output Resolution/Quality audit, Phase 4 - '4:5'/'4:3' go through the exact same
+    // canonicalSizeForRatio() path as every other ratio; no code change was needed.
+    it('scales a 4:5 crop to exactly 1080x1350 under the 1080p tier', () => {
+      const crop = { width: 1728, height: 2160 }; // a 4:5 crop from a larger source
+
+      expect(resolveOutputResolution(crop, 4 / 5, '1080p')).toEqual({
+        width: 1080,
+        height: 1350,
+      });
+    });
+
+    it('scales a 4:3 crop to exactly 1440x1080 under the 1080p tier', () => {
+      const crop = { width: 2880, height: 2160 }; // a 4:3 crop from a larger source
+
+      expect(resolveOutputResolution(crop, 4 / 3, '1080p')).toEqual({
+        width: 1440,
+        height: 1080,
+      });
+    });
   });
 
   // Phase 2 (resolved via AskUserQuestion after real-ffmpeg verification) - a pure crop-only

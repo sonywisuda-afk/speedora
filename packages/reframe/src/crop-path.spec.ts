@@ -68,6 +68,21 @@ describe('computeCropDimensions', () => {
       expect(result.height).toBeLessThanOrEqual(1920);
       expect(result.width / result.height).toBeCloseTo(16 / 9, 1);
     });
+
+    // Output Resolution/Quality audit, Phase 4 - '4:5'/'4:3' are just more numbers to this
+    // function, same generic crop-only math as every ratio above; no code change was needed to
+    // support them.
+    it('crops a landscape source to 4:5', () => {
+      const result = computeCropDimensions(1920, 1080, 4 / 5);
+
+      expect(result).toEqual({ width: 864, height: 1080 });
+    });
+
+    it('crops a landscape source to 4:3', () => {
+      const result = computeCropDimensions(1920, 1080, 4 / 3);
+
+      expect(result).toEqual({ width: 1440, height: 1080 });
+    });
   });
 });
 

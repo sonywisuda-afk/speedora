@@ -181,10 +181,15 @@ function assertNever(value: never): never {
 // Output Resolution/Quality audit, Phase 1 (foundation) - translates the export.aspectRatio
 // setting into a raw width/height ratio for @speedora/reframe's computeCropDimensions(), plus the
 // concrete label this render actually used (written to Clip.outputAspectRatio below - see that
-// column's own schema comment for why it's always one of these three, never 'auto'/null).
+// column's own schema comment for why it's always one of these five, never 'auto'/null).
 // null (every video predating this phase, or one that simply never set it) resolves to
 // TARGET_ASPECT_RATIO's own 9/16 - EXACTLY today's hardcoded behavior, byte-for-byte unchanged.
-export type ResolvedAspectRatio = { ratio: number; label: '9:16' | '16:9' | '1:1' };
+// '4:5'/'4:3' (Phase 4) are explicit-only pins, deliberately excluded from the 'auto' heuristic
+// below - see that switch's own comment.
+export type ResolvedAspectRatio = {
+  ratio: number;
+  label: '9:16' | '16:9' | '1:1' | '4:5' | '4:3';
+};
 
 // 'auto' orientation heuristic - deliberately simple (source aspect vs. a threshold, not a bare
 // "width > height" which would misclassify a near-square source either way depending on which
@@ -207,6 +212,14 @@ function resolveTargetAspectRatio(
       return { ratio: 16 / 9, label: '16:9' };
     case '1:1':
       return { ratio: 1, label: '1:1' };
+    // Output Resolution/Quality audit, Phase 4 - explicit-only pins, same shape as
+    // '9:16'/'16:9'/'1:1' above. Deliberately NOT reachable from the 'auto' heuristic below -
+    // that heuristic's own 3-way vocabulary (portrait/landscape/square) has no natural "this
+    // source wants 4:5" signal, and inventing one wasn't part of this phase's scope.
+    case '4:5':
+      return { ratio: 4 / 5, label: '4:5' };
+    case '4:3':
+      return { ratio: 4 / 3, label: '4:3' };
     case 'auto': {
       const sourceAspect = sourceWidth / sourceHeight;
       if (sourceAspect >= AUTO_ASPECT_RATIO_LANDSCAPE_THRESHOLD) {

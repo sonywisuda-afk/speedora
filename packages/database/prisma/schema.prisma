@@ -682,10 +682,10 @@ model Clip {
   // three null for every pre-existing row and never backfilled, same as every other "written
   // going forward only" column in this model
   // (outputSizeBytes, thumbnailSelectionTimestamp, ...). outputAspectRatio is the resolved label
-  // ('9:16'/'16:9'/'1:1') this render actually used, NOT the raw processingOptions.export.aspectRatio
-  // setting - 'auto'/null resolve to a concrete value before render (see
-  // render-clip.worker.ts's resolveTargetAspectRatio()), so this column is always one of the
-  // three concrete labels once set, never 'auto' or null-as-a-string.
+  // ('9:16'/'16:9'/'1:1'/'4:5'/'4:3' - the last two added Phase 4) this render actually used, NOT
+  // the raw processingOptions.export.aspectRatio setting - 'auto'/null resolve to a concrete
+  // value before render (see render-clip.worker.ts's resolveTargetAspectRatio()), so this column
+  // is always one of those concrete labels once set, never 'auto' or null-as-a-string.
   outputWidth                 Int?
   outputHeight                Int?
   outputAspectRatio           String?
