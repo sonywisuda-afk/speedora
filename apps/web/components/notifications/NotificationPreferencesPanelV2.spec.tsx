@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 import '@testing-library/jest-dom';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import { SWRConfig } from 'swr';
 import {
   getNotificationPreferencesV2,
@@ -86,7 +86,12 @@ describe('NotificationPreferencesPanelV2', () => {
     renderPanel();
 
     await waitFor(() => expect(screen.getAllByText('Coming Soon')).toHaveLength(3));
-    expect(screen.queryByLabelText('Email')).not.toBeInTheDocument();
+    // Scoped to the Email group specifically (not a bare queryByLabelText('Email')) - since the
+    // P1 accessibility fix, the Email SECTION itself is now a role="group" legitimately labelled
+    // "Email" via aria-labelledby, so an unscoped label-text query would match that group
+    // container rather than testing what this assertion actually means: no checkbox exists here.
+    const emailGroup = screen.getByRole('group', { name: 'Email' });
+    expect(within(emailGroup).queryByRole('checkbox')).not.toBeInTheDocument();
   });
 
   it('toggling an in-app group calls updateInAppPreferenceV2 and refetches', async () => {
@@ -127,5 +132,29 @@ describe('NotificationPreferencesPanelV2', () => {
     const discordCheckbox = screen.getAllByLabelText('Enabled')[1];
     expect(discordCheckbox).toBeDisabled();
     expect(screen.getAllByText(/belum dikonfigurasi/).length).toBeGreaterThan(0);
+  });
+
+  // Notification Center V2 post-release backlog, P1 (accessibility) - each checkbox group is
+  // now programmatically associated with its own heading via role="group" + aria-labelledby
+  // (the WAI-ARIA equivalent of fieldset/legend), not just a visually-adjacent <h3>.
+  it('exposes each preference section as an accessible group labelled by its own heading', async () => {
+    mockGetPreferences.mockResolvedValue(preferences());
+
+    renderPanel();
+
+    await waitFor(() => expect(screen.getByRole('group', { name: 'In-App' })).toBeInTheDocument());
+    for (const label of ['Slack', 'Discord', 'Telegram', 'Webhook', 'Email', 'Push', 'Desktop']) {
+      expect(screen.getByRole('group', { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it("the In-App group's own checkboxes are reachable via the accessible group's own accessible name", async () => {
+    mockGetPreferences.mockResolvedValue(preferences());
+
+    renderPanel();
+
+    const inAppGroup = await screen.findByRole('group', { name: 'In-App' });
+    expect(within(inAppGroup).getByLabelText('Upload')).toBeInTheDocument();
+    expect(within(inAppGroup).getByLabelText('System')).toBeInTheDocument();
   });
 });
