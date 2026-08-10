@@ -102,4 +102,58 @@ describe('StockAssetService', () => {
 
     expect(pexels.search).toHaveBeenCalledTimes(1);
   });
+
+  // AI B-roll Recommendation (item 8) - isBrandCandidate prepends the logo
+  // tier ahead of every other tier.
+  describe('isBrandCandidate', () => {
+    it('does not try the logo tier at all when isBrandCandidate is false (the default)', async () => {
+      const clearbit = fakeProvider('clearbit');
+      const pexels = fakeProvider('pexels');
+      pexels.search.mockResolvedValue(fakeAsset('pexels'));
+
+      const service = new StockAssetService([[pexels]], [clearbit]);
+      const result = await service.searchAssets('coffee');
+
+      expect(result?.sourceName).toBe('pexels');
+      expect(clearbit.search).not.toHaveBeenCalled();
+    });
+
+    it('tries the logo tier first when isBrandCandidate is true, ahead of every other tier', async () => {
+      const clearbit = fakeProvider('clearbit');
+      const pexels = fakeProvider('pexels');
+      clearbit.search.mockResolvedValue(fakeAsset('clearbit'));
+
+      const service = new StockAssetService([[pexels]], [clearbit]);
+      const result = await service.searchAssets('OpenAI', true);
+
+      expect(result?.sourceName).toBe('clearbit');
+      expect(pexels.search).not.toHaveBeenCalled();
+    });
+
+    it('falls through to the normal stock-footage tiers when isBrandCandidate is true but the logo tier finds nothing', async () => {
+      const clearbit = fakeProvider('clearbit');
+      const pexels = fakeProvider('pexels');
+      clearbit.search.mockResolvedValue(null);
+      pexels.search.mockResolvedValue(fakeAsset('pexels'));
+
+      const service = new StockAssetService([[pexels]], [clearbit]);
+      const result = await service.searchAssets('OpenAI', true);
+
+      expect(result?.sourceName).toBe('pexels');
+    });
+
+    it('caches the brand-candidate and non-brand-candidate results for the same literal keyword separately', async () => {
+      const clearbit = fakeProvider('clearbit');
+      const pexels = fakeProvider('pexels');
+      clearbit.search.mockResolvedValue(fakeAsset('clearbit'));
+      pexels.search.mockResolvedValue(fakeAsset('pexels'));
+
+      const service = new StockAssetService([[pexels]], [clearbit]);
+      const brandResult = await service.searchAssets('Apple', true);
+      const plainResult = await service.searchAssets('Apple', false);
+
+      expect(brandResult?.sourceName).toBe('clearbit');
+      expect(plainResult?.sourceName).toBe('pexels');
+    });
+  });
 });

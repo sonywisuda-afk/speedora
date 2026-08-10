@@ -15,13 +15,21 @@ export interface StockAsset {
   // Small preview image URL - descriptive metadata only, never read by the
   // render pipeline itself.
   thumbnail: string;
-  sourceName: 'pexels' | 'pixabay' | 'unsplash';
+  // 'clearbit' (AI B-roll Recommendation, item 8 of the user's own
+  // gap-analysis list) - a brand LOGO, not stock footage/photo search
+  // like the other three. Same StockAsset shape regardless (type:
+  // 'image' - ffmpeg.ts's trimAndFadeInBRoll already knows how to loop a
+  // still image, no new rendering path needed), only searched for
+  // keywords the caller has already decided look like a brand name - see
+  // broll.ts's looksLikeBrandName().
+  sourceName: 'pexels' | 'pixabay' | 'unsplash' | 'clearbit';
   resolution: { width: number; height: number };
-  // Pexels/Pixabay results are always 'video'; Unsplash is photo-only, so
-  // its adapter always maps to 'image'. ffmpeg.ts's trimAndFadeInBRoll
-  // branches on this (loop a still image for the cutaway's duration vs.
-  // play/trim a video clip) instead of needing to know which provider an
-  // asset came from - see CLAUDE.md's Fase 16 section.
+  // Pexels/Pixabay results are always 'video'; Unsplash and Clearbit are
+  // photo/logo-only, so their adapters always map to 'image'.
+  // ffmpeg.ts's trimAndFadeInBRoll branches on this (loop a still image
+  // for the cutaway's duration vs. play/trim a video clip) instead of
+  // needing to know which provider an asset came from - see CLAUDE.md's
+  // Fase 16 section.
   type: 'video' | 'image';
 }
 
@@ -38,6 +46,6 @@ export interface StockAsset {
 // fall through to the next provider in line, rather than a real outage
 // being silently indistinguishable from "no results".
 export interface AssetProvider {
-  readonly name: 'pexels' | 'pixabay' | 'unsplash';
+  readonly name: 'pexels' | 'pixabay' | 'unsplash' | 'clearbit';
   search(keyword: string): Promise<StockAsset | null>;
 }

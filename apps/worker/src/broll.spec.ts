@@ -17,7 +17,7 @@ jest.mock('node:stream/promises', () => ({
   pipeline: (...args: unknown[]) => pipelineMock(...args),
 }));
 
-import { downloadStockAsset, findBRollMoments } from './broll';
+import { downloadStockAsset, findBRollMoments, looksLikeBrandName } from './broll';
 
 function word(text: string, start: number, end: number): TranscriptWord {
   return { word: text, start, end };
@@ -40,13 +40,18 @@ describe('findBRollMoments', () => {
     const moments = findBRollMoments(['sunset', 'mountain range'], words, 20);
 
     expect(moments).toEqual([
-      { keyword: 'sunset', t: 0.5 },
-      { keyword: 'mountain range', t: 5.5 },
+      { keyword: 'sunset', t: 0.5, isBrandCandidate: false },
+      { keyword: 'mountain range', t: 5.5, isBrandCandidate: false },
     ]);
   });
 
-  it('is case-insensitive', () => {
-    expect(findBRollMoments(['SUNSET'], words, 20)).toEqual([{ keyword: 'SUNSET', t: 0.5 }]);
+  it('is case-insensitive when matching the transcript, and tags the moment with isBrandCandidate', () => {
+    expect(findBRollMoments(['SUNSET'], words, 20)).toEqual([
+      // All-caps still matches looksLikeBrandName's own "starts with an
+      // uppercase letter" check - see its own describe block below for
+      // why that's an accepted, not-worried-about heuristic quirk.
+      { keyword: 'SUNSET', t: 0.5, isBrandCandidate: true },
+    ]);
   });
 
   it('skips a keyword never said in this clip', () => {
@@ -73,12 +78,42 @@ describe('findBRollMoments', () => {
     // apart - beta should be skipped rather than overlapping alpha's cutaway.
     const moments = findBRollMoments(['alpha', 'beta'], closeWords, 20);
 
-    expect(moments).toEqual([{ keyword: 'alpha', t: 0 }]);
+    expect(moments).toEqual([{ keyword: 'alpha', t: 0, isBrandCandidate: false }]);
   });
 
   it('returns an empty array for no keywords or no words', () => {
     expect(findBRollMoments([], words, 20)).toEqual([]);
     expect(findBRollMoments(['sunset'], [], 20)).toEqual([]);
+  });
+});
+
+// AI B-roll Recommendation (item 8) - see this function's own comment in
+// broll.ts for why it's a cheap capitalization heuristic, not an LLM call.
+describe('looksLikeBrandName', () => {
+  it('returns true for a single capitalized word', () => {
+    expect(looksLikeBrandName('OpenAI')).toBe(true);
+  });
+
+  it('returns true for a multi-word phrase where every word is capitalized', () => {
+    expect(looksLikeBrandName('Elon Musk')).toBe(true);
+  });
+
+  it('returns false for a plain lowercase word', () => {
+    expect(looksLikeBrandName('coffee')).toBe(false);
+  });
+
+  it('returns false when only some words in a phrase are capitalized', () => {
+    expect(looksLikeBrandName('climate change')).toBe(false);
+    expect(looksLikeBrandName('the Future')).toBe(false);
+  });
+
+  it('returns false for an empty or whitespace-only string', () => {
+    expect(looksLikeBrandName('')).toBe(false);
+    expect(looksLikeBrandName('   ')).toBe(false);
+  });
+
+  it('returns true for an all-caps acronym (e.g. NASA) - a deliberate, accepted false-positive class', () => {
+    expect(looksLikeBrandName('NASA')).toBe(true);
   });
 });
 
