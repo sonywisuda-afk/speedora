@@ -30,6 +30,7 @@
     "@speedora/analytics-report": "workspace:*",
     "@speedora/audio-intelligence": "workspace:*",
     "@speedora/candidate-shortlist": "workspace:*",
+    "@speedora/clip-ranking": "workspace:*",
     "@speedora/clip-scoring": "workspace:*",
     "@speedora/composition-intelligence": "workspace:*",
     "@speedora/contextual-momentum": "workspace:*",

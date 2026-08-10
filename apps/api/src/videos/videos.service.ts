@@ -82,6 +82,7 @@ import {
   toSharedSubtitleIntelligence,
   toSharedCaptionTreatment,
   toSharedEditingSuggestions,
+  toSharedCompositeRankSubScores,
   toSharedLipSyncVerifications,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
@@ -1874,6 +1875,7 @@ export class VideosService {
           editingSuggestions,
           thumbnailSelectionBreakdown,
           thumbnailSelectionFallback,
+          compositeRankSubScores,
           ...clip
         }) => ({
           ...clip,
@@ -1937,6 +1939,7 @@ export class VideosService {
           viralityPrediction: toSharedViralityPrediction(viralityPrediction),
           retentionCurveInsights: toSharedRetentionCurveInsights(retentionCurveInsights),
           multimodalReasoning: toSharedMultimodalReasoning(multimodalReasoning),
+          compositeRankSubScores: toSharedCompositeRankSubScores(compositeRankSubScores),
           subtitleIntelligence: toSharedSubtitleIntelligence(subtitleIntelligence),
           captionTreatment: toSharedCaptionTreatment(captionTreatment),
           editingSuggestions: toSharedEditingSuggestions(editingSuggestions),

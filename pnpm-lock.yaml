@@ -407,6 +407,9 @@ importers:
       '@speedora/candidate-shortlist':
         specifier: workspace:*
         version: link:../../packages/candidate-shortlist
+      '@speedora/clip-ranking':
+        specifier: workspace:*
+        version: link:../../packages/clip-ranking
       '@speedora/clip-scoring':
         specifier: workspace:*
         version: link:../../packages/clip-scoring

@@ -8,6 +8,7 @@ import type {
   AudioFeatures,
   CameraMotionFeatures,
   CameraMotionSample,
+  ClipRankSubScores,
   ClipScores,
   CompositionFeatures,
   DiarizationFeatures,
@@ -560,6 +561,21 @@ export function toSharedSubtitleIntelligence(
   subtitleIntelligence: unknown,
 ): SubtitleIntelligence | null {
   return (subtitleIntelligence as SubtitleIntelligence | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.compositeRankSubScores (AI Intelligence v4 Phase 14.1/14.2 - see
+// docs/ai/clip-ranking-engine.md). Same null-semantics as
+// toSharedContextualMomentum/toSharedEmotionalArc/toSharedViralityPrediction/
+// toSharedRetentionCurveInsights above (not toSharedMultiSpeakerBreakdown's
+// third pattern): null here can ONLY mean this Clip row predates this
+// phase's migration, or hasn't finished rendering yet - the render pass
+// that populates it always writes a real object once it runs for a given
+// clip.
+export function toSharedCompositeRankSubScores(
+  compositeRankSubScores: unknown,
+): ClipRankSubScores | null {
+  return (compositeRankSubScores as ClipRankSubScores | null) ?? null;
 }
 
 // Same "Json column is opaque" situation as the functions above, for

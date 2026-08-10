@@ -6,18 +6,25 @@ import { pipeline } from 'node:stream/promises';
 import * as Sentry from '@sentry/node';
 import type {
   CaptionStyleValue,
+  ClipScores,
   CropDimensions,
   EditingSuggestionTimeline,
   FontFamily,
+  HookPredictionOutput,
+  NarrativeGraph,
   OcrHighlightBox,
   OcrTextTrack,
   PrimarySubjectSample,
+  RetentionCurveInsights,
+  SemanticEvent,
   SpeakerTurn,
   SubtitleLine,
   SubtitleSegment,
   ThumbnailWeights,
   TreatmentMoment,
+  ViralityPrediction,
 } from '@speedora/contracts';
+import { rankClipCandidates } from '@speedora/clip-ranking';
 import {
   computeFillerCuts,
   computeSilenceCuts,
@@ -1843,6 +1850,93 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                   error,
                 );
               }
+            }
+
+            // AI Intelligence v4 Phase 14.2 (Clip Ranking Engine, Stage D
+            // wiring - see docs/ai/clip-ranking-engine.md). A SECOND,
+            // additive ranking pass beside the highlightRank block above -
+            // deliberately OUTSIDE the `if (allRendered)` gate that block
+            // sits inside (unlike that name suggests, Fase 31's own ranking
+            // only ever runs once, on the single execution that observes
+            // allRendered flip true - see its own comment). This pass
+            // recomputes after EVERY sibling clip's own render completes,
+            // genuinely progressively, naturally converging once the last
+            // shortlisted clip lands - same best-effort/never-fails-the-job
+            // posture, its OWN try/catch so a failure here can never affect
+            // the highlightRank/cover-clip logic above (or vice versa).
+            // Scoped to RENDERED siblings only (outputUrl !== null, same
+            // query shape as the highlightRank block above, covering both
+            // original detect-clips candidates and later "Generate More
+            // Clips" top-ups) - an unrendered clip's viralityPrediction/
+            // retentionCurveInsights/etc. columns are still null, and
+            // ComputeClipRankInput requires several of them as real
+            // (non-null) objects, so it can't be meaningfully scored yet; it
+            // simply isn't included in this pass until its own render
+            // finishes and re-triggers this same block.
+            try {
+              const renderedSiblings = await prisma.clip.findMany({
+                where: { videoId, outputUrl: { not: null } },
+                select: {
+                  id: true,
+                  highlightScore: true,
+                  scores: true,
+                  hookPrediction: true,
+                  narrativeGraph: true,
+                  viralityPrediction: true,
+                  retentionCurveInsights: true,
+                  semanticEvents: true,
+                },
+              });
+
+              // A clip predating this initiative's migrations (or one whose
+              // render graph genuinely never produced a real
+              // ViralityPrediction/RetentionCurveInsights object - both
+              // nodes are optional: false, so that should only happen for
+              // pre-migration rows) can't be scored - skipped rather than
+              // defaulted, same "don't fabricate data" posture as everywhere
+              // else in this codebase.
+              const rankable = renderedSiblings.filter(
+                (clip) =>
+                  clip.scores !== null &&
+                  clip.viralityPrediction !== null &&
+                  clip.retentionCurveInsights !== null,
+              );
+
+              if (rankable.length > 0) {
+                const ranked = rankClipCandidates(
+                  rankable.map((clip) => ({
+                    clipId: clip.id,
+                    highlightScore: clip.highlightScore,
+                    scores: clip.scores as unknown as ClipScores,
+                    viralityPrediction: clip.viralityPrediction as unknown as ViralityPrediction,
+                    hookPrediction: clip.hookPrediction as unknown as HookPredictionOutput | null,
+                    narrativeGraph: clip.narrativeGraph as unknown as NarrativeGraph | null,
+                    retentionCurveInsights:
+                      clip.retentionCurveInsights as unknown as RetentionCurveInsights,
+                    semanticEvents: clip.semanticEvents as unknown as SemanticEvent[] | null,
+                  })),
+                );
+
+                await Promise.all(
+                  ranked.map((clip) =>
+                    prisma.clip.update({
+                      where: { id: clip.clipId },
+                      data: {
+                        compositeRankScore: clip.compositeScore,
+                        compositeRank: clip.rank,
+                        compositeRankConfidence: clip.confidence,
+                        compositeRankSubScores: clip.subScores as unknown as Prisma.InputJsonValue,
+                      },
+                    }),
+                  ),
+                );
+              }
+            } catch (error) {
+              logger.warn(
+                'composite clip ranking failed, continuing without compositeRank',
+                { videoId },
+                error,
+              );
             }
 
             logger.info('clip rendered', { clipId, outputUrl: outputKey });
