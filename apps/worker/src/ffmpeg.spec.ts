@@ -994,14 +994,38 @@ describe('fadeOutBRoll', () => {
   });
 });
 
-describe('trimCutRanges', () => {
+describe('trimCutRanges (Item 9 - Silence Compression AI real crossfade)', () => {
   beforeEach(() => {
     execFileMock.mockClear();
     renameMock.mockClear();
     unlinkMock.mockClear();
   });
 
-  it('builds a select/aselect filter that keeps everything outside the given cut ranges, plus a single eq dip filter combining every junction', async () => {
+  it('builds a segment-trim + xfade/acrossfade chain for a single cut, with matching video/audio fade durations', async () => {
+    await trimCutRanges('/tmp/rendered.mp4', '/tmp/trimmed.mp4', [{ start: 2, end: 4 }], 10);
+
+    expect(execFileMock).toHaveBeenCalledTimes(1);
+    const [file, args] = execFileMock.mock.calls[0];
+    expect(file).toBe('ffmpeg');
+    expect(args).toEqual(expect.arrayContaining(['-i', '/tmp/rendered.mp4']));
+
+    const fc = args[args.indexOf('-filter_complex') + 1];
+    // totalInputDuration = 10 (totalOutputDuration) + 2 (the cut's own length) = 12. Kept
+    // segments are [0,2] and [4,12] - both far longer than 2 * CROSSFADE_SECONDS, so the full
+    // 0.15s fade applies. offset = (duration of segment 0) - fade = 2 - 0.15 = 1.85.
+    expect(fc).toBe(
+      '[0:v]trim=start=0:end=2,setpts=PTS-STARTPTS[v0];' +
+        '[0:v]trim=start=4:end=12,setpts=PTS-STARTPTS[v1];' +
+        '[v0][v1]xfade=transition=fade:duration=0.15:offset=1.85[vx1];' +
+        '[0:a]atrim=start=0:end=2,asetpts=PTS-STARTPTS[a0];' +
+        '[0:a]atrim=start=4:end=12,asetpts=PTS-STARTPTS[a1];' +
+        '[a0][a1]acrossfade=d=0.15:c1=tri:c2=tri[ax1]',
+    );
+    expect(args).toEqual(expect.arrayContaining(['-map', '[vx1]', '-map', '[ax1]']));
+    expect(args).not.toContain('/tmp/trimmed.mp4');
+  });
+
+  it('chains xfade/acrossfade across multiple junctions, tracking cumulative video duration for each offset', async () => {
     await trimCutRanges(
       '/tmp/rendered.mp4',
       '/tmp/trimmed.mp4',
@@ -1012,26 +1036,42 @@ describe('trimCutRanges', () => {
       20,
     );
 
-    expect(execFileMock).toHaveBeenCalledTimes(1);
-    const [file, args] = execFileMock.mock.calls[0];
-    expect(file).toBe('ffmpeg');
-    expect(args).toEqual(
-      expect.arrayContaining([
-        '-i',
-        '/tmp/rendered.mp4',
-        '-vf',
-        "select='not(between(t,2,4)+between(t,10,10.5))',setpts=N/FRAME_RATE/TB," +
-          "eq=eval=frame:brightness='min(" +
-          'if(lt(abs(t-2),0.15),-(0.15-abs(t-2))/0.15,0),' +
-          "if(lt(abs(t-8),0.15),-(0.15-abs(t-8))/0.15,0))'",
-        // Audio stays a plain hard cut - no dip (see trimCutRanges' comment
-        // on why the audio-side equivalent was dropped after real testing).
-        '-af',
-        "aselect='not(between(t,2,4)+between(t,10,10.5))',asetpts=N/SR/TB",
-        '/tmp/trimmed.mp4.tmp',
-      ]),
+    const [, args] = execFileMock.mock.calls[0];
+    const fc = args[args.indexOf('-filter_complex') + 1];
+    // totalInputDuration = 20 + 2.5 = 22.5. Segments: [0,2] (dur 2), [4,10] (dur 6),
+    // [10.5,22.5] (dur 12). First junction offset = 2 - 0.15 = 1.85. Second junction's offset is
+    // relative to the FIRST xfade's own cumulative output duration (2 + 6 - 0.15 = 7.85), not the
+    // raw segment boundary - 7.85 - 0.15 = 7.7.
+    expect(fc).toContain('[v0][v1]xfade=transition=fade:duration=0.15:offset=1.85[vx1]');
+    expect(fc).toContain('[vx1][v2]xfade=transition=fade:duration=0.15:offset=7.7[vx2]');
+    expect(fc).toContain('[a0][a1]acrossfade=d=0.15:c1=tri:c2=tri[ax1]');
+    expect(fc).toContain('[ax1][a2]acrossfade=d=0.15:c1=tri:c2=tri[ax2]');
+    expect(args).toEqual(expect.arrayContaining(['-map', '[vx2]', '-map', '[ax2]']));
+  });
+
+  it('falls back to a plain hard concat (no xfade/acrossfade) at a junction whose kept segment is too short for a meaningful dissolve', async () => {
+    // The middle kept segment here is only 0.03s (between the two cuts) - half of that (0.015s)
+    // is below MIN_CROSSFADE_SECONDS (0.02), so BOTH junctions touching it fall back to a plain
+    // concat rather than passing an effectively-zero duration into xfade/acrossfade.
+    await trimCutRanges(
+      '/tmp/rendered.mp4',
+      '/tmp/trimmed.mp4',
+      [
+        { start: 2, end: 3 },
+        { start: 3.03, end: 5 },
+      ],
+      10,
     );
-    expect(args).not.toContain('/tmp/trimmed.mp4');
+
+    const [, args] = execFileMock.mock.calls[0];
+    const fc = args[args.indexOf('-filter_complex') + 1];
+    expect(fc).not.toContain('xfade');
+    expect(fc).not.toContain('acrossfade');
+    expect(fc).toContain('[v0][v1]concat=n=2:v=1:a=0[vx1]');
+    expect(fc).toContain('[vx1][v2]concat=n=2:v=1:a=0[vx2]');
+    expect(fc).toContain('[a0][a1]concat=n=2:v=0:a=1[ax1]');
+    expect(fc).toContain('[ax1][a2]concat=n=2:v=0:a=1[ax2]');
+    expect(args).toEqual(expect.arrayContaining(['-map', '[vx2]', '-map', '[ax2]']));
   });
 
   it('forces -f mp4 explicitly rather than letting ffmpeg infer the format from the .tmp filename (issue #28)', async () => {
@@ -1063,18 +1103,6 @@ describe('trimCutRanges', () => {
 
     expect(unlinkMock).toHaveBeenCalledWith('/tmp/trimmed.mp4.tmp');
     expect(renameMock).not.toHaveBeenCalled();
-  });
-
-  it('skips a junction transition too close to the very start or end of the output', async () => {
-    // Junction 1 is at t=0.05 (the first cut's own start) - too close to the
-    // start to dip against nothing before it. totalOutputDuration is 0.2, so
-    // a junction near the very end would similarly be skipped (not
-    // exercised by this single-cut case, but the same filter applies).
-    await trimCutRanges('/tmp/rendered.mp4', '/tmp/trimmed.mp4', [{ start: 0.05, end: 1 }], 0.2);
-
-    const [, args] = execFileMock.mock.calls[0];
-    const vfIndex = args.indexOf('-vf');
-    expect(args[vfIndex + 1]).toBe("select='not(between(t,0.05,1))',setpts=N/FRAME_RATE/TB");
   });
 
   it('propagates the error when ffmpeg fails', async () => {
