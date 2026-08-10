@@ -524,6 +524,23 @@ describe('renderClip', () => {
     expect(args).not.toEqual(expect.arrayContaining(['-crf']));
   });
 
+  // Output Resolution/Quality audit, Phase 0 - unconditional, unlike -preset/-crf above, since
+  // this isn't a user preference; it's a correctness guard against an unforced pixel format
+  // some players/browsers can't decode for a source with non-standard chroma subsampling.
+  it('always forces -pix_fmt yuv420p, regardless of whether a quality override is passed', async () => {
+    await renderClip({
+      inputPath: '/tmp/source.mp4',
+      startTime: 5,
+      endTime: 15,
+      subtitlesPath: null,
+      outputPath: '/tmp/output.mp4',
+      reframe: null,
+    });
+
+    const [, args] = execFileMock.mock.calls[0];
+    expect(args).toEqual(expect.arrayContaining(['-pix_fmt', 'yuv420p']));
+  });
+
   it('atomically renames the .tmp output onto the real path only after ffmpeg succeeds', async () => {
     await renderClip({
       inputPath: '/tmp/source.mp4',
@@ -1084,6 +1101,35 @@ describe('trimCutRanges (Item 9 - Silence Compression AI real crossfade)', () =>
     expect(args[formatFlagIndex + 2]).toBe('/tmp/trimmed.mp4.tmp');
   });
 
+  // Output Resolution/Quality audit, Phase 0 - regression coverage for the quality-propagation
+  // fix: this re-encode pass previously had no way to honor the user's chosen -preset/-crf at
+  // all, always silently falling back to ffmpeg's own default (CRF 23, medium) regardless of
+  // what renderClip()'s own first pass used.
+  it('adds -preset/-crf only when a quality override is passed', async () => {
+    await trimCutRanges('/tmp/rendered.mp4', '/tmp/trimmed.mp4', [{ start: 0, end: 1 }], 10, {
+      preset: 'slow',
+      crf: 18,
+    });
+
+    const [, args] = execFileMock.mock.calls[0];
+    expect(args).toEqual(expect.arrayContaining(['-preset', 'slow', '-crf', '18']));
+  });
+
+  it('omits -preset/-crf entirely when quality is not passed (unchanged prior behavior)', async () => {
+    await trimCutRanges('/tmp/rendered.mp4', '/tmp/trimmed.mp4', [{ start: 0, end: 1 }], 10);
+
+    const [, args] = execFileMock.mock.calls[0];
+    expect(args).not.toEqual(expect.arrayContaining(['-preset']));
+    expect(args).not.toEqual(expect.arrayContaining(['-crf']));
+  });
+
+  it('always forces -pix_fmt yuv420p, regardless of whether a quality override is passed', async () => {
+    await trimCutRanges('/tmp/rendered.mp4', '/tmp/trimmed.mp4', [{ start: 0, end: 1 }], 10);
+
+    const [, args] = execFileMock.mock.calls[0];
+    expect(args).toEqual(expect.arrayContaining(['-pix_fmt', 'yuv420p']));
+  });
+
   it('atomically renames the .tmp output onto the real path only after ffmpeg succeeds', async () => {
     await trimCutRanges('/tmp/rendered.mp4', '/tmp/trimmed.mp4', [{ start: 0, end: 1 }], 10);
 
@@ -1444,6 +1490,33 @@ describe('applyReactionHolds (C6R.2)', () => {
     expect(fc).toContain('[0:v]trim=start=1.55:end=4,setpts=PTS-STARTPTS[v1pre]');
     // References input 2 (the second anullsrc) for the second hold's silence.
     expect(fc).toContain('[2:a]atrim=duration=0.5[a1hold]');
+  });
+
+  // Output Resolution/Quality audit, Phase 0 - same quality-propagation fix/regression
+  // coverage as trimCutRanges() above; this pass had the identical gap.
+  it('adds -preset/-crf only when a quality override is passed', async () => {
+    await applyReactionHolds('/tmp/clip.mp4', '/tmp/output.mp4', [3], 0.5, {
+      preset: 'slow',
+      crf: 18,
+    });
+
+    const [, args] = execFileMock.mock.calls[0];
+    expect(args).toEqual(expect.arrayContaining(['-preset', 'slow', '-crf', '18']));
+  });
+
+  it('omits -preset/-crf entirely when quality is not passed (unchanged prior behavior)', async () => {
+    await applyReactionHolds('/tmp/clip.mp4', '/tmp/output.mp4', [3]);
+
+    const [, args] = execFileMock.mock.calls[0];
+    expect(args).not.toEqual(expect.arrayContaining(['-preset']));
+    expect(args).not.toEqual(expect.arrayContaining(['-crf']));
+  });
+
+  it('always forces -pix_fmt yuv420p, regardless of whether a quality override is passed', async () => {
+    await applyReactionHolds('/tmp/clip.mp4', '/tmp/output.mp4', [3]);
+
+    const [, args] = execFileMock.mock.calls[0];
+    expect(args).toEqual(expect.arrayContaining(['-pix_fmt', 'yuv420p']));
   });
 
   it('atomically renames the .tmp output onto the real path only after ffmpeg succeeds', async () => {

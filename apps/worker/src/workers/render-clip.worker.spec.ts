@@ -2714,6 +2714,7 @@ describe('render-clip worker', () => {
         expect.stringContaining('reaction-hold'),
         [2.75],
         0.5,
+        null,
       );
       expect(uploadObjectMock).toHaveBeenCalledWith(
         'renders/clip-1.mp4',
@@ -2742,6 +2743,42 @@ describe('render-clip worker', () => {
         expect.stringContaining('reaction-hold'),
         [0.7],
         0.5,
+        null,
+      );
+    });
+
+    // Output Resolution/Quality audit, Phase 0 - regression test for the fix: before this
+    // phase, trimCutRanges()/applyReactionHolds() never received the render's resolved
+    // export quality at all, silently falling back to ffmpeg's own default (CRF 23, medium)
+    // on their re-encode pass even when the user picked e.g. "maximum_quality" for the FIRST
+    // pass (renderClip()). Same [0.45, 9.35] cut + 9.4-9.8 reaction-hold fixture as the test
+    // above (known to exercise BOTH passes in one render), just with a real qualityPreset set.
+    it('propagates the resolved export quality into both the Smart Trim and Reaction Hold re-encode passes', async () => {
+      process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED = 'true';
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, export: { qualityPreset: 'maximum_quality' } },
+        },
+      });
+      computeEditingSuggestionsMock.mockReturnValueOnce([
+        { technique: 'reaction_hold', start: 9.4, end: 9.8, score: 0.8, reason: 'x' },
+      ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(cutJobData));
+
+      expect(trimCutRangesMock).toHaveBeenCalledTimes(1);
+      expect(trimCutRangesMock.mock.calls[0][4]).toEqual({ preset: 'slow', crf: 18 });
+
+      expect(applyReactionHoldsMock).toHaveBeenCalledWith(
+        expect.stringContaining('trimmed'),
+        expect.stringContaining('reaction-hold'),
+        [0.7],
+        0.5,
+        { preset: 'slow', crf: 18 },
       );
     });
 
@@ -2785,6 +2822,7 @@ describe('render-clip worker', () => {
         expect.stringContaining('reaction-hold'),
         [3.25],
         0.5,
+        null,
       );
     });
 
@@ -2808,6 +2846,7 @@ describe('render-clip worker', () => {
         expect.stringContaining('reaction-hold'),
         [2.2],
         0.5,
+        null,
       );
     });
 
@@ -2967,6 +3006,7 @@ describe('render-clip worker', () => {
         expect.stringContaining('reaction-hold'),
         [5],
         0.5,
+        null,
       );
     });
   });
