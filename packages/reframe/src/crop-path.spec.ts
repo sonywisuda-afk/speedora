@@ -57,9 +57,10 @@ describe('computeCropDimensions', () => {
 
     it('never upscales a portrait source asked for 16:9 - crops height down from the full width instead', () => {
       // A 1080-wide portrait source has no 1920px of horizontal information to give a full-height
-      // 16:9 crop - the audit's own rule 1 ("don't upscale without an explicit reason") wins over
-      // reaching a canonical 1920x1080 size here. Correct AR, real (smaller) resolution, no
-      // upscale/pad/stretch.
+      // 16:9 crop - THIS function stays crop-only and never upscales (correct AR, a real smaller
+      // resolution, no stretch). Phase 2's resolveOutputResolution() is the separate, later step
+      // that decides whether to scale this natural crop back UP to a canonical size (see
+      // resolution-policy.spec.ts) - not this function's concern.
       const result = computeCropDimensions(1080, 1920, 16 / 9);
 
       expect(result.width).toBe(1080);
