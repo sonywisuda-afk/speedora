@@ -17,6 +17,7 @@ import {
   updateComment,
 } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { MentionPicker } from '@/components/workspace/MemberPicker';
 import { formatRelativeTime } from '@/lib/dashboard';
 import { formatTimestamp } from '@/lib/thumbnail-selection';
 import { useTimelineStore } from '@/lib/timelineStore';
@@ -33,10 +34,20 @@ const QUICK_REACTIONS = ['👍', '❤️', '🎉', '😂'];
 //
 // Mention (@user) capability is fully built and tested server-side
 // (CommentsService.create's mentionedUserIds validation, the MENTION
-// notification) but this pass's UI has no mention picker yet - out of
-// scope for this component, a small follow-up once a workspace-member
-// picker exists elsewhere in the app to reuse.
-export function CommentsPanel({ videoId }: { videoId: string }) {
+// notification) - `workspaceId` (optional, omitting it keeps every
+// pre-existing "no mention picker" behavior identical) now wires
+// MemberPicker.tsx's chip-based MentionPicker into the top-level composer
+// only, not replies - the reply flow is a secondary, less-common path and
+// out of scope for this first pass (same "narrower than the full
+// possibility space" discipline ApprovalPanel.tsx's own clip picker
+// followed).
+export function CommentsPanel({
+  videoId,
+  workspaceId = null,
+}: {
+  videoId: string;
+  workspaceId?: string | null;
+}) {
   const { user } = useAuth();
   const { data, mutate } = useSWR(['comments', videoId], () => listComments(videoId));
   const playhead = useTimelineStore((s) => s.playhead);
@@ -44,6 +55,7 @@ export function CommentsPanel({ videoId }: { videoId: string }) {
 
   const [newBody, setNewBody] = useState('');
   const [anchorToTime, setAnchorToTime] = useState(true);
+  const [mentionedUserIds, setMentionedUserIds] = useState<string[]>([]);
   const [posting, setPosting] = useState(false);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyBody, setReplyBody] = useState('');
@@ -76,8 +88,10 @@ export function CommentsPanel({ videoId }: { videoId: string }) {
       await createComment(videoId, {
         body: newBody.trim(),
         timestampSeconds: anchorToTime ? playhead : undefined,
+        mentionedUserIds: mentionedUserIds.length > 0 ? mentionedUserIds : undefined,
       });
       setNewBody('');
+      setMentionedUserIds([]);
     });
     setPosting(false);
   }
@@ -296,6 +310,15 @@ export function CommentsPanel({ videoId }: { videoId: string }) {
           {posting ? 'Mengirim...' : 'Kirim'}
         </Button>
       </div>
+      {workspaceId && (
+        <div className="mt-1.5">
+          <MentionPicker
+            workspaceId={workspaceId}
+            selectedUserIds={mentionedUserIds}
+            onChange={setMentionedUserIds}
+          />
+        </div>
+      )}
       {error && <p className="mt-1 font-body text-xs text-destructive">{error}</p>}
 
       <div className="mt-4 space-y-3">

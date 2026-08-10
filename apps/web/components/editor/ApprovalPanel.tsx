@@ -1,10 +1,11 @@
 'use client';
 
-import type { ApprovalDto } from '@speedora/shared';
+import { WorkspaceRole, type ApprovalDto } from '@speedora/shared';
 import { useState } from 'react';
 import useSWR from 'swr';
 import { decideApproval, listApprovals, requestApproval, resubmitApproval } from '@/lib/api';
 import { Button } from '@/components/ui/button';
+import { useWorkspaceMembers } from '@/components/workspace/MemberPicker';
 import { formatDuration, formatRelativeTime } from '@/lib/dashboard';
 
 // Gap follow-up (2026-08-10) - the clip picker RequestApprovalDto.clipId's own comment always
@@ -47,20 +48,31 @@ const STATUS_LABEL: Record<ApprovalDto['status'], string> = {
 // picker - omitting it keeps every pre-existing "video-level requests only"
 // behavior identical. Reviewer assignment is still left to the server
 // default (notifies the video owner) - no reviewer picker UI yet, same
-// reasoning CommentsPanel's mention picker was deferred for; that's a
-// separate, still-open gap.
+// reasoning CommentsPanel's mention picker was previously deferred for -
+// both are now done, see MemberPicker.tsx. `workspaceId` (optional,
+// omitting it keeps every pre-existing "server picks the video owner"
+// behavior identical) renders a reviewer <select> filtered to REVIEWER+
+// members via useWorkspaceMembers' own minRole param - the same threshold
+// ApprovalsService.request itself enforces, so this picker never offers a
+// choice the server would reject.
 export function ApprovalPanel({
   videoId,
   clips = [],
+  workspaceId = null,
 }: {
   videoId: string;
   clips?: ApprovalClipOption[];
+  workspaceId?: string | null;
 }) {
   const { data, mutate } = useSWR(['approvals', videoId], () => listApprovals(videoId));
+  const { members: reviewers } = useWorkspaceMembers(workspaceId, WorkspaceRole.REVIEWER);
   const [note, setNote] = useState('');
   // '' means "whole video" (clipId: undefined, the pre-existing behavior) - not a sentinel value
   // that could collide with a real clip id, since real clip ids are always non-empty cuids.
   const [selectedClipId, setSelectedClipId] = useState('');
+  // '' means "let the server pick" (reviewerId: undefined, the pre-existing default - notifies
+  // the video owner), same empty-string-sentinel convention as selectedClipId above.
+  const [selectedReviewerId, setSelectedReviewerId] = useState('');
   const [requesting, setRequesting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expandedHistory, setExpandedHistory] = useState<string | null>(null);
@@ -85,9 +97,11 @@ export function ApprovalPanel({
       await requestApproval(videoId, {
         note: note.trim() || undefined,
         clipId: selectedClipId || undefined,
+        reviewerId: selectedReviewerId || undefined,
       });
       setNote('');
       setSelectedClipId('');
+      setSelectedReviewerId('');
     });
     setRequesting(false);
   }
@@ -121,6 +135,21 @@ export function ApprovalPanel({
               {clips.map((clip, index) => (
                 <option key={clip.id} value={clip.id}>
                   {clipOptionLabel(clip, index)}
+                </option>
+              ))}
+            </select>
+          )}
+          {reviewers.length > 0 && (
+            <select
+              value={selectedReviewerId}
+              onChange={(e) => setSelectedReviewerId(e.target.value)}
+              aria-label="Reviewer"
+              className="h-9 rounded-md border border-input bg-background px-2 font-body text-sm text-foreground"
+            >
+              <option value="">Reviewer default (pemilik video)</option>
+              {reviewers.map((reviewer) => (
+                <option key={reviewer.userId} value={reviewer.userId}>
+                  {reviewer.email}
                 </option>
               ))}
             </select>
