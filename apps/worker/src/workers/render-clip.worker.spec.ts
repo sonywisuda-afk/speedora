@@ -3308,7 +3308,7 @@ describe('render-clip worker', () => {
       const processor = getProcessor();
       await processor(fakeJob({ ...baseJobData, keywords: ['sunset'] }));
 
-      expect(findBRollMomentsMock).toHaveBeenCalledWith(['sunset'], expect.any(Array), 10, 4);
+      expect(findBRollMomentsMock).toHaveBeenCalledWith(['sunset'], expect.any(Array), 10, 4, []);
     });
 
     it('passes undefined (not a duplicated constant) to findBRollMoments when maxCutaways is not configured, letting broll.ts fall back to its own default', async () => {
@@ -3325,6 +3325,75 @@ describe('render-clip worker', () => {
         expect.any(Array),
         10,
         undefined,
+        [],
+      );
+    });
+
+    // AI B-roll Recommendation - the pipeline-order fix (item 3 follow-up): Hook Prediction's
+    // real namedEntities is now genuinely available at this call site (the render graph runs
+    // BEFORE buildBRollOverlays - see graphResult usage above) and gets threaded through
+    // unchanged as a second classification signal alongside broll.ts's own capitalization
+    // heuristic.
+    it("threads Hook Prediction's real namedEntities through to findBRollMoments once the render graph has produced them", async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      findBRollMomentsMock.mockReturnValue([]);
+      // A full, schema-valid HookPredictionOutput (packages/contracts/src/hook-prediction.ts) -
+      // a partial shape crashes a completely unrelated downstream render-graph node
+      // (virality-engine, which also reads hookPrediction) rather than the code path this test
+      // actually targets.
+      predictHookMock.mockResolvedValue({
+        clipId: 'clip-1',
+        hookProbability: 70,
+        reason: 'test',
+        confidence: 1,
+        linguisticFeatures: {
+          sentiment: 'positive',
+          dominantEmotion: 'neu',
+          surpriseScore: 0.5,
+          controversyScore: 0.1,
+          keywordRarityScore: 0.2,
+          topicShiftScore: 0.1,
+          questionDensity: 0,
+          numericFactCount: 0,
+          namedEntities: ['OpenAI', 'Elon Musk'],
+        },
+        predictionFeatures: {
+          expectedScrollStopRate: 0.5,
+          expectedRetentionLift: 0,
+          expectedReplayPotential: 0.3,
+        },
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob({ ...baseJobData, keywords: ['sunset'] }));
+
+      expect(findBRollMomentsMock).toHaveBeenCalledWith(
+        ['sunset'],
+        expect.any(Array),
+        10,
+        undefined,
+        ['OpenAI', 'Elon Musk'],
+      );
+    });
+
+    it('falls back to an empty namedEntities array (heuristic-only classification) when Hook Prediction fails/returns null', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      findBRollMomentsMock.mockReturnValue([]);
+      predictHookMock.mockRejectedValue(new Error('LLM call failed'));
+
+      const processor = getProcessor();
+      await processor(fakeJob({ ...baseJobData, keywords: ['sunset'] }));
+
+      expect(findBRollMomentsMock).toHaveBeenCalledWith(
+        ['sunset'],
+        expect.any(Array),
+        10,
+        undefined,
+        [],
       );
     });
   });

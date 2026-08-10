@@ -33,12 +33,17 @@ export interface BRollMoment {
 }
 
 // A deliberately cheap heuristic, not an LLM call - see
-// docs/ai/broll-recommendation.md for why. This module runs BEFORE the
-// render-graph (buildBRollOverlays() needs its downloaded/prepped assets
-// ready before the main ffmpeg composition pass), so it has no access to
-// Hook Prediction's own LLM-derived namedEntities (a render-graph node
-// output) without either a second, duplicate LLM call or reordering the
-// render pipeline - both rejected as bigger than this feature warrants.
+// docs/ai/broll-recommendation.md for why this exists at all. Originally
+// the ONLY brand-classification signal, because at the time this shipped,
+// B-roll's own overlay build ran BEFORE the render graph. That pipeline
+// order changed later (Visual Emphasis Engine Phase C2 reordered things so
+// buildReframePlan() could consume the render graph's own output) - as a
+// side effect, render-clip.worker.ts now calls buildBRollOverlays() AFTER
+// the render graph, making Hook Prediction's real namedEntities genuinely
+// available for free (see matchesNamedEntity() below). This heuristic stays
+// as a SECOND signal, not replaced - it still catches proper nouns Hook
+// Prediction's LLM call didn't happen to extract, and is the only signal
+// left when hookPrediction is null (that LLM call failed/never ran).
 // `keywords` itself already comes from an LLM (clip-scoring), so a real
 // proper noun is very likely already properly capitalized by that model,
 // not raw ASR text where capitalization is far less reliable. False
@@ -51,6 +56,30 @@ export interface BRollMoment {
 export function looksLikeBrandName(keyword: string): boolean {
   const words = keyword.trim().split(/\s+/);
   return words.length > 0 && words.every((word) => /^[A-Z]/.test(word));
+}
+
+// The real signal, now that it's genuinely available (see looksLikeBrandName's
+// own comment above for the pipeline-order history). Case-insensitive exact
+// match first (the common case: clip-scoring's `keyword` and Hook
+// Prediction's own extracted entity name the same real-world thing the same
+// way), then a bidirectional substring check as a deliberate loosening - the
+// two LLM calls are independent and can phrase the same entity differently
+// ("OpenAI" vs "Open AI", "Elon Musk" vs just "Musk"). Not real fuzzy/token
+// matching - a cheap string check is enough here since a false positive is
+// harmless (see looksLikeBrandName's own cost framing) and a namedEntities
+// list is already short (per-clip, not per-corpus).
+export function matchesNamedEntity(keyword: string, namedEntities: string[]): boolean {
+  const normalizedKeyword = keyword.trim().toLowerCase();
+  if (!normalizedKeyword) return false;
+  return namedEntities.some((entity) => {
+    const normalizedEntity = entity.trim().toLowerCase();
+    if (!normalizedEntity) return false;
+    return (
+      normalizedEntity === normalizedKeyword ||
+      normalizedEntity.includes(normalizedKeyword) ||
+      normalizedKeyword.includes(normalizedEntity)
+    );
+  });
 }
 
 // First character offset of `keyword` (case-insensitive) in the words
@@ -91,11 +120,17 @@ function findFirstMentionTime(keyword: string, words: TranscriptWord[]): number 
 // maxMoments defaults to MAX_BROLL_MOMENTS (every pre-existing call site's
 // exact prior behavior); render-clip.worker.ts passes an explicit override
 // when ProcessingOptions.broll.maxCutaways is set.
+// namedEntities defaults to an empty array (every pre-existing call site's
+// exact prior behavior, and the correct fallback when Hook Prediction's own
+// render-graph node returned null) - isBrandCandidate is true when EITHER
+// signal says so (matchesNamedEntity - the real AI signal - OR
+// looksLikeBrandName - the cheap fallback), never requiring both.
 export function findBRollMoments(
   keywords: string[],
   words: TranscriptWord[],
   clipDurationSeconds: number,
   maxMoments: number = MAX_BROLL_MOMENTS,
+  namedEntities: string[] = [],
 ): BRollMoment[] {
   const moments: BRollMoment[] = [];
   for (const keyword of keywords) {
@@ -106,7 +141,9 @@ export function findBRollMoments(
     if (t + BROLL_DURATION_SECONDS > clipDurationSeconds) continue;
     if (moments.some((m) => Math.abs(m.t - t) < MIN_GAP_BETWEEN_MOMENTS_SECONDS)) continue;
 
-    moments.push({ keyword, t, isBrandCandidate: looksLikeBrandName(keyword) });
+    const isBrandCandidate =
+      matchesNamedEntity(keyword, namedEntities) || looksLikeBrandName(keyword);
+    moments.push({ keyword, t, isBrandCandidate });
   }
   return moments;
 }

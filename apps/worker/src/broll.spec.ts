@@ -17,7 +17,12 @@ jest.mock('node:stream/promises', () => ({
   pipeline: (...args: unknown[]) => pipelineMock(...args),
 }));
 
-import { downloadStockAsset, findBRollMoments, looksLikeBrandName } from './broll';
+import {
+  downloadStockAsset,
+  findBRollMoments,
+  looksLikeBrandName,
+  matchesNamedEntity,
+} from './broll';
 
 function word(text: string, start: number, end: number): TranscriptWord {
   return { word: text, start, end };
@@ -103,6 +108,33 @@ describe('findBRollMoments', () => {
     expect(findBRollMoments([], words, 20)).toEqual([]);
     expect(findBRollMoments(['sunset'], [], 20)).toEqual([]);
   });
+
+  // AI B-roll Recommendation - item 3 follow-up (real namedEntities signal, now that the
+  // pipeline-order constraint that used to block it no longer applies).
+  it('tags isBrandCandidate true when the keyword matches a real namedEntity, even though the keyword itself is lowercase (a false negative for looksLikeBrandName alone)', () => {
+    const brandWords = [word('so', 0, 0.3), word('sunset', 0.5, 1.0)];
+    const moments = findBRollMoments(['sunset'], brandWords, 20, undefined, ['Sunset Corp']);
+
+    expect(moments).toEqual([{ keyword: 'sunset', t: 0.5, isBrandCandidate: true }]);
+  });
+
+  it('still tags isBrandCandidate true via looksLikeBrandName when namedEntities has no match (the fallback signal)', () => {
+    expect(findBRollMoments(['SUNSET'], words, 20, undefined, ['unrelated entity'])).toEqual([
+      { keyword: 'SUNSET', t: 0.5, isBrandCandidate: true },
+    ]);
+  });
+
+  it('tags isBrandCandidate false when neither signal matches', () => {
+    expect(findBRollMoments(['sunset'], words, 20, undefined, ['unrelated entity'])).toEqual([
+      { keyword: 'sunset', t: 0.5, isBrandCandidate: false },
+    ]);
+  });
+
+  it('defaults namedEntities to empty (existing behavior unchanged) when the parameter is omitted', () => {
+    expect(findBRollMoments(['sunset'], words, 20)).toEqual([
+      { keyword: 'sunset', t: 0.5, isBrandCandidate: false },
+    ]);
+  });
 });
 
 // AI B-roll Recommendation (item 8) - see this function's own comment in
@@ -132,6 +164,37 @@ describe('looksLikeBrandName', () => {
 
   it('returns true for an all-caps acronym (e.g. NASA) - a deliberate, accepted false-positive class', () => {
     expect(looksLikeBrandName('NASA')).toBe(true);
+  });
+});
+
+// AI B-roll Recommendation - item 3 follow-up: the real classification signal, now that Hook
+// Prediction's namedEntities is genuinely available at this call site (see this function's own
+// comment in broll.ts for the pipeline-order history).
+describe('matchesNamedEntity', () => {
+  it('returns true for a case-insensitive exact match', () => {
+    expect(matchesNamedEntity('openai', ['OpenAI'])).toBe(true);
+    expect(matchesNamedEntity('OPENAI', ['openai'])).toBe(true);
+  });
+
+  it('returns true when the entity is a longer phrase containing the keyword', () => {
+    expect(matchesNamedEntity('Musk', ['Elon Musk'])).toBe(true);
+  });
+
+  it('returns true when the keyword is a longer phrase containing the entity', () => {
+    expect(matchesNamedEntity('Open AI Inc', ['Open AI'])).toBe(true);
+  });
+
+  it('returns false when nothing matches', () => {
+    expect(matchesNamedEntity('coffee', ['OpenAI', 'Elon Musk'])).toBe(false);
+  });
+
+  it('returns false for an empty keyword or an empty namedEntities list', () => {
+    expect(matchesNamedEntity('', ['OpenAI'])).toBe(false);
+    expect(matchesNamedEntity('OpenAI', [])).toBe(false);
+  });
+
+  it('ignores a blank entry in namedEntities rather than matching everything against it', () => {
+    expect(matchesNamedEntity('anything', ['', '   '])).toBe(false);
   });
 });
 
