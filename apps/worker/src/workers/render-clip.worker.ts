@@ -72,6 +72,8 @@ import {
   computeCropDimensions,
   computeOcrHighlightBoxes,
   findEmphasisWords,
+  resolveOutputResolution,
+  TARGET_ASPECT_RATIO,
   type FaceSample,
 } from '@speedora/reframe';
 import { getObjectStream, uploadObject } from '@speedora/storage';
@@ -165,6 +167,84 @@ function resolveSceneAnalysisFlags(
 // renderClip()'s own optional `quality`.
 function resolveZoomInFraction(processingOptions: ProcessingOptions | null): number | undefined {
   return processingOptions?.smartCrop.zoomInFraction ?? undefined;
+}
+
+// Generic exhaustive-switch guard, same Contract Synchronization purpose as
+// assertNeverSocialPlatform below, just not tied to one specific union - used by
+// resolveTargetAspectRatio()/resolveResolutionTier() below so a future export.aspectRatio/
+// resolutionTier literal added to @speedora/shared's ProcessingOptions fails to compile here
+// until a matching case is added, instead of silently falling through.
+function assertNever(value: never): never {
+  throw new Error(`Unhandled switch case: ${JSON.stringify(value)}`);
+}
+
+// Output Resolution/Quality audit, Phase 1 (foundation) - translates the export.aspectRatio
+// setting into a raw width/height ratio for @speedora/reframe's computeCropDimensions(), plus the
+// concrete label this render actually used (written to Clip.outputAspectRatio below - see that
+// column's own schema comment for why it's always one of these three, never 'auto'/null).
+// null (every video predating this phase, or one that simply never set it) resolves to
+// TARGET_ASPECT_RATIO's own 9/16 - EXACTLY today's hardcoded behavior, byte-for-byte unchanged.
+export type ResolvedAspectRatio = { ratio: number; label: '9:16' | '16:9' | '1:1' };
+
+// 'auto' orientation heuristic - deliberately simple (source aspect vs. a threshold, not a bare
+// "width > height" which would misclassify a near-square source either way depending on which
+// side of 1.0 it happened to round to). A Composition Intelligence-informed decision is a real
+// future upgrade path (see docs' own "Auto mode" gap), not attempted here.
+const AUTO_ASPECT_RATIO_LANDSCAPE_THRESHOLD = 1.2;
+const AUTO_ASPECT_RATIO_PORTRAIT_THRESHOLD = 1 / AUTO_ASPECT_RATIO_LANDSCAPE_THRESHOLD;
+
+function resolveTargetAspectRatio(
+  processingOptions: ProcessingOptions | null,
+  sourceWidth: number,
+  sourceHeight: number,
+): ResolvedAspectRatio {
+  const setting = processingOptions?.export.aspectRatio ?? null;
+  switch (setting) {
+    case null:
+    case '9:16':
+      return { ratio: TARGET_ASPECT_RATIO, label: '9:16' };
+    case '16:9':
+      return { ratio: 16 / 9, label: '16:9' };
+    case '1:1':
+      return { ratio: 1, label: '1:1' };
+    case 'auto': {
+      const sourceAspect = sourceWidth / sourceHeight;
+      if (sourceAspect >= AUTO_ASPECT_RATIO_LANDSCAPE_THRESHOLD) {
+        return { ratio: 16 / 9, label: '16:9' };
+      }
+      if (sourceAspect <= AUTO_ASPECT_RATIO_PORTRAIT_THRESHOLD) {
+        return { ratio: TARGET_ASPECT_RATIO, label: '9:16' };
+      }
+      return { ratio: 1, label: '1:1' };
+    }
+    default:
+      return assertNever(setting);
+  }
+}
+
+// Output Resolution/Quality audit, Phase 1 (foundation) - translates the export.resolutionTier
+// setting into @speedora/reframe's resolveOutputResolution() tier vocabulary. null (every video
+// predating this phase, or one that simply never set it) means NO cap at all - the pipeline's
+// exact pre-Phase-1 behavior (output resolution follows the source with no ceiling). 'auto'
+// applies the '1080p' cap - a sane ceiling that never upscales past the source (satisfying the
+// audit's "1080p should be the default high-quality output, but never fake it from a smaller
+// source" rule via the same never-upscale mechanism resolveOutputResolution() already has for
+// free) - a real, distinct choice from null, not a synonym for "no cap".
+function resolveResolutionTier(
+  processingOptions: ProcessingOptions | null,
+): '1080p' | '720p' | null {
+  const setting = processingOptions?.export.resolutionTier ?? null;
+  switch (setting) {
+    case null:
+      return null;
+    case 'auto':
+      return '1080p';
+    case '1080p':
+    case '720p':
+      return setting;
+    default:
+      return assertNever(setting);
+  }
 }
 
 // AI B-roll Recommendation UI control - `enabled` true (run it) with no
@@ -615,11 +695,29 @@ function computeReactionHoldInstants(
 // compositionFeaturesNode needs ctx.reframe.outputWidth/outputHeight for
 // its own aspect-ratio-aware thresholds, and the graph must exist before
 // buildReframePlan() below can consume its primarySubjectSamples output.
+//
+// Output Resolution/Quality audit, Phase 1 (foundation) - now also resolves the target aspect
+// ratio (resolveTargetAspectRatio(), defaulting to the fixed 9/16 every clip has always used) and
+// applies the resolution-tier cap (resolveOutputResolution(), defaulting to no cap - today's
+// exact behavior) right here, at the single point `crop` is produced - every downstream consumer
+// (buildReframePlan/buildCropPath, captions via reframe.outputWidth/outputHeight, B-roll,
+// watermark, compositionFeaturesNode) already reads `crop`/outputWidth/outputHeight rather than
+// re-deriving dimensions itself, so both the ratio and the cap propagate everywhere for free with
+// no other call site needing to change.
 async function computeReframeDimensions(
   sourcePath: string,
-): Promise<{ crop: CropDimensions; sourceWidth: number; sourceHeight: number }> {
+  processingOptions: ProcessingOptions | null,
+): Promise<{
+  crop: CropDimensions;
+  sourceWidth: number;
+  sourceHeight: number;
+  aspectRatioLabel: ResolvedAspectRatio['label'];
+}> {
   const { width: sourceWidth, height: sourceHeight } = await getVideoDimensions(sourcePath);
-  return { crop: computeCropDimensions(sourceWidth, sourceHeight), sourceWidth, sourceHeight };
+  const { ratio, label } = resolveTargetAspectRatio(processingOptions, sourceWidth, sourceHeight);
+  const naturalCrop = computeCropDimensions(sourceWidth, sourceHeight, ratio);
+  const crop = resolveOutputResolution(naturalCrop, resolveResolutionTier(processingOptions));
+  return { crop, sourceWidth, sourceHeight, aspectRatioLabel: label };
 }
 
 // Composition Intelligence's PrimarySubjectSample already shares
@@ -1089,7 +1187,8 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // here: dimensions only need the source video's own width/height,
             // genuinely independent of face/subject detection - see
             // computeReframeDimensions()'s own comment.
-            const { crop, sourceWidth, sourceHeight } = await computeReframeDimensions(sourcePath);
+            const { crop, sourceWidth, sourceHeight, aspectRatioLabel } =
+              await computeReframeDimensions(sourcePath, processingOptions);
 
             // Composing multiple modules: the render-clip Feature Orchestrator (see
             // ARCHITECTURE.md) - Scene Intelligence's sceneCuts/sceneCutEvents are the first
@@ -1677,6 +1776,14 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                   data: toClipUpdateData(graphResult, {
                     outputUrl: outputKey,
                     outputSizeBytes,
+                    // Output Resolution/Quality audit, Phase 1 (foundation) - the RENDERED
+                    // output's actual pixel dimensions (crop.width/height, already through both
+                    // computeReframeDimensions()'s aspect-ratio resolution AND the resolution-tier
+                    // cap) and the concrete aspect-ratio label this render actually used - see
+                    // Clip.outputWidth/outputHeight/outputAspectRatio's own schema comment.
+                    outputWidth: crop.width,
+                    outputHeight: crop.height,
+                    outputAspectRatio: aspectRatioLabel,
                     ...(thumbnailKey ? { thumbnailUrl: thumbnailKey } : {}),
                     ...(thumbnailBlurDataUrl ? { thumbnailBlurDataUrl } : {}),
                     storyboardFrameUrls: storyboardKeys as unknown as Prisma.InputJsonValue,

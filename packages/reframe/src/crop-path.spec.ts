@@ -33,6 +33,41 @@ describe('computeCropDimensions', () => {
     expect(result.width % 2).toBe(0);
     expect(result.height % 2).toBe(0);
   });
+
+  // Output Resolution/Quality audit, Phase 1 (foundation) - targetAspectRatio generalization.
+  // Every existing call above (2-arg, default 9/16) is untouched by this parameter's addition.
+  describe('targetAspectRatio override', () => {
+    it('crops a landscape source to a square (1:1) by cropping width down to the full height', () => {
+      const result = computeCropDimensions(1920, 1080, 1);
+
+      expect(result).toEqual({ width: 1080, height: 1080 });
+    });
+
+    it('crops a portrait source to a square (1:1) by cropping height down to the full width', () => {
+      const result = computeCropDimensions(1080, 1920, 1);
+
+      expect(result).toEqual({ width: 1080, height: 1080 });
+    });
+
+    it('keeps a 16:9 source at its own full 16:9 size when the target IS 16:9 (no-op crop)', () => {
+      const result = computeCropDimensions(1920, 1080, 16 / 9);
+
+      expect(result).toEqual({ width: 1920, height: 1080 });
+    });
+
+    it('never upscales a portrait source asked for 16:9 - crops height down from the full width instead', () => {
+      // A 1080-wide portrait source has no 1920px of horizontal information to give a full-height
+      // 16:9 crop - the audit's own rule 1 ("don't upscale without an explicit reason") wins over
+      // reaching a canonical 1920x1080 size here. Correct AR, real (smaller) resolution, no
+      // upscale/pad/stretch.
+      const result = computeCropDimensions(1080, 1920, 16 / 9);
+
+      expect(result.width).toBe(1080);
+      expect(result.width).toBeLessThanOrEqual(1080);
+      expect(result.height).toBeLessThanOrEqual(1920);
+      expect(result.width / result.height).toBeCloseTo(16 / 9, 1);
+    });
+  });
 });
 
 describe('findEmphasisWords', () => {
