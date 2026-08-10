@@ -613,17 +613,28 @@ export async function renderClip(options: {
       mainChainFilters.push(
         `crop@reframe=w=${reframe.width}:h=${reframe.height}:x=${reframe.x}:y=${reframe.y}`,
       );
-      // The crop window's w/h can shrink below outputWidth/outputHeight
-      // during a Fase 11 zoom punch-in (sendcmd varies them over time) -
-      // scale re-samples whatever size the crop produced at each frame back
-      // up to the fixed encoded output size, so the punch-in reads as a
-      // camera zoom rather than the output resolution itself changing.
-      mainChainFilters.push(`scale=${reframe.outputWidth}:${reframe.outputHeight}`);
     } else {
       mainChainFilters.push(
         `crop=w=${reframe.width}:h=${reframe.height}:x=${reframe.x}:y=${reframe.y}`,
       );
     }
+    // Scales whatever the crop filter produced up to the fixed encoded output size.
+    // Unconditional now (Output Resolution/Quality audit, Phase 2) - previously only pushed
+    // inside the sendCmd branch above, because before Phase 2's scale-up policy, the STATIC
+    // (non-sendCmd) branch's crop.width/height always equaled outputWidth/outputHeight already
+    // (a real no-op scale, so skipping it was harmless). That's no longer true:
+    // resolveOutputResolution() can now normalize a source-bounded crop UP past what's literally
+    // croppable from the source (a real Phase 2 bug this exact line fixes - feeding a bigger
+    // outputWidth/outputHeight straight into the `crop=` filter's own w/h instead of scaling
+    // AFTER it makes ffmpeg fail outright with "Invalid too big ... size", caught by
+    // ffmpeg.output-profile.integration.spec.ts against a real encode). For the sendCmd/zoom
+    // branch, this ALSO still serves its original purpose: the crop window's w/h can shrink below
+    // outputWidth/outputHeight during a Fase 11 zoom punch-in (sendcmd varies them over time) -
+    // scale re-samples whatever size the crop produced at each frame back up to the fixed encoded
+    // output size, so the punch-in reads as a camera zoom rather than the output resolution
+    // itself changing. Either way, a no-op resize (crop dims already equal output dims - the
+    // overwhelmingly common case pre-Phase-2) costs nothing and changes nothing.
+    mainChainFilters.push(`scale=${reframe.outputWidth}:${reframe.outputHeight}`);
   }
 
   const hasBroll = Boolean(broll && broll.length > 0);

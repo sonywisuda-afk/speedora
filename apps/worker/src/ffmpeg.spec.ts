@@ -612,7 +612,7 @@ describe('renderClip', () => {
 
     const [, args] = execFileMock.mock.calls[0];
     const vf = args[args.indexOf('-vf') + 1];
-    expect(vf).toBe('crop=w=136:h=240:x=92:y=0');
+    expect(vf).toBe('crop=w=136:h=240:x=92:y=0,scale=136:240');
   });
 
   it('adds a sendcmd + tagged crop filter + a scale filter (to normalize any zoom) when reframe has a sendCmdPath', async () => {
@@ -658,7 +658,7 @@ describe('renderClip', () => {
 
     const [, args] = execFileMock.mock.calls[0];
     const vf = args[args.indexOf('-vf') + 1];
-    expect(vf).toBe("crop=w=136:h=240:x=92:y=0,subtitles='/tmp/captions.ass'");
+    expect(vf).toBe("crop=w=136:h=240:x=92:y=0,scale=136:240,subtitles='/tmp/captions.ass'");
   });
 
   it('propagates the error when ffmpeg fails', async () => {
@@ -740,7 +740,7 @@ describe('renderClip', () => {
       const [, args] = execFileMock.mock.calls[0];
       const fc = args[args.indexOf('-filter_complex') + 1];
       expect(fc).toBe(
-        '[0:v]crop=w=136:h=240:x=92:y=0[main0];' +
+        '[0:v]crop=w=136:h=240:x=92:y=0,scale=136:240[main0];' +
           '[1:v]setpts=PTS-STARTPTS+2/TB[broll0];' +
           "[main0][broll0]overlay=enable='between(t,2,4.5)'[main1];" +
           "[main1]subtitles='/tmp/captions.ass'[withsubs]",
@@ -884,7 +884,7 @@ describe('renderClip', () => {
       );
       const fc = args[args.indexOf('-filter_complex') + 1];
       expect(fc).toBe(
-        '[0:v]crop=w=136:h=240:x=92:y=0[main0];' +
+        '[0:v]crop=w=136:h=240:x=92:y=0,scale=136:240[main0];' +
           '[1:v]setpts=PTS-STARTPTS+2/TB[broll0];' +
           "[main0][broll0]overlay=enable='between(t,2,4.5)'[main1];" +
           "[main1]subtitles='/tmp/captions.ass'[withsubs];" +

@@ -64,13 +64,16 @@ function round3(value: number): number {
 // geometry-only function here. Translating a user-facing aspect ratio choice (or 'auto') into
 // this number is the caller's job - see render-clip.worker.ts's resolveTargetAspectRatio().
 //
-// Deliberately crop-only, same as before this parameter existed - NEVER upscales, even when the
-// requested ratio is far from the source's own orientation (e.g. a portrait source asked for a
-// 16:9 output can only crop down to its own full width, landing well under a 1920px-wide "1080p"
-// canonical size, not padded/letterboxed/upscaled up to it). This follows the same "don't upscale
-// without an explicit reason" policy computeCropDimensions already applied to 9:16 - a bigger,
-// separate product decision (padding/letterboxing a cross-orientation conversion up to a fixed
-// canonical size) is out of scope for this phase.
+// Deliberately crop-only, same as before this parameter existed - THIS function never scales
+// anything in either direction, it only ever removes pixels (or, for an already-matching source,
+// removes none at all). A source whose short side ends up well below a target quality tier's
+// canonical size (e.g. a 1920x1080 landscape source cropped to 9:16 keeps its full 1080 height
+// and narrows to a 608px-wide crop) is NOT scaled up here - that's a separate, later concern
+// (Phase 2 - see @speedora/reframe's resolveOutputResolution(), which normalizes the crop this
+// function produces up OR down to a tier's canonical size, with its own floor guarding against
+// scaling up something with too little real source detail). Keeping that responsibility out of
+// this function is deliberate: this one stays a pure, unconditional crop, testable and reasoned
+// about independently of any quality-tier policy.
 export function computeCropDimensions(
   sourceWidth: number,
   sourceHeight: number,
