@@ -237,12 +237,18 @@ const buildCropPathMock = jest.fn();
 const buildSendCmdScriptMock = jest.fn();
 const findEmphasisWordsMock = jest.fn();
 const computeOcrHighlightBoxesMock = jest.fn();
+// Output Resolution/Quality audit, Phase 1 (foundation).
+const resolveOutputResolutionMock = jest.fn();
 jest.mock('@speedora/reframe', () => ({
   computeCropDimensions: (...args: unknown[]) => computeCropDimensionsMock(...args),
   buildCropPath: (...args: unknown[]) => buildCropPathMock(...args),
   buildSendCmdScript: (...args: unknown[]) => buildSendCmdScriptMock(...args),
   findEmphasisWords: (...args: unknown[]) => findEmphasisWordsMock(...args),
   computeOcrHighlightBoxes: (...args: unknown[]) => computeOcrHighlightBoxesMock(...args),
+  resolveOutputResolution: (...args: unknown[]) => resolveOutputResolutionMock(...args),
+  // A real value (not a mock) - render-clip.worker.ts's resolveTargetAspectRatio() reads this
+  // directly, same as the real @speedora/reframe module exports it.
+  TARGET_ASPECT_RATIO: 9 / 16,
 }));
 
 let scratchCounter = 0;
@@ -708,6 +714,10 @@ describe('render-clip worker', () => {
     cleanupTempFileMock.mockResolvedValue(undefined);
     getVideoDimensionsMock.mockResolvedValue({ width: 320, height: 240 });
     computeCropDimensionsMock.mockReturnValue({ width: 136, height: 240 });
+    // Output Resolution/Quality audit, Phase 1 (foundation) - matches the real
+    // resolveOutputResolution()'s own behavior for tier === null (the default when no
+    // processingOptions.export.resolutionTier is set): pass the crop through unchanged.
+    resolveOutputResolutionMock.mockImplementation((crop: unknown) => crop);
     computeOcrHighlightBoxesMock.mockReturnValue([]);
     detectSceneCutsMock.mockResolvedValue({ cuts: [] });
     classifySceneCutTypesMock.mockResolvedValue({ events: [] });
@@ -777,6 +787,192 @@ describe('render-clip worker', () => {
     await processor(fakeJob(baseJobData));
 
     expect(renderClipMock).toHaveBeenCalledWith(expect.objectContaining({ quality: null }));
+  });
+
+  // Output Resolution/Quality audit, Phase 1 (foundation).
+  describe('export.aspectRatio / export.resolutionTier resolution', () => {
+    beforeEach(() => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+    });
+
+    it('defaults to the fixed 9/16 ratio and no resolution cap when the video has no processingOptions (existing behavior unchanged)', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(computeCropDimensionsMock).toHaveBeenCalledWith(320, 240, 9 / 16);
+      expect(resolveOutputResolutionMock).toHaveBeenCalledWith({ width: 136, height: 240 }, null);
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ outputAspectRatio: '9:16' }),
+        }),
+      );
+    });
+
+    it('pins the crop to 16:9 when export.aspectRatio is explicitly set', async () => {
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, export: { aspectRatio: '16:9' } },
+        },
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(computeCropDimensionsMock).toHaveBeenCalledWith(320, 240, 16 / 9);
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ outputAspectRatio: '16:9' }),
+        }),
+      );
+    });
+
+    it('pins the crop to 1:1 when export.aspectRatio is explicitly set', async () => {
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, export: { aspectRatio: '1:1' } },
+        },
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(computeCropDimensionsMock).toHaveBeenCalledWith(320, 240, 1);
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ outputAspectRatio: '1:1' }),
+        }),
+      );
+    });
+
+    it("'auto' resolves to 16:9 for a landscape source", async () => {
+      getVideoDimensionsMock.mockResolvedValue({ width: 1920, height: 1080 });
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, export: { aspectRatio: 'auto' } },
+        },
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(computeCropDimensionsMock).toHaveBeenCalledWith(1920, 1080, 16 / 9);
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ outputAspectRatio: '16:9' }),
+        }),
+      );
+    });
+
+    it("'auto' resolves to 9:16 for a portrait source", async () => {
+      getVideoDimensionsMock.mockResolvedValue({ width: 1080, height: 1920 });
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, export: { aspectRatio: 'auto' } },
+        },
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(computeCropDimensionsMock).toHaveBeenCalledWith(1080, 1920, 9 / 16);
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ outputAspectRatio: '9:16' }),
+        }),
+      );
+    });
+
+    it("'auto' resolves to 1:1 for a near-square source", async () => {
+      getVideoDimensionsMock.mockResolvedValue({ width: 1000, height: 1000 });
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, export: { aspectRatio: 'auto' } },
+        },
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(computeCropDimensionsMock).toHaveBeenCalledWith(1000, 1000, 1);
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ outputAspectRatio: '1:1' }),
+        }),
+      );
+    });
+
+    it("resolves resolutionTier 'auto' to the '1080p' cap", async () => {
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, export: { resolutionTier: 'auto' } },
+        },
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(resolveOutputResolutionMock).toHaveBeenCalledWith(
+        { width: 136, height: 240 },
+        '1080p',
+      );
+    });
+
+    it('passes an explicit resolutionTier through unchanged', async () => {
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, export: { resolutionTier: '720p' } },
+        },
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(resolveOutputResolutionMock).toHaveBeenCalledWith({ width: 136, height: 240 }, '720p');
+    });
+
+    it('writes Clip.outputWidth/outputHeight from whatever resolveOutputResolution actually returned (the capped size, not the natural crop)', async () => {
+      resolveOutputResolutionMock.mockReturnValue({ width: 1080, height: 1920 });
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, export: { resolutionTier: '1080p' } },
+        },
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ outputWidth: 1080, outputHeight: 1920 }),
+        }),
+      );
+    });
   });
 
   it('skips the real scene-cut/motion-energy/camera-motion detection calls entirely when disabled via processingOptions.sceneAnalysis', async () => {
@@ -1272,6 +1468,13 @@ describe('render-clip worker', () => {
       data: {
         outputUrl: 'renders/clip-1.mp4',
         outputSizeBytes: 654321,
+        // Output Resolution/Quality audit, Phase 1 (foundation) - crop is
+        // computeCropDimensionsMock's own fixed { width: 136, height: 240 } (unaffected by
+        // resolveOutputResolutionMock's default pass-through), and aspectRatioLabel defaults to
+        // '9:16' since baseJobData sets no processingOptions.export.aspectRatio.
+        outputWidth: 136,
+        outputHeight: 240,
+        outputAspectRatio: '9:16',
         storyboardFrameUrls: [],
         sceneCuts: [],
         sceneCutEvents: [],
@@ -3457,6 +3660,9 @@ describe('render-clip worker', () => {
         data: {
           outputUrl: 'renders/clip-1.mp4',
           outputSizeBytes: 654321,
+          outputWidth: 136,
+          outputHeight: 240,
+          outputAspectRatio: '9:16',
           storyboardFrameUrls: [],
           sceneCuts: [1.5, 4.2],
           sceneCutEvents: [],
@@ -3610,6 +3816,9 @@ describe('render-clip worker', () => {
         data: {
           outputUrl: 'renders/clip-1.mp4',
           outputSizeBytes: 654321,
+          outputWidth: 136,
+          outputHeight: 240,
+          outputAspectRatio: '9:16',
           storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],
@@ -3913,6 +4122,9 @@ describe('render-clip worker', () => {
         data: {
           outputUrl: 'renders/clip-1.mp4',
           outputSizeBytes: 654321,
+          outputWidth: 136,
+          outputHeight: 240,
+          outputAspectRatio: '9:16',
           storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],
@@ -4066,6 +4278,9 @@ describe('render-clip worker', () => {
         data: {
           outputUrl: 'renders/clip-1.mp4',
           outputSizeBytes: 654321,
+          outputWidth: 136,
+          outputHeight: 240,
+          outputAspectRatio: '9:16',
           storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],

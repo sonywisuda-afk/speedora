@@ -49,25 +49,43 @@ function round3(value: number): number {
   return Math.round(value * 1000) / 1000;
 }
 
-// Keeps the source's full height and crops width for a typical landscape
-// source (the overwhelmingly common case - sourceAspect > 9/16), or the
-// mirror image (keeps full width, crops height) for an already-portrait
-// source. Either way the result matches TARGET_ASPECT_RATIO exactly.
-// Dimensions are rounded to even numbers - libx264/yuv420p rejects odd
-// width or height. This is the clip's FINAL, constant output frame size -
-// Fase 11's zoom crops tighter than this at times, then scales back up to
-// it (see ffmpeg.ts's renderClip), but this number itself never changes.
-export function computeCropDimensions(sourceWidth: number, sourceHeight: number): CropDimensions {
+// Keeps the source's full height and crops width for a source wider than the target ratio (the
+// overwhelmingly common case when targetAspectRatio is 9/16 - a typical landscape source), or the
+// mirror image (keeps full width, crops height) for a source narrower than the target. Either way
+// the result matches targetAspectRatio exactly. Dimensions are rounded to even numbers -
+// libx264/yuv420p rejects odd width or height. This is the clip's FINAL, constant output frame
+// size - Fase 11's zoom crops tighter than this at times, then scales back up to it (see
+// ffmpeg.ts's renderClip), but this number itself never changes.
+//
+// Output Resolution/Quality audit, Phase 1 (foundation) - targetAspectRatio generalizes what used
+// to be a hardcoded TARGET_ASPECT_RATIO (9/16) call; the default keeps every existing
+// caller/test's exact prior result. A raw width/height ratio, not a '9:16'-style label - this
+// package stays free of ProcessingOptions/product vocabulary, same reasoning as every other
+// geometry-only function here. Translating a user-facing aspect ratio choice (or 'auto') into
+// this number is the caller's job - see render-clip.worker.ts's resolveTargetAspectRatio().
+//
+// Deliberately crop-only, same as before this parameter existed - NEVER upscales, even when the
+// requested ratio is far from the source's own orientation (e.g. a portrait source asked for a
+// 16:9 output can only crop down to its own full width, landing well under a 1920px-wide "1080p"
+// canonical size, not padded/letterboxed/upscaled up to it). This follows the same "don't upscale
+// without an explicit reason" policy computeCropDimensions already applied to 9:16 - a bigger,
+// separate product decision (padding/letterboxing a cross-orientation conversion up to a fixed
+// canonical size) is out of scope for this phase.
+export function computeCropDimensions(
+  sourceWidth: number,
+  sourceHeight: number,
+  targetAspectRatio: number = TARGET_ASPECT_RATIO,
+): CropDimensions {
   const sourceAspect = sourceWidth / sourceHeight;
 
-  if (sourceAspect > TARGET_ASPECT_RATIO) {
+  if (sourceAspect > targetAspectRatio) {
     const height = roundToEven(sourceHeight);
-    const width = Math.min(roundToEven(sourceWidth), roundToEven(height * TARGET_ASPECT_RATIO));
+    const width = Math.min(roundToEven(sourceWidth), roundToEven(height * targetAspectRatio));
     return { width, height };
   }
 
   const width = roundToEven(sourceWidth);
-  const height = Math.min(roundToEven(sourceHeight), roundToEven(width / TARGET_ASPECT_RATIO));
+  const height = Math.min(roundToEven(sourceHeight), roundToEven(width / targetAspectRatio));
   return { width, height };
 }
 
