@@ -52,6 +52,13 @@ lookup that finds nothing useful, falling through to the exact same stock-footag
 false negatives just mean that keyword gets the pre-existing baseline behavior. Accepted, documented
 quirk: an all-caps acronym (`"NASA"`) also matches - arguably correct, not a bug.
 
+> **This constraint stopped being true later** (see "Follow-up: real namedEntities classification
+> signal" below) - Visual Emphasis Engine Phase C2 reordered `render-clip.worker.ts` for an
+> unrelated reason (`buildReframePlan()` needed the render graph's `primarySubjectSamples`), and as
+> a side effect `buildBRollOverlays()` now also runs after the render graph. The heuristic above
+> stayed as a genuinely useful SECOND signal rather than being deleted - it still catches proper
+> nouns Hook Prediction's own LLM call didn't happen to extract as a named entity.
+
 ## What shipped
 
 - **`apps/worker/src/assets/logoAdapter.ts`** (new) - `LogoAdapter implements AssetProvider`, adapting
@@ -80,9 +87,11 @@ quirk: an all-caps acronym (`"NASA"`) also matches - arguably correct, not a bug
 - **AI illustration** (the third asset type from the original ask) - a real per-image cost, a new
   external dependency (image generation), and its own caching/rate-limit design - a separate future
   phase, not started here.
-- **Reusing Hook Prediction's real `namedEntities`** - would need either a duplicate early LLM call
-  or a render-pipeline reordering; neither was judged worth it for this feature's scope. Worth
-  revisiting if the capitalization heuristic's false-negative rate turns out to matter in practice.
+- ~~**Reusing Hook Prediction's real `namedEntities`** - would need either a duplicate early LLM
+  call or a render-pipeline reordering; neither was judged worth it for this feature's scope.~~
+  **No longer true - see "Follow-up: real namedEntities classification signal" below.** The
+  pipeline reordered for an unrelated reason (Visual Emphasis Engine Phase C2) after this was
+  written, making the render graph's own output available for free at B-roll's call site.
 - **Company-name → domain resolution refinement** - Clearbit's Autocomplete API already does fuzzy
   name matching internally; no additional heuristic needed on this side for v1.
 - **Live network calls to Pexels/Pixabay/Unsplash/Clearbit in CI** - deliberately out of scope for
@@ -175,3 +184,56 @@ the pipeline entirely, an explicit `maxCutaways` threads through, the unconfigur
 `undefined` rather than a duplicated constant). Full suites: `packages/shared` 83/83,
 `apps/api` 1268/1268, `apps/worker` 673/673. `typecheck`/`lint`/`format` all green across all four
 touched packages (`shared`/`api`/`worker`/`web`).
+
+## Follow-up: real `namedEntities` classification signal
+
+The third gap flagged in a later re-audit of item 8: brand classification relied solely on
+`looksLikeBrandName()`'s capitalization heuristic, with known false-positive (a capitalized
+sentence-initial word, an acronym) and false-negative (a brand name ASR/ the LLM didn't capitalize
+correctly) classes, and no real accuracy measurement against production data.
+
+**Re-auditing the current code (not trusting the original doc's own claim) found the original
+pipeline-ordering constraint no longer holds.** `render-clip.worker.ts` now calls
+`runInstrumentedRenderGraph()` BEFORE `buildBRollOverlays()` (confirmed by reading the current file,
+not assumed) - a side effect of Visual Emphasis Engine Phase C2 reordering things so
+`buildReframePlan()` could consume the render graph's own `primarySubjectSamples`. Separately
+confirmed `hookPredictionNode`'s own comment: *"Runs on every render regardless of
+isHookPredictionEnabled() - the flag gates GET /clips/:id/intelligence's exposure, not
+computation."* Both original blockers (a duplicate LLM call, a risky pipeline reorder) are gone -
+Hook Prediction's real `linguisticFeatures.namedEntities` is now genuinely free at B-roll's own
+call site.
+
+**Scope resolved via `AskUserQuestion`**: three options presented (combine namedEntities OR the
+heuristic; replace the heuristic entirely, keeping it only as a null-fallback; leave unchanged).
+**User chose to combine both signals** - `isBrandCandidate` is now true when EITHER
+`matchesNamedEntity()` (the real AI signal) OR `looksLikeBrandName()` (the existing heuristic) says
+so, never requiring both. Reduces false negatives (a real brand entity the LLM extracted correctly
+even when its own transcript mention was mis-capitalized by ASR) without discarding the heuristic's
+own value - it remains the sole signal whenever `hookPrediction` itself is `null` (that LLM call
+failed/never ran), and still catches proper nouns the entity-extraction call didn't happen to name.
+
+**Shipped**:
+
+- `apps/worker/src/broll.ts` - new `matchesNamedEntity(keyword, namedEntities)`: case-insensitive
+  exact match first, then a bidirectional substring check (the two LLM calls are independent and can
+  phrase the same real-world entity differently - `"OpenAI"` vs `"Open AI"`, `"Elon Musk"` vs just
+  `"Musk"`). `findBRollMoments()` gained an optional `namedEntities: string[] = []` parameter (empty
+  default = every pre-existing call site's exact prior behavior), computing
+  `isBrandCandidate = matchesNamedEntity(keyword, namedEntities) || looksLikeBrandName(keyword)`.
+- `apps/worker/src/workers/render-clip.worker.ts` - `buildBRollOverlays()`'s call site now passes
+  `graphResult.hookPrediction?.linguisticFeatures.namedEntities ?? []` straight through - no new
+  render-graph node, no new LLM call, just reading an already-computed value that happens to now be
+  available at the right point in the function.
+- No migration, no new feature flag - this changes an existing best-effort classification's inputs,
+  not its contract or failure posture.
+
+**Verification**: `apps/worker` - `broll.spec.ts` gained a dedicated `matchesNamedEntity` describe
+block (6 tests: case-insensitive exact match, entity-contains-keyword, keyword-contains-entity, no
+match, empty keyword/list, a blank namedEntities entry ignored rather than matching everything) plus
+4 new `findBRollMoments` tests proving the OR-combination (namedEntity match alone is enough even
+when the keyword itself is lowercase; the heuristic alone is still enough when namedEntities has no
+match; neither signal true when nothing matches; the omitted-parameter default is unchanged).
+`render-clip.worker.spec.ts` gained 2 new tests: a full schema-valid `HookPredictionOutput` fixture's
+`namedEntities` threads through unchanged, and a rejected `predictHook()` call falls back to an empty
+array (heuristic-only classification), not a job failure. Full `apps/worker` suite: 56 suites / 685
+tests passing. `typecheck`/`lint`/`format` all green.

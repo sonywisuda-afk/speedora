@@ -818,8 +818,15 @@ async function buildBRollOverlays(
   outputWidth: number,
   outputHeight: number,
   maxMoments: number | undefined,
+  namedEntities: string[],
 ): Promise<{ overlays: BRollOverlay[]; finalPaths: string[] }> {
-  const moments = findBRollMoments(keywords, clipRelativeWords, clipDurationSeconds, maxMoments);
+  const moments = findBRollMoments(
+    keywords,
+    clipRelativeWords,
+    clipDurationSeconds,
+    maxMoments,
+    namedEntities,
+  );
 
   // Reliability/performance hardening pass - each moment's search/download/
   // fade-in/fade-out is independent of every other moment (its own
@@ -1151,6 +1158,12 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // shape resolveRenderQuality/resolveSceneAnalysisFlags already use. Disabled skips
             // buildBRollOverlays() (and therefore findBRollMoments()/every stock-asset search)
             // entirely, rather than running the search and discarding its results.
+            //
+            // graphResult.hookPrediction's own namedEntities (real classification signal,
+            // now genuinely free - see broll.ts's looksLikeBrandName()/matchesNamedEntity()
+            // comments for the pipeline-order history) - null/undefined only when that LLM
+            // call itself failed, in which case broll.ts's own capitalization heuristic is
+            // the sole fallback, exactly like before this signal existed.
             const brollOptions = resolveBRollOptions(processingOptions);
             const { overlays: broll, finalPaths } = brollOptions.enabled
               ? await buildBRollOverlays(
@@ -1160,6 +1173,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                   reframe.outputWidth,
                   reframe.outputHeight,
                   brollOptions.maxMoments,
+                  graphResult.hookPrediction?.linguisticFeatures.namedEntities ?? [],
                 )
               : { overlays: [], finalPaths: [] };
             brollPaths = finalPaths;
