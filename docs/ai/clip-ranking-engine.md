@@ -1,6 +1,6 @@
 # Clip Ranking Engine (spec Part 10, AI Intelligence v4 Track A Phase 13-14)
 
-> **Status: audit + ADR + roadmap complete; Phase 13.1 shipped, flag-off.** This document is
+> **Status: audit + ADR + roadmap complete; Phase 13.1 and 13.2 shipped.** This document is
 > the required audit-first deliverable (repo audit, reuse map, tech debt, ADR, dependency graph,
 > phased roadmap, complexity/risk) for what `docs/ai/intelligence-v4.md`'s roadmap table already
 > named **Phase 13 (Candidate Expansion, spec Part 10 generation half)** and **Phase 14 (Ranking
@@ -145,7 +145,7 @@ exists in the current per-clip-independent render pipeline).
 | Phase | Name | Depends on | Complexity | Primary risk |
 |---|---|---|---|---|
 | 13.1 | Fix hardcoded candidate-count prompt + raise ceiling — **shipped, flag-off** | none | S-M | Quality dilution at 30-in-one-call (D17) — needs a before/after measurement, not just a prompt edit |
-| 13.2 | Cheap pre-rank shortlist stage (Stage B) | 13.1 | **L** (biggest single piece, matches original Phase 13 estimate) | New pre-render adapter stage; LLM cost — up to 2 extra calls x 30 candidates per video needs batching/cost control; must avoid double-paying for Semantic Events/Narrative Graph on shortlisted survivors (Stage C's render-graph nodes should reuse Stage B's results, not recompute) |
+| 13.2 | Cheap pre-rank shortlist stage (Stage B) — **shipped** | 13.1 | **L** (biggest single piece, matches original Phase 13 estimate) | New pre-render adapter stage; LLM cost — up to 2 extra calls x 30 candidates per video, bounded via a fixed concurrency batch (5); double-paying for Semantic Events/Narrative Graph on shortlisted survivors (Stage C's render-graph recomputes both, WITH real grounding) is a deliberate, documented scope decision for this phase, not solved — see "Phase 13.2 architecture" below |
 | 14.1 | Composite ranking function (Stage D scoring) | 13.2 (shape only, can build against fixtures) | M | Weighting 12 heterogeneous, mostly-uncalibrated signals into one order — same "scale honesty" caveat every v4 phase already carries; mirrors `fusion-engine/rank-clips.ts`'s shape but multi-signal |
 | 14.2 | Pipeline wiring — the join point | 13.2, 14.1 | **L** | Needs a new "all shortlisted renders complete" barrier that doesn't exist in today's per-clip-independent pipeline; **flagged as needing its own design confirmation at planning time**, same as D16 was — not decided in this document |
 | 14.3 | Personalization (`WorkspaceContentProfile`, D10) | 14.1 | M | **Out of scope for this delivery** — the mission asked for a Ranking Engine, not personalization; left as a documented future follow-up reusing `platform-fit`'s weighted-sum pattern, per the project's own scope-boundary convention |
@@ -207,6 +207,68 @@ worth re-checking once real output is measured, not assumed safe indefinitely.
 tests) and `generate-more-clips.worker.spec.ts` 8/8 (confirms its own, differently-shaped
 `@speedora/clip-scoring` mock is unaffected), both packages' `typecheck`/`build`/`lint` green,
 `prettier --check` green on every touched file.
+
+## Phase 13.2 architecture (as shipped)
+
+New package `packages/candidate-shortlist` (`@speedora/candidate-shortlist`):
+
+- `derive-shortlist-score.ts` — the pure composite scoring function, `deriveShortlistScore()`.
+  Combines three sub-scores, each independently bounded to `[0, 100]`, as a weighted sum (weights
+  0.5/0.25/0.25, HEURISTIC/ADR D4, unvalidated): **llmScore** (Tier 1, free — averages `viralityScore`
+  with the mean of ALL `ClipScores` fields, deliberately not a cherry-picked subset, so it stays
+  correct if `ClipScores` grows a field later), **semanticImportanceScore** (Tier 2 — mean
+  `SemanticEvent.importance` across detected events; `null` — an LLM failure — scores neutral (50),
+  a real empty detection scores below neutral (20), since "the model tried and found nothing" is
+  real information a failure isn't), **narrativeScore** (Tier 2 — `null` scores neutral;
+  `unsegmented: true`, `@speedora/narrative-graph`'s own real-but-structureless result, scores below
+  neutral (40); a real segmented graph scores on mean segment-type confidence plus a bonus for
+  reaching a payoff segment type, reusing `isPayoffSegmentType()` from `@speedora/virality-engine`
+  rather than reimplementing it).
+- `select-shortlist.ts` — the orchestration entry point, `selectShortlist()`. A no-op passthrough
+  (every candidate survives, in original order, zero LLM calls) when the input pool is already at or
+  under `targetSize` (default `DEFAULT_SHORTLIST_TARGET_SIZE = 15`, the doc's own "~12-15" range,
+  picked at the upper end since the composite is unvalidated) — this is what makes Phase 13.1's flag
+  off (or any small explicit `clipCount`) cost nothing extra, unchanged from every pre-Phase-13
+  render. When the pool exceeds the target, it fans out `detectSemanticEvents()` +
+  `buildNarrativeGraph()` per candidate in fixed batches of 5 (`LLM_CONCURRENCY`) — a real, if
+  modest, guard against a single BullMQ job firing up to 60 concurrent OpenAI requests, a risk this
+  codebase hadn't needed to handle before (every prior v4 LLM call happens once per already-
+  independent render-clip job). Both calls are un-grounded (`ocrTracks: []`, `objectTracks: []` —
+  neither exists yet at this pre-render stage) and best-effort: either failing degrades that one
+  candidate's score toward neutral rather than failing the whole shortlist pass or the detect-clips
+  job.
+
+`apps/worker/src/workers/detect-clips.worker.ts`'s new `shortlistRawCandidates()` calls
+`selectShortlist()` between `scoreClipCandidates()` and `createCandidateClips()` — a candidate the
+shortlist cuts never gets a `Clip` row or a render job at all, so ADR D18 (non-destructive output)
+isn't in tension here: nothing was ever created for it to delete. `generate-more-clips.worker.ts` is
+untouched — Phase 13.2 only wires into the original video-upload detect-clips flow, per the funnel
+design; extending the same shortlist stage to that endpoint's own `requestedCount` is a documented
+future follow-up, not silently out of scope.
+
+**Deliberate scope decision, not solved**: Stage C's render-graph (`semanticEventsNode`,
+`narrativeGraphNode`) is completely unchanged — it recomputes Semantic Events/Narrative Graph from
+scratch for whichever candidates survive the shortlist, WITH real OCR/object grounding evidence this
+pre-render pass can never have. This means a shortlisted survivor is paid for twice (once ungrounded
+at Stage B across the full pool, once grounded at Stage C across just the survivors) rather than
+Stage B's result being threaded through and reused. Considered and explicitly deferred: Stage C's
+version is strictly more informed (real grounding) and is also consumed by several other downstream
+signals (Retention Curve Insights, Virality Prediction, Multimodal Reasoning) that need that
+grounding regardless of whether Stage B ran — reusing Stage B's ungrounded result there would
+actually be a regression for those consumers, not a pure win. Revisit only if real cost data shows
+this double-payment matters in practice.
+
+**Verification**: `packages/candidate-shortlist` new suite 13/13 (`derive-shortlist-score.spec.ts`
+covers every branch — neutral midpoint, both [0,100] extremes, empty-vs-failed detection, unsegmented
+vs. segmented-with-payoff; `select-shortlist.spec.ts` covers the passthrough no-op, the default
+target size, the cut-and-sort behavior, clip-relative segment re-anchoring, LLM-failure degradation,
+and semantic-events-as-narrative-context threading), `packages/contracts` 183/183 (unchanged count -
+the new contract file needed no dedicated spec, same precedent as `narrative-graph.ts`/
+`semantic-events.ts`), `apps/worker`'s `detect-clips.worker.spec.ts` 25/25 (22 pre-existing pass
+unchanged via the real passthrough path + 3 new tests exercising the real cut-and-sort integration,
+mocked only at the true `@speedora/semantic-events`/`@speedora/narrative-graph` LLM boundary, not at
+`@speedora/candidate-shortlist` itself), `generate-more-clips.worker.spec.ts` 8/8 confirmed
+unaffected, `typecheck`/`build`/`lint`/`format` all green across every touched/new package.
 
 ## 7. Verification convention
 
