@@ -1025,6 +1025,25 @@ describe('ClipsService', () => {
       });
     });
 
+    // Output Resolution/Quality audit, Phase 3 (API exposure).
+    it('passes outputWidth/outputHeight/outputAspectRatio through unchanged', async () => {
+      prisma.clip.findUnique.mockResolvedValue(existingClip);
+      prisma.clip.update.mockResolvedValue({
+        ...existingClip,
+        startTime: 12,
+        endTime: 22,
+        outputWidth: 1080,
+        outputHeight: 1920,
+        outputAspectRatio: '9:16',
+      });
+
+      const result = await service.update('clip-1', 'user-1', { startTime: 12, endTime: 22 });
+
+      expect(result.outputWidth).toBe(1080);
+      expect(result.outputHeight).toBe(1920);
+      expect(result.outputAspectRatio).toBe('9:16');
+    });
+
     it('allows updating just one field, validating against the other current value', async () => {
       prisma.clip.findUnique.mockResolvedValue(existingClip);
       prisma.clip.update.mockResolvedValue({ ...existingClip, endTime: 25 });

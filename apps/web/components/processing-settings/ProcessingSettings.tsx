@@ -46,6 +46,34 @@ const EXPORT_QUALITY_LABELS: Record<
   small_size: 'Small Size',
 };
 
+// Output Resolution/Quality audit, Phase 3 (API/UI exposure) - the first UI ever wired to
+// ProcessingOptions.export.aspectRatio/resolutionTier (Phase 1/2's own backend-only foundation).
+// Both selects follow the exact same "Default" (value="", maps to null) + explicit-choices
+// pattern as Preset Kualitas above, deliberately NOT the raw ASCII radio-button mockup from the
+// original design ask - every other control in this section already uses this select convention,
+// and "Default" (null) is what preserves every existing/untouched video's exact current
+// behavior (fixed 9:16, uncapped resolution) - 'auto' is a real, DIFFERENT, opt-in choice (see
+// resolveTargetAspectRatio()/resolveResolutionTier() in render-clip.worker.ts), not a synonym for
+// "Default" here, despite both reading as "sensible default" in the original mockup.
+const EXPORT_ASPECT_RATIO_LABELS: Record<
+  NonNullable<ProcessingOptions['export']['aspectRatio']>,
+  string
+> = {
+  auto: 'Auto (deteksi orientasi source)',
+  '9:16': '9:16 Vertical',
+  '16:9': '16:9 Landscape',
+  '1:1': '1:1 Square',
+};
+
+const EXPORT_RESOLUTION_TIER_LABELS: Record<
+  NonNullable<ProcessingOptions['export']['resolutionTier']>,
+  string
+> = {
+  auto: 'Auto / Direkomendasikan (maks. 1080p)',
+  '1080p': '1080p',
+  '720p': '720p',
+};
+
 // Section 7 (Highlight Detection) - a subset of @speedora/clip-scoring's own
 // CLIP_INTENTS values (kept as plain strings here, same "don't import
 // contracts into shared/web" convention documented on ProcessingOptions
@@ -754,6 +782,56 @@ export function ProcessingSettings({
           >
             <option value="">Default</option>
             {Object.entries(EXPORT_QUALITY_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-2 sm:max-w-xs">
+          <Label htmlFor="export-aspect-ratio">Aspect Ratio</Label>
+          <select
+            id="export-aspect-ratio"
+            className={selectClassName}
+            value={options.export.aspectRatio ?? ''}
+            onChange={(e) =>
+              update({
+                export: {
+                  ...options.export,
+                  aspectRatio:
+                    (e.target.value as ProcessingOptions['export']['aspectRatio']) || null,
+                },
+              })
+            }
+          >
+            <option value="">Default (9:16, mengikuti behavior saat ini)</option>
+            {Object.entries(EXPORT_ASPECT_RATIO_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>
+                {label}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="space-y-2 sm:max-w-xs">
+          <Label htmlFor="export-resolution-tier">Resolusi Output</Label>
+          <select
+            id="export-resolution-tier"
+            className={selectClassName}
+            value={options.export.resolutionTier ?? ''}
+            onChange={(e) =>
+              update({
+                export: {
+                  ...options.export,
+                  resolutionTier:
+                    (e.target.value as ProcessingOptions['export']['resolutionTier']) || null,
+                },
+              })
+            }
+          >
+            <option value="">Default (tanpa batas resolusi, mengikuti behavior saat ini)</option>
+            {Object.entries(EXPORT_RESOLUTION_TIER_LABELS).map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
               </option>
