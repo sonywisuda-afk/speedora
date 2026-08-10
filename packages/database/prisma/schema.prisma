@@ -1186,6 +1186,44 @@ model Clip {
   // render regardless of the MULTIMODAL_REASONING_ENABLED flag (gates API
   // exposure only - see isMultimodalReasoningEnabled()).
   multimodalReasoning         Json?
+  // AI Intelligence v4, Phase 14.1/14.2 (Clip Ranking Engine, spec Part 10
+  // Stage D - see docs/ai/clip-ranking-engine.md). @speedora/clip-ranking's
+  // rankClipCandidates() composite over 12 dimensions (Fusion, Virality,
+  // Narrative, Hook, Retention, Semantic Importance, and the 6 ClipScores
+  // dimensions) - a SECOND, additive ranking system alongside the existing
+  // highlightScore/highlightRank pair above (Fase 31, fusion-engine's own
+  // single-signal rankClips()), which stays completely untouched by this
+  // phase, including its own thumbnail cover-clip selection use. Recomputed
+  // after every sibling clip finishes rendering (same progressive-
+  // refinement pattern as highlightRank itself - see render-clip.worker.ts,
+  // right after the existing Fase 31 ranking block), scoped over every
+  // RENDERED clip for the video regardless of origin (original
+  // detect-clips candidates or a later "Generate More Clips" top-up) - same
+  // scope as highlightRank's own sibling query. Null for pre-existing rows
+  // and for any clip that hasn't finished rendering yet (unrendered
+  // siblings are excluded from the ranked batch entirely, not included
+  // with a placeholder score, since @speedora/clip-ranking's own
+  // ComputeClipRankInput requires several fields - e.g. viralityPrediction
+  // - that don't exist until a clip's own render-graph has actually run).
+  // Best-effort, wrapped in its own try/catch, never fails the render job -
+  // same posture as the Fase 31 block it sits beside. No API/DTO exposure
+  // yet (deliberately out of scope - this phase is pipeline wiring only,
+  // no UI consumer exists to expose it to; see clip-ranking-engine.md's
+  // Phase 14.2 architecture note).
+  compositeRankScore          Float?
+  // 1 = highest compositeRankScore among this video's rendered clips at
+  // the time this was last written - same "last computed at, not a live
+  // view" semantics as highlightRank.
+  compositeRank               Int?
+  // CODE-COMPUTED coverage: count(non-null of the 12 dimensions)/12 - same
+  // "kind of confidence" as ViralityPrediction.confidence/
+  // HookPredictionOutput.confidence.
+  compositeRankConfidence     Float?
+  // @speedora/contracts' ClipRankSubScores - the full 12-dimension
+  // breakdown behind compositeRankScore, kept for the same transparency/
+  // future-explainability reason highlightBreakdown/highlightExplainability
+  // exist alongside highlightScore.
+  compositeRankSubScores      Json?
   // AI Intelligence v4 Track B, Phase A1 (Subtitle Rewriter, spec Part 7 -
   // see docs/ai/subtitle-intelligence.md). @speedora/subtitle-rewriter's
   // SubtitleIntelligence - a STRUCTURAL re-chunking of the transcript into

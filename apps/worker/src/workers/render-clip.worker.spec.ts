@@ -4562,6 +4562,195 @@ describe('render-clip worker', () => {
     });
   });
 
+  // AI Intelligence v4 Phase 14.2 (Clip Ranking Engine, Stage D wiring -
+  // see docs/ai/clip-ranking-engine.md). A separate describe block from
+  // "Ranking (Fase 31)" above since this is a genuinely separate, additive
+  // pass with its own prisma.clip.findMany() call (a third call in the
+  // chain, after the transaction's own siblingClips check and Fase 31's
+  // scoredSiblings query).
+  describe('Composite Clip Ranking (Phase 14.2)', () => {
+    const FULL_SCORES: ClipScores = {
+      hookStrength: 50,
+      educationalValue: 50,
+      practicalValue: 50,
+      curiosity: 50,
+      emotion: 50,
+      storytelling: 50,
+      novelty: 50,
+      trustAuthority: 50,
+      ctaStrength: 50,
+    };
+    const viralityPrediction = (overallViralScore: number | null) => ({
+      clipId: 'clip-1',
+      overallViralScore,
+      confidence: 0.5,
+      reason: 'because',
+      subProbabilities: {
+        scrollStopProbability: null,
+        watchProbability: null,
+        completionProbability: null,
+        shareProbability: null,
+        commentProbability: null,
+        saveProbability: null,
+        followProbability: null,
+      },
+    });
+    const retentionCurveInsights = {
+      clipId: 'clip-1',
+      dropPoints: [],
+      replayZones: [],
+      emotionalPeaks: [],
+      curiosityPeaks: [],
+    };
+
+    it('computes and persists compositeRank/compositeRankScore/compositeRankConfidence/compositeRankSubScores for every rendered sibling', async () => {
+      clipFindManyMock
+        // First call: the transaction's own "allRendered" check.
+        .mockResolvedValueOnce([
+          { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+          { id: 'clip-2', outputUrl: 'renders/clip-2.mp4', highlightScore: null },
+        ])
+        // Second call: Fase 31's own scoredSiblings query - both siblings
+        // are rendered, so allRendered is true and this block DOES run
+        // (unlike the "excludes an unrendered sibling" test below, where
+        // this queue slot is never consumed at all).
+        .mockResolvedValueOnce([
+          { id: 'clip-1', highlightScore: 20 },
+          { id: 'clip-2', highlightScore: 80 },
+        ])
+        // Third call: this phase's own renderedSiblings query (runs
+        // unconditionally).
+        .mockResolvedValueOnce([
+          {
+            id: 'clip-1',
+            highlightScore: 20,
+            scores: FULL_SCORES,
+            hookPrediction: null,
+            narrativeGraph: null,
+            viralityPrediction: viralityPrediction(0.2),
+            retentionCurveInsights,
+            semanticEvents: null,
+          },
+          {
+            id: 'clip-2',
+            highlightScore: 80,
+            scores: FULL_SCORES,
+            hookPrediction: null,
+            narrativeGraph: null,
+            viralityPrediction: viralityPrediction(0.8),
+            retentionCurveInsights,
+            semanticEvents: null,
+          },
+        ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(clipUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'clip-2' },
+        data: {
+          compositeRankScore: expect.any(Number),
+          compositeRank: 1,
+          compositeRankConfidence: expect.any(Number),
+          compositeRankSubScores: expect.any(Object),
+        },
+      });
+      expect(clipUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'clip-1' },
+        data: {
+          compositeRankScore: expect.any(Number),
+          compositeRank: 2,
+          compositeRankConfidence: expect.any(Number),
+          compositeRankSubScores: expect.any(Object),
+        },
+      });
+    });
+
+    it('excludes an unrendered sibling (missing scores/viralityPrediction/retentionCurveInsights) from the ranked batch entirely', async () => {
+      clipFindManyMock
+        // First call: the transaction's own "allRendered" check - clip-2
+        // isn't rendered yet, so allRendered is false and Fase 31's own
+        // ranking block (gated behind `if (allRendered)`) never runs at
+        // all - it does NOT consume a queue slot here, unlike the
+        // "every sibling rendered" test above.
+        .mockResolvedValueOnce([
+          { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+          { id: 'clip-2', outputUrl: null, highlightScore: null },
+        ])
+        // Second call: this phase's own renderedSiblings query (runs
+        // unconditionally, unlike Fase 31) - only the rendered sibling is
+        // returned by the real `outputUrl: { not: null }` filter; clip-2
+        // (still rendering) never appears here at all.
+        .mockResolvedValueOnce([
+          {
+            id: 'clip-1',
+            highlightScore: 50,
+            scores: FULL_SCORES,
+            hookPrediction: null,
+            narrativeGraph: null,
+            viralityPrediction: viralityPrediction(0.5),
+            retentionCurveInsights,
+            semanticEvents: null,
+          },
+        ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(clipUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'clip-1' },
+        data: {
+          compositeRankScore: expect.any(Number),
+          compositeRank: 1,
+          compositeRankConfidence: expect.any(Number),
+          compositeRankSubScores: expect.any(Object),
+        },
+      });
+      expect(clipUpdateMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'clip-2' } }),
+      );
+    });
+
+    it('does not fail the job when composite ranking itself throws', async () => {
+      clipFindManyMock
+        .mockResolvedValueOnce([
+          { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+        ])
+        .mockResolvedValueOnce([{ id: 'clip-1', highlightScore: 50 }])
+        .mockRejectedValueOnce(new Error('db unavailable'));
+
+      const processor = getProcessor();
+      const result = await processor(fakeJob(baseJobData));
+
+      expect(videoUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'video-1' },
+        data: { status: VideoStatus.RENDERED },
+      });
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+    });
+
+    it('does not run this pass at all for a clip that was already claimed by a concurrent execution', async () => {
+      // The transaction's own optimistic-concurrency claim (outputUrl:
+      // null in the where clause) matches zero rows - Prisma reports this
+      // as P2025, caught as benign, returning early before Fase 31 or this
+      // phase's own block ever runs.
+      clipUpdateMock.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('No record found', {
+          code: 'P2025',
+          clientVersion: '5.0.0',
+        }),
+      );
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      // Only the one (failed) clip.update call from inside the
+      // transaction - no further findMany/update calls from either
+      // ranking pass.
+      expect(clipFindManyMock).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Notification Center v2 Phase 2 - Smart Timeline thread updates', () => {
     it('updates the SAME pipeline thread with real render progress when not every clip is done yet', async () => {
       // 1 of 2 sibling clips rendered - allRendered is false, so this must

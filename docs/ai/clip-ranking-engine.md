@@ -1,6 +1,6 @@
 # Clip Ranking Engine (spec Part 10, AI Intelligence v4 Track A Phase 13-14)
 
-> **Status: audit + ADR + roadmap complete; Phase 13.1, 13.2, and 14.1 shipped.** This document is
+> **Status: audit + ADR + roadmap complete; Phase 13.1, 13.2, 14.1, and 14.2 shipped.** This document is
 > the required audit-first deliverable (repo audit, reuse map, tech debt, ADR, dependency graph,
 > phased roadmap, complexity/risk) for what `docs/ai/intelligence-v4.md`'s roadmap table already
 > named **Phase 13 (Candidate Expansion, spec Part 10 generation half)** and **Phase 14 (Ranking
@@ -147,7 +147,7 @@ exists in the current per-clip-independent render pipeline).
 | 13.1 | Fix hardcoded candidate-count prompt + raise ceiling — **shipped, flag-off** | none | S-M | Quality dilution at 30-in-one-call (D17) — needs a before/after measurement, not just a prompt edit |
 | 13.2 | Cheap pre-rank shortlist stage (Stage B) — **shipped** | 13.1 | **L** (biggest single piece, matches original Phase 13 estimate) | New pre-render adapter stage; LLM cost — up to 2 extra calls x 30 candidates per video, bounded via a fixed concurrency batch (5); double-paying for Semantic Events/Narrative Graph on shortlisted survivors (Stage C's render-graph recomputes both, WITH real grounding) is a deliberate, documented scope decision for this phase, not solved — see "Phase 13.2 architecture" below |
 | 14.1 | Composite ranking function (Stage D scoring) — **shipped** | 13.2 (shape only, can build against fixtures) | M | Weighting 12 heterogeneous, mostly-uncalibrated signals into one order — resolved by equal-weighting every non-null dimension (same "average of non-null" pattern `ViralityPrediction.overallViralScore` already established) rather than an arbitrary hand-picked weighting; mirrors `fusion-engine/rank-clips.ts`'s shape but multi-signal |
-| 14.2 | Pipeline wiring — the join point | 13.2, 14.1 | **L** | Needs a new "all shortlisted renders complete" barrier that doesn't exist in today's per-clip-independent pipeline; **flagged as needing its own design confirmation at planning time**, same as D16 was — not decided in this document |
+| 14.2 | Pipeline wiring — the join point — **shipped** | 13.2, 14.1 | **S** (re-scoped down from L once audited — no new barrier needed, an equivalent one already existed) | Original risk ("needs a new barrier that doesn't exist") was based on an incomplete audit — `render-clip.worker.ts` already has one (the atomic per-clip-completion transaction that flips `Video.status → RENDERED`); this phase composes with it instead of inventing a new mechanism — see "Phase 14.2 architecture" below |
 | 14.3 | Personalization (`WorkspaceContentProfile`, D10) | 14.1 | M | **Out of scope for this delivery** — the mission asked for a Ranking Engine, not personalization; left as a documented future follow-up reusing `platform-fit`'s weighted-sum pattern, per the project's own scope-boundary convention |
 
 ## 6. Explicitly deferred / out of scope
@@ -344,6 +344,81 @@ resolution (`virality-engine` now resolves `link:` from `clip-ranking`, confirme
 when verifying a new `packages/*` → `packages/*` sibling dependency, a `node_modules`-only wipe is
 NOT sufficient to catch this class of bug — wipe every package's `dist/` too, or the local repro will
 silently pass while CI still fails.
+
+## Phase 14.2 architecture (as shipped)
+
+**The audit correction that re-scoped this phase down from L to S**: this document's own §5 roadmap
+table originally flagged Phase 14.2 as needing "a new 'all shortlisted renders complete' barrier that
+doesn't exist in today's per-clip-independent pipeline." That was wrong — written before actually
+reading `render-clip.worker.ts`'s own completion logic. It already has exactly this barrier: every
+clip render's own success transaction queries all sibling `Clip` rows, counts how many have
+`outputUrl !== null`, and the execution that observes every sibling done atomically flips
+`Video.status → RENDERED` — a race-free "last one out turns off the lights" pattern, no BullMQ
+job-dependency/flow feature needed. Right beside it (same file, same `try`/`catch`-wrapped,
+never-fails-the-job posture) is an existing ranking pass ("Ranking (Fase 31)") that recomputes
+`Clip.highlightRank` via `@speedora/fusion-engine`'s own `rankClips()`. Phase 14.2 is a second,
+additive pass beside that one, not a new mechanism.
+
+**A real naming trap, caught before merge**: Fase 31's own ranking pass sits INSIDE the
+`if (allRendered) { ... }` block — despite its comment reading "only meaningful once every clip...
+has a highlightScore," it doesn't just prefer that condition, it's structurally gated by it, so it
+only ever executes ONCE, on the single job execution that happens to be the last sibling to finish.
+This session's own design discussion (recorded in the AskUserQuestion above) proposed "progressive,
+every completion" as "mirroring the existing Fase 31 pattern" — that framing was incorrect. The
+implementation was first written nested inside the same `if (allRendered)` block (silently making it
+"wait for all" despite the user's explicit choice), caught by re-reading the code's own brace
+structure before testing, and moved to sit AFTER that block closes instead — a sibling statement in
+the same function scope, unconditional, so it genuinely runs after every clip's own render completes,
+not just the last one.
+
+**`packages/database`**: a real migration (`20260810073022_clip_ranking_composite_score`) adds 4
+nullable `Clip` columns — `compositeRankScore Float?`, `compositeRank Int?`,
+`compositeRankConfidence Float?`, `compositeRankSubScores Json?` — placed after `multimodalReasoning`
+(the last Track A v4 signal field), deliberately NOT touching `highlightScore`/`highlightRank` or the
+thumbnail cover-clip-selection logic that reads them (both stay completely untouched, same "strictly
+additive" posture every prior v4 phase has followed).
+
+**`apps/worker/src/workers/render-clip.worker.ts`**: a new block, its own `try`/`catch` (a failure
+here can never affect Fase 31's `highlightRank`/cover-clip logic, or vice versa), placed right after
+the `if (allRendered)` block closes:
+1. Queries every RENDERED sibling (`outputUrl: { not: null }` — the real filter, unlike Fase 31's own
+   unfiltered `where: { videoId }`, since Fase 31 only ever runs when every sibling is already
+   rendered by construction) — covering both original `detect-clips` candidates and later "Generate
+   More Clips" top-ups, same scope as Fase 31's own sibling query.
+2. Filters out any clip missing `scores`/`viralityPrediction`/`retentionCurveInsights` (should only
+   happen for rows predating this initiative's migrations — every render-graph node backing these is
+   `optional: false`) — skipped, not defaulted, same "don't fabricate data" posture as everywhere else.
+3. Maps the survivors into `ComputeClipRankInput[]` (a single documented cast per field, matching this
+   codebase's established "trusted shape, one cast at a boundary" convention) and calls
+   `rankClipCandidates()`.
+4. Writes `compositeRankScore`/`compositeRank`/`compositeRankConfidence`/`compositeRankSubScores` back
+   onto each ranked clip.
+
+An unrendered sibling is never included with a placeholder score — `ComputeClipRankInput` requires
+several fields (e.g. `viralityPrediction`) as real, non-null objects that genuinely don't exist until
+that clip's own render-graph has run, so it's simply absent from the ranked batch until its own render
+completes and re-triggers this same block with one more clip now eligible.
+
+**Deliberately out of scope, same as Phase 14.1**: no API/DTO exposure. The columns are computed and
+persisted on every qualifying render, but nothing reads them yet — no UI consumer exists to expose
+them to (this initiative's roadmap only reaches Explainability at Phase 12, not yet started). This
+mirrors Fusion Engine v3's own "framework proven, no caller yet" precedent, not an oversight.
+
+**Verification**: `packages/database` migration applied cleanly against a real local Postgres,
+`packages/database` rebuilt (dist wrapper). `apps/worker`'s `render-clip.worker.spec.ts` — the single
+largest spec file in this codebase — full suite 124/124 (120 pre-existing unchanged + 4 new: computes
+and persists all 4 new fields for a fully-rendered pair with correct rank ordering; excludes an
+unrendered sibling from the ranked batch entirely rather than scoring it; never fails the job when the
+new block itself throws; never runs at all on the P2025 concurrent-claim early-return path).
+`typecheck`/`build`/`lint`/`format` all green. **A real test-authoring bug caught and fixed before
+this was considered done**: two of the new tests' `clipFindManyMock.mockResolvedValueOnce()` chains
+initially assumed Fase 31 always consumes a queue slot — when a test's fixture has `allRendered:
+false`, Fase 31's own query never runs at all (see the naming-trap note above), so that assumed slot
+goes unconsumed, shifting every subsequent queued value by one position and leaking an unconsumed
+(in one case, REJECTED) mock value forward into unrelated, later tests in the same file. Caught by
+running the FULL spec file (not just the new tests in isolation) and seeing unrelated pre-existing
+tests fail with a nonsensical diff; fixed by removing the phantom queue entry, not by changing the
+implementation.
 
 ## 7. Verification convention
 
