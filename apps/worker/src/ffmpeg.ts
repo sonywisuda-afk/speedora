@@ -726,6 +726,14 @@ export async function renderClip(options: {
     '-c:v',
     'libx264',
     ...qualityArgs,
+    // Output Resolution/Quality audit, Phase 0 - explicit rather than relying on libx264's own
+    // default pixel-format propagation from the filter chain. Every source this pipeline has
+    // actually been tested against decodes to yuv420p already, so this is a no-op for the common
+    // case - it only matters for a source with different chroma subsampling (e.g. yuv422p/yuv444p
+    // professional footage), where an unforced output could otherwise land on a profile some
+    // players/browsers can't decode.
+    '-pix_fmt',
+    'yuv420p',
     '-c:a',
     'aac',
     '-movflags',
@@ -954,6 +962,13 @@ export async function trimCutRanges(
   outputPath: string,
   cuts: CutRange[],
   totalOutputDuration: number,
+  // Output Resolution/Quality audit, Phase 0 - same shape/meaning as renderClip()'s own
+  // `quality` option (undefined/null -> ffmpeg's own defaults, matching this function's exact
+  // prior behavior for every existing caller/test). Without this, a clip with silence cuts
+  // silently lost whatever -preset/-crf the user chose on renderClip()'s first pass - this
+  // SECOND encode pass never received it and fell back to ffmpeg's own default (CRF 23,
+  // medium) regardless of what "maximum_quality" or "small_size" actually asked for.
+  quality?: { preset: string; crf: number } | null,
 ): Promise<void> {
   // totalOutputDuration is (by its caller's own definition, render-clip.
   // worker.ts) the input clip's duration minus every cut's own length -
@@ -1014,6 +1029,7 @@ export async function trimCutRanges(
   }
 
   const filterComplex = [...videoParts, ...audioParts].join(';');
+  const qualityArgs = quality ? ['-preset', quality.preset, '-crf', quality.crf.toString()] : [];
 
   await execFfmpegAtomically(
     () => [
@@ -1028,6 +1044,10 @@ export async function trimCutRanges(
       `[${audioLabel}]`,
       '-c:v',
       'libx264',
+      ...qualityArgs,
+      // Same explicit-pix_fmt reasoning as renderClip() above.
+      '-pix_fmt',
+      'yuv420p',
       '-c:a',
       'aac',
       '-movflags',
@@ -1260,6 +1280,10 @@ export async function applyReactionHolds(
   outputPath: string,
   holdInstants: number[],
   holdDurationSeconds: number = REACTION_HOLD_EXTENSION_SECONDS,
+  // Output Resolution/Quality audit, Phase 0 - same quality-propagation fix as
+  // trimCutRanges() above (see its own comment); this pass previously always silently fell
+  // back to ffmpeg's own default CRF/preset regardless of what the user chose.
+  quality?: { preset: string; crf: number } | null,
 ): Promise<void> {
   if (holdInstants.length === 0) {
     throw new Error(
@@ -1320,6 +1344,7 @@ export async function applyReactionHolds(
     `${videoLabels}concat=n=${segmentCount}:v=1:a=0[outv]`,
     `${audioLabels}concat=n=${segmentCount}:v=0:a=1[outa]`,
   ].join(';');
+  const qualityArgs = quality ? ['-preset', quality.preset, '-crf', quality.crf.toString()] : [];
 
   const args = [
     '-y',
@@ -1334,6 +1359,10 @@ export async function applyReactionHolds(
     '[outa]',
     '-c:v',
     'libx264',
+    ...qualityArgs,
+    // Same explicit-pix_fmt reasoning as renderClip()/trimCutRanges() above.
+    '-pix_fmt',
+    'yuv420p',
     '-c:a',
     'aac',
     '-movflags',

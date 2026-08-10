@@ -1037,6 +1037,14 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
           const processingOptions = existingClip.video.processingOptions
             ? migrateProcessingOptions(existingClip.video.processingOptions)
             : null;
+          // Output Resolution/Quality audit, Phase 0 (quality-propagation fix) - resolved
+          // once here (not inline at renderClip()'s own call site below) so the SAME value
+          // also reaches trimCutRanges()/applyReactionHolds() further down. Before this fix,
+          // those two later re-encode passes never received the user's chosen preset/crf at
+          // all and silently fell back to ffmpeg's own default (CRF 23, medium) - so a clip
+          // with silence cuts or a reaction hold lost whatever quality was picked, even though
+          // the FIRST pass (renderClip()) honored it correctly.
+          const quality = resolveRenderQuality(processingOptions);
 
           let sourcePath: string | null = null;
           let subtitlesPath: string | null = null;
@@ -1324,7 +1332,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                       position: watermark.position,
                     }
                   : null,
-              quality: resolveRenderQuality(processingOptions),
+              quality,
             });
 
             // Second pass (see computeClipCuts's comment) - skipped entirely
@@ -1349,7 +1357,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               // "external ffmpeg call, bounded by TRIM_TIMEOUT_MS but still allowed to fail" reasoning
               // as every other optional signal in this file, prompted by a real timeout observed here.
               try {
-                await trimCutRanges(outputPath, trimmedPath, cuts, totalOutputDuration);
+                await trimCutRanges(outputPath, trimmedPath, cuts, totalOutputDuration, quality);
                 renderedPath = trimmedPath;
                 logger.info('removed silence/filler cuts', {
                   clipId,
@@ -1401,6 +1409,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                     reactionHoldPath,
                     holdInstants,
                     REACTION_HOLD_EXTENSION_SECONDS,
+                    quality,
                   );
                   renderedPath = reactionHoldPath;
                   logger.info('applied reaction holds', {
