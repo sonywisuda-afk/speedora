@@ -3266,6 +3266,67 @@ describe('render-clip worker', () => {
       );
       expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
     });
+
+    // AI B-roll Recommendation UI control - the whole pipeline (findBRollMoments and every
+    // downstream stock-asset search) must be skipped entirely when disabled, not run and
+    // discarded.
+    it('skips findBRollMoments/searchAssets entirely when disabled via processingOptions.broll.enabled', async () => {
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, broll: { enabled: false, maxCutaways: null } },
+        },
+      });
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob({ ...baseJobData, keywords: ['sunset'] }));
+
+      expect(findBRollMomentsMock).not.toHaveBeenCalled();
+      expect(searchAssetsMock).not.toHaveBeenCalled();
+      expect(renderClipMock).toHaveBeenCalledWith(expect.objectContaining({ broll: [] }));
+    });
+
+    it('passes an explicit maxCutaways override through to findBRollMoments', async () => {
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, broll: { enabled: true, maxCutaways: 4 } },
+        },
+      });
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      findBRollMomentsMock.mockReturnValue([]);
+
+      const processor = getProcessor();
+      await processor(fakeJob({ ...baseJobData, keywords: ['sunset'] }));
+
+      expect(findBRollMomentsMock).toHaveBeenCalledWith(['sunset'], expect.any(Array), 10, 4);
+    });
+
+    it('passes undefined (not a duplicated constant) to findBRollMoments when maxCutaways is not configured, letting broll.ts fall back to its own default', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      findBRollMomentsMock.mockReturnValue([]);
+
+      const processor = getProcessor();
+      await processor(fakeJob({ ...baseJobData, keywords: ['sunset'] }));
+
+      expect(findBRollMomentsMock).toHaveBeenCalledWith(
+        ['sunset'],
+        expect.any(Array),
+        10,
+        undefined,
+      );
+    });
   });
 
   describe('Scene Intelligence (Fase 26)', () => {

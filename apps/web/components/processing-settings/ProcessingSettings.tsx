@@ -61,6 +61,14 @@ const HIGHLIGHT_INTENT_OPTIONS: { value: string; label: string }[] = [
 
 const MAX_ZOOM_IN_FRACTION_LIMIT = 0.6;
 
+// AI B-roll Recommendation - see @speedora/shared's ProcessingOptions.broll comment for why this
+// isn't numbered like the sections above (it's item 8 of a separate, later gap-analysis list, not
+// part of the original 24-section spec). Mirrors apps/api's own independently-defined
+// MAX_BROLL_CUTAWAYS_LIMIT (same value, same reasoning - not shared/imported, matching how
+// MAX_ZOOM_IN_FRACTION_LIMIT above is already duplicated rather than imported across the two
+// layers).
+const MAX_BROLL_CUTAWAYS_LIMIT = 5;
+
 // Section 15 (Thumbnail Generation) - the SAME THUMBNAIL_SIGNALS vocabulary
 // @speedora/thumbnail-selection already scores against, each with a human
 // label for the chip UI below.
@@ -750,6 +758,47 @@ export function ProcessingSettings({
               </option>
             ))}
           </select>
+        </div>
+      </SectionCard>
+
+      <SectionCard
+        title="B-roll Otomatis"
+        description="Sisipkan cutaway logo brand atau stock footage otomatis saat pembicara menyebut sesuatu yang relevan (mis. menyebut nama brand -> logo, menyebut 'sunset' -> stock footage matahari terbenam)."
+      >
+        <div className="space-y-4">
+          <div className="flex items-center gap-2">
+            <input
+              id="broll-enabled"
+              type="checkbox"
+              className="h-4 w-4 rounded border-input"
+              checked={options.broll.enabled}
+              onChange={(e) => update({ broll: { ...options.broll, enabled: e.target.checked } })}
+            />
+            <Label htmlFor="broll-enabled">Aktifkan B-roll otomatis</Label>
+          </div>
+          <div className="space-y-2 sm:max-w-xs">
+            <Label htmlFor="broll-max-cutaways">
+              Jumlah Maksimal Cutaway (1-{MAX_BROLL_CUTAWAYS_LIMIT})
+            </Label>
+            <Input
+              id="broll-max-cutaways"
+              type="number"
+              min={1}
+              max={MAX_BROLL_CUTAWAYS_LIMIT}
+              step={1}
+              disabled={!options.broll.enabled}
+              value={options.broll.maxCutaways ?? ''}
+              onChange={(e) =>
+                update({
+                  broll: {
+                    ...options.broll,
+                    maxCutaways: e.target.value ? Number(e.target.value) : null,
+                  },
+                })
+              }
+              placeholder="Default (2)"
+            />
+          </div>
         </div>
       </SectionCard>
 

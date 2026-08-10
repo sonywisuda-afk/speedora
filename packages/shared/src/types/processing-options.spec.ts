@@ -44,6 +44,7 @@ describe('migrateProcessingOptions', () => {
         scheduledAt: '2026-08-01T00:00:00.000Z',
       },
       thumbnail: { preferredSignals: ['faceClarity', 'emotion'] },
+      broll: { enabled: false, maxCutaways: 4 },
     };
 
     expect(migrateProcessingOptions(value)).toEqual(value);
@@ -63,6 +64,7 @@ describe('migrateProcessingOptions', () => {
     expect(result.seo).toEqual(DEFAULT_PROCESSING_OPTIONS.seo);
     expect(result.publishing).toEqual(DEFAULT_PROCESSING_OPTIONS.publishing);
     expect(result.thumbnail).toEqual(DEFAULT_PROCESSING_OPTIONS.thumbnail);
+    expect(result.broll).toEqual(DEFAULT_PROCESSING_OPTIONS.broll);
     expect(result.subtitle).toEqual(partial.subtitle);
   });
 
@@ -79,5 +81,17 @@ describe('migrateProcessingOptions', () => {
       minClipDurationSeconds: null,
       maxClipDurationSeconds: null,
     });
+  });
+
+  // AI B-roll Recommendation UI control.
+  it('fills in a missing broll.maxCutaways from defaults while preserving a present broll.enabled', () => {
+    const partial = {
+      version: PROCESSING_OPTIONS_VERSION,
+      broll: { enabled: false },
+    };
+
+    const result = migrateProcessingOptions(partial);
+
+    expect(result.broll).toEqual({ enabled: false, maxCutaways: null });
   });
 });

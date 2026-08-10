@@ -10,8 +10,11 @@ export const BROLL_DURATION_SECONDS = 2.5;
 export const BROLL_FADE_SECONDS = 0.3;
 // At most this many cutaways per clip - more than that starts to feel like
 // a slideshow rather than a talking-head clip with the occasional B-roll
-// accent.
-const MAX_BROLL_MOMENTS = 2;
+// accent. The default when Pre-Processing Settings' ProcessingOptions.broll
+// .maxCutaways is null (see findBRollMoments' own maxMoments parameter) -
+// exported so render-clip.worker.ts's resolveBRollOptions() can fall back to
+// the exact same number rather than a second, independently-chosen constant.
+export const MAX_BROLL_MOMENTS = 2;
 // Two cutaways within this of each other would visually crowd/overlap -
 // skip the second rather than let that happen.
 const MIN_GAP_BETWEEN_MOMENTS_SECONDS = BROLL_DURATION_SECONDS + 1;
@@ -78,21 +81,25 @@ function findFirstMentionTime(keyword: string, words: TranscriptWord[]): number 
   return wordStart;
 }
 
-// Picks up to MAX_BROLL_MOMENTS keywords (in the order detect-clips.worker.ts's
+// Picks up to maxMoments keywords (in the order detect-clips.worker.ts's
 // LLM call returned them - no re-ranking by "how visual" a keyword is, that
 // would need a judgment call this heuristic doesn't try to make) that are
 // actually said somewhere in this clip's transcript, spaced apart enough not
 // to crowd each other, each with enough room left in the clip for the full
 // cutaway duration. A keyword search returning nothing, or one that never
 // appears in this clip's words at all, is simply skipped - not an error.
+// maxMoments defaults to MAX_BROLL_MOMENTS (every pre-existing call site's
+// exact prior behavior); render-clip.worker.ts passes an explicit override
+// when ProcessingOptions.broll.maxCutaways is set.
 export function findBRollMoments(
   keywords: string[],
   words: TranscriptWord[],
   clipDurationSeconds: number,
+  maxMoments: number = MAX_BROLL_MOMENTS,
 ): BRollMoment[] {
   const moments: BRollMoment[] = [];
   for (const keyword of keywords) {
-    if (moments.length >= MAX_BROLL_MOMENTS) break;
+    if (moments.length >= maxMoments) break;
 
     const t = findFirstMentionTime(keyword, words);
     if (t === null) continue;
