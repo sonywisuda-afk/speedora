@@ -58,6 +58,11 @@ const diarizeSpeakersMock = jest.fn();
 const assignSpeakerLabelsMock = jest.fn();
 const toFriendlySpeakerTurnsMock = jest.fn();
 jest.mock('../diarization', () => ({
+  // DiarizationError is the REAL class (jest.requireActual), not mocked -
+  // transcribe.worker.ts's `error instanceof DiarizationError` check needs
+  // a real constructor to check against, and this class has no
+  // subprocess/IO of its own to fake.
+  DiarizationError: jest.requireActual('../diarization').DiarizationError,
   diarizeSpeakers: (...args: unknown[]) => diarizeSpeakersMock(...args),
   assignSpeakerLabels: (...args: unknown[]) => assignSpeakerLabelsMock(...args),
   toFriendlySpeakerTurns: (...args: unknown[]) => toFriendlySpeakerTurnsMock(...args),

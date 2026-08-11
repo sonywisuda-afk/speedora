@@ -46,6 +46,9 @@ export const NOTIFICATION_ICONS: Record<NotificationType, typeof Bell> = {
   // Download Reliability Framework - same icon as SYNC_FAILURE_WARNING
   // (a system-health "something is disconnected/broken" condition).
   [NotificationType.IMPORT_FAILURE_SPIKE]: Unplug,
+  // Speaker Intelligence Phase 0 - same icon/tone, same "something's
+  // disconnected/broken in the environment" condition.
+  [NotificationType.DIARIZATION_DEPENDENCY_MISSING]: Unplug,
 };
 
 // Same 'good' | 'neutral' | 'bad' tone vocabulary as lib/export.ts's
@@ -92,6 +95,7 @@ export const NOTIFICATION_TYPE_LABELS: Record<NotificationType, string> = {
   [NotificationType.WORKSPACE_OWNERSHIP_TRANSFERRED]: 'Kepemilikan workspace ditransfer',
   [NotificationType.GENERATE_MORE_NO_CANDIDATES]: 'Tidak ada klip tambahan ditemukan',
   [NotificationType.IMPORT_FAILURE_SPIKE]: 'Lonjakan crash proses download',
+  [NotificationType.DIARIZATION_DEPENDENCY_MISSING]: 'Dependency speaker diarization hilang',
 };
 
 const DEFAULT_ICON = Bell;

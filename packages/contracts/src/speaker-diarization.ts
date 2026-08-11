@@ -20,6 +20,29 @@ export const speakerTurnSchema = z.object({
 
 export const diarizeSpeakersOutputSchema = z.array(speakerTurnSchema);
 
+// Speaker Intelligence Phase 0 (Production Diarization Foundation) - the
+// categories apps/worker/scripts/diarize_speakers.py's structured stderr
+// error object (`{"error": true, "category": ..., "message": ...}`) can
+// report, parsed by apps/worker/src/diarization.ts into a DiarizationError.
+// "dependency_missing" is the exact bug this phase fixes in the Docker
+// image (torch/pyannote.audio/soundfile weren't installed) - it should
+// never occur in production again once that's fixed, which is what makes
+// it a useful, low-noise alert-engine signal (see
+// alert-engine.worker.ts's diarizationDependencyMissingRule) rather than
+// something that needs a calibrated threshold. The others are pre-existing
+// failure modes this phase gives a name to for the first time, not new
+// behavior.
+export const DIARIZATION_FAILURE_CATEGORIES = [
+  'dependency_missing',
+  'missing_token',
+  'model_access_denied',
+  'network',
+  'timeout',
+  'internal',
+] as const;
+export const diarizationFailureCategorySchema = z.enum(DIARIZATION_FAILURE_CATEGORIES);
+export type DiarizationFailureCategory = (typeof DIARIZATION_FAILURE_CATEGORIES)[number];
+
 // Everything below is a NEW aggregation over the turn list above - none of
 // it is computed anywhere in this codebase yet (assignSpeakerLabels only
 // maps turns onto Whisper segments, it doesn't aggregate). A future

@@ -36,6 +36,7 @@ export * from './types/processing-options';
 export * from './types/queue-monitoring';
 export * from './utils/activity-events';
 export * from './utils/alert-conditions';
+export * from './utils/diarization-metrics';
 export * from './utils/duration';
 export * from './utils/export-format';
 export * from './utils/hashtags';

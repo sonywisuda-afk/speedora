@@ -237,6 +237,8 @@ export function mapNotificationTypeToV2(type: PrismaNotificationType): Notificat
       return SharedNotificationType.GENERATE_MORE_NO_CANDIDATES;
     case 'IMPORT_FAILURE_SPIKE':
       return SharedNotificationType.IMPORT_FAILURE_SPIKE;
+    case 'DIARIZATION_DEPENDENCY_MISSING':
+      return SharedNotificationType.DIARIZATION_DEPENDENCY_MISSING;
     case 'PIPELINE_PROGRESS':
       return 'PIPELINE_PROGRESS';
     default:

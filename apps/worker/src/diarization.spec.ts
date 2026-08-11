@@ -1,19 +1,56 @@
+import { promisify } from 'node:util';
+
 const execFileMock = jest.fn(
   (
     _file: string,
     _args: string[],
     _options: unknown,
-    callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+    callback: (
+      error: (Error & { stderr?: string }) | null,
+      result: { stdout: string; stderr: string },
+    ) => void,
   ) => {
     callback(null, { stdout: '[]', stderr: '' });
   },
 );
 
-jest.mock('node:child_process', () => ({
-  execFile: (...args: unknown[]) => (execFileMock as unknown as (...a: unknown[]) => void)(...args),
-}));
+// Real node:child_process.execFile carries a `[util.promisify.custom]`
+// implementation that attaches the child's stdout/stderr onto the rejected
+// Error object (see Node's own lib/child_process.js) - util.promisify(fn)
+// only gets that enrichment when the wrapped function itself declares it.
+// Without this, `util.promisify(execFile)` would fall back to generic
+// promisify semantics (reject with the bare error, no `.stderr`), which
+// diarization.ts's classifyStderr() depends on - this mock has to model
+// the real custom-promisify behavior, not just the plain callback shape.
+// The custom impl still forwards to execFileMock (not a second, separate
+// mock) so existing `execFileMock.mock.calls` assertions keep working -
+// diarizeSpeakers always goes through promisify(execFile), so this is the
+// only path actually exercised at runtime.
+jest.mock('node:child_process', () => {
+  const execFileFn = (...args: unknown[]) =>
+    (execFileMock as unknown as (...a: unknown[]) => void)(...args);
+  Object.defineProperty(execFileFn, promisify.custom, {
+    value: (file: string, args: string[], options: unknown) =>
+      new Promise((resolve, reject) => {
+        execFileMock(file, args, options, (error, result) => {
+          if (error) {
+            Object.assign(error, result);
+            reject(error);
+          } else {
+            resolve(result);
+          }
+        });
+      }),
+  });
+  return { execFile: execFileFn };
+});
 
-import { assignSpeakerLabels, diarizeSpeakers, toFriendlySpeakerTurns } from './diarization';
+import {
+  assignSpeakerLabels,
+  DiarizationError,
+  diarizeSpeakers,
+  toFriendlySpeakerTurns,
+} from './diarization';
 
 describe('diarizeSpeakers', () => {
   beforeEach(() => {
@@ -57,15 +94,78 @@ describe('diarizeSpeakers', () => {
     ]);
   });
 
-  it('propagates the error when the python subprocess fails (missing token, gated model not accepted, etc.)', async () => {
+  it('classifies an unstructured subprocess failure as "internal", using stderr as the message', async () => {
     execFileMock.mockImplementationOnce((_file, _args, _options, callback) => {
       callback(new Error('python3 exited with code 1'), { stdout: '', stderr: 'boom' });
     });
 
-    await expect(diarizeSpeakers('/tmp/audio.mp3')).rejects.toThrow('python3 exited with code 1');
+    const rejection = diarizeSpeakers('/tmp/audio.mp3');
+    await expect(rejection).rejects.toBeInstanceOf(DiarizationError);
+    await expect(rejection).rejects.toThrow('boom');
+    await expect(rejection).rejects.toMatchObject({ category: 'internal' });
   });
 
-  it('propagates a timeout as an ordinary rejection (the same "skip speaker labels" path as any other diarization failure)', async () => {
+  it('classifies "dependency_missing" from diarize_speakers.py\'s structured stderr (the exact bug Phase 0 fixes)', async () => {
+    execFileMock.mockImplementationOnce((_file, _args, _options, callback) => {
+      callback(new Error('python3 exited with code 1'), {
+        stdout: '',
+        stderr: JSON.stringify({
+          error: true,
+          category: 'dependency_missing',
+          message: "No module named 'torch'",
+        }),
+      });
+    });
+
+    await expect(diarizeSpeakers('/tmp/audio.mp3')).rejects.toMatchObject({
+      category: 'dependency_missing',
+      message: "No module named 'torch'",
+    });
+  });
+
+  it('classifies "missing_token" from structured stderr', async () => {
+    execFileMock.mockImplementationOnce((_file, _args, _options, callback) => {
+      callback(new Error('python3 exited with code 1'), {
+        stdout: '',
+        stderr: JSON.stringify({
+          error: true,
+          category: 'missing_token',
+          message: 'HUGGINGFACE_TOKEN is not set',
+        }),
+      });
+    });
+
+    await expect(diarizeSpeakers('/tmp/audio.mp3')).rejects.toMatchObject({
+      category: 'missing_token',
+    });
+  });
+
+  it('classifies "model_access_denied" from structured stderr', async () => {
+    execFileMock.mockImplementationOnce((_file, _args, _options, callback) => {
+      callback(new Error('python3 exited with code 1'), {
+        stdout: '',
+        stderr: JSON.stringify({
+          error: true,
+          category: 'model_access_denied',
+          message: '403 GatedRepoError',
+        }),
+      });
+    });
+
+    await expect(diarizeSpeakers('/tmp/audio.mp3')).rejects.toMatchObject({
+      category: 'model_access_denied',
+    });
+  });
+
+  it('falls back to "internal" when stderr is not the expected structured shape', async () => {
+    execFileMock.mockImplementationOnce((_file, _args, _options, callback) => {
+      callback(new Error('segfault'), { stdout: '', stderr: 'Segmentation fault (core dumped)' });
+    });
+
+    await expect(diarizeSpeakers('/tmp/audio.mp3')).rejects.toMatchObject({ category: 'internal' });
+  });
+
+  it('classifies a timeout as its own category (the same "skip speaker labels" fallback path as any other diarization failure)', async () => {
     execFileMock.mockImplementationOnce((_file, _args, _options, callback) => {
       callback(Object.assign(new Error('python3 ETIMEDOUT'), { killed: true, signal: 'SIGTERM' }), {
         stdout: '',
@@ -73,7 +173,7 @@ describe('diarizeSpeakers', () => {
       });
     });
 
-    await expect(diarizeSpeakers('/tmp/audio.mp3')).rejects.toThrow('ETIMEDOUT');
+    await expect(diarizeSpeakers('/tmp/audio.mp3')).rejects.toMatchObject({ category: 'timeout' });
   });
 });
 

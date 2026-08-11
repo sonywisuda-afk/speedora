@@ -114,13 +114,85 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Detection, detect_voice_activity.py) - a small classic DSP/GMM-based
 # library (NOT a neural model), explicit user choice over Silero VAD
 # specifically to avoid adding torch as a dependency for this one detector.
-# Also needs soundfile (audio decoding, same as diarize_speakers.py/
-# detect_vocal_emotion.py) - NOTE: soundfile/pyannote.audio/transformers/
-# torch are NOT currently in this image's pip install at all, a pre-existing
-# gap predating this change (Speaker Diarization and Vocal Emotion Detection
-# are exercised in local dev but this Docker image has never actually
-# installed their dependencies) - not fixed here, flagged for a separate pass.
 RUN pip install --no-cache-dir --break-system-packages mediapipe opencv-python-headless yt-dlp scipy pytesseract webrtcvad
+# Speaker Intelligence Phase 0 (Production Diarization Foundation) - closes
+# the gap the comment above used to document here: soundfile/pyannote.audio/
+# transformers/torch were NOT previously in this image's pip install at all,
+# so diarize_speakers.py (Speaker Diarization), detect_vocal_emotion.py, and
+# detect_facial_emotion.py (both use transformers.pipeline, which needs a
+# torch/tensorflow backend) silently no-opped in every production deploy -
+# each shells out, fails on import, and the caller's existing "diarization/
+# emotion unavailable, continue without it" fallback (see diarization.ts,
+# transcribe.worker.ts) swallowed it as if the signal just wasn't computed,
+# not as a broken environment.
+#
+# torch is installed from PyTorch's own CPU-only wheel index, in its own
+# layer, BEFORE pyannote.audio/transformers/soundfile - this image has no
+# CUDA runtime (node:22-slim, no nvidia base image, no GPU in this
+# deployment), and pip's default index resolves a much larger CUDA-enabled
+# torch build unless told otherwise.
+#
+# PINNED to an exact version (torch==2.9.1+cpu, not a bare "torch") - found
+# necessary the hard way verifying this exact change: an UNPINNED first
+# install resolved to torch-2.5.1+cpu (pip's own resolver quirk, not
+# investigated further), which is too old for pyannote.audio's own
+# transitive dependency `torch-audiomentations>=0.12.0` (needs torch>=2.8.0).
+# The second pip install below then "helpfully" upgraded torch to satisfy
+# that floor - from PyPI's DEFAULT index, since it has no CPU-index
+# awareness of its own - silently downloading a 526MB CUDA-enabled wheel
+# and defeating the entire point of this two-step CPU-only install. Pinning
+# an EXACT version here that already clears every known floor in this
+# dependency tree means pip treats "torch" as already satisfied by the
+# second install and never re-resolves it - confirmed against the real
+# pyannote.audio release on PyPI, not assumed.
+#
+# --extra-index-url (ADDS the CPU index alongside PyPI's default), NOT
+# --index-url (which would REPLACE PyPI entirely) - found necessary the
+# hard way: PyTorch's own wheel index has inconsistent package metadata for
+# some of torch's own transitive deps (e.g. typing-extensions's wheel
+# filename normalizes the name with an underscore while its embedded
+# METADATA Name field uses a hyphen), which pip's strict consistency check
+# rejects outright with "No matching distribution found" when that index is
+# the ONLY one available. Keeping PyPI's default index in play lets pip
+# fall back to it for everything except torch itself (torch is pinned
+# below to an exact "+cpu"-suffixed version, so PyPI's own, larger
+# CUDA-bundled "torch" package is never a candidate).
+#
+# torchaudio is ALSO pinned here, alongside torch - found necessary the hard
+# way: pyannote.audio only declares `torchaudio>=2.8.0` with no upper bound,
+# so leaving it unpinned let the second pip install below resolve whatever
+# is newest (torchaudio 2.11.0 at the time this was verified) regardless of
+# which torch version is actually installed. torch/torchaudio wheels are
+# NOT cross-version compatible - torchaudio's compiled extension
+# (_torchaudio.abi3.so) links against a specific torch ABI, and a
+# newer-than-torch torchaudio fails at IMPORT time with "OSError: Could not
+# load this library", not at pip-install time - confirmed via a real failing
+# build, not assumed. Pinning both to the SAME PyTorch release line (2.9.1)
+# keeps them ABI-compatible.
+#
+# --timeout=100 (pip's default socket timeout is 15s) on both installs below
+# - found necessary the hard way verifying this exact change: pip's default
+# is too aggressive against a slow/rate-limited registry connection and
+# aborts an in-progress multi-hundred-MB wheel download with a
+# ReadTimeoutError that looks like a real failure but is purely a transient
+# network condition. A generous timeout here is the same "bound the worst
+# case, don't cut off a slow-but-working transfer" reasoning as
+# diarization.ts's own DIARIZATION_TIMEOUT_MS.
+#
+# Deliberately NOT --no-cache-dir here (unlike every other pip install in
+# this file) - found the hard way that pip's own dependency-resolution pass
+# downloads each wheel once just to read its metadata, then the actual
+# install pass downloads the SAME wheel a second time when there's no local
+# cache to serve it from - doubling network transfer for torch's own 184MB
+# wheel specifically. `pip cache purge` in the same RUN layer (so the cache
+# never lands in a committed image layer) gets the caching benefit within
+# this one command's lifetime without leaving anything behind - same final
+# image size as `--no-cache-dir`, half the download traffic.
+RUN pip install --break-system-packages --timeout=100 torch==2.9.1+cpu torchaudio==2.9.1+cpu \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    && pip cache purge
+RUN pip install --break-system-packages --timeout=100 pyannote.audio transformers soundfile \
+    && pip cache purge
 # MediaPipe's Tasks API (mediapipe.tasks.python.vision.FaceDetector) needs
 # this model file locally - it isn't bundled in the pip package, and isn't
 # committed to the repo either (see .gitignore) since it's a binary asset

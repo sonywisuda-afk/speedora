@@ -9,15 +9,19 @@ jest.mock('@speedora/storage', () => ({
   getBucketUsage: (...args: unknown[]) => getBucketUsageMock(...args),
 }));
 
-// Download Reliability Framework - only readRecentInternalCrashCount is
-// mocked (the metricsRedis connection it reads from is itself a mocked
+// Download Reliability Framework / Speaker Intelligence Phase 0 - only
+// readRecentInternalCrashCount/readRecentDependencyMissingCount are mocked
+// (the metricsRedis connection they read from is itself a mocked
 // createRedisConnection() above, so the real implementation would just
 // throw on a null client) - QueueName and everything else stays real via
 // requireActual.
 const readRecentInternalCrashCountMock = jest.fn();
+const readRecentDependencyMissingCountMock = jest.fn();
 jest.mock('@speedora/shared', () => ({
   ...jest.requireActual('@speedora/shared'),
   readRecentInternalCrashCount: (...args: unknown[]) => readRecentInternalCrashCountMock(...args),
+  readRecentDependencyMissingCount: (...args: unknown[]) =>
+    readRecentDependencyMissingCountMock(...args),
 }));
 
 const publishNotificationMock = jest.fn();
@@ -84,6 +88,7 @@ describe('alert-engine worker', () => {
     userFindManyMock.mockResolvedValue([]);
     socialAccountFindManyMock.mockResolvedValue([]);
     readRecentInternalCrashCountMock.mockResolvedValue(0);
+    readRecentDependencyMissingCountMock.mockResolvedValue(0);
   });
 
   afterAll(() => {
@@ -365,6 +370,82 @@ describe('alert-engine worker', () => {
       await processor({});
       expect(notificationCreateMock).toHaveBeenCalledWith({
         data: expect.objectContaining({ userId: 'admin-1', type: 'IMPORT_FAILURE_SPIKE' }),
+      });
+    });
+  });
+
+  describe('processor - diarization dependency missing', () => {
+    it('does not notify when no "dependency_missing" failure has been recorded', async () => {
+      readRecentDependencyMissingCountMock.mockResolvedValue(0);
+
+      const processor = getProcessor();
+      await processor({});
+
+      expect(notificationCreateMock).not.toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ type: 'DIARIZATION_DEPENDENCY_MISSING' }),
+        }),
+      );
+    });
+
+    it('notifies every ops-role user on the FIRST occurrence - unlike the crash-spike rule, this is not threshold-tuned', async () => {
+      readRecentDependencyMissingCountMock.mockResolvedValue(1);
+      userFindManyMock.mockResolvedValue([{ id: 'admin-1' }, { id: 'ops-1' }]);
+
+      const processor = getProcessor();
+      await processor({});
+
+      expect(notificationCreateMock).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'admin-1',
+          type: 'DIARIZATION_DEPENDENCY_MISSING',
+        }),
+      });
+      expect(notificationCreateMock).toHaveBeenCalledWith({
+        data: expect.objectContaining({ userId: 'ops-1', type: 'DIARIZATION_DEPENDENCY_MISSING' }),
+      });
+    });
+
+    it('re-arms once the window clears, so a later re-occurrence notifies again', async () => {
+      const activeDedupeKeys = new Set<string>();
+      alertStateFindUniqueMock.mockImplementation(({ where }: { where: { dedupeKey: string } }) =>
+        activeDedupeKeys.has(where.dedupeKey) ? { dedupeKey: where.dedupeKey } : null,
+      );
+      alertStateCreateMock.mockImplementation(({ data }: { data: { dedupeKey: string } }) => {
+        activeDedupeKeys.add(data.dedupeKey);
+        return {};
+      });
+      alertStateDeleteMock.mockImplementation(({ where }: { where: { dedupeKey: string } }) => {
+        activeDedupeKeys.delete(where.dedupeKey);
+        return {};
+      });
+      userFindManyMock.mockResolvedValue([{ id: 'admin-1' }]);
+
+      const processor = getProcessor();
+
+      readRecentDependencyMissingCountMock.mockResolvedValue(1);
+      await processor({});
+      expect(notificationCreateMock).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'admin-1',
+          type: 'DIARIZATION_DEPENDENCY_MISSING',
+        }),
+      });
+      notificationCreateMock.mockClear();
+
+      readRecentDependencyMissingCountMock.mockResolvedValue(0);
+      await processor({});
+      expect(alertStateDeleteMock).toHaveBeenCalledWith({
+        where: { dedupeKey: 'diarization-dependency-missing' },
+      });
+
+      readRecentDependencyMissingCountMock.mockResolvedValue(1);
+      await processor({});
+      expect(notificationCreateMock).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          userId: 'admin-1',
+          type: 'DIARIZATION_DEPENDENCY_MISSING',
+        }),
       });
     });
   });
