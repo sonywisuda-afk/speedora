@@ -8,16 +8,20 @@ import { fromHighlights } from './from-highlights';
 import { fromOcrTracks } from './from-ocr-tracks';
 import { fromPauses } from './from-pauses';
 import { fromPrimarySubjectSamples } from './from-primary-subject-samples';
+import { fromSpeakerTransitions } from './from-speaker-transitions';
 
 // The module's single entry point (ARCHITECTURE.md's JSON-contract module
 // checklist) - pure and synchronous, no `deps` parameter, same zero-LLM
 // shape as most of Track A/B. Combines all 5 spec Part 9 technique-specific
 // derive functions PLUS fromDropPoints() (Attention Curve Optimization - a
 // Phase 10 follow-up, NOT one of the 9 spec Part 9 techniques, reusing
-// this same delivery shape - see from-drop-points.ts's own comment) and
-// sorts the result into one chronological timeline - each technique's own
-// detection logic lives in its own file (chunk-segment.ts-style "one
-// function per concern" precedent), this file only composes them.
+// this same delivery shape - see from-drop-points.ts's own comment) PLUS
+// fromSpeakerTransitions() (Speaker Intelligence Phase E's own
+// 'speaker_focus_shift' - likewise not one of the 9, same reuse-the-shape
+// precedent - see that file's own comment) and sorts the result into one
+// chronological timeline - each technique's own detection logic lives in
+// its own file (chunk-segment.ts-style "one function per concern"
+// precedent), this file only composes them.
 // "Generate editing suggestions" (spec Part 9) - this phase decides WHICH
 // technique, WHEN, and WHY; wiring any suggestion into actual rendering is
 // a later phase's job (C2-C7, see docs/ai/visual-emphasis-engine.md).
@@ -31,6 +35,7 @@ export function computeEditingSuggestions(
     retentionCurveInsights,
     words,
     clipDurationSeconds,
+    speakerTurns,
   } = input;
 
   return [
@@ -45,5 +50,6 @@ export function computeEditingSuggestions(
       retentionCurveInsights.dropPoints,
     ),
     ...fromDropPoints(retentionCurveInsights.dropPoints, clipDurationSeconds),
+    ...fromSpeakerTransitions(speakerTurns, clipDurationSeconds),
   ].sort((a, b) => a.start - b.start);
 }

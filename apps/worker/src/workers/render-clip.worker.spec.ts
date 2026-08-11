@@ -2614,6 +2614,169 @@ describe('render-clip worker', () => {
     });
   });
 
+  // Speaker Intelligence Phase E ("speaker_focus_shift" - docs/ai/
+  // speaker-intelligence.md). SPEAKER_AWARE_FOCUS_SHIFT_ENABLED is read
+  // directly by isSpeakerAwareFocusShiftEnabled() (left real, not mocked,
+  // same convention as VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED above).
+  // graphResult.editingSuggestions' speaker_focus_shift entries come from
+  // the REAL (un-mocked) computeEditingSuggestions()'s own
+  // fromSpeakerTransitions() - a transcript with `speaker` fields forming a
+  // well-held (5s/5s) transition produces one real speaker_focus_shift
+  // suggestion, per @speedora/visual-emphasis's own documented math
+  // (confidence 1.0, clip-relative transition instant at t=5, window
+  // [4.85, 5.15]).
+  describe('Speaker Intelligence Phase E - speaker-aware Focus Shift render wiring', () => {
+    const speakerTransitionJobData: RenderClipJobData = {
+      ...baseJobData,
+      transcript: [
+        { start: 10, end: 15, text: 'a', speaker: 'Speaker A' },
+        { start: 15, end: 20, text: 'b', speaker: 'Speaker B' },
+      ],
+    };
+
+    beforeEach(() => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      buildCropPathMock.mockReturnValue(null);
+    });
+
+    afterEach(() => {
+      delete process.env.SPEAKER_AWARE_FOCUS_SHIFT_ENABLED;
+      delete process.env.VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED;
+    });
+
+    it('passes the detected speaker_focus_shift window through to buildCropPath when the flag is on', async () => {
+      process.env.SPEAKER_AWARE_FOCUS_SHIFT_ENABLED = 'true';
+
+      const processor = getProcessor();
+      await processor(fakeJob(speakerTransitionJobData));
+
+      expect(buildCropPathMock).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.any(Array),
+        expect.any(Object),
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
+        undefined,
+        [{ start: 4.85, end: 5.15 }],
+        [],
+      );
+    });
+
+    it('passes an empty focusShifts array when the flag is off (default), even with a real speaker transition detected', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob(speakerTransitionJobData));
+
+      expect(buildCropPathMock).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.any(Array),
+        expect.any(Object),
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
+        undefined,
+        [],
+        [],
+      );
+    });
+
+    it('is independently toggleable from VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED - speaker source stays off while the visual source is on', async () => {
+      process.env.VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED = 'true';
+      // No SPEAKER_AWARE_FOCUS_SHIFT_ENABLED - only the visual source may
+      // contribute, and this fixture has no face-landmark subject change,
+      // so the visual source contributes nothing either.
+      const processor = getProcessor();
+      await processor(fakeJob(speakerTransitionJobData));
+
+      expect(buildCropPathMock).toHaveBeenCalledWith(
+        expect.any(Array),
+        expect.any(Array),
+        expect.any(Object),
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(Number),
+        undefined,
+        [],
+        [],
+      );
+    });
+
+    it('merges both sources - visual-track-derived and speaker-transition-derived windows both reach buildCropPath - when both flags are on', async () => {
+      process.env.VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED = 'true';
+      process.env.SPEAKER_AWARE_FOCUS_SHIFT_ENABLED = 'true';
+      // Same face-landmark fixture as the C3 describe block above: a
+      // trackId change at t=2, held >= 1.0s, produces a visual focus_shift
+      // window [1.85, 2.15].
+      detectFaceLandmarksMock.mockResolvedValue([
+        {
+          t: 0,
+          boundingBox: { xCenter: 0.5, yCenter: 0.5, width: 0.2, height: 0.2 },
+          sharpness: null,
+          rotation: null,
+          blendshapes: null,
+          brightness: null,
+          mouthContrastRatio: null,
+          faceDescriptor: null,
+          trackId: 1,
+          leftIris: null,
+          rightIris: null,
+          leftEyeInnerCorner: null,
+          leftEyeOuterCorner: null,
+          rightEyeInnerCorner: null,
+          rightEyeOuterCorner: null,
+          mouthWidth: null,
+        },
+        {
+          t: 1,
+          boundingBox: { xCenter: 0.5, yCenter: 0.5, width: 0.2, height: 0.2 },
+          sharpness: null,
+          rotation: null,
+          blendshapes: null,
+          brightness: null,
+          mouthContrastRatio: null,
+          faceDescriptor: null,
+          trackId: 1,
+          leftIris: null,
+          rightIris: null,
+          leftEyeInnerCorner: null,
+          leftEyeOuterCorner: null,
+          rightEyeInnerCorner: null,
+          rightEyeOuterCorner: null,
+          mouthWidth: null,
+        },
+        {
+          t: 2,
+          boundingBox: { xCenter: 0.5, yCenter: 0.5, width: 0.2, height: 0.2 },
+          sharpness: null,
+          rotation: null,
+          blendshapes: null,
+          brightness: null,
+          mouthContrastRatio: null,
+          faceDescriptor: null,
+          trackId: 2,
+          leftIris: null,
+          rightIris: null,
+          leftEyeInnerCorner: null,
+          leftEyeOuterCorner: null,
+          rightEyeInnerCorner: null,
+          rightEyeOuterCorner: null,
+          mouthWidth: null,
+        },
+      ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(speakerTransitionJobData));
+
+      const call = buildCropPathMock.mock.calls[0];
+      const focusShifts = call[7] as Array<{ start: number; end: number }>;
+      expect(focusShifts).toContainEqual({ start: 1.85, end: 2.15 }); // visual source
+      expect(focusShifts).toContainEqual({ start: 4.85, end: 5.15 }); // speaker source
+      expect(focusShifts).toHaveLength(2);
+    });
+  });
+
   // Visual Emphasis Engine Phase C4 ("Digital Push" - docs/ai/
   // visual-emphasis-engine.md's "C4 rollout" decision: flag-gated, off by
   // default, no per-clip toggle, a SEPARATE flag from Phase C3's own).

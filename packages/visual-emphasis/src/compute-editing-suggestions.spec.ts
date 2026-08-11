@@ -21,6 +21,7 @@ describe('computeEditingSuggestions', () => {
       retentionCurveInsights: insights(),
       words: [],
       clipDurationSeconds: 10,
+      speakerTurns: [],
     };
     expect(computeEditingSuggestions(input)).toEqual([]);
   });
@@ -73,6 +74,7 @@ describe('computeEditingSuggestions', () => {
         { word: 'after', start: 14, end: 15 },
       ],
       clipDurationSeconds: 15,
+      speakerTurns: [],
     };
 
     const result = computeEditingSuggestions(input);
@@ -103,10 +105,34 @@ describe('computeEditingSuggestions', () => {
       retentionCurveInsights: insights({ dropPoints: [{ t: 7, score: 0.8 }] }),
       words: [],
       clipDurationSeconds: 15,
+      speakerTurns: [],
     };
 
     const result = computeEditingSuggestions(input);
 
     expect(result).toEqual([expect.objectContaining({ technique: 'attention_cut' })]);
+  });
+
+  // Speaker Intelligence Phase E - a separate test from the "5 techniques"
+  // one above, same reasoning as the attention_cut test: conceptually
+  // distinct addition, not one of spec Part 9's 9 named techniques (see
+  // from-speaker-transitions.ts's own comment).
+  it('includes a speaker_focus_shift suggestion for a well-held speaker transition', () => {
+    const input: ComputeEditingSuggestionsInput = {
+      highlights: [],
+      ocrTracks: null,
+      primarySubjectSamples: [],
+      retentionCurveInsights: insights(),
+      words: [],
+      clipDurationSeconds: 10,
+      speakerTurns: [
+        { speaker: 'A', start: 0, end: 3 },
+        { speaker: 'B', start: 3, end: 6 },
+      ],
+    };
+
+    const result = computeEditingSuggestions(input);
+
+    expect(result).toEqual([expect.objectContaining({ technique: 'speaker_focus_shift' })]);
   });
 });
