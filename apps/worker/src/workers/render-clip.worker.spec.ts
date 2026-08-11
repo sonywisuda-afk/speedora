@@ -5335,6 +5335,8 @@ describe('render-clip worker', () => {
             viralityPrediction: viralityPrediction(0.2),
             retentionCurveInsights,
             semanticEvents: null,
+            conversationDynamics: null,
+            conversationType: null,
           },
           {
             id: 'clip-2',
@@ -5345,6 +5347,8 @@ describe('render-clip worker', () => {
             viralityPrediction: viralityPrediction(0.8),
             retentionCurveInsights,
             semanticEvents: null,
+            conversationDynamics: null,
+            conversationType: null,
           },
         ]);
 
@@ -5396,6 +5400,8 @@ describe('render-clip worker', () => {
             viralityPrediction: viralityPrediction(0.5),
             retentionCurveInsights,
             semanticEvents: null,
+            conversationDynamics: null,
+            conversationType: null,
           },
         ]);
 
@@ -5414,6 +5420,55 @@ describe('render-clip worker', () => {
       expect(clipUpdateMock).not.toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: 'clip-2' } }),
       );
+    });
+
+    // Speaker Intelligence Phase D. An integration-level proof (not just
+    // @speedora/clip-ranking's own unit tests) that this file's field name
+    // wiring - Prisma column -> ComputeClipRankInput -> compositeRankSubScores
+    // - is genuinely correct end to end, since a typo'd field name here
+    // would type-check fine (an `as unknown as X` cast) but silently
+    // produce wrong data at runtime.
+    it('flows a real conversationDynamics/conversationType through to compositeRankSubScores.conversationEngagement', async () => {
+      clipFindManyMock
+        .mockResolvedValueOnce([
+          { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+        ])
+        .mockResolvedValueOnce([{ id: 'clip-1', highlightScore: 50 }])
+        .mockResolvedValueOnce([
+          {
+            id: 'clip-1',
+            highlightScore: 50,
+            scores: FULL_SCORES,
+            hookPrediction: null,
+            narrativeGraph: null,
+            viralityPrediction: viralityPrediction(0.5),
+            retentionCurveInsights,
+            semanticEvents: null,
+            conversationDynamics: {
+              speakerCount: 2,
+              turnCount: 4,
+              switchCount: 3,
+              turnDensityPerMinute: 30,
+              averageTurnDurationSeconds: 2,
+              medianTurnDurationSeconds: 2,
+              backAndForthScore: 1,
+              responseLatencySeconds: 0,
+              overlapRatio: 0,
+              interactionIntensity: 0.75,
+            },
+            conversationType: { type: 'interview', confidence: 0.6 },
+          },
+        ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(clipUpdateMock).toHaveBeenCalledWith({
+        where: { id: 'clip-1' },
+        data: expect.objectContaining({
+          compositeRankSubScores: expect.objectContaining({ conversationEngagement: 75 }),
+        }),
+      });
     });
 
     it('does not fail the job when composite ranking itself throws', async () => {
