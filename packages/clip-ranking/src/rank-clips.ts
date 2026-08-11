@@ -16,9 +16,12 @@ interface ScoredClip {
 // already 0-100), same "average of non-null" pattern
 // ViralityPrediction.overallViralScore already established one level down
 // (within a single phase's own sub-probabilities), applied here one level
-// up across all 12 dimensions. `confidence` is CODE-COMPUTED coverage:
-// count(non-null)/12, same "kind of confidence" as
-// ViralityPrediction.confidence.
+// up across all 13 dimensions (12 from Phase 14.1 + Speaker Intelligence
+// Phase D's conversationEngagement). `confidence` is CODE-COMPUTED
+// coverage: count(non-null)/Object.keys(subScores).length, same "kind of
+// confidence" as ViralityPrediction.confidence - the denominator is
+// derived from subScores' own key count, not a hardcoded literal, so it
+// stays correct as dimensions are added.
 function scoreClip(input: ComputeClipRankInput): ScoredClip {
   const subScores = deriveSubScores(input);
   const values = Object.values(subScores).filter((value): value is number => value !== null);
