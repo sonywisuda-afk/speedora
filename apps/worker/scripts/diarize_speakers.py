@@ -16,10 +16,7 @@ within this one file - not stable/comparable across different videos.
 pyannote/speaker-diarization-community-1 is a gated model on Hugging Face:
 the account behind HUGGINGFACE_TOKEN must have accepted its terms at
 https://huggingface.co/pyannote/speaker-diarization-community-1 before this
-will work - otherwise Pipeline.from_pretrained raises a 403 (GatedRepoError),
-which this script lets propagate as a non-zero exit
-(apps/worker/src/diarization.ts's caller treats that as "diarization
-unavailable", same fallback as face detection).
+will work - otherwise Pipeline.from_pretrained raises a 403 (GatedRepoError).
 
 Uses "community-1", NOT the older/more commonly documented
 "speaker-diarization-3.1" checkpoint - discovered via a real failing run,
@@ -48,39 +45,95 @@ explicit alternative to a file path for exactly this kind of situation.
 
 Usage: diarize_speakers.py <audio_path>
 Requires HUGGINGFACE_TOKEN in the environment.
+
+Speaker Intelligence Phase 0 (Production Diarization Foundation) - every
+failure path now prints one structured JSON object to stderr before exiting
+non-zero, instead of letting a bare Python traceback (or a generic
+RuntimeError message) reach the caller as unstructured text:
+
+  {"error": true, "category": "<category>", "message": "<detail>"}
+
+apps/worker/src/diarization.ts parses this into a DiarizationError with a
+typed `.category`, which the caller (transcribe.worker.ts) records via
+recordDiarizationOutcome() before falling back to "no speaker labels" - the
+fallback behavior is UNCHANGED (this remains an optional signal, never a
+job failure), but the failure is no longer silent at the ops/metrics level.
+category is one of:
+  - "dependency_missing" - torch/pyannote.audio/soundfile isn't installed in
+    this Python environment at all (the exact bug this phase fixes in
+    apps/worker/Dockerfile - if this category is EVER seen in production
+    after this phase ships, the image build is broken again).
+  - "missing_token"       - HUGGINGFACE_TOKEN isn't set. Expected/benign in
+    a deployment that hasn't configured diarization yet.
+  - "model_access_denied" - the gated model's terms haven't been accepted by
+    the account behind HUGGINGFACE_TOKEN (a 403/GatedRepoError).
+  - "network"             - couldn't reach Hugging Face to fetch the model.
+  - "internal"             - anything else (corrupt audio, unexpected
+    pyannote/torch exception, ...).
 """
 import json
 import os
 import sys
 
-import soundfile as sf
-import torch
-from pyannote.audio import Pipeline
+
+def _emit_error(category: str, message: str) -> None:
+    print(json.dumps({"error": True, "category": category, "message": message}), file=sys.stderr)
+
+
+try:
+    import soundfile as sf
+    import torch
+    from pyannote.audio import Pipeline
+except ImportError as exc:
+    _emit_error("dependency_missing", str(exc))
+    sys.exit(1)
+
+
+def _classify_load_error(exc: BaseException) -> str:
+    # Imported lazily, inside the function that needs it - huggingface_hub
+    # is a transitive dependency of pyannote.audio, always present once the
+    # top-level imports above have already succeeded.
+    from huggingface_hub.utils import GatedRepoError, HfHubHTTPError
+
+    if isinstance(exc, GatedRepoError):
+        return "model_access_denied"
+    if isinstance(exc, HfHubHTTPError):
+        return "network"
+    return "internal"
 
 
 def main() -> None:
     audio_path = sys.argv[1]
     token = os.environ.get("HUGGINGFACE_TOKEN")
     if not token:
-        raise RuntimeError("HUGGINGFACE_TOKEN is not set")
+        _emit_error("missing_token", "HUGGINGFACE_TOKEN is not set")
+        sys.exit(1)
 
-    # pyannote.audio 4.x renamed from_pretrained's auth kwarg from
-    # use_auth_token (3.x) to token, matching huggingface_hub's own current
-    # convention - discovered via a real run against pyannote.audio 4.0.7
-    # (the version pip resolves for this project as of writing), not from
-    # docs (pyannote's own README/model card still show the old 3.x kwarg).
-    pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-community-1", token=token)
+    try:
+        # pyannote.audio 4.x renamed from_pretrained's auth kwarg from
+        # use_auth_token (3.x) to token, matching huggingface_hub's own
+        # current convention - discovered via a real run against
+        # pyannote.audio 4.0.7 (the version pip resolves for this project as
+        # of writing), not from docs (pyannote's own README/model card still
+        # show the old 3.x kwarg).
+        pipeline = Pipeline.from_pretrained(
+            "pyannote/speaker-diarization-community-1", token=token
+        )
 
-    # always_2d keeps mono and multi-channel audio on the same code path -
-    # shape (time, channels) - transposed below to the (channels, time)
-    # pyannote/torch convention.
-    samples, sample_rate = sf.read(audio_path, dtype="float32", always_2d=True)
-    waveform = torch.from_numpy(samples.T)
+        # always_2d keeps mono and multi-channel audio on the same code path
+        # - shape (time, channels) - transposed below to the
+        # (channels, time) pyannote/torch convention.
+        samples, sample_rate = sf.read(audio_path, dtype="float32", always_2d=True)
+        waveform = torch.from_numpy(samples.T)
 
-    # pyannote.audio 4.x wraps the result in a DiarizeOutput object (instead
-    # of returning the classic pyannote.core.Annotation directly) -
-    # .speaker_diarization is that same Annotation, with itertracks() intact.
-    output = pipeline({"waveform": waveform, "sample_rate": sample_rate})
+        # pyannote.audio 4.x wraps the result in a DiarizeOutput object
+        # (instead of returning the classic pyannote.core.Annotation
+        # directly) - .speaker_diarization is that same Annotation, with
+        # itertracks() intact.
+        output = pipeline({"waveform": waveform, "sample_rate": sample_rate})
+    except Exception as exc:  # noqa: BLE001 - deliberately broad, see _classify_load_error
+        _emit_error(_classify_load_error(exc), str(exc))
+        sys.exit(1)
 
     turns = [
         {"start": round(turn.start, 3), "end": round(turn.end, 3), "speaker": speaker}

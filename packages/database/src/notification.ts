@@ -72,6 +72,10 @@ export const NOTIFICATION_TYPE_CATEGORY: Record<NotificationType, NotificationCa
   // SYNC_FAILURE_WARNING (an ops-facing system health condition, not a
   // per-video pipeline event).
   IMPORT_FAILURE_SPIKE: NotificationCategory.SYSTEM,
+  // Speaker Intelligence Phase 0 - same category as IMPORT_FAILURE_SPIKE
+  // (an ops-facing system health condition: the production worker image
+  // itself is missing a required dependency, not a per-video event).
+  DIARIZATION_DEPENDENCY_MISSING: NotificationCategory.SYSTEM,
 };
 
 // Default priority per type - overridable per-call (params.priority) for
@@ -105,6 +109,10 @@ export const NOTIFICATION_TYPE_PRIORITY: Record<NotificationType, NotificationPr
   // error - imports are still succeeding via retry, this just says the
   // crash rate is elevated).
   IMPORT_FAILURE_SPIKE: NotificationPriority.WARNING,
+  // Speaker Intelligence Phase 0 - same severity as IMPORT_FAILURE_SPIKE
+  // (transcription itself still succeeds, just without speaker labels -
+  // degraded, not a hard job failure).
+  DIARIZATION_DEPENDENCY_MISSING: NotificationPriority.WARNING,
 };
 
 // Notification Center v2 Phase 5 (Preferences & Delivery) - the simplified

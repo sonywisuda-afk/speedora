@@ -1798,6 +1798,16 @@ enum NotificationType {
   // alert-engine.worker.ts's threshold within its rolling window - see
   // videoImportInternalCrashSpikeRule.
   IMPORT_FAILURE_SPIKE
+  // Speaker Intelligence Phase 0 (Production Diarization Foundation) - a
+  // fifth state-based AlertRule, system-wide (recipients = ops-role users,
+  // same as STORAGE_WARNING/IMPORT_FAILURE_SPIKE). Unlike every other rule
+  // here, this one isn't threshold/rate-based - ANY occurrence of the
+  // "dependency_missing" diarization failure category (packages/shared's
+  // diarization-metrics.ts) within its rolling window means the production
+  // worker image itself is missing torch/pyannote.audio, a real
+  // deploy-broken signal this phase specifically closes the silent-no-op
+  // gap for. See alert-engine.worker.ts's diarizationDependencyMissingRule.
+  DIARIZATION_DEPENDENCY_MISSING
 }
 
 // Only IN_APP for Sprint 4A. Milestone 04d wired SLACK/DISCORD/WEBHOOK, 04e

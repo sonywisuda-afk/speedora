@@ -10,7 +10,9 @@ import {
   isOutOfPurchasedCredit,
   isStorageOverQuota,
   QueueName,
+  readRecentDependencyMissingCount,
   readRecentInternalCrashCount,
+  RECENT_DEPENDENCY_MISSING_WINDOW_SECONDS,
   RECENT_INTERNAL_CRASH_WINDOW_SECONDS,
 } from '@speedora/shared';
 import { getBucketUsage } from '@speedora/storage';
@@ -193,7 +195,44 @@ const videoImportInternalCrashSpikeRule: AlertRule = {
   },
 };
 
-// The registered list of active AlertRules - adding rule #5 (GPU almost
+// Speaker Intelligence Phase 0 (Production Diarization Foundation) - a
+// fifth state-based rule, system-wide (same shape as
+// videoImportInternalCrashSpikeRule right above). Deliberately NOT
+// threshold-tuned like every other rule here (IMPORT_CRASH_ALERT_THRESHOLD,
+// SYNC_FAILURE_ALERT_THRESHOLD): "dependency_missing" means the production
+// worker image itself is missing torch/pyannote.audio (see packages/shared's
+// diarization-metrics.ts and apps/worker/scripts/diarize_speakers.py's own
+// header comment) - either the image build is broken (every diarization
+// attempt in the window will report it) or it isn't (this category never
+// occurs at all, this phase's whole point), so a threshold of 1 is the
+// correct signal, not an arbitrary guess pending calibration.
+const diarizationDependencyMissingRule: AlertRule = {
+  name: 'diarization-dependency-missing',
+  async evaluate(prismaClient) {
+    const recentCount = await readRecentDependencyMissingCount(metricsRedis);
+    const breached = recentCount >= 1;
+    const recipientUserIds = breached
+      ? (await findUsersByRoles(prismaClient, OPS_ROLES)).map((user) => user.id)
+      : [];
+    return [
+      {
+        dedupeKey: 'diarization-dependency-missing',
+        breached,
+        recipientUserIds,
+        notification: {
+          type: NotificationType.DIARIZATION_DEPENDENCY_MISSING,
+          title: 'Speaker diarization tidak tersedia di production',
+          body: `${recentCount} kegagalan diarization berkategori "dependency_missing" terjadi dalam ${Math.round(
+            RECENT_DEPENDENCY_MISSING_WINDOW_SECONDS / 60,
+          )} menit terakhir - image worker kemungkinan tidak memiliki torch/pyannote.audio terpasang. Periksa apps/worker/Dockerfile.`,
+          metadata: { recentCount },
+        },
+      },
+    ];
+  },
+};
+
+// The registered list of active AlertRules - adding rule #6 (GPU almost
 // full, AI worker offline, license/subscription expiry, dataset
 // staleness) is exactly "write the rule object, add it to this array." No
 // scheduler change, no new queue, no new plumbing - see runAlertRules in
@@ -203,6 +242,7 @@ const ALERT_RULES: AlertRule[] = [
   creditWarningRule,
   syncFailureWarningRule,
   videoImportInternalCrashSpikeRule,
+  diarizationDependencyMissingRule,
 ];
 
 // Idempotent, same pattern as sync-publish-stats.worker.ts's version of

@@ -20,6 +20,7 @@ import { deriveDiarizationFeatures } from '@speedora/speaker-diarization';
 import {
   DETECT_CLIPS_RETRY_OPTIONS,
   QueueName,
+  recordDiarizationOutcome,
   TranscriptionProvider,
   type TranscribeJobData,
   type TranscribeJobResult,
@@ -30,6 +31,7 @@ import type OpenAI from 'openai';
 import { audioIntelligenceDeps } from '../audioIntelligenceDeps';
 import {
   assignSpeakerLabels,
+  DiarizationError,
   diarizeSpeakers,
   toFriendlySpeakerTurns,
   type SpeakerTurn,
@@ -54,6 +56,11 @@ import { createRedisConnection } from '../redis';
 import { cleanupTempFile, reserveScratchPath } from '../storage';
 import { detectVocalEmotions } from '../vocalEmotion';
 import { voiceActivityDeps } from '../voiceActivityDeps';
+
+// Speaker Intelligence Phase 0 - separate connection from the Worker's own
+// BullMQ connection below, same "different concern, own connection"
+// reasoning as import-youtube.worker.ts's own metricsRedis.
+const metricsRedis = createRedisConnection();
 
 // Picks the Whisper client + model for a video's chosen provider, and fails
 // clearly (rather than letting the SDK call fail confusingly deep inside a
@@ -504,6 +511,7 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
             await extractAudio(sourcePath, diarizeAudioPath);
 
             let speakerTurns: SpeakerTurn[] = [];
+            const diarizationStartedAt = Date.now();
             try {
               speakerTurns = await diarizeSpeakers(diarizeAudioPath);
               const speakerCount = new Set(speakerTurns.map((turn) => turn.speaker)).size;
@@ -512,12 +520,31 @@ export function createTranscribeWorker(): Worker<TranscribeJobData, TranscribeJo
                 speakerCount,
                 turnCount: speakerTurns.length,
               });
+              recordDiarizationOutcome(metricsRedis, {
+                outcome: 'success',
+                durationMs: Date.now() - diarizationStartedAt,
+                speakerCount,
+                turnCount: speakerTurns.length,
+              }).catch(() => {});
             } catch (error) {
+              // Speaker Intelligence Phase 0 - the fallback itself is
+              // UNCHANGED (diarization must never fail this job), but the
+              // failure is no longer silent: recordDiarizationOutcome makes
+              // it observable (category breakdown, and a real alert - see
+              // alert-engine.worker.ts's diarizationDependencyMissingRule -
+              // if the category is "dependency_missing", meaning the
+              // production image itself is broken, not merely unconfigured).
+              const category = error instanceof DiarizationError ? error.category : 'internal';
               logger.warn(
                 'speaker diarization failed, continuing without speaker labels',
-                { videoId },
+                { videoId, category },
                 error,
               );
+              recordDiarizationOutcome(metricsRedis, {
+                outcome: 'failure',
+                category,
+                durationMs: Date.now() - diarizationStartedAt,
+              }).catch(() => {});
             }
             const speakerLabels = assignSpeakerLabels(mergedSegments, speakerTurns);
             // Speaker Intelligence roadmap, Milestone B (Turn/Silence/Overlap

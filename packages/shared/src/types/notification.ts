@@ -43,6 +43,10 @@ export enum NotificationType {
   // STORAGE_WARNING/CREDIT_WARNING/SYNC_FAILURE_WARNING, system-wide. See
   // alert-engine.worker.ts's videoImportInternalCrashSpikeRule.
   IMPORT_FAILURE_SPIKE = 'IMPORT_FAILURE_SPIKE',
+  // Speaker Intelligence Phase 0 (Production Diarization Foundation) - a
+  // fifth state-based type, system-wide. See alert-engine.worker.ts's
+  // diarizationDependencyMissingRule.
+  DIARIZATION_DEPENDENCY_MISSING = 'DIARIZATION_DEPENDENCY_MISSING',
 }
 
 // Mirrors NotificationChannel in packages/database's Prisma schema, same
@@ -102,6 +106,8 @@ export const NOTIFICATION_SEVERITY: Record<NotificationType, NotificationSeverit
   // Download Reliability Framework - a degraded-condition warning, same tone
   // as STORAGE_WARNING/CREDIT_WARNING/SYNC_FAILURE_WARNING.
   [NotificationType.IMPORT_FAILURE_SPIKE]: 'warning',
+  // Speaker Intelligence Phase 0 - same tone, same reasoning.
+  [NotificationType.DIARIZATION_DEPENDENCY_MISSING]: 'warning',
 };
 
 export interface NotificationDto {
