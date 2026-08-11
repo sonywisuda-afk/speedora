@@ -4,6 +4,7 @@ import type {
   ConversationTypeResult,
   EditingSuggestionTimeline,
   EmotionalArc,
+  FinalSpeakerIntelligence,
   HookPredictionOutput,
   MomentumCurve,
   MultimodalReasoningResult,
@@ -128,4 +129,11 @@ export interface ClipIntelligenceDto {
   // Same exposure-only gate/null-semantics as conversationDynamics above -
   // computed by the same render-graph node, from the same migration.
   conversationType: ConversationTypeResult | null;
+  // Null when SPEAKER_FUSION_ENABLED is off (same exposure-only gate, see
+  // isSpeakerFusionEnabled()) or when this Clip row predates the phase's
+  // migration (same pure-node null-semantics as conversationDynamics/
+  // editingSuggestions above - this node can't fail the way an LLM call
+  // can). Speaker Intelligence Phase F (Cross-module Fusion) - see
+  // docs/ai/speaker-intelligence.md.
+  finalSpeakerIntelligence: FinalSpeakerIntelligence | null;
 }

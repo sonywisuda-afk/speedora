@@ -84,6 +84,7 @@ import {
   toSharedEditingSuggestions,
   toSharedConversationDynamics,
   toSharedConversationType,
+  toSharedFinalSpeakerIntelligence,
   toSharedCompositeRankSubScores,
   toSharedLipSyncVerifications,
   toSharedLlmFeatures,
@@ -1877,6 +1878,7 @@ export class VideosService {
           editingSuggestions,
           conversationDynamics,
           conversationType,
+          finalSpeakerIntelligence,
           thumbnailSelectionBreakdown,
           thumbnailSelectionFallback,
           compositeRankSubScores,
@@ -1949,6 +1951,7 @@ export class VideosService {
           editingSuggestions: toSharedEditingSuggestions(editingSuggestions),
           conversationDynamics: toSharedConversationDynamics(conversationDynamics),
           conversationType: toSharedConversationType(conversationType),
+          finalSpeakerIntelligence: toSharedFinalSpeakerIntelligence(finalSpeakerIntelligence),
           thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
             thumbnailSelectionBreakdown,
           ),
