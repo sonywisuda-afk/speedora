@@ -41,6 +41,7 @@ import {
   getMediaDurationSeconds,
   getVideoCodec,
   getVideoDimensions,
+  getVideoFrameRateString,
   reencodeToH264,
   renderClip,
   trimAndFadeInBRoll,
@@ -81,6 +82,77 @@ describe('getVideoDimensions', () => {
     expect(args).toEqual(
       expect.arrayContaining(['-select_streams', 'v:0', '-of', 'csv=p=0', '/tmp/source.mp4']),
     );
+  });
+});
+
+// Output Resolution/Quality audit, Phase 5 (FPS/CFR policy).
+describe('getVideoFrameRateString', () => {
+  beforeEach(() => {
+    execFileMock.mockClear();
+  });
+
+  it('returns avg_frame_rate as-is (the raw "num/den" string, not re-parsed to a float)', async () => {
+    execFileMockBehavior.mockImplementationOnce(
+      (
+        _file: string,
+        _args: string[],
+        callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+      ) => {
+        callback(null, { stdout: '30000/1001,30/1\n', stderr: '' });
+      },
+    );
+
+    const result = await getVideoFrameRateString('/tmp/source.mp4');
+
+    expect(result).toBe('30000/1001');
+    const [file] = execFileMock.mock.calls[0];
+    expect(file).toBe('ffprobe');
+  });
+
+  it('falls back to r_frame_rate when avg_frame_rate is "0/0" (no real average available)', async () => {
+    execFileMockBehavior.mockImplementationOnce(
+      (
+        _file: string,
+        _args: string[],
+        callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+      ) => {
+        callback(null, { stdout: '0/0,25/1\n', stderr: '' });
+      },
+    );
+
+    const result = await getVideoFrameRateString('/tmp/source.mp4');
+
+    expect(result).toBe('25/1');
+  });
+
+  it('returns null when neither rate is usable', async () => {
+    execFileMockBehavior.mockImplementationOnce(
+      (
+        _file: string,
+        _args: string[],
+        callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+      ) => {
+        callback(null, { stdout: '0/0,0/0\n', stderr: '' });
+      },
+    );
+
+    const result = await getVideoFrameRateString('/tmp/source.mp4');
+
+    expect(result).toBeNull();
+  });
+
+  it('returns null (never throws) when the ffprobe call itself fails', async () => {
+    execFileMockBehavior.mockImplementationOnce(
+      (
+        _file: string,
+        _args: string[],
+        callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+      ) => {
+        callback(new Error('ffprobe exited with code 1'), { stdout: '', stderr: 'boom' });
+      },
+    );
+
+    await expect(getVideoFrameRateString('/tmp/source.mp4')).resolves.toBeNull();
   });
 });
 
@@ -1128,6 +1200,116 @@ describe('trimCutRanges (Item 9 - Silence Compression AI real crossfade)', () =>
 
     const [, args] = execFileMock.mock.calls[0];
     expect(args).toEqual(expect.arrayContaining(['-pix_fmt', 'yuv420p']));
+  });
+
+  // Output Resolution/Quality audit, Phase 5 (FPS/CFR policy) - regression coverage for the fix:
+  // a genuinely variable-frame-rate source (large real gaps between frames) can have a crossfade
+  // junction's own fade window land inside a gap with no actual frame data, which real ffmpeg
+  // verification (ffmpeg.crossfade.integration.spec.ts) found drops frames and leaves video
+  // shorter than audio. Normalizing every kept segment to the source's own real rate, floored at
+  // MIN_FPS_FOR_CROSSFADE_SAFETY, before xfade/concat fixes it - see that constant's own comment
+  // for why the floor is required (the raw source rate alone isn't sufficient for a genuinely
+  // sparse VFR source, also verified against real ffmpeg).
+  describe('frameRate (fps= normalization)', () => {
+    it('adds fps= to every kept segment when a frame rate is provided', async () => {
+      await trimCutRanges(
+        '/tmp/rendered.mp4',
+        '/tmp/trimmed.mp4',
+        [{ start: 2, end: 4 }],
+        10,
+        null,
+        '30000/1001',
+      );
+
+      const [, args] = execFileMock.mock.calls[0];
+      const fc = args[args.indexOf('-filter_complex') + 1];
+      expect(fc).toBe(
+        '[0:v]trim=start=0:end=2,setpts=PTS-STARTPTS,fps=30000/1001[v0];' +
+          '[0:v]trim=start=4:end=12,setpts=PTS-STARTPTS,fps=30000/1001[v1];' +
+          '[v0][v1]xfade=transition=fade:duration=0.15:offset=1.85[vx1];' +
+          '[0:a]atrim=start=0:end=2,asetpts=PTS-STARTPTS[a0];' +
+          '[0:a]atrim=start=4:end=12,asetpts=PTS-STARTPTS[a1];' +
+          '[a0][a1]acrossfade=d=0.15:c1=tri:c2=tri[ax1]',
+      );
+    });
+
+    it('omits fps= from every segment when frameRate is not passed (unchanged prior behavior)', async () => {
+      await trimCutRanges('/tmp/rendered.mp4', '/tmp/trimmed.mp4', [{ start: 2, end: 4 }], 10);
+
+      const [, args] = execFileMock.mock.calls[0];
+      const fc = args[args.indexOf('-filter_complex') + 1];
+      expect(fc).not.toContain('fps=');
+    });
+
+    it('omits fps= when frameRate is explicitly null (unprobeable source, same as omitted)', async () => {
+      await trimCutRanges(
+        '/tmp/rendered.mp4',
+        '/tmp/trimmed.mp4',
+        [{ start: 2, end: 4 }],
+        10,
+        null,
+        null,
+      );
+
+      const [, args] = execFileMock.mock.calls[0];
+      const fc = args[args.indexOf('-filter_complex') + 1];
+      expect(fc).not.toContain('fps=');
+    });
+
+    it('applies fps= to every segment even at a junction that falls back to a plain concat (no fade)', async () => {
+      // Same fixture as the "falls back to a plain hard concat" test above - the middle kept
+      // segment is too short (0.03s) for a meaningful crossfade, so both junctions concat
+      // instead. fps= normalization still applies uniformly to every segment regardless.
+      await trimCutRanges(
+        '/tmp/rendered.mp4',
+        '/tmp/trimmed.mp4',
+        [
+          { start: 2, end: 3 },
+          { start: 3.03, end: 5 },
+        ],
+        10,
+        null,
+        '25/1',
+      );
+
+      const [, args] = execFileMock.mock.calls[0];
+      const fc = args[args.indexOf('-filter_complex') + 1];
+      expect(fc).toContain('[0:v]trim=start=0:end=2,setpts=PTS-STARTPTS,fps=25/1[v0]');
+      expect(fc).toContain('[0:v]trim=start=3:end=3.03,setpts=PTS-STARTPTS,fps=25/1[v1]');
+      expect(fc).toContain('[0:v]trim=start=5:end=12.97,setpts=PTS-STARTPTS,fps=25/1[v2]');
+      expect(fc).not.toContain('xfade');
+    });
+
+    it('floors a too-slow source rate at 15fps rather than normalizing to it directly (real ffmpeg verification found the raw rate alone insufficient)', async () => {
+      await trimCutRanges(
+        '/tmp/rendered.mp4',
+        '/tmp/trimmed.mp4',
+        [{ start: 2, end: 4 }],
+        10,
+        null,
+        '2/1', // a genuinely sparse VFR source averaging 2fps
+      );
+
+      const [, args] = execFileMock.mock.calls[0];
+      const fc = args[args.indexOf('-filter_complex') + 1];
+      expect(fc).toContain('fps=15');
+      expect(fc).not.toContain('fps=2/1');
+    });
+
+    it('passes an already-fast-enough rate through unchanged, exact precision preserved (no floor applied)', async () => {
+      await trimCutRanges(
+        '/tmp/rendered.mp4',
+        '/tmp/trimmed.mp4',
+        [{ start: 2, end: 4 }],
+        10,
+        null,
+        '30000/1001', // ~29.97fps, well above the 15fps floor
+      );
+
+      const [, args] = execFileMock.mock.calls[0];
+      const fc = args[args.indexOf('-filter_complex') + 1];
+      expect(fc).toContain('fps=30000/1001');
+    });
   });
 
   it('atomically renames the .tmp output onto the real path only after ffmpeg succeeds', async () => {
