@@ -43,6 +43,8 @@ function input(overrides: Partial<ComputeClipRankInput> = {}): ComputeClipRankIn
       curiosityPeaks: [],
     },
     semanticEvents: null,
+    conversationDynamics: null,
+    conversationType: null,
     ...overrides,
   };
 }
@@ -63,7 +65,7 @@ describe('rankClipCandidates', () => {
     expect(ranked[1].compositeScore).toBeGreaterThan(ranked[2].compositeScore!);
   });
 
-  it('reports full confidence (12/12) when every signal is present', () => {
+  it('reports full confidence (13/13) when every signal is present', () => {
     const [ranked] = rankClipCandidates([
       input({
         hookPrediction: {
@@ -90,29 +92,46 @@ describe('rankClipCandidates', () => {
         },
         narrativeGraph: { segments: [], relations: [], unsegmented: true },
         semanticEvents: [],
+        conversationDynamics: {
+          speakerCount: 2,
+          turnCount: 4,
+          switchCount: 3,
+          turnDensityPerMinute: 30,
+          averageTurnDurationSeconds: 2,
+          medianTurnDurationSeconds: 2,
+          backAndForthScore: 1,
+          responseLatencySeconds: 0,
+          overlapRatio: 0,
+          interactionIntensity: 0.5,
+        },
+        conversationType: { type: 'discussion', confidence: 0.4 },
       }),
     ]);
 
     expect(ranked.confidence).toBe(1);
   });
 
-  it('reports reduced confidence when the 3 LLM-backed signals (hook/narrative/semantic) and highlightScore are unavailable', () => {
+  it('reports reduced confidence when the 3 LLM-backed signals (hook/narrative/semantic), highlightScore, and conversationEngagement are unavailable', () => {
     const [ranked] = rankClipCandidates([
       input({
         highlightScore: null,
         hookPrediction: null,
         narrativeGraph: null,
         semanticEvents: null,
+        conversationDynamics: null,
+        conversationType: null,
       }),
     ]);
 
-    // 12 dimensions total; fusion/hook/narrative/semanticImportance null,
-    // virality/retention + the 6 ClipScores fields (8 total) present.
-    expect(ranked.confidence).toBe(8 / 12);
+    // 13 dimensions total; fusion/hook/narrative/semanticImportance/
+    // conversationEngagement null, virality/retention + the 6 ClipScores
+    // fields (8 total) present.
+    expect(ranked.confidence).toBe(8 / 13);
     expect(ranked.subScores.fusion).toBeNull();
     expect(ranked.subScores.hook).toBeNull();
     expect(ranked.subScores.narrative).toBeNull();
     expect(ranked.subScores.semanticImportance).toBeNull();
+    expect(ranked.subScores.conversationEngagement).toBeNull();
   });
 
   it('exposes the full subScores breakdown alongside the composite for each ranked clip', () => {

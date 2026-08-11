@@ -19,6 +19,28 @@ Zod schemas and wired to validate their subprocess output with `.parse()`, closi
 they were the only two Python-subprocess-backed modules in this codebase using an unchecked `as`
 cast instead of the established JSON-contract pattern.
 
+**Update (2026-08-11) — a later, phased follow-up initiative shipped real engineering on top of
+this doc's own "schemas only" status, per an explicit audit-first brief (PR #104 Phase 0, PR #105
+Phase C, in-flight Phase D)**: **Phase 0** hardened production Diarization dependencies (a real
+`apps/worker` Docker image gap silently affecting Diarization, Vocal Emotion, AND Facial Emotion,
+found and fixed with real HuggingFace-token end-to-end verification), added structured
+`DiarizationError` failure categories, diarization metrics, and a `DIARIZATION_DEPENDENCY_MISSING`
+alert. **Phase C** implemented Level 3's Conversation Type Classification row below for real (new
+`@speedora/conversation-intelligence`, `classifyConversationType()`/`deriveConversationDynamics()`,
+zero new detectors — reuses `deriveDiarizationFeatures()` per-clip), wired into the render graph as
+`Clip.conversationDynamics`/`Clip.conversationType`, exposed at `GET /clips/:id/intelligence` behind
+`CONVERSATION_INTELLIGENCE_ENABLED`. **Phase D** consumed Phase C's output as a new
+`conversationEngagement` dimension in the SEPARATE, already-shipped Clip Ranking Engine (see
+`docs/ai/clip-ranking-engine.md`, Phase 14) - NOT the same thing as this doc's own Level 3
+"Speaker-Centric Clip Ranking" row below, which still refers to a genuinely different, still-unbuilt
+feature (ranking *moments within* a clip via `rankedSpeakerMomentSchema`, distinct from ranking
+*clips against each other*). See `docs/ai/clip-ranking-engine.md`'s "Speaker Intelligence Phase D
+architecture" section for the full design (notably: monologue clips are excluded from this
+dimension, never penalized for being solo, mirroring `classifyConversationType()`'s own
+non-penalization rule). Neither phase touched Fusion Engine v2's `weights.ts`, added an LLM call, or
+changed visual/reframe rendering. Remaining Level 1/2/3 items below are still contracts-only except
+where phase-noted (Conversation Type Classification, phase-noted below).
+
 ## Level 1 — Mandatory
 
 | Item | Status | Where | Contract added |
@@ -62,7 +84,7 @@ itself — see `ai/fusion.md`'s `editingRhythm` weight-calibration precedent). C
 | Speaker Attention | `speaker-scoring.ts` — `speakerAttentionScoreSchema` |
 | Speaker Highlight Score | `speaker-scoring.ts` — `speakerHighlightMomentSchema` (per-speaker-moment analog of `fusion.ts`'s clip-level `highlightScore`) |
 | Speaker-Centric Clip Ranking | `speaker-scoring.ts` — `rankedSpeakerMomentSchema` (ranks *moments*, distinct from `fusion.ts`'s `rankedClipSchema`, which ranks rendered clips) |
-| Conversation Type Classification | `conversation-intelligence.ts` (monologue/interview/discussion/debate/presentation/podcast) |
+| Conversation Type Classification | `conversation-intelligence.ts` (monologue/interview/discussion/debate/presentation/podcast) — **shipped, Phase C** (`@speedora/conversation-intelligence`'s `classifyConversationType()`); `conversationEngagement` (derived from this classification + `deriveConversationDynamics()`) also feeds Clip Ranking Engine's Stage D composite as of Phase D, see `docs/ai/clip-ranking-engine.md` |
 | Adaptive Highlight Scoring / "Fusion Signal" | `speaker-scoring.ts` — `speakerFusionFeaturesSchema`, the shape a future `speaker` `FUSION_SIGNALS` entry would consume (mirrors how `editingRhythm`'s composite features are consumed today) — **deliberately NOT wired into `fusion.ts`/`weights.ts` yet**, see below |
 | Multi-camera Speaker Fusion | **No contract added** — this product has no multi-camera ingestion anywhere in its architecture (`apps/worker` processes one source video per `Video` row). Inventing a schema for an input shape the pipeline can't produce would be pure speculation. Out of scope until multi-camera ingestion exists at the product level. |
 

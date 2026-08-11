@@ -7,6 +7,8 @@ import * as Sentry from '@sentry/node';
 import type {
   CaptionStyleValue,
   ClipScores,
+  ConversationDynamics,
+  ConversationTypeResult,
   CropDimensions,
   EditingSuggestionTimeline,
   FontFamily,
@@ -2131,6 +2133,9 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                   viralityPrediction: true,
                   retentionCurveInsights: true,
                   semanticEvents: true,
+                  // Speaker Intelligence Phase D.
+                  conversationDynamics: true,
+                  conversationType: true,
                 },
               });
 
@@ -2140,7 +2145,13 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               // nodes are optional: false, so that should only happen for
               // pre-migration rows) can't be scored - skipped rather than
               // defaulted, same "don't fabricate data" posture as everywhere
-              // else in this codebase.
+              // else in this codebase. Deliberately does NOT also require
+              // conversationDynamics/conversationType (Speaker Intelligence
+              // Phase D) - unlike viralityPrediction/retentionCurveInsights,
+              // that dimension is nullable in the contract (see
+              // ComputeClipRankInput's own doc comment), so a clip predating
+              // Phase C's migration still ranks on the other 12 dimensions
+              // instead of being excluded from ranking altogether.
               const rankable = renderedSiblings.filter(
                 (clip) =>
                   clip.scores !== null &&
@@ -2160,6 +2171,10 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                     retentionCurveInsights:
                       clip.retentionCurveInsights as unknown as RetentionCurveInsights,
                     semanticEvents: clip.semanticEvents as unknown as SemanticEvent[] | null,
+                    conversationDynamics:
+                      clip.conversationDynamics as unknown as ConversationDynamics | null,
+                    conversationType:
+                      clip.conversationType as unknown as ConversationTypeResult | null,
                   })),
                 );
 
