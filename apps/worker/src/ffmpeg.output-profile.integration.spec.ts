@@ -29,7 +29,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
 import { computeCropDimensions, resolveOutputResolution } from '@speedora/reframe';
-import { renderClip, type ReframeOptions } from './ffmpeg';
+import { getAudioChannelCount, renderClip, type ReframeOptions } from './ffmpeg';
 
 const execFileAsync = promisify(execFile);
 const FFMPEG_PATH = process.env.FFMPEG_PATH ?? 'ffmpeg';
@@ -132,6 +132,11 @@ describeIfFfmpeg('output resolution/aspect-ratio profile against real ffmpeg (Ph
     height: number,
     fps: number,
     audioSampleRate = 48000,
+    // Output Resolution/Quality audit, Phase 6 (Audio params finalization) - an OUTPUT option (a
+    // real channel-count conversion at encode time), not an input option before -i (which lavfi
+    // sources like sine= silently ignore) - the same distinction the rest of this codebase's own
+    // -ss/-t input-vs-output option comments already document for a different flag.
+    audioChannels = 2,
   ): Promise<string> {
     const sourcePath = path.join(dir, name);
     await execFileAsync(FFMPEG_PATH, [
@@ -147,7 +152,7 @@ describeIfFfmpeg('output resolution/aspect-ratio profile against real ffmpeg (Ph
       '-t',
       String(CLIP_DURATION_SECONDS),
       '-ac',
-      '2',
+      String(audioChannels),
       '-c:v',
       'libx264',
       '-preset',
@@ -187,7 +192,11 @@ describeIfFfmpeg('output resolution/aspect-ratio profile against real ffmpeg (Ph
   }
 
   // The exact same 3-step pipeline computeReframeDimensions() runs in production: real
-  // computeCropDimensions() -> real resolveOutputResolution() -> real renderClip().
+  // computeCropDimensions() -> real resolveOutputResolution() -> real renderClip(). Also probes
+  // the real getAudioChannelCount() (Phase 6) and threads it through exactly as
+  // computeReframeDimensions()'s own renderClip() call site does, rather than a hand-picked
+  // constant - this is what makes the audio tests below a genuine end-to-end proof, not just of
+  // renderClip()'s own arg-building.
   async function renderProfile(
     sourcePath: string,
     sourceWidth: number,
@@ -200,6 +209,7 @@ describeIfFfmpeg('output resolution/aspect-ratio profile against real ffmpeg (Ph
     const outputSize = resolveOutputResolution(crop, targetAspectRatio, tier);
     const reframe = staticCenterReframe(sourceWidth, sourceHeight, crop, outputSize);
     const outputPath = path.join(dir, outputName);
+    const sourceAudioChannels = await getAudioChannelCount(sourcePath);
     // -preset ultrafast keeps this gate fast - quality/CRF is Phase 0's own already-verified
     // concern (ffmpeg.spec.ts/render-clip.worker.spec.ts), orthogonal to resolution/aspect ratio.
     await renderClip({
@@ -210,6 +220,7 @@ describeIfFfmpeg('output resolution/aspect-ratio profile against real ffmpeg (Ph
       outputPath,
       reframe,
       quality: { preset: 'ultrafast', crf: 30 },
+      sourceAudioChannels,
     });
     return outputPath;
   }
@@ -358,7 +369,12 @@ describeIfFfmpeg('output resolution/aspect-ratio profile against real ffmpeg (Ph
     }, 30000);
   });
 
-  describe('audio handling (audit rule 5 - AAC, source-preserving sample rate/channels)', () => {
+  // Output Resolution/Quality audit, Phase 6 (Audio params finalization) - this describe's own
+  // title was updated: sample rate is still fully source-preserving (unchanged by this phase),
+  // but "channels" is no longer a blanket passthrough - a source is preserved up to
+  // MAX_OUTPUT_AUDIO_CHANNELS (2), and downmixed above it. See resolveAudioEncodeArgs()'s own
+  // comment for the full policy.
+  describe('audio handling (audit rule 5 - AAC, source-preserving sample rate, capped channels)', () => {
     it('preserves a 48kHz stereo source', async () => {
       const source = await makeSource('audio48k.mp4', 1920, 1080, 30, 48000);
       const output = await renderProfile(source, 1920, 1080, 9 / 16, '1080p', 'audio48k-out.mp4');
@@ -375,6 +391,32 @@ describeIfFfmpeg('output resolution/aspect-ratio profile against real ffmpeg (Ph
       const info = await ffprobeAudio(output);
       expect(info.sample_rate).toBe(44100);
       expect(info.channels).toBe(2);
+    }, 30000);
+
+    // Phase 6's own real gap: a mono source must stay mono - never upmixed just because
+    // renderClip()'s own -b:a decision now depends on channel count.
+    it('never upmixes a mono source to stereo', async () => {
+      const source = await makeSource('audio-mono.mp4', 1920, 1080, 30, 48000, 1);
+      const output = await renderProfile(source, 1920, 1080, 9 / 16, '1080p', 'audio-mono-out.mp4');
+      const info = await ffprobeAudio(output);
+      expect(info.codec_name).toBe('aac');
+      expect(info.channels).toBe(1);
+    }, 30000);
+
+    // Phase 6's own real gap: a >2-channel (e.g. 5.1 surround) source is downmixed to stereo, not
+    // passed through - real-ffmpeg exploration found an unconverted 5.1 AAC output roughly triples
+    // the bitrate for no audible benefit on the mobile/phone playback this pipeline targets.
+    it('downmixes a >2-channel source to stereo', async () => {
+      const source = await makeSource('audio-6ch.mp4', 1920, 1080, 30, 48000, 6);
+      // Sanity-check the fixture itself actually has more than 2 channels before asserting the
+      // downmix - otherwise a broken fixture could pass this test for the wrong reason.
+      expect(await getAudioChannelCount(source)).toBeGreaterThan(2);
+
+      const output = await renderProfile(source, 1920, 1080, 9 / 16, '1080p', 'audio-6ch-out.mp4');
+      const info = await ffprobeAudio(output);
+      expect(info.codec_name).toBe('aac');
+      expect(info.channels).toBe(2);
+      expect(Math.abs(info.duration - CLIP_DURATION_SECONDS)).toBeLessThan(0.2);
     }, 30000);
   });
 });

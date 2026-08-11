@@ -136,6 +136,30 @@ export async function getVideoFrameRateString(inputPath: string): Promise<string
   }
 }
 
+// Output Resolution/Quality audit, Phase 6 (Audio params finalization) - the source's own real
+// audio channel count, probed the same minimal single-field way as getVideoFrameRateString()
+// above. null when the probe fails or the file has no audio stream at all - callers must treat
+// null as "assume stereo" (see resolveAudioEncodeArgs()'s own fallback), never throw.
+export async function getAudioChannelCount(inputPath: string): Promise<number | null> {
+  try {
+    const { stdout } = await execFileAsync(FFPROBE_PATH, [
+      '-v',
+      'error',
+      '-select_streams',
+      'a:0',
+      '-show_entries',
+      'stream=channels',
+      '-of',
+      'csv=p=0',
+      inputPath,
+    ]);
+    const channels = Number(stdout.trim());
+    return Number.isFinite(channels) && channels > 0 ? channels : null;
+  } catch {
+    return null;
+  }
+}
+
 // ffmpeg's filtergraph mini-language treats ':' and '\' as syntax, so a
 // Windows absolute path (e.g. C:\Users\...\clip.ass) needs both escaped
 // before it can be used as a subtitles= filter argument.
@@ -603,6 +627,12 @@ export async function renderClip(options: {
   // unaffected. Set by render-clip.worker.ts from Video.processingOptions'
   // exportQualityPreset.
   quality?: { preset: string; crf: number } | null;
+  // Output Resolution/Quality audit, Phase 6 (Audio params finalization) - the SOURCE's own
+  // probed audio channel count (see getAudioChannelCount()), used by resolveAudioEncodeArgs()
+  // below to pin an explicit -b:a and, for a >2-channel source, downmix via -ac. undefined/null
+  // (every existing caller/test predating this option) falls back to the stereo-equivalent
+  // bitrate - see resolveAudioEncodeArgs()'s own comment.
+  sourceAudioChannels?: number | null;
 }): Promise<void> {
   const {
     inputPath,
@@ -614,6 +644,7 @@ export async function renderClip(options: {
     broll,
     watermark,
     quality,
+    sourceAudioChannels,
   } = options;
   const duration = endTime - startTime;
 
@@ -766,6 +797,7 @@ export async function renderClip(options: {
   }
 
   const qualityArgs = quality ? ['-preset', quality.preset, '-crf', quality.crf.toString()] : [];
+  const audioArgs = resolveAudioEncodeArgs(sourceAudioChannels ?? null);
   args.push(
     '-t',
     duration.toString(),
@@ -782,6 +814,10 @@ export async function renderClip(options: {
     'yuv420p',
     '-c:a',
     'aac',
+    // Output Resolution/Quality audit, Phase 6 (Audio params finalization) - see
+    // resolveAudioEncodeArgs()'s own comment; pins an explicit bitrate and, for a >2-channel
+    // source, downmixes to stereo.
+    ...audioArgs,
     '-movflags',
     '+faststart',
   );
@@ -991,6 +1027,51 @@ const MIN_CROSSFADE_SECONDS = 0.02;
 // already-slow rate up to 15, it never lowers a normal 24/25/30/60fps CFR source at all).
 const MIN_FPS_FOR_CROSSFADE_SAFETY = 15;
 
+// Output Resolution/Quality audit, Phase 6 (Audio params finalization) - AAC's own built-in "auto"
+// bitrate isn't a stable, documented contract: measured empirically against real ffmpeg 8.1.2, it
+// scales roughly linearly with channel count (~69kbps mono, ~128kbps stereo, ~340kbps for an
+// unconverted 5.1 source) but nothing guarantees that stays true across ffmpeg builds/versions -
+// the same "explicit beats implicit" reasoning Phase 0's -pix_fmt fix already established for
+// video. Pinned explicitly via resolveAudioEncodeArgs() below rather than left to the encoder's
+// own default. 64kbps/channel matches what was actually measured for both mono and stereo sources
+// (the overwhelmingly common real case), so this is a determinism fix, not a quality change, for
+// every source this pipeline has actually been tested against.
+const AUDIO_BITRATE_PER_CHANNEL_KBPS = 64;
+
+// Universal/mobile-first posture (matches the resolution policy's own "universal profiles only, no
+// platform-specific integration" rule) - short-form clips target phone/earbud playback, where a
+// >2-channel source (5.1 surround - rare but real, e.g. a downloaded film clip or a professional
+// camera rig's own multi-mic audio) brings no audible benefit and roughly triples the AAC bitrate
+// for the same perceived loudness (confirmed via real ffmpeg: an unconverted 5.1 source measured
+// ~340kbps vs. ~128kbps for stereo). Never upmixes a mono source to stereo - the same "don't touch
+// what's already fine" discipline the resolution policy applies to video (no unnecessary
+// transform). Exported so render-clip.worker.ts can compute the SAME clamped value once (from the
+// true source) and reuse it for both renderClip()'s own -ac decision and trimCutRanges()'s
+// downstream -b:a - see trimCutRanges()'s own `sourceAudioChannels` parameter comment for why it
+// takes an already-clamped value rather than re-probing.
+export const MAX_OUTPUT_AUDIO_CHANNELS = 2;
+
+// Resolves the -ac/-b:a args for an audio encode from a probed (or already-clamped) channel count.
+// -ac is only emitted when actually downmixing (sourceChannels really exceeds the cap) - a
+// source already at or under MAX_OUTPUT_AUDIO_CHANNELS is left untouched, so this is a genuine
+// no-op for the overwhelming majority of real content (mono or stereo sources), same as
+// resolveCrossfadeSafeFps()'s own "only ever raises, never re-touches what's already fine"
+// posture. null (probe failed, or no audio stream at all) falls back to the stereo-equivalent
+// bitrate - a safe, conservative default, since every source tested against so far was never
+// anything other than mono or stereo.
+function resolveAudioEncodeArgs(sourceChannels: number | null): string[] {
+  const channels =
+    sourceChannels !== null && sourceChannels > 0
+      ? Math.min(sourceChannels, MAX_OUTPUT_AUDIO_CHANNELS)
+      : MAX_OUTPUT_AUDIO_CHANNELS;
+  const args: string[] = [];
+  if (sourceChannels !== null && sourceChannels > MAX_OUTPUT_AUDIO_CHANNELS) {
+    args.push('-ac', String(channels));
+  }
+  args.push('-b:a', `${channels * AUDIO_BITRATE_PER_CHANNEL_KBPS}k`);
+  return args;
+}
+
 interface KeptSegment {
   start: number;
   end: number;
@@ -1061,6 +1142,17 @@ export async function trimCutRanges(
   // constant like 30 - the audit's own "don't force a rate that isn't needed" rule extends to
   // not inventing an arbitrary one either.
   frameRate?: string | null,
+  // Output Resolution/Quality audit, Phase 6 (Audio params finalization) - the channel count
+  // ALREADY CLAMPED to MAX_OUTPUT_AUDIO_CHANNELS by the caller (render-clip.worker.ts computes
+  // this once from the true source and reuses the same clamped value for renderClip()'s own -ac
+  // decision), NOT a fresh raw probe of this function's own input. This function's filter graph
+  // (atrim/asetpts/acrossfade/concat) never changes channel count itself, so by the time
+  // trimCutRanges() runs (always on renderClip()'s own output), the real channel count already
+  // matches whatever renderClip() downmixed to - passing the clamped value through just reuses
+  // that same known-correct number instead of re-probing a file this process already read.
+  // undefined/null (every existing caller/test) falls back to the stereo-equivalent bitrate, same
+  // as renderClip()'s own fallback.
+  sourceAudioChannels?: number | null,
 ): Promise<void> {
   // totalOutputDuration is (by its caller's own definition, render-clip.
   // worker.ts) the input clip's duration minus every cut's own length -
@@ -1132,6 +1224,7 @@ export async function trimCutRanges(
 
   const filterComplex = [...videoParts, ...audioParts].join(';');
   const qualityArgs = quality ? ['-preset', quality.preset, '-crf', quality.crf.toString()] : [];
+  const audioArgs = resolveAudioEncodeArgs(sourceAudioChannels ?? null);
 
   await execFfmpegAtomically(
     () => [
@@ -1152,6 +1245,9 @@ export async function trimCutRanges(
       'yuv420p',
       '-c:a',
       'aac',
+      // Same explicit-bitrate reasoning as renderClip() above - see resolveAudioEncodeArgs()'s
+      // own comment.
+      ...audioArgs,
       '-movflags',
       '+faststart',
     ],
@@ -1308,6 +1404,15 @@ export async function concatBrandSegment(
     'libx264',
     '-c:a',
     'aac',
+    // Output Resolution/Quality audit, Phase 6 (Audio params finalization) - same explicit-
+    // bitrate reasoning as renderClip()/trimCutRanges() (resolveAudioEncodeArgs()'s own comment),
+    // but no probe/downmix decision is needed here: this function's own filter graph already
+    // forces BOTH the segment and the main clip's audio to BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT
+    // ('stereo', 2 channels) before the concat above, regardless of either source's real channel
+    // count - so the bitrate is always exactly the 2-channel value, a fixed constant rather than
+    // resolveAudioEncodeArgs(2), which would compute the identical value less directly.
+    '-b:a',
+    `${2 * AUDIO_BITRATE_PER_CHANNEL_KBPS}k`,
     '-movflags',
     '+faststart',
   );
@@ -1467,6 +1572,12 @@ export async function applyReactionHolds(
     'yuv420p',
     '-c:a',
     'aac',
+    // Output Resolution/Quality audit, Phase 6 (Audio params finalization) - same fixed-2-channel
+    // reasoning as concatBrandSegment() above: this function's own audioParts already force
+    // BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT ('stereo') on [0:a] before the concat, regardless of the
+    // input's real channel count, so the bitrate is always exactly the 2-channel value.
+    '-b:a',
+    `${2 * AUDIO_BITRATE_PER_CHANNEL_KBPS}k`,
     '-movflags',
     '+faststart',
   ];

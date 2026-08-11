@@ -104,8 +104,10 @@ import {
   extractBlurPlaceholder,
   extractThumbnail,
   fadeOutBRoll,
+  getAudioChannelCount,
   getVideoDimensions,
   getVideoFrameRateString,
+  MAX_OUTPUT_AUDIO_CHANNELS,
   REACTION_HOLD_EXTENSION_SECONDS,
   renderClip,
   trimAndFadeInBRoll,
@@ -748,15 +750,36 @@ async function computeReframeDimensions(
   // rate is identical to renderClip()'s output rate, and probing it once here avoids a second,
   // redundant ffprobe subprocess call later.
   sourceFrameRate: string | null;
+  // Output Resolution/Quality audit, Phase 6 (Audio params finalization) - the source's real
+  // audio channel count, ALREADY CLAMPED to MAX_OUTPUT_AUDIO_CHANNELS - see
+  // resolveAudioEncodeArgs()'s and trimCutRanges()'s own `sourceAudioChannels` comments for why
+  // clamping happens once, here, rather than inside each ffmpeg.ts function. renderClip() gets
+  // the pre-clamp raw count instead (see the call site below) since it's the one function that
+  // actually needs to know whether a real downmix is required, not just the final channel count.
+  clampedAudioChannels: number | null;
+  sourceAudioChannels: number | null;
 }> {
-  const [{ width: sourceWidth, height: sourceHeight }, sourceFrameRate] = await Promise.all([
-    getVideoDimensions(sourcePath),
-    getVideoFrameRateString(sourcePath),
-  ]);
+  const [{ width: sourceWidth, height: sourceHeight }, sourceFrameRate, sourceAudioChannels] =
+    await Promise.all([
+      getVideoDimensions(sourcePath),
+      getVideoFrameRateString(sourcePath),
+      getAudioChannelCount(sourcePath),
+    ]);
   const { ratio, label } = resolveTargetAspectRatio(processingOptions, sourceWidth, sourceHeight);
   const crop = computeCropDimensions(sourceWidth, sourceHeight, ratio);
   const outputSize = resolveOutputResolution(crop, ratio, resolveResolutionTier(processingOptions));
-  return { crop, outputSize, sourceWidth, sourceHeight, aspectRatioLabel: label, sourceFrameRate };
+  const clampedAudioChannels =
+    sourceAudioChannels !== null ? Math.min(sourceAudioChannels, MAX_OUTPUT_AUDIO_CHANNELS) : null;
+  return {
+    crop,
+    outputSize,
+    sourceWidth,
+    sourceHeight,
+    aspectRatioLabel: label,
+    sourceFrameRate,
+    clampedAudioChannels,
+    sourceAudioChannels,
+  };
 }
 
 // Composition Intelligence's PrimarySubjectSample already shares
@@ -1240,6 +1263,8 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               sourceHeight,
               aspectRatioLabel,
               sourceFrameRate,
+              clampedAudioChannels,
+              sourceAudioChannels,
             } = await computeReframeDimensions(sourcePath, processingOptions);
 
             // Composing multiple modules: the render-clip Feature Orchestrator (see
@@ -1485,6 +1510,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                     }
                   : null,
               quality,
+              sourceAudioChannels,
             });
 
             // Second pass (see computeClipCuts's comment) - skipped entirely
@@ -1516,6 +1542,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                   totalOutputDuration,
                   quality,
                   sourceFrameRate,
+                  clampedAudioChannels,
                 );
                 renderedPath = trimmedPath;
                 logger.info('removed silence/filler cuts', {

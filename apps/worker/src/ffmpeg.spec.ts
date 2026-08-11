@@ -38,6 +38,7 @@ import {
   extractBlurPlaceholder,
   extractThumbnail,
   fadeOutBRoll,
+  getAudioChannelCount,
   getMediaDurationSeconds,
   getVideoCodec,
   getVideoDimensions,
@@ -153,6 +154,61 @@ describe('getVideoFrameRateString', () => {
     );
 
     await expect(getVideoFrameRateString('/tmp/source.mp4')).resolves.toBeNull();
+  });
+});
+
+// Output Resolution/Quality audit, Phase 6 (Audio params finalization).
+describe('getAudioChannelCount', () => {
+  beforeEach(() => {
+    execFileMock.mockClear();
+  });
+
+  it('returns the probed channel count as a number', async () => {
+    execFileMockBehavior.mockImplementationOnce(
+      (
+        _file: string,
+        _args: string[],
+        callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+      ) => {
+        callback(null, { stdout: '2\n', stderr: '' });
+      },
+    );
+
+    const result = await getAudioChannelCount('/tmp/source.mp4');
+
+    expect(result).toBe(2);
+    const [file] = execFileMock.mock.calls[0];
+    expect(file).toBe('ffprobe');
+  });
+
+  it('returns null when ffprobe reports no usable channel count (no audio stream)', async () => {
+    execFileMockBehavior.mockImplementationOnce(
+      (
+        _file: string,
+        _args: string[],
+        callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+      ) => {
+        callback(null, { stdout: '\n', stderr: '' });
+      },
+    );
+
+    const result = await getAudioChannelCount('/tmp/source.mp4');
+
+    expect(result).toBeNull();
+  });
+
+  it('returns null (never throws) when the ffprobe call itself fails', async () => {
+    execFileMockBehavior.mockImplementationOnce(
+      (
+        _file: string,
+        _args: string[],
+        callback: (error: Error | null, result: { stdout: string; stderr: string }) => void,
+      ) => {
+        callback(new Error('ffprobe exited with code 1'), { stdout: '', stderr: 'boom' });
+      },
+    );
+
+    await expect(getAudioChannelCount('/tmp/source.mp4')).resolves.toBeNull();
   });
 });
 
@@ -985,6 +1041,51 @@ describe('renderClip', () => {
       expect(fc).not.toContain('wm_scaled');
     });
   });
+
+  // Output Resolution/Quality audit, Phase 6 (Audio params finalization).
+  describe('sourceAudioChannels (audio bitrate/downmix)', () => {
+    async function renderWithChannels(sourceAudioChannels?: number | null) {
+      await renderClip({
+        inputPath: '/tmp/source.mp4',
+        startTime: 5,
+        endTime: 15,
+        subtitlesPath: null,
+        outputPath: '/tmp/output.mp4',
+        reframe: null,
+        sourceAudioChannels,
+      });
+      return execFileMock.mock.calls[0][1] as string[];
+    }
+
+    it('pins -b:a 64k for a mono source, with no -ac downmix', async () => {
+      const args = await renderWithChannels(1);
+      expect(args).toEqual(expect.arrayContaining(['-b:a', '64k']));
+      expect(args).not.toContain('-ac');
+    });
+
+    it('pins -b:a 128k for a stereo source, with no -ac downmix', async () => {
+      const args = await renderWithChannels(2);
+      expect(args).toEqual(expect.arrayContaining(['-b:a', '128k']));
+      expect(args).not.toContain('-ac');
+    });
+
+    it('downmixes to stereo (-ac 2) and pins -b:a 128k for a >2-channel (e.g. 5.1 surround) source', async () => {
+      const args = await renderWithChannels(6);
+      expect(args).toEqual(expect.arrayContaining(['-ac', '2', '-b:a', '128k']));
+    });
+
+    it('falls back to the stereo-equivalent bitrate when the channel count is null (unprobeable source)', async () => {
+      const args = await renderWithChannels(null);
+      expect(args).toEqual(expect.arrayContaining(['-b:a', '128k']));
+      expect(args).not.toContain('-ac');
+    });
+
+    it('falls back to the stereo-equivalent bitrate when sourceAudioChannels is omitted entirely (unchanged prior behavior for every existing caller/test)', async () => {
+      const args = await renderWithChannels(undefined);
+      expect(args).toEqual(expect.arrayContaining(['-b:a', '128k']));
+      expect(args).not.toContain('-ac');
+    });
+  });
 });
 
 describe('trimAndFadeInBRoll', () => {
@@ -1312,6 +1413,50 @@ describe('trimCutRanges (Item 9 - Silence Compression AI real crossfade)', () =>
     });
   });
 
+  // Output Resolution/Quality audit, Phase 6 (Audio params finalization). Unlike the frameRate
+  // parameter, this receives an ALREADY-CLAMPED channel count from the caller (never a raw
+  // >2-channel source count) - see the parameter's own comment - so there is no downmix case to
+  // test here at all, only the resulting bitrate.
+  describe('sourceAudioChannels (audio bitrate)', () => {
+    it('pins -b:a 64k when the caller passes a clamped mono channel count', async () => {
+      await trimCutRanges(
+        '/tmp/rendered.mp4',
+        '/tmp/trimmed.mp4',
+        [{ start: 2, end: 4 }],
+        10,
+        null,
+        null,
+        1,
+      );
+
+      const [, args] = execFileMock.mock.calls[0];
+      expect(args).toEqual(expect.arrayContaining(['-b:a', '64k']));
+      expect(args).not.toContain('-ac');
+    });
+
+    it('pins -b:a 128k when the caller passes a clamped stereo channel count', async () => {
+      await trimCutRanges(
+        '/tmp/rendered.mp4',
+        '/tmp/trimmed.mp4',
+        [{ start: 2, end: 4 }],
+        10,
+        null,
+        null,
+        2,
+      );
+
+      const [, args] = execFileMock.mock.calls[0];
+      expect(args).toEqual(expect.arrayContaining(['-b:a', '128k']));
+    });
+
+    it('falls back to the stereo-equivalent bitrate when sourceAudioChannels is not passed (unchanged prior behavior for every existing caller/test)', async () => {
+      await trimCutRanges('/tmp/rendered.mp4', '/tmp/trimmed.mp4', [{ start: 2, end: 4 }], 10);
+
+      const [, args] = execFileMock.mock.calls[0];
+      expect(args).toEqual(expect.arrayContaining(['-b:a', '128k']));
+    });
+  });
+
   it('atomically renames the .tmp output onto the real path only after ffmpeg succeeds', async () => {
     await trimCutRanges('/tmp/rendered.mp4', '/tmp/trimmed.mp4', [{ start: 0, end: 1 }], 10);
 
@@ -1422,6 +1567,24 @@ describe('concatBrandSegment (P3d intro / P3e outro)', () => {
       expect(args).toEqual(expect.arrayContaining(['-map', '[outv]', '-map', '[outa]']));
     },
   );
+
+  // Output Resolution/Quality audit, Phase 6 (Audio params finalization) - a fixed constant, not
+  // data-dependent, since this function's own filter graph already forces both the segment and
+  // main clip's audio to stereo before the concat (see the filter graph asserted above), regardless
+  // of either source's real channel count.
+  it('always pins -b:a 128k (this function forces stereo audio by construction)', async () => {
+    await concatBrandSegment(
+      'start',
+      '/tmp/clip.mp4',
+      { filePath: '/tmp/segment.png', type: 'image', imageDurationSeconds: null },
+      608,
+      1080,
+      '/tmp/output.mp4',
+    );
+
+    const [, args] = execFileMock.mock.calls[0];
+    expect(args).toEqual(expect.arrayContaining(['-b:a', '128k']));
+  });
 
   it("puts the segment first in the concat order for position 'start' (intro)", async () => {
     await concatBrandSegment(
@@ -1637,6 +1800,17 @@ describe('applyReactionHolds (C6R.2)', () => {
         '[a0pre][a0hold][a1post]concat=n=3:v=0:a=1[outa]',
     );
     expect(args).toEqual(expect.arrayContaining(['-map', '[outv]', '-map', '[outa]']));
+  });
+
+  // Output Resolution/Quality audit, Phase 6 (Audio params finalization) - a fixed constant, not
+  // data-dependent, since this function's own audioParts already force stereo audio (see the
+  // aformat=...channel_layouts=stereo calls in the filter graph asserted above) regardless of the
+  // input's real channel count.
+  it('always pins -b:a 128k (this function forces stereo audio by construction)', async () => {
+    await applyReactionHolds('/tmp/clip.mp4', '/tmp/output.mp4', [3]);
+
+    const [, args] = execFileMock.mock.calls[0];
+    expect(args).toEqual(expect.arrayContaining(['-b:a', '128k']));
   });
 
   it('honors a custom hold duration, subtracting the freeze-slice epsilon from tpad stop_duration only', async () => {
