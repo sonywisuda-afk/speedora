@@ -118,3 +118,24 @@ export function isPauseHoldEnabled(): boolean {
 export function isReactionHoldEnabled(): boolean {
   return process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED === 'true';
 }
+
+// Speaker Intelligence Phase E ("speaker_focus_shift" - see docs/ai/
+// speaker-intelligence.md and from-speaker-transitions.ts's own design
+// comment) - a SEPARATE flag from isFocusShiftEnabled() above, deliberately:
+// both techniques ultimately feed the exact same buildCropPath()/
+// applyFocusShifts() pipeline once merged at the render-clip.worker.ts seam,
+// but this gates a genuinely different, independently-toggleable TRIGGER
+// SOURCE (speaker transitions vs. visual primary-subject-track changes) -
+// same "one flag per trigger source, never a shared master flag" precedent
+// Digital Push (C4) already established when it extended Auto Zoom's own
+// trigger set, not a new pattern invented here. Off by default, no
+// per-clip toggle - same rationale as every other Visual Emphasis Engine
+// phase: never validated against real footage in this sandbox, and this
+// phase's own false-positive-control gates (hold duration, adaptive
+// confidence, cooldown - see from-speaker-transitions.ts) are themselves
+// unvalidated heuristics until real podcast/interview footage confirms they
+// actually prevent the jittery "every speaker switch = camera pans"
+// failure mode this phase was explicitly designed to avoid.
+export function isSpeakerAwareFocusShiftEnabled(): boolean {
+  return process.env.SPEAKER_AWARE_FOCUS_SHIFT_ENABLED === 'true';
+}

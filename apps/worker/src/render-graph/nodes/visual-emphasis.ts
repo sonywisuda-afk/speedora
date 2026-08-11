@@ -58,6 +58,19 @@ export const editingSuggestionsNode: GraphNode<RenderGraphContext, EditingSugges
       retentionCurveInsights,
       words: toClipRelativeWords(ctx.transcript, ctx.startTime),
       clipDurationSeconds: ctx.endTime - ctx.startTime,
+      // Speaker Intelligence Phase E ('speaker_focus_shift') - ctx.speakerTurns
+      // directly, same pattern as conversationIntelligenceNode right above
+      // this one (deps: [] there too): it's a clip-relative primitive
+      // already resolved before the graph runs, not another node's output.
+      // @speedora/visual-emphasis derives deriveDiarizationFeatures()/
+      // deriveConversationDynamics() from it itself - not recomputed here,
+      // and not read from conversationIntelligenceNode's own result either
+      // (that node's output shape carries the aggregate ConversationDynamics/
+      // ConversationTypeResult, not raw segments - re-deriving from the same
+      // already-available ctx.speakerTurns keeps this node's own dependency
+      // graph a straight line, same shape every other field here already
+      // has, rather than adding a cross-node dependency for one field).
+      speakerTurns: ctx.speakerTurns,
     });
   },
 };

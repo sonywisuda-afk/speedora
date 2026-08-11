@@ -88,6 +88,7 @@ import {
   isOcrHighlightWorthy,
   isPauseHoldEnabled,
   isReactionHoldEnabled,
+  isSpeakerAwareFocusShiftEnabled,
 } from '@speedora/visual-emphasis';
 import { buildAss } from '@speedora/subtitles';
 import { DEFAULT_THUMBNAIL_WEIGHTS } from '@speedora/thumbnail-selection';
@@ -863,11 +864,24 @@ async function buildReframePlan(
   // stays decoupled from @speedora/visual-emphasis's own EditingSuggestion
   // vocabulary; the filter/map to buildCropPath()'s plain {start, end}
   // shape happens right here, at this orchestration seam.
-  const focusShifts = isFocusShiftEnabled()
+  const visualFocusShifts = isFocusShiftEnabled()
     ? editingSuggestions
         .filter((suggestion) => suggestion.technique === 'focus_shift')
         .map((suggestion) => ({ start: suggestion.start, end: suggestion.end }))
     : [];
+  // Speaker Intelligence Phase E ("speaker_focus_shift", see docs/ai/
+  // speaker-intelligence.md) - a SEPARATE source feeding the exact same
+  // buildCropPath() window list below, gated by its own independent flag
+  // (isSpeakerAwareFocusShiftEnabled(), not isFocusShiftEnabled() above) so
+  // it can be toggled off on its own without disabling the older,
+  // visual-track-based source. Concatenated, not replacing - both sources
+  // can contribute in the same render.
+  const speakerFocusShifts = isSpeakerAwareFocusShiftEnabled()
+    ? editingSuggestions
+        .filter((suggestion) => suggestion.technique === 'speaker_focus_shift')
+        .map((suggestion) => ({ start: suggestion.start, end: suggestion.end }))
+    : [];
+  const focusShifts = [...visualFocusShifts, ...speakerFocusShifts];
   // Visual Emphasis Engine Phase C4 ("Digital Push", docs/ai/
   // visual-emphasis-engine.md) - extends Auto Zoom's (Fase 11) existing
   // emphasis-word trigger set with Phase C1's own digital_push suggestions

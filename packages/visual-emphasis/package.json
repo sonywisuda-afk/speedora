@@ -14,7 +14,9 @@
   },
   "dependencies": {
     "@speedora/contracts": "workspace:*",
-    "@speedora/cutlist": "workspace:*"
+    "@speedora/conversation-intelligence": "workspace:*",
+    "@speedora/cutlist": "workspace:*",
+    "@speedora/speaker-diarization": "workspace:*"
   },
   "devDependencies": {
     "@types/jest": "^29.5.2",

@@ -995,13 +995,18 @@ export type CaptionTreatmentTimeline = TreatmentMoment[];
 // v4 0-1 score already carries. 'attention_cut' is NOT one of spec Part
 // 9's 9 named techniques - see @speedora/contracts' own comment on
 // EDITING_TECHNIQUES for why it reuses this same shape anyway.
+// 'speaker_focus_shift' is likewise not one of the 9 - Speaker Intelligence
+// Phase E (see docs/ai/speaker-intelligence.md), same reuse-the-shape
+// precedent as attention_cut, deliberately a separate value from
+// 'focus_shift' so each trigger source can be flag-gated independently.
 export type EditingTechnique =
   | 'digital_push'
   | 'ocr_highlight'
   | 'focus_shift'
   | 'reaction_hold'
   | 'pause_hold'
-  | 'attention_cut';
+  | 'attention_cut'
+  | 'speaker_focus_shift';
 
 export interface EditingSuggestion {
   technique: EditingTechnique;
