@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
-import { trimCutRanges } from './ffmpeg';
+import { getVideoFrameRateString, trimCutRanges } from './ffmpeg';
 
 const execFileAsync = promisify(execFile);
 const FFMPEG_PATH = process.env.FFMPEG_PATH ?? 'ffmpeg';
@@ -52,6 +52,30 @@ async function ffprobeAudioDuration(file: string): Promise<number> {
     'a:0',
     '-show_entries',
     'stream=duration',
+    '-of',
+    'default=noprint_wrappers=1:nokey=1',
+    file,
+  ]);
+  return Number(stdout.trim());
+}
+
+// Real decode-based frame count (not the `stream=duration` field) - required specifically for the
+// extreme-VFR dropped-frame regression pair below. Real-ffmpeg exploration found that a video
+// stream's own `duration` metadata (and even the container-level `format=duration`) both get
+// masked by ordinary "hold the last decoded frame until playback ends" behavior: a buggy render
+// that drops an entire kept segment's worth of frames still reports a duration matching audio,
+// because the single surviving frame is just displayed for longer. Frame count is the one metric
+// that isn't fooled by that - it reflects how much real, distinct visual content actually made it
+// into the output.
+async function ffprobeVideoFrameCount(file: string): Promise<number> {
+  const { stdout } = await execFileAsync(FFPROBE_PATH, [
+    '-v',
+    'error',
+    '-select_streams',
+    'v:0',
+    '-count_frames',
+    '-show_entries',
+    'stream=nb_read_frames',
     '-of',
     'default=noprint_wrappers=1:nokey=1',
     file,
@@ -120,6 +144,65 @@ describeIfFfmpeg('trimCutRanges real crossfade against real ffmpeg (Item 9)', ()
       'sine=frequency=440:sample_rate=44100',
       '-t',
       String(CLIP_DURATION_SECONDS),
+      '-c:v',
+      'libx264',
+      '-c:a',
+      'aac',
+      clipPath,
+    ]);
+    return clipPath;
+  }
+
+  // A genuinely variable-frame-rate clip whose real average (~22.5fps, 2 kept out of every 3
+  // frames from a 30fps source) still comfortably exceeds MIN_FPS_FOR_CROSSFADE_SAFETY (15) on
+  // its own - this is the "no fix needed" control case proving the new fps= normalization is a
+  // no-op (and therefore harmless) for VFR content that was never actually at risk.
+  async function makeModerateVfrClip(name: string): Promise<string> {
+    const clipPath = path.join(dir, name);
+    await execFileAsync(FFMPEG_PATH, [
+      '-y',
+      '-f',
+      'lavfi',
+      '-i',
+      `testsrc2=size=${WIDTH}x${HEIGHT}:rate=30:duration=${CLIP_DURATION_SECONDS}`,
+      '-f',
+      'lavfi',
+      '-i',
+      `sine=frequency=440:sample_rate=44100:duration=${CLIP_DURATION_SECONDS}`,
+      '-vf',
+      "select='mod(n\\,3)'",
+      '-vsync',
+      'vfr',
+      '-c:v',
+      'libx264',
+      '-c:a',
+      'aac',
+      clipPath,
+    ]);
+    return clipPath;
+  }
+
+  // The exact extreme-VFR recipe verified by hand against real ffmpeg 8.1.2 in scratch exploration
+  // before writing this test: 4s of a 30fps source with only 6 frames kept (n=0,15,30,45,90,105 -
+  // i.e. real timestamps 0.0/0.5/1.0/1.5/3.0/3.5s), giving avg_frame_rate = 45/19 (~2.37fps). Its
+  // period (~0.42s) is far larger than CROSSFADE_SECONDS (0.15s), which is exactly the shape that
+  // makes trimCutRanges' per-segment crossfade window land between two source frames with no fix.
+  async function makeExtremeVfrClip(name: string): Promise<string> {
+    const clipPath = path.join(dir, name);
+    await execFileAsync(FFMPEG_PATH, [
+      '-y',
+      '-f',
+      'lavfi',
+      '-i',
+      `testsrc2=size=${WIDTH}x${HEIGHT}:rate=30:duration=4`,
+      '-f',
+      'lavfi',
+      '-i',
+      'sine=frequency=440:sample_rate=44100:duration=4',
+      '-vf',
+      "select='eq(n\\,0)+eq(n\\,15)+eq(n\\,30)+eq(n\\,45)+eq(n\\,90)+eq(n\\,105)'",
+      '-vsync',
+      'vfr',
       '-c:v',
       'libx264',
       '-c:a',
@@ -224,5 +307,70 @@ describeIfFfmpeg('trimCutRanges real crossfade against real ffmpeg (Item 9)', ()
     const videoDuration = await ffprobeDuration(outputPath);
     const audioDuration = await ffprobeAudioDuration(outputPath);
     expect(Math.abs(videoDuration - audioDuration)).toBeLessThan(0.1);
+  }, 30000);
+
+  it('stays in sync for moderate VFR input even without passing an explicit frame rate (the fps= normalization is a no-op when the source is already safe)', async () => {
+    const clipPath = await makeModerateVfrClip('moderate-vfr-in.mp4');
+    const outputPath = path.join(dir, 'moderate-vfr-out.mp4');
+    const cuts = [{ start: 3, end: 4 }];
+    const totalOutputDuration = CLIP_DURATION_SECONDS - 1; // = 9
+
+    await trimCutRanges(clipPath, outputPath, cuts, totalOutputDuration);
+
+    const videoDuration = await ffprobeDuration(outputPath);
+    const audioDuration = await ffprobeAudioDuration(outputPath);
+
+    expect(Math.abs(videoDuration - audioDuration)).toBeLessThan(0.2);
+  }, 30000);
+
+  it('drops nearly all real video content for extreme VFR input when no frame rate is supplied (reproduces the real bug this phase fixes)', async () => {
+    const clipPath = await makeExtremeVfrClip('extreme-vfr-unfixed-in.mp4');
+    const outputPath = path.join(dir, 'extreme-vfr-unfixed-out.mp4');
+    // Kept segments [0, 1.5] and [3.0, 4.0] once the [1.5, 3.0] cut is removed. The source only
+    // has real frames at 0.0/0.5/1.0/1.5/3.0/3.5s, so segment 1 contributes frames at n=90(3.0s)
+    // and n=105(3.5s) - both of which land inside a crossfade window the encoder can't resolve
+    // without the fix, and get silently dropped entirely (not just delayed).
+    const cuts = [{ start: 1.5, end: 3.0 }];
+    const totalOutputDuration = 2.5;
+
+    // No frameRate argument - the pre-fix call shape.
+    await trimCutRanges(clipPath, outputPath, cuts, totalOutputDuration);
+
+    // Real-ffmpeg exploration confirmed the exact failure mode: only 3 frames survive (all from
+    // segment 0; segment 1's frames are dropped outright, libx264 itself reports drop=3), so the
+    // container plays back as a single frozen frame held past the 1.0s mark rather than showing
+    // the second kept segment's real content at all.
+    const frameCount = await ffprobeVideoFrameCount(outputPath);
+    expect(frameCount).toBeLessThanOrEqual(5);
+  }, 30000);
+
+  it('preserves real video content for extreme VFR input when the real probed frame rate is threaded through (the fix, using the actual production helper)', async () => {
+    const clipPath = await makeExtremeVfrClip('extreme-vfr-fixed-in.mp4');
+    const outputPath = path.join(dir, 'extreme-vfr-fixed-out.mp4');
+    const cuts = [{ start: 1.5, end: 3.0 }];
+    const totalOutputDuration = 2.5;
+
+    // Probe the source's real frame rate with the exact same function render-clip.worker.ts calls
+    // in production, then thread it through exactly as computeReframeDimensions()'s caller does.
+    const frameRate = await getVideoFrameRateString(clipPath);
+    expect(frameRate).not.toBeNull();
+
+    await trimCutRanges(clipPath, outputPath, cuts, totalOutputDuration, undefined, frameRate);
+
+    // Fixed: normalizing each segment to the 15fps safety floor before the crossfade gives the
+    // encoder a real, densely-sampled timeline to fade across, so both kept segments' content
+    // survives (real-ffmpeg exploration measured 28 frames for this exact fixture, vs. 3 unfixed).
+    const frameCount = await ffprobeVideoFrameCount(outputPath);
+    expect(frameCount).toBeGreaterThanOrEqual(20);
+
+    // A loose sanity bound only (not this test's real evidence, the frame count above is): the
+    // video stream's own `duration` field undercounts by design for sparse/VFR-flagged output
+    // (it reflects the last decoded frame's pts, not the extra time a player holds that frame for
+    // - a real ffprobe quirk confirmed present even in the unfixed/buggy output above, so it can't
+    // by itself distinguish fixed from broken). 0.6 is loose enough to tolerate that quirk while
+    // still catching a regression that reintroduces the multi-second desync this phase fixed.
+    const videoDuration = await ffprobeDuration(outputPath);
+    const audioDuration = await ffprobeAudioDuration(outputPath);
+    expect(Math.abs(videoDuration - audioDuration)).toBeLessThan(0.6);
   }, 30000);
 });

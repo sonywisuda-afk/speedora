@@ -66,6 +66,7 @@ jest.mock('node:fs/promises', () => ({
 
 const renderClipMock = jest.fn();
 const getVideoDimensionsMock = jest.fn();
+const getVideoFrameRateStringMock = jest.fn();
 const trimCutRangesMock = jest.fn();
 const trimAndFadeInBRollMock = jest.fn();
 const fadeOutBRollMock = jest.fn();
@@ -79,6 +80,7 @@ const applyReactionHoldsMock = jest.fn();
 jest.mock('../ffmpeg', () => ({
   renderClip: (...args: unknown[]) => renderClipMock(...args),
   getVideoDimensions: (...args: unknown[]) => getVideoDimensionsMock(...args),
+  getVideoFrameRateString: (...args: unknown[]) => getVideoFrameRateStringMock(...args),
   trimCutRanges: (...args: unknown[]) => trimCutRangesMock(...args),
   trimAndFadeInBRoll: (...args: unknown[]) => trimAndFadeInBRollMock(...args),
   fadeOutBRoll: (...args: unknown[]) => fadeOutBRollMock(...args),
@@ -713,6 +715,10 @@ describe('render-clip worker', () => {
     statMock.mockResolvedValue({ size: 654321 });
     cleanupTempFileMock.mockResolvedValue(undefined);
     getVideoDimensionsMock.mockResolvedValue({ width: 320, height: 240 });
+    // Output Resolution/Quality audit, Phase 5 (FPS/CFR policy) - null (unknown/unprobeable rate)
+    // by default, matching the "don't force anything" fallback every existing test/caller relies
+    // on; individual tests override this to exercise the real fps= threading.
+    getVideoFrameRateStringMock.mockResolvedValue(null);
     computeCropDimensionsMock.mockReturnValue({ width: 136, height: 240 });
     // Output Resolution/Quality audit, Phase 1 (foundation) - matches the real
     // resolveOutputResolution()'s own behavior for tier === null (the default when no
@@ -3035,6 +3041,31 @@ describe('render-clip worker', () => {
         0.5,
         { preset: 'slow', crf: 18 },
       );
+    });
+
+    // Output Resolution/Quality audit, Phase 5 (FPS/CFR policy) - the source's own probed frame
+    // rate (getVideoFrameRateString(), resolved once in computeReframeDimensions()) must reach
+    // trimCutRanges() so its fps= normalization can actually run - see that function's own
+    // comment for why this matters (a real dropped-frame bug found on VFR sources with a
+    // crossfade junction landing in a large gap).
+    it("threads the probed source frame rate through to trimCutRanges()'s own fps normalization", async () => {
+      getVideoFrameRateStringMock.mockResolvedValue('30000/1001');
+
+      const processor = getProcessor();
+      await processor(fakeJob(cutJobData));
+
+      expect(trimCutRangesMock).toHaveBeenCalledTimes(1);
+      expect(trimCutRangesMock.mock.calls[0][5]).toBe('30000/1001');
+    });
+
+    it('passes null through to trimCutRanges() when the source frame rate could not be probed (unchanged behavior)', async () => {
+      getVideoFrameRateStringMock.mockResolvedValue(null);
+
+      const processor = getProcessor();
+      await processor(fakeJob(cutJobData));
+
+      expect(trimCutRangesMock).toHaveBeenCalledTimes(1);
+      expect(trimCutRangesMock.mock.calls[0][5]).toBeNull();
     });
 
     it('skips a hold entirely (never calls applyReactionHolds) when its instant falls inside a cut range', async () => {

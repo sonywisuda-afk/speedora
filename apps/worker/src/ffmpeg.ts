@@ -101,6 +101,41 @@ export async function getVideoDimensions(
   return { width, height };
 }
 
+// Output Resolution/Quality audit, Phase 5 (FPS/CFR policy) - the raw ffprobe "num/den" frame-rate
+// string (e.g. "30/1", "30000/1001"), NOT round-tripped through a JS float first - re-serializing
+// a parsed decimal back to text for a non-integer rate (29.97 is really 30000/1001) can drift
+// enough over a long clip to matter, and ffmpeg's own `fps=` filter already accepts this exact
+// "num/den" syntax directly. Prefers avg_frame_rate over r_frame_rate on purpose: for a genuinely
+// variable-frame-rate source (a screen recording or phone capture that only emits a frame when the
+// picture changes), avg_frame_rate is the real "frames delivered per second" statistic (computed
+// from total frame count / total duration); r_frame_rate instead reports the container's nominal
+// encode timebase, which stays at the encoder's own input rate (e.g. "30/1") regardless of how
+// sparse the actual frames are - using it here would under-normalize a VFR source down to nothing
+// (see trimCutRanges()'s own comment for what this value is actually used for and why).
+// null when ffprobe reports no usable rate at all ("0/0", a stream with no frame-rate info) or the
+// probe itself fails - callers must treat null as "don't force a rate," not throw; this is a
+// best-effort signal, never a required one.
+export async function getVideoFrameRateString(inputPath: string): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(FFPROBE_PATH, [
+      '-v',
+      'error',
+      '-select_streams',
+      'v:0',
+      '-show_entries',
+      'stream=avg_frame_rate,r_frame_rate',
+      '-of',
+      'csv=p=0',
+      inputPath,
+    ]);
+    const [avgFrameRate, rFrameRate] = stdout.trim().split(',');
+    const rate = avgFrameRate && avgFrameRate !== '0/0' ? avgFrameRate : rFrameRate;
+    return rate && parseFrameRate(rate) !== null ? rate : null;
+  } catch {
+    return null;
+  }
+}
+
 // ffmpeg's filtergraph mini-language treats ':' and '\' as syntax, so a
 // Windows absolute path (e.g. C:\Users\...\clip.ass) needs both escaped
 // before it can be used as a subtitles= filter argument.
@@ -942,6 +977,20 @@ export async function fadeOutBRoll(
 const CROSSFADE_SECONDS = 0.15;
 const MIN_CROSSFADE_SECONDS = 0.02;
 
+// Output Resolution/Quality audit, Phase 5 (FPS/CFR policy) - a floor on trimCutRanges()'s own
+// fps= normalization (see that function's `frameRate` parameter comment), found necessary by
+// real-ffmpeg testing (not assumed): normalizing to the SOURCE's own real average rate alone does
+// NOT fix the dropped-frame bug for a genuinely sparse VFR source (e.g. a near-static screen
+// recording averaging ~2fps) - a 2fps grid's own ~0.5s spacing still doesn't guarantee a tick
+// lands inside a 0.15s (CROSSFADE_SECONDS) fade window, so xfade can still starve. The fix needs
+// a rate whose OWN period is smaller than the fade duration, guaranteeing at least one real frame
+// tick inside any fade window regardless of how sparse the source is. 15fps (period ~0.067s, well
+// under CROSSFADE_SECONDS with real margin) is that floor - picked deliberately low rather than a
+// blanket 24/30, since the audit's own "don't force a rate that isn't needed" rule still applies
+// whenever the source's real rate already clears this floor (verified: this only ever raises an
+// already-slow rate up to 15, it never lowers a normal 24/25/30/60fps CFR source at all).
+const MIN_FPS_FOR_CROSSFADE_SAFETY = 15;
+
 interface KeptSegment {
   start: number;
   end: number;
@@ -968,6 +1017,18 @@ function segmentDuration(segment: KeptSegment): number {
   return segment.end - segment.start;
 }
 
+// Applies MIN_FPS_FOR_CROSSFADE_SAFETY's floor to a probed source rate - see that constant's own
+// comment for why a floor is needed at all (the source's real rate alone isn't sufficient for a
+// genuinely sparse VFR source). Passes the ORIGINAL raw "num/den" string through unchanged
+// whenever it already clears the floor (preserving exact precision, e.g. "30000/1001" rather than
+// a re-parsed decimal) - the floor only ever replaces a rate that's actually too slow.
+function resolveCrossfadeSafeFps(frameRate: string | null | undefined): string | null {
+  if (!frameRate) return null;
+  const parsed = parseFrameRate(frameRate);
+  if (parsed === null) return null;
+  return parsed >= MIN_FPS_FOR_CROSSFADE_SAFETY ? frameRate : String(MIN_FPS_FOR_CROSSFADE_SAFETY);
+}
+
 export async function trimCutRanges(
   inputPath: string,
   outputPath: string,
@@ -980,6 +1041,26 @@ export async function trimCutRanges(
   // SECOND encode pass never received it and fell back to ffmpeg's own default (CRF 23,
   // medium) regardless of what "maximum_quality" or "small_size" actually asked for.
   quality?: { preset: string; crf: number } | null,
+  // Output Resolution/Quality audit, Phase 5 (FPS/CFR policy) - see getVideoFrameRateString()'s
+  // own comment for the value's exact meaning; undefined/null (every existing caller/test, and
+  // any source whose rate couldn't be probed) keeps this function's EXACT prior filter graph,
+  // byte-for-byte - no fps= filter at all, today's pure-passthrough behavior.
+  //
+  // When present, normalizes EVERY kept segment to this constant frame rate before xfade/concat -
+  // found necessary by real-ffmpeg testing (not assumed): a genuinely variable-frame-rate source
+  // (e.g. a screen recording that only emits a frame when the picture changes) can have a real
+  // gap of a second or more between frames. When a crossfade junction's own fade window lands
+  // inside such a gap, xfade has no actual frame data to blend there - verified against real
+  // ffmpeg 8.1.2 to silently drop frames and leave the video track shorter than the audio track
+  // (a real, if narrow, A/V desync bug, not a hypothetical one). A moderate/realistic VFR source
+  // (sub-second gaps, the common case for screen recordings and phone captures) was separately
+  // verified to already work correctly WITHOUT this - so this is a targeted fix for the specific
+  // failure mode found, not a blanket "always force CFR" policy: renderClip() itself (crop/scale,
+  // no crossfade) was proven safe with VFR input and deliberately receives no equivalent change.
+  // Uses the SOURCE's own real average rate (see getVideoFrameRateString()), never a fixed
+  // constant like 30 - the audit's own "don't force a rate that isn't needed" rule extends to
+  // not inventing an arbitrary one either.
+  frameRate?: string | null,
 ): Promise<void> {
   // totalOutputDuration is (by its caller's own definition, render-clip.
   // worker.ts) the input clip's duration minus every cut's own length -
@@ -991,11 +1072,21 @@ export async function trimCutRanges(
   const totalInputDuration = totalOutputDuration + totalCutSeconds(cuts);
   const segments = computeKeptSegments(cuts, totalInputDuration);
 
+  // See this parameter's own comment above for why this exists at all, and
+  // MIN_FPS_FOR_CROSSFADE_SAFETY's own comment for why a floor on top of the raw probed rate is
+  // required. Applied uniformly to every segment (not just ones adjacent to a fade) so a mid-clip
+  // junction never has to guess which side needs it; a segment whose neighbors both fall back to
+  // a plain concat pays no real cost (fps= at an already-CFR source's own rate is a no-op, and a
+  // harmless, even arguably-beneficial, timing regularization for VFR content that just happens
+  // not to sit next to a crossfade).
+  const normalizedFps = resolveCrossfadeSafeFps(frameRate);
+  const fpsFilter = normalizedFps ? `,fps=${normalizedFps}` : '';
+
   const videoParts: string[] = [];
   const audioParts: string[] = [];
   segments.forEach((segment, i) => {
     videoParts.push(
-      `[0:v]trim=start=${segment.start}:end=${segment.end},setpts=PTS-STARTPTS[v${i}]`,
+      `[0:v]trim=start=${segment.start}:end=${segment.end},setpts=PTS-STARTPTS${fpsFilter}[v${i}]`,
     );
     audioParts.push(
       `[0:a]atrim=start=${segment.start}:end=${segment.end},asetpts=PTS-STARTPTS[a${i}]`,

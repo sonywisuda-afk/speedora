@@ -105,6 +105,7 @@ import {
   extractThumbnail,
   fadeOutBRoll,
   getVideoDimensions,
+  getVideoFrameRateString,
   REACTION_HOLD_EXTENSION_SECONDS,
   renderClip,
   trimAndFadeInBRoll,
@@ -740,12 +741,22 @@ async function computeReframeDimensions(
   sourceWidth: number;
   sourceHeight: number;
   aspectRatioLabel: ResolvedAspectRatio['label'];
+  // Output Resolution/Quality audit, Phase 5 (FPS/CFR policy) - see getVideoFrameRateString()'s
+  // and trimCutRanges()'s own comments for what this is used for. Probed here (alongside the
+  // existing width/height probe, same sourcePath, same "before the render graph" timing) rather
+  // than inside trimCutRanges() itself - crop/scale never touch frame timing, so the source's own
+  // rate is identical to renderClip()'s output rate, and probing it once here avoids a second,
+  // redundant ffprobe subprocess call later.
+  sourceFrameRate: string | null;
 }> {
-  const { width: sourceWidth, height: sourceHeight } = await getVideoDimensions(sourcePath);
+  const [{ width: sourceWidth, height: sourceHeight }, sourceFrameRate] = await Promise.all([
+    getVideoDimensions(sourcePath),
+    getVideoFrameRateString(sourcePath),
+  ]);
   const { ratio, label } = resolveTargetAspectRatio(processingOptions, sourceWidth, sourceHeight);
   const crop = computeCropDimensions(sourceWidth, sourceHeight, ratio);
   const outputSize = resolveOutputResolution(crop, ratio, resolveResolutionTier(processingOptions));
-  return { crop, outputSize, sourceWidth, sourceHeight, aspectRatioLabel: label };
+  return { crop, outputSize, sourceWidth, sourceHeight, aspectRatioLabel: label, sourceFrameRate };
 }
 
 // Composition Intelligence's PrimarySubjectSample already shares
@@ -1222,8 +1233,14 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // here: dimensions only need the source video's own width/height,
             // genuinely independent of face/subject detection - see
             // computeReframeDimensions()'s own comment.
-            const { crop, outputSize, sourceWidth, sourceHeight, aspectRatioLabel } =
-              await computeReframeDimensions(sourcePath, processingOptions);
+            const {
+              crop,
+              outputSize,
+              sourceWidth,
+              sourceHeight,
+              aspectRatioLabel,
+              sourceFrameRate,
+            } = await computeReframeDimensions(sourcePath, processingOptions);
 
             // Composing multiple modules: the render-clip Feature Orchestrator (see
             // ARCHITECTURE.md) - Scene Intelligence's sceneCuts/sceneCutEvents are the first
@@ -1492,7 +1509,14 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               // "external ffmpeg call, bounded by TRIM_TIMEOUT_MS but still allowed to fail" reasoning
               // as every other optional signal in this file, prompted by a real timeout observed here.
               try {
-                await trimCutRanges(outputPath, trimmedPath, cuts, totalOutputDuration, quality);
+                await trimCutRanges(
+                  outputPath,
+                  trimmedPath,
+                  cuts,
+                  totalOutputDuration,
+                  quality,
+                  sourceFrameRate,
+                );
                 renderedPath = trimmedPath;
                 logger.info('removed silence/filler cuts', {
                   clipId,
