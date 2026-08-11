@@ -12,6 +12,7 @@ import type {
   FaceTrackingQualityMetrics,
   FacialEmotionFeatures,
   FacialEmotionSample,
+  FinalSpeakerIntelligence,
   GestureFeatures,
   GestureSample,
   HookPauseFeatures,
@@ -66,6 +67,7 @@ import { ocrNodes } from './nodes/ocr';
 import { retentionCurveInsightsNodes } from './nodes/retention-curve-insights';
 import { sceneNodes } from './nodes/scene';
 import { semanticEventNodes } from './nodes/semantic-events';
+import { speakerFusionNodes } from './nodes/speaker-fusion';
 import { subtitleRewriterNodes } from './nodes/subtitle-rewriter';
 import { thumbnailSelectionNodes } from './nodes/thumbnail-selection';
 import { viralityEngineNodes } from './nodes/virality-engine';
@@ -118,6 +120,12 @@ export const renderClipGraph: GraphNode<RenderGraphContext, unknown>[] = [
   // earlier), registration order here is stylistic, not load-bearing (see
   // the subtitleRewriterNodes comment above).
   ...visualEmphasisNodes,
+  // Speaker Intelligence Phase F ("Cross-module Fusion") - depends on
+  // conversationIntelligence, speakerFusionFeatures (both registered
+  // earlier), and editingSuggestions (visualEmphasisNodes, just above);
+  // registration order here is stylistic, not load-bearing (see the
+  // subtitleRewriterNodes comment above).
+  ...speakerFusionNodes,
   ...thumbnailSelectionNodes,
 ];
 
@@ -170,5 +178,6 @@ export interface RenderGraphResult {
   subtitleIntelligence: SubtitleIntelligence;
   captionTreatment: CaptionTreatmentTimeline;
   editingSuggestions: EditingSuggestionTimeline;
+  finalSpeakerIntelligence: FinalSpeakerIntelligence;
   thumbnailSelection: SelectThumbnailTimestampOutput;
 }

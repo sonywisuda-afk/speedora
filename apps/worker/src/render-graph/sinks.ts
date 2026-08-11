@@ -233,6 +233,15 @@ const CLIP_UPDATE_MAP: {
     conversationDynamics: r.conversationIntelligence.dynamics as unknown as Prisma.InputJsonValue,
     conversationType: r.conversationIntelligence.classification as unknown as Prisma.InputJsonValue,
   }),
+  // Speaker Intelligence Phase F ("Cross-module Fusion") - NOT added to
+  // FUSION_INPUT_MAP above: this is a structured read-model, not a Fusion
+  // Engine v2 input (that engine is deliberately untouched by this phase -
+  // see @speedora/contracts' speaker-fusion.ts own design comment).
+  // optional: false, always a real object (never Prisma.JsonNull) - same
+  // cast reasoning as conversationIntelligence/compositionFeatures above.
+  finalSpeakerIntelligence: (r) => ({
+    finalSpeakerIntelligence: r.finalSpeakerIntelligence as unknown as Prisma.InputJsonValue,
+  }),
 };
 
 // Assembles the graph-derived portion of prisma.clip.update()'s data object. `extra` carries

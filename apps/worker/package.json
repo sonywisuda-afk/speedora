@@ -63,6 +63,7 @@
     "@speedora/shared": "workspace:*",
     "@speedora/social": "workspace:*",
     "@speedora/speaker-diarization": "workspace:*",
+    "@speedora/speaker-fusion": "workspace:*",
     "@speedora/speaker-scoring": "workspace:*",
     "@speedora/storage": "workspace:^",
     "@speedora/subtitle-rewriter": "workspace:*",

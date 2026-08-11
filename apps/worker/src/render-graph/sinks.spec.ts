@@ -81,6 +81,12 @@ const noConversationIntelligence = {
   },
   classification: { type: null, confidence: null },
 };
+const noFinalSpeakerIntelligence = {
+  clipId: 'clip-1',
+  conversation: null,
+  speaker: null,
+  visual: { speakerFocusShift: { count: 0, averageConfidence: null } },
+};
 const midpointThumbnailSelection = {
   timestampSeconds: 5,
   confidence: 0,
@@ -136,6 +142,7 @@ function baseResult(overrides: Partial<RenderGraphResult> = {}): RenderGraphResu
     captionTreatment: noCaptionTreatment,
     editingSuggestions: noEditingSuggestions,
     conversationIntelligence: noConversationIntelligence,
+    finalSpeakerIntelligence: noFinalSpeakerIntelligence,
     thumbnailSelection: midpointThumbnailSelection,
     ...overrides,
   };
