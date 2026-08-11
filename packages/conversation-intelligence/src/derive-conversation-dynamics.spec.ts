@@ -1,4 +1,5 @@
 import type { DiarizationFeatures } from '@speedora/contracts';
+import { conversationDynamicsSchema } from '@speedora/contracts';
 import { deriveConversationDynamics } from './derive-conversation-dynamics';
 
 function features(overrides: Partial<DiarizationFeatures> = {}): DiarizationFeatures {
@@ -202,5 +203,147 @@ describe('deriveConversationDynamics', () => {
       10,
     );
     expect(even.medianTurnDurationSeconds).toBe(2); // median of [1,1,3,5] = (1+3)/2
+  });
+
+  // Phase C validation gate - explicitly distinct from the single-turn case
+  // above: here turnCount >= 2 (backAndForthScore's own guard is satisfied,
+  // so it must compute a real 0 - alternation genuinely never happens, not
+  // "not enough data"), but switchCount is 0 (the speaker never actually
+  // CHANGES), so responseLatencySeconds - which only ever measures gaps
+  // following a real speaker change - has zero data points and must stay
+  // null. This is the concrete "latency tidak tersedia" edge case, distinct
+  // from backAndForthScore's own null case.
+  it('reports a real 0 backAndForthScore but a null responseLatency when the same speaker holds every turn', () => {
+    const segments = [
+      { speaker: 'Speaker A', start: 0, end: 2, durationSeconds: 2 },
+      { speaker: 'Speaker A', start: 2, end: 4, durationSeconds: 2 },
+      { speaker: 'Speaker A', start: 4, end: 6, durationSeconds: 2 },
+    ];
+    const result = deriveConversationDynamics(
+      features({ speakerCount: 1, segments, turnCount: 3, switchCount: 0 }),
+      6,
+    );
+
+    expect(result.backAndForthScore).toBe(0); // real 0/2, not "no data"
+    expect(result.responseLatencySeconds).toBeNull(); // zero speaker-change gaps to average
+  });
+
+  // Explicit "no overlap" edge case with real turns present (not the
+  // zero-turns case above, where overlapRatio is 0 for a different reason -
+  // no clip at all to measure).
+  it('reports a real 0 overlapRatio (not null) when turns exist but never overlap', () => {
+    const segments = [
+      { speaker: 'Speaker A', start: 0, end: 4, durationSeconds: 4 },
+      { speaker: 'Speaker B', start: 4, end: 8, durationSeconds: 4 },
+    ];
+    const result = deriveConversationDynamics(
+      features({ speakerCount: 2, segments, turnCount: 2, switchCount: 1, overlappingSpeech: [] }),
+      8,
+    );
+
+    expect(result.overlapRatio).toBe(0);
+  });
+
+  // Defensive edge case: a zero-duration clip must not divide by zero
+  // (turnDensityPerMinute/overlapRatio both have an explicit
+  // clipDurationSeconds > 0 guard) - this shouldn't happen in practice
+  // (startTime < endTime is enforced elsewhere), but the function's own
+  // guard exists specifically for this, so it's worth locking in.
+  it('does not divide by zero when clipDurationSeconds is 0', () => {
+    const result = deriveConversationDynamics(
+      features({
+        speakerCount: 1,
+        segments: [{ speaker: 'A', start: 0, end: 0, durationSeconds: 0 }],
+        turnCount: 1,
+        switchCount: 0,
+      }),
+      0,
+    );
+
+    expect(result.turnDensityPerMinute).toBe(0);
+    expect(result.overlapRatio).toBe(0);
+    expect(Number.isFinite(result.interactionIntensity)).toBe(true);
+  });
+
+  it('is deterministic - the same input produces byte-identical output across repeated calls', () => {
+    const input = features({
+      speakerCount: 2,
+      segments: [
+        { speaker: 'A', start: 0, end: 3, durationSeconds: 3 },
+        { speaker: 'B', start: 3.5, end: 6, durationSeconds: 2.5 },
+      ],
+      turnCount: 2,
+      switchCount: 1,
+      overlappingSpeech: [{ start: 3, end: 3.5, speakers: ['A', 'B'] }],
+    });
+
+    const first = deriveConversationDynamics(input, 6);
+    const second = deriveConversationDynamics(structuredClone(input), 6);
+
+    expect(second).toEqual(first);
+  });
+
+  it('never mutates the source DiarizationFeatures (or its nested arrays/objects)', () => {
+    const input = features({
+      speakerCount: 3,
+      segments: [
+        { speaker: 'A', start: 0, end: 3, durationSeconds: 3 },
+        { speaker: 'B', start: 3, end: 5, durationSeconds: 2 },
+        { speaker: 'C', start: 5, end: 6, durationSeconds: 1 },
+      ],
+      turnCount: 3,
+      switchCount: 2,
+      overlappingSpeech: [{ start: 2.5, end: 3, speakers: ['A', 'B'] }],
+    });
+    const snapshot = structuredClone(input);
+
+    deriveConversationDynamics(input, 6);
+
+    expect(input).toEqual(snapshot);
+  });
+
+  it('stays within the schema-declared range across a battery of inputs, including an adversarial high-density one', () => {
+    const normal = deriveConversationDynamics(
+      features({
+        speakerCount: 2,
+        segments: [
+          { speaker: 'A', start: 0, end: 3, durationSeconds: 3 },
+          { speaker: 'B', start: 3, end: 6, durationSeconds: 3 },
+        ],
+        turnCount: 2,
+        switchCount: 1,
+      }),
+      6,
+    );
+    expect(() => conversationDynamicsSchema.parse(normal)).not.toThrow();
+
+    // Adversarial: 200 alternating turns crammed into 1 second - turn
+    // density (12000/min) is 600x the interactionIntensity normalization
+    // ceiling, and every turn overlaps the next - must still clamp to <= 1,
+    // never overflow the schema's own max(1) bound.
+    const denseSegments = Array.from({ length: 200 }, (_, i) => ({
+      speaker: i % 2 === 0 ? 'A' : 'B',
+      start: i * 0.005,
+      end: i * 0.005 + 0.01,
+      durationSeconds: 0.01,
+    }));
+    const adversarial = deriveConversationDynamics(
+      features({
+        speakerCount: 2,
+        segments: denseSegments,
+        turnCount: 200,
+        switchCount: 199,
+        overlappingSpeech: denseSegments.map((s) => ({
+          start: s.start,
+          end: s.end,
+          speakers: ['A', 'B'],
+        })),
+      }),
+      1,
+    );
+    expect(() => conversationDynamicsSchema.parse(adversarial)).not.toThrow();
+    expect(adversarial.overlapRatio).toBeLessThanOrEqual(1);
+    expect(adversarial.interactionIntensity).toBeLessThanOrEqual(1);
+    expect(adversarial.backAndForthScore).toBeLessThanOrEqual(1);
   });
 });
