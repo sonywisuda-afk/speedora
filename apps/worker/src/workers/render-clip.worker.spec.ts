@@ -67,6 +67,7 @@ jest.mock('node:fs/promises', () => ({
 const renderClipMock = jest.fn();
 const getVideoDimensionsMock = jest.fn();
 const getVideoFrameRateStringMock = jest.fn();
+const getAudioChannelCountMock = jest.fn();
 const trimCutRangesMock = jest.fn();
 const trimAndFadeInBRollMock = jest.fn();
 const fadeOutBRollMock = jest.fn();
@@ -81,6 +82,11 @@ jest.mock('../ffmpeg', () => ({
   renderClip: (...args: unknown[]) => renderClipMock(...args),
   getVideoDimensions: (...args: unknown[]) => getVideoDimensionsMock(...args),
   getVideoFrameRateString: (...args: unknown[]) => getVideoFrameRateStringMock(...args),
+  getAudioChannelCount: (...args: unknown[]) => getAudioChannelCountMock(...args),
+  // Output Resolution/Quality audit, Phase 6 (Audio params finalization) - the real exported
+  // constant, not mocked, so computeReframeDimensions()'s own Math.min() clamping in this spec
+  // file matches production exactly (same convention as REACTION_HOLD_EXTENSION_SECONDS below).
+  MAX_OUTPUT_AUDIO_CHANNELS: 2,
   trimCutRanges: (...args: unknown[]) => trimCutRangesMock(...args),
   trimAndFadeInBRoll: (...args: unknown[]) => trimAndFadeInBRollMock(...args),
   fadeOutBRoll: (...args: unknown[]) => fadeOutBRollMock(...args),
@@ -719,6 +725,10 @@ describe('render-clip worker', () => {
     // by default, matching the "don't force anything" fallback every existing test/caller relies
     // on; individual tests override this to exercise the real fps= threading.
     getVideoFrameRateStringMock.mockResolvedValue(null);
+    // Output Resolution/Quality audit, Phase 6 (Audio params finalization) - same "unknown by
+    // default" fallback reasoning as sourceFrameRate above; individual tests override this to
+    // exercise the real audio-channel threading.
+    getAudioChannelCountMock.mockResolvedValue(null);
     computeCropDimensionsMock.mockReturnValue({ width: 136, height: 240 });
     // Output Resolution/Quality audit, Phase 1 (foundation) - matches the real
     // resolveOutputResolution()'s own behavior for tier === null (the default when no
@@ -3066,6 +3076,43 @@ describe('render-clip worker', () => {
 
       expect(trimCutRangesMock).toHaveBeenCalledTimes(1);
       expect(trimCutRangesMock.mock.calls[0][5]).toBeNull();
+    });
+
+    // Output Resolution/Quality audit, Phase 6 (Audio params finalization) - renderClip() needs
+    // the RAW probed channel count (to decide whether a real downmix is needed), while
+    // trimCutRanges() needs the ALREADY-CLAMPED value (its own input - renderClip()'s output - is
+    // never more than 2 channels by the time it runs) - see computeReframeDimensions()'s own
+    // comment for why these are deliberately different values, not the same one reused twice.
+    it('threads the raw probed channel count to renderClip() and the clamped value to trimCutRanges(), for a >2-channel (surround) source', async () => {
+      getAudioChannelCountMock.mockResolvedValue(6);
+
+      const processor = getProcessor();
+      await processor(fakeJob(cutJobData));
+
+      expect(renderClipMock).toHaveBeenCalledTimes(1);
+      expect(renderClipMock.mock.calls[0][0]).toMatchObject({ sourceAudioChannels: 6 });
+      expect(trimCutRangesMock).toHaveBeenCalledTimes(1);
+      expect(trimCutRangesMock.mock.calls[0][6]).toBe(2);
+    });
+
+    it('threads the same channel count to both renderClip() and trimCutRanges() when the source is already at or under the cap (mono)', async () => {
+      getAudioChannelCountMock.mockResolvedValue(1);
+
+      const processor = getProcessor();
+      await processor(fakeJob(cutJobData));
+
+      expect(renderClipMock.mock.calls[0][0]).toMatchObject({ sourceAudioChannels: 1 });
+      expect(trimCutRangesMock.mock.calls[0][6]).toBe(1);
+    });
+
+    it('passes null through to both renderClip() and trimCutRanges() when the source channel count could not be probed (unchanged behavior)', async () => {
+      getAudioChannelCountMock.mockResolvedValue(null);
+
+      const processor = getProcessor();
+      await processor(fakeJob(cutJobData));
+
+      expect(renderClipMock.mock.calls[0][0]).toMatchObject({ sourceAudioChannels: null });
+      expect(trimCutRangesMock.mock.calls[0][6]).toBeNull();
     });
 
     it('skips a hold entirely (never calls applyReactionHolds) when its instant falls inside a cut range', async () => {
