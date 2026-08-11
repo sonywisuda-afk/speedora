@@ -1,5 +1,7 @@
 import type {
   CaptionTreatmentTimeline,
+  ConversationDynamics,
+  ConversationTypeResult,
   EditingSuggestionTimeline,
   EmotionalArc,
   HookPredictionOutput,
@@ -116,4 +118,14 @@ export interface ClipIntelligenceDto {
   // docs/ai/visual-emphasis-engine.md. An empty array (flag on, node ran)
   // means it genuinely found zero editing opportunities - a real result.
   editingSuggestions: EditingSuggestionTimeline | null;
+  // Null when CONVERSATION_INTELLIGENCE_ENABLED is off (same exposure-only
+  // gate, see isConversationIntelligenceEnabled()) or when this Clip row
+  // predates the phase's migration (same pure-node null-semantics as
+  // contextualMomentum/emotionalArc/editingSuggestions above - this node
+  // can't fail the way an LLM call can). Speaker Intelligence Phase C
+  // (Conversation Dynamics) - see docs/ai/speaker-intelligence.md.
+  conversationDynamics: ConversationDynamics | null;
+  // Same exposure-only gate/null-semantics as conversationDynamics above -
+  // computed by the same render-graph node, from the same migration.
+  conversationType: ConversationTypeResult | null;
 }

@@ -49,6 +49,10 @@ import type { RenderGraphContext } from './context';
 import { audioEditingNodes } from './nodes/audio-editing';
 import { compositionNodes } from './nodes/composition';
 import { contextualMomentumNodes } from './nodes/contextual-momentum';
+import {
+  conversationIntelligenceNodes,
+  type ConversationIntelligenceResult,
+} from './nodes/conversation-intelligence';
 import { dynamicCaptionNodes } from './nodes/dynamic-caption';
 import { emotionalArcNodes } from './nodes/emotional-arc';
 import { facialGestureNodes } from './nodes/facial-gesture';
@@ -91,6 +95,7 @@ export const renderClipGraph: GraphNode<RenderGraphContext, unknown>[] = [
   ...semanticEventNodes,
   ...narrativeGraphNodes,
   ...contextualMomentumNodes,
+  ...conversationIntelligenceNodes,
   ...emotionalArcNodes,
   ...multiSpeakerReasoningNodes,
   ...viralityEngineNodes,
@@ -156,6 +161,7 @@ export interface RenderGraphResult {
   semanticEvents: SemanticEvent[] | null;
   narrativeGraph: NarrativeGraph | null;
   contextualMomentum: MomentumCurve;
+  conversationIntelligence: ConversationIntelligenceResult;
   emotionalArc: EmotionalArc;
   multiSpeakerBreakdown: MultiSpeakerBreakdown | null;
   viralityPrediction: ViralityPrediction;

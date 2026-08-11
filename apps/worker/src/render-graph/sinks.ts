@@ -222,6 +222,17 @@ const CLIP_UPDATE_MAP: {
     thumbnailSelectionFallback: r.thumbnailSelection.fallbackLevel,
     thumbnailSelectionReason: r.thumbnailSelection.reason,
   }),
+  // Speaker Intelligence Phase C (Conversation Dynamics - see docs/ai/
+  // speaker-intelligence.md) - NOT added to FUSION_INPUT_MAP above: this is
+  // a ranking-signal candidate for Phase D (Clip Ranking Engine), not a
+  // Fusion Engine v2 input. optional: false, always a real object (never
+  // Prisma.JsonNull) - same cast reasoning as compositionFeatures/
+  // contextualMomentum above. Fans out to 2 columns, same "one node, several
+  // columns" shape as speakerScores.
+  conversationIntelligence: (r) => ({
+    conversationDynamics: r.conversationIntelligence.dynamics as unknown as Prisma.InputJsonValue,
+    conversationType: r.conversationIntelligence.classification as unknown as Prisma.InputJsonValue,
+  }),
 };
 
 // Assembles the graph-derived portion of prisma.clip.update()'s data object. `extra` carries

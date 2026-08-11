@@ -431,6 +431,85 @@ describe('ClipsService', () => {
     });
   });
 
+  // Speaker Intelligence Phase C validation gate. getIntelligence() itself
+  // (all 13 ClipIntelligenceDto fields, not just Phase C's 2) had zero test
+  // coverage anywhere in this codebase before this block - a pre-existing
+  // gap spanning every AI Intelligence v4 Track A/B phase, not introduced by
+  // Phase C. Scoped deliberately to conversationDynamics/conversationType
+  // only (per this repo's own scope-boundary convention - see
+  // docs/coding-standards.md) rather than backfilling all 13 fields here.
+  describe('getIntelligence', () => {
+    const dynamics = {
+      speakerCount: 2,
+      turnCount: 4,
+      switchCount: 3,
+      turnDensityPerMinute: 30,
+      averageTurnDurationSeconds: 2,
+      medianTurnDurationSeconds: 2,
+      backAndForthScore: 1,
+      responseLatencySeconds: 0,
+      overlapRatio: 0,
+      interactionIntensity: 0.5,
+    };
+    const type = { type: 'interview', confidence: 0.6 };
+    const clip = {
+      id: 'clip-1',
+      video: { ownerId: 'user-1' },
+      conversationDynamics: dynamics,
+      conversationType: type,
+    };
+
+    afterEach(() => {
+      delete process.env.CONVERSATION_INTELLIGENCE_ENABLED;
+    });
+
+    it('exposes real conversationDynamics/conversationType when the flag is on', async () => {
+      process.env.CONVERSATION_INTELLIGENCE_ENABLED = 'true';
+      prisma.clip.findUnique.mockResolvedValue(clip);
+
+      const result = await service.getIntelligence('clip-1', 'user-1');
+
+      expect(result.conversationDynamics).toEqual(dynamics);
+      expect(result.conversationType).toEqual(type);
+    });
+
+    it('nulls out both fields when the flag is off, even though the clip has real stored values', async () => {
+      prisma.clip.findUnique.mockResolvedValue(clip);
+
+      const result = await service.getIntelligence('clip-1', 'user-1');
+
+      expect(result.conversationDynamics).toBeNull();
+      expect(result.conversationType).toBeNull();
+    });
+
+    it('reports null (not a crash) for a pre-migration row, even with the flag on', async () => {
+      process.env.CONVERSATION_INTELLIGENCE_ENABLED = 'true';
+      prisma.clip.findUnique.mockResolvedValue({
+        ...clip,
+        conversationDynamics: null,
+        conversationType: null,
+      });
+
+      const result = await service.getIntelligence('clip-1', 'user-1');
+
+      expect(result.conversationDynamics).toBeNull();
+      expect(result.conversationType).toBeNull();
+    });
+
+    it('throws NotFoundException when the clip does not exist', async () => {
+      prisma.clip.findUnique.mockResolvedValue(null);
+
+      await expect(service.getIntelligence('missing', 'user-1')).rejects.toThrow(NotFoundException);
+    });
+
+    it('throws NotFoundException when the requester has no workspace access', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, video: { workspaceId: 'ws-1' } });
+      workspaceAccess.assertMinRole.mockRejectedValueOnce(new NotFoundException());
+
+      await expect(service.getIntelligence('clip-1', 'user-1')).rejects.toThrow(NotFoundException);
+    });
+  });
+
   describe('getPerformance', () => {
     const clipWithPerformance = {
       id: 'clip-1',
@@ -1012,6 +1091,8 @@ describe('ClipsService', () => {
         subtitleIntelligence: null,
         captionTreatment: null,
         editingSuggestions: null,
+        conversationDynamics: null,
+        conversationType: null,
         thumbnailSelectionTimestamp: undefined,
         thumbnailSelectionBreakdown: null,
         thumbnailSelectionFallback: undefined,
@@ -1295,6 +1376,8 @@ describe('ClipsService', () => {
         subtitleIntelligence: null,
         captionTreatment: null,
         editingSuggestions: null,
+        conversationDynamics: null,
+        conversationType: null,
         thumbnailSelectionTimestamp: undefined,
         thumbnailSelectionBreakdown: null,
         thumbnailSelectionFallback: undefined,

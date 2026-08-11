@@ -37,6 +37,7 @@
     "@speedora/clip-query-parser": "workspace:*",
     "@speedora/contextual-momentum": "workspace:*",
     "@speedora/contracts": "workspace:*",
+    "@speedora/conversation-intelligence": "workspace:*",
     "@speedora/database": "workspace:*",
     "@speedora/dataset-quality": "workspace:*",
     "@speedora/dynamic-caption": "workspace:*",
