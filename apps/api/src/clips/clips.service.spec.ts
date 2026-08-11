@@ -452,15 +452,29 @@ describe('ClipsService', () => {
       interactionIntensity: 0.5,
     };
     const type = { type: 'interview', confidence: 0.6 };
+    const finalSpeakerIntelligence = {
+      clipId: 'clip-1',
+      conversation: {
+        type: 'interview',
+        turnDensity: 30,
+        backAndForthScore: 1,
+        responseLatency: 0,
+        overlapRatio: 0,
+      },
+      speaker: { confidence: 0.7, engagement: 0.6, importance: 0.8, highlight: 0.5 },
+      visual: { speakerFocusShift: { count: 1, averageConfidence: 0.9 } },
+    };
     const clip = {
       id: 'clip-1',
       video: { ownerId: 'user-1' },
       conversationDynamics: dynamics,
       conversationType: type,
+      finalSpeakerIntelligence,
     };
 
     afterEach(() => {
       delete process.env.CONVERSATION_INTELLIGENCE_ENABLED;
+      delete process.env.SPEAKER_FUSION_ENABLED;
     });
 
     it('exposes real conversationDynamics/conversationType when the flag is on', async () => {
@@ -494,6 +508,35 @@ describe('ClipsService', () => {
 
       expect(result.conversationDynamics).toBeNull();
       expect(result.conversationType).toBeNull();
+    });
+
+    // Speaker Intelligence Phase F - a SEPARATE flag from
+    // CONVERSATION_INTELLIGENCE_ENABLED above, same independent-toggle
+    // convention as every other v4 phase's own exposure flag.
+    it('exposes real finalSpeakerIntelligence when SPEAKER_FUSION_ENABLED is on', async () => {
+      process.env.SPEAKER_FUSION_ENABLED = 'true';
+      prisma.clip.findUnique.mockResolvedValue(clip);
+
+      const result = await service.getIntelligence('clip-1', 'user-1');
+
+      expect(result.finalSpeakerIntelligence).toEqual(finalSpeakerIntelligence);
+    });
+
+    it('nulls out finalSpeakerIntelligence when SPEAKER_FUSION_ENABLED is off, even though the clip has a real stored value', async () => {
+      prisma.clip.findUnique.mockResolvedValue(clip);
+
+      const result = await service.getIntelligence('clip-1', 'user-1');
+
+      expect(result.finalSpeakerIntelligence).toBeNull();
+    });
+
+    it('reports finalSpeakerIntelligence: null (not a crash) for a pre-migration row, even with the flag on', async () => {
+      process.env.SPEAKER_FUSION_ENABLED = 'true';
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, finalSpeakerIntelligence: null });
+
+      const result = await service.getIntelligence('clip-1', 'user-1');
+
+      expect(result.finalSpeakerIntelligence).toBeNull();
     });
 
     it('throws NotFoundException when the clip does not exist', async () => {
@@ -1093,6 +1136,7 @@ describe('ClipsService', () => {
         editingSuggestions: null,
         conversationDynamics: null,
         conversationType: null,
+        finalSpeakerIntelligence: null,
         thumbnailSelectionTimestamp: undefined,
         thumbnailSelectionBreakdown: null,
         thumbnailSelectionFallback: undefined,
@@ -1378,6 +1422,7 @@ describe('ClipsService', () => {
         editingSuggestions: null,
         conversationDynamics: null,
         conversationType: null,
+        finalSpeakerIntelligence: null,
         thumbnailSelectionTimestamp: undefined,
         thumbnailSelectionBreakdown: null,
         thumbnailSelectionFallback: undefined,

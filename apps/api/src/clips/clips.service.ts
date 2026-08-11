@@ -52,6 +52,7 @@ import { isSubtitleRewriteEnabled } from '@speedora/subtitle-rewriter';
 import { isDynamicCaptionEnabled } from '@speedora/dynamic-caption';
 import { isVisualEmphasisEnabled } from '@speedora/visual-emphasis';
 import { isConversationIntelligenceEnabled } from '@speedora/conversation-intelligence';
+import { isSpeakerFusionEnabled } from '@speedora/speaker-fusion';
 import { computePlatformFit } from '@speedora/platform-fit';
 import type { Queue } from 'bullmq';
 import type { ClipPlatformCopy } from '@speedora/database';
@@ -91,6 +92,7 @@ import {
   toSharedEditingSuggestions,
   toSharedConversationDynamics,
   toSharedConversationType,
+  toSharedFinalSpeakerIntelligence,
   toSharedCompositeRankSubScores,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
@@ -585,6 +587,9 @@ export class ClipsService {
         : null,
       conversationType: isConversationIntelligenceEnabled()
         ? toSharedConversationType(clip.conversationType)
+        : null,
+      finalSpeakerIntelligence: isSpeakerFusionEnabled()
+        ? toSharedFinalSpeakerIntelligence(clip.finalSpeakerIntelligence)
         : null,
     };
   }
@@ -1278,6 +1283,7 @@ export class ClipsService {
     editingSuggestions: unknown;
     conversationDynamics: unknown;
     conversationType: unknown;
+    finalSpeakerIntelligence: unknown;
     thumbnailSelectionTimestamp: number | null;
     thumbnailSelectionBreakdown: unknown;
     thumbnailSelectionFallback: string | null;
@@ -1384,6 +1390,7 @@ export class ClipsService {
       editingSuggestions: toSharedEditingSuggestions(clip.editingSuggestions),
       conversationDynamics: toSharedConversationDynamics(clip.conversationDynamics),
       conversationType: toSharedConversationType(clip.conversationType),
+      finalSpeakerIntelligence: toSharedFinalSpeakerIntelligence(clip.finalSpeakerIntelligence),
       thumbnailSelectionTimestamp: clip.thumbnailSelectionTimestamp,
       thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
         clip.thumbnailSelectionBreakdown,

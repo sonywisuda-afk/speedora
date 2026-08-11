@@ -1305,6 +1305,50 @@ export interface ConversationTypeResult {
   confidence: number | null;
 }
 
+// Speaker Intelligence Phase F ("Cross-module Fusion" - see docs/ai/
+// speaker-intelligence.md). Mirrors @speedora/contracts' speaker-fusion.ts
+// rather than importing it - same duplication precedent as every other v4
+// type in this file. Deliberately a STRUCTURED, 3-branch object, not a
+// single composite score - see that contract file's own design comment for
+// why (orthogonality over a naive sum-everything-into-one-number fusion,
+// and avoiding double-counting the same underlying speaker-transition
+// events that both `conversation` and `visual` ultimately derive from).
+export interface FinalSpeakerIntelligenceConversation {
+  type: ConversationType | null;
+  turnDensity: number;
+  backAndForthScore: number | null;
+  responseLatency: number | null;
+  overlapRatio: number;
+}
+
+export interface FinalSpeakerIntelligenceSpeaker {
+  confidence: number | null;
+  engagement: number | null;
+  importance: number | null;
+  highlight: number | null;
+}
+
+export interface FinalSpeakerIntelligenceVisual {
+  speakerFocusShift: {
+    count: number;
+    averageConfidence: number | null;
+  };
+}
+
+export interface FinalSpeakerIntelligence {
+  clipId: string;
+  // null iff this Clip row predates Phase F's migration (never computed) -
+  // the render-graph node itself always produces a real object once it
+  // runs (optional: false).
+  conversation: FinalSpeakerIntelligenceConversation | null;
+  speaker: FinalSpeakerIntelligenceSpeaker | null;
+  // Never null - always a real (possibly count: 0) object, computed live
+  // from this clip's own editingSuggestions. Diagnostic only - deliberately
+  // never folded into a score alongside `conversation` (see the contract's
+  // own comment).
+  visual: FinalSpeakerIntelligenceVisual;
+}
+
 // Fase 29/31 (Mini Fusion Engine v1 -> v2) - @speedora/fusion-engine's
 // feature-level breakdown: one entry per extracted+normalized+weighted
 // named feature (not one opaque sub-score per signal) - see
@@ -1824,6 +1868,13 @@ export interface Clip {
   // itself never throws, it returns `{ type: null, confidence: null }` for
   // the "not enough data" case as a real, present result).
   conversationType: ConversationTypeResult | null;
+  // Speaker Intelligence Phase F ("Cross-module Fusion") - computed on
+  // every render regardless of SPEAKER_FUSION_ENABLED (the flag gates API
+  // exposure, not computation - see isSpeakerFusionEnabled()). Same
+  // null-semantics as conversationDynamics/editingSuggestions above: this
+  // node always produces a real object once it runs, so null here can ONLY
+  // mean this Clip row predates this phase's migration.
+  finalSpeakerIntelligence: FinalSpeakerIntelligence | null;
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // @speedora/thumbnail-selection's chosen in-clip timestamp, replacing the
   // naive clip-midpoint thumbnailUrl/thumbnailBlurDataUrl are extracted at,

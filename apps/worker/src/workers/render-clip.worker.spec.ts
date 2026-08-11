@@ -1597,6 +1597,7 @@ describe('render-clip worker', () => {
         editingSuggestions: expect.any(Array),
         conversationDynamics: expect.any(Object),
         conversationType: expect.any(Object),
+        finalSpeakerIntelligence: expect.any(Object),
         thumbnailSelectionTimestamp: expect.any(Number),
         thumbnailSelectionBreakdown: expect.any(Array),
         thumbnailSelectionFallback: expect.any(String),
@@ -2774,6 +2775,131 @@ describe('render-clip worker', () => {
       expect(focusShifts).toContainEqual({ start: 1.85, end: 2.15 }); // visual source
       expect(focusShifts).toContainEqual({ start: 4.85, end: 5.15 }); // speaker source
       expect(focusShifts).toHaveLength(2);
+    });
+  });
+
+  // Speaker Intelligence Phase F ("Cross-module Fusion" - see docs/ai/
+  // speaker-intelligence.md). finalSpeakerIntelligenceNode runs
+  // unconditionally (optional: false, no flag gates computation - same
+  // convention as every other pure-derive node), so no env var needs to be
+  // set for these tests. graphResult.finalSpeakerIntelligence itself comes
+  // from the REAL (un-mocked) computeEditingSuggestions() and
+  // composeFinalSpeakerIntelligence() - a real speaker transition (Phase
+  // E's own fixture shape) plus a real face-landmark subject change
+  // (Phase C3's own fixture shape) fire BOTH a real speaker_focus_shift
+  // AND a real plain focus_shift suggestion in the SAME render, proving
+  // the node's own filtering keeps them apart (the Phase F brief's
+  // scenario 6/7: "speaker transition + face change" /
+  // "speaker transition + existing focus shift" must not be conflated).
+  describe('Speaker Intelligence Phase F - Cross-module Fusion render wiring', () => {
+    const speakerTransitionJobData: RenderClipJobData = {
+      ...baseJobData,
+      transcript: [
+        { start: 10, end: 15, text: 'a', speaker: 'Speaker A' },
+        { start: 15, end: 20, text: 'b', speaker: 'Speaker B' },
+      ],
+    };
+
+    beforeEach(() => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      buildCropPathMock.mockReturnValue(null);
+    });
+
+    it('composes conversation/speaker/visual sections without conflating a co-occurring plain focus_shift with the speaker_focus_shift count', async () => {
+      // Same trackId-change fixture as the Visual Emphasis Engine Phase C3
+      // block above - produces one real, plain 'focus_shift' suggestion
+      // (technique-distinct from 'speaker_focus_shift') at t=2.
+      detectFaceLandmarksMock.mockResolvedValue([
+        {
+          t: 0,
+          boundingBox: { xCenter: 0.5, yCenter: 0.5, width: 0.2, height: 0.2 },
+          sharpness: null,
+          rotation: null,
+          blendshapes: null,
+          brightness: null,
+          mouthContrastRatio: null,
+          faceDescriptor: null,
+          trackId: 1,
+          leftIris: null,
+          rightIris: null,
+          leftEyeInnerCorner: null,
+          leftEyeOuterCorner: null,
+          rightEyeInnerCorner: null,
+          rightEyeOuterCorner: null,
+          mouthWidth: null,
+        },
+        {
+          t: 1,
+          boundingBox: { xCenter: 0.5, yCenter: 0.5, width: 0.2, height: 0.2 },
+          sharpness: null,
+          rotation: null,
+          blendshapes: null,
+          brightness: null,
+          mouthContrastRatio: null,
+          faceDescriptor: null,
+          trackId: 1,
+          leftIris: null,
+          rightIris: null,
+          leftEyeInnerCorner: null,
+          leftEyeOuterCorner: null,
+          rightEyeInnerCorner: null,
+          rightEyeOuterCorner: null,
+          mouthWidth: null,
+        },
+        {
+          t: 2,
+          boundingBox: { xCenter: 0.5, yCenter: 0.5, width: 0.2, height: 0.2 },
+          sharpness: null,
+          rotation: null,
+          blendshapes: null,
+          brightness: null,
+          mouthContrastRatio: null,
+          faceDescriptor: null,
+          trackId: 2,
+          leftIris: null,
+          rightIris: null,
+          leftEyeInnerCorner: null,
+          leftEyeOuterCorner: null,
+          rightEyeInnerCorner: null,
+          rightEyeOuterCorner: null,
+          mouthWidth: null,
+        },
+      ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(speakerTransitionJobData));
+
+      const call = clipUpdateMock.mock.calls.find(
+        ([args]) =>
+          (args as { data?: { finalSpeakerIntelligence?: unknown } }).data
+            ?.finalSpeakerIntelligence !== undefined,
+      );
+      expect(call).toBeDefined();
+      const finalSpeakerIntelligence = (
+        call?.[0] as { data: { finalSpeakerIntelligence: Record<string, unknown> } }
+      ).data.finalSpeakerIntelligence;
+
+      // The plain focus_shift suggestion (from the face-landmark trackId
+      // change) must NOT be counted here - only speaker_focus_shift is.
+      expect(finalSpeakerIntelligence.visual).toEqual({
+        speakerFocusShift: { count: 1, averageConfidence: expect.any(Number) },
+      });
+      // conversation reflects real Phase C data for this 2-speaker,
+      // well-held transition - not suppressed by the co-occurring visual
+      // event.
+      expect(finalSpeakerIntelligence.conversation).toMatchObject({ type: 'interview' });
+      // speaker is a real object (talk-time-ratio-derived importance is
+      // available even with no face/gesture/voice-energy data for this
+      // fixture) - confidence/engagement/highlight are honestly null
+      // (nothing to compute them from here), not fabricated zeros.
+      expect(finalSpeakerIntelligence.speaker).toEqual({
+        confidence: null,
+        engagement: null,
+        importance: expect.any(Number),
+        highlight: null,
+      });
     });
   });
 
@@ -4020,6 +4146,7 @@ describe('render-clip worker', () => {
           editingSuggestions: expect.any(Array),
           conversationDynamics: expect.any(Object),
           conversationType: expect.any(Object),
+          finalSpeakerIntelligence: expect.any(Object),
           thumbnailSelectionTimestamp: expect.any(Number),
           thumbnailSelectionBreakdown: expect.any(Array),
           thumbnailSelectionFallback: expect.any(String),
@@ -4170,6 +4297,7 @@ describe('render-clip worker', () => {
           editingSuggestions: expect.any(Array),
           conversationDynamics: expect.any(Object),
           conversationType: expect.any(Object),
+          finalSpeakerIntelligence: expect.any(Object),
           thumbnailSelectionTimestamp: expect.any(Number),
           thumbnailSelectionBreakdown: expect.any(Array),
           thumbnailSelectionFallback: expect.any(String),
@@ -4486,6 +4614,7 @@ describe('render-clip worker', () => {
           editingSuggestions: expect.any(Array),
           conversationDynamics: expect.any(Object),
           conversationType: expect.any(Object),
+          finalSpeakerIntelligence: expect.any(Object),
           thumbnailSelectionTimestamp: expect.any(Number),
           thumbnailSelectionBreakdown: expect.any(Array),
           thumbnailSelectionFallback: expect.any(String),
@@ -4636,6 +4765,7 @@ describe('render-clip worker', () => {
           editingSuggestions: expect.any(Array),
           conversationDynamics: expect.any(Object),
           conversationType: expect.any(Object),
+          finalSpeakerIntelligence: expect.any(Object),
           thumbnailSelectionTimestamp: expect.any(Number),
           thumbnailSelectionBreakdown: expect.any(Array),
           thumbnailSelectionFallback: expect.any(String),

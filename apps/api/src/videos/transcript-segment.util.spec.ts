@@ -3,6 +3,7 @@ import {
   toSharedCaptionStyle,
   toSharedConversationDynamics,
   toSharedConversationType,
+  toSharedFinalSpeakerIntelligence,
   toSharedTranscriptionProvider,
 } from './transcript-segment.util';
 
@@ -93,5 +94,34 @@ describe('toSharedConversationType', () => {
 
   it('returns null for undefined (defensive)', () => {
     expect(toSharedConversationType(undefined)).toBeNull();
+  });
+});
+
+// Speaker Intelligence Phase F - same null-semantics as
+// toSharedConversationDynamics above.
+describe('toSharedFinalSpeakerIntelligence', () => {
+  const real = {
+    clipId: 'clip-1',
+    conversation: {
+      type: 'interview' as const,
+      turnDensity: 12,
+      backAndForthScore: 0.8,
+      responseLatency: 0.5,
+      overlapRatio: 0,
+    },
+    speaker: { confidence: 0.7, engagement: 0.6, importance: 0.8, highlight: 0.5 },
+    visual: { speakerFocusShift: { count: 1, averageConfidence: 0.9 } },
+  };
+
+  it('passes a real value through unchanged', () => {
+    expect(toSharedFinalSpeakerIntelligence(real)).toEqual(real);
+  });
+
+  it('returns null for a pre-migration row (SQL NULL)', () => {
+    expect(toSharedFinalSpeakerIntelligence(null)).toBeNull();
+  });
+
+  it('returns null for undefined (defensive)', () => {
+    expect(toSharedFinalSpeakerIntelligence(undefined)).toBeNull();
   });
 });

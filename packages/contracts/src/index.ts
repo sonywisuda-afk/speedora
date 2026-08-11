@@ -35,6 +35,7 @@ export * from './scene-intelligence';
 export * from './semantic-events';
 export * from './seo-copy';
 export * from './speaker-diarization';
+export * from './speaker-fusion';
 export * from './speaker-quality';
 export * from './speaker-scoring';
 export * from './speaker-timeline';

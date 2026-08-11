@@ -53,6 +53,7 @@
     "@speedora/semantic-events": "workspace:*",
     "@speedora/shared": "workspace:*",
     "@speedora/social": "workspace:*",
+    "@speedora/speaker-fusion": "workspace:*",
     "@speedora/storage": "workspace:^",
     "@speedora/subtitle-rewriter": "workspace:*",
     "@speedora/virality-engine": "workspace:*",

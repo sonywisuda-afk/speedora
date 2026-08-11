@@ -1315,6 +1315,22 @@ model Clip {
   // classifier ran but didn't have enough diarization data to classify
   // (e.g. speakerCount is 0) - a real result, not a failure.
   conversationType            Json?
+  // Speaker Intelligence Phase F ("Cross-module Fusion" - see docs/ai/
+  // speaker-intelligence.md). @speedora/speaker-fusion's
+  // FinalSpeakerIntelligence: a structured, 3-branch read-model
+  // (conversation/speaker/visual) consolidating conversationDynamics/
+  // conversationType above, the EXISTING speakerFusionFeatures Fusion
+  // Engine v2 signal, and this Clip's own speaker_focus_shift editing
+  // suggestions - deliberately NOT a single composite score (no naive
+  // "sum everything" fusion - see that package's own design comment).
+  // Same null-semantics/always-a-real-object convention as
+  // conversationDynamics/editingSuggestions above: null here can ONLY mean
+  // this Clip row predates this phase's migration. Computed on every
+  // render regardless of the SPEAKER_FUSION_ENABLED flag (gates API
+  // exposure only - see isSpeakerFusionEnabled()). Fusion Engine v2's own
+  // weights.ts is deliberately untouched by this phase - a genuinely
+  // separate, standalone composite, not a v2 extension.
+  finalSpeakerIntelligence    Json?
   // AI Clip Library roadmap, Phase P1 - denormalized endTime - startTime,
   // set alongside them at every write site (detect-clips.worker.ts's
   // initial prisma.clip.create, and ClipsService.update's manual trim) -
