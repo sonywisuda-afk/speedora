@@ -1,6 +1,8 @@
 import type {
   ClipRankSubScores,
   ComputeClipRankInput,
+  ConversationDynamics,
+  ConversationTypeResult,
   RetentionCurveInsights,
   RetentionPoint,
 } from '@speedora/contracts';
@@ -42,6 +44,42 @@ function retentionScore(insights: RetentionCurveInsights): number {
   return Math.max(0, Math.min(100, RETENTION_BASELINE - dropPenalty + engagementBonus));
 }
 
+// Speaker Intelligence Phase D. Reuses Phase C's own two already-computed
+// outputs directly - interactionIntensity (already a 0-1 heuristic
+// composite of turn density/back-and-forth/overlap) as the score, scaled
+// to 0-100, gated by ConversationTypeResult.type as the "is this axis even
+// meaningful for this clip" check. No new detector, no new heuristic
+// composite beyond a straight linear scale, no LLM call.
+//
+// Deliberately null (excluded from the composite average), not a low
+// number, for two cases:
+// - type === null: genuinely no diarization data (speakerCount 0) -
+//   nothing to measure, same "don't fabricate" convention as everywhere
+//   else in this codebase.
+// - type === 'monologue': a solo speaker. Scoring interactionIntensity
+//   here would systematically penalize every solo-creator clip purely for
+//   being solo (interactionIntensity is mechanically near-0 for a single
+//   speaker - see @speedora/conversation-intelligence's own test fixture),
+//   even though solo content is not inherently less valuable. This
+//   mirrors classifyConversationType's own explicit non-penalization rule
+//   ("single speaker is always monologue... never penalized for having
+//   many (self-)turns") one level up: conversational interactivity simply
+//   isn't a meaningful axis for monologue content, so it's excluded from
+//   the average entirely rather than dragging it down.
+//
+// Every other type (interview/discussion/debate/podcast, and the
+// documented-but-never-produced 'presentation') scores real
+// interactionIntensity * 100 - a genuinely low-interaction discussion
+// still scores low here, that's real signal, not a penalty for content
+// type.
+function conversationEngagementScore(
+  dynamics: ConversationDynamics,
+  classification: ConversationTypeResult,
+): number | null {
+  if (classification.type === null || classification.type === 'monologue') return null;
+  return dynamics.interactionIntensity * 100;
+}
+
 // Pure, synchronous - the module's own per-clip sub-score derivation, one
 // dimension at a time. Narrative/Semantic Importance reuse
 // @speedora/virality-engine's own scoring formulas (also used by Stage B's
@@ -70,5 +108,9 @@ export function deriveSubScores(input: ComputeClipRankInput): ClipRankSubScores 
     educationalValue: input.scores.educationalValue,
     curiosity: input.scores.curiosity,
     trustAuthority: input.scores.trustAuthority,
+    conversationEngagement:
+      input.conversationDynamics === null || input.conversationType === null
+        ? null
+        : conversationEngagementScore(input.conversationDynamics, input.conversationType),
   };
 }

@@ -1467,7 +1467,8 @@ export interface Video {
 // AI Intelligence v4 Phase 14.1 (Clip Ranking Engine, Stage D - see
 // docs/ai/clip-ranking-engine.md). Mirrors @speedora/contracts'
 // ClipRankSubScores rather than importing it - same duplication precedent
-// as ViralitySubProbabilities/RetentionPoint above.
+// as ViralitySubProbabilities/RetentionPoint above. Speaker Intelligence
+// Phase D added conversationEngagement (see docs/ai/speaker-intelligence.md).
 export interface ClipRankSubScores {
   fusion: number | null;
   virality: number | null;
@@ -1481,6 +1482,7 @@ export interface ClipRankSubScores {
   educationalValue: number;
   curiosity: number;
   trustAuthority: number;
+  conversationEngagement: number | null;
 }
 
 // Client-facing shape for a Clip - deliberately not the same as

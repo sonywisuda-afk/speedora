@@ -420,6 +420,67 @@ running the FULL spec file (not just the new tests in isolation) and seeing unre
 tests fail with a nonsensical diff; fixed by removing the phantom queue entry, not by changing the
 implementation.
 
+## Speaker Intelligence Phase D architecture (as shipped)
+
+Not part of this doc's own Phase 13/14 roadmap - a later, separate initiative (Speaker Intelligence
+& Diarization Engine, see `docs/ai/speaker-intelligence.md`) extended this already-shipped Stage D
+composite with a 13th dimension, `conversationEngagement`, once its own Phase C (Conversation
+Dynamics) gave it something real to consume. Documented here rather than in a new file since it's a
+small, additive extension of the exact structure Phase 14.1/14.2 already established, not a new
+subsystem.
+
+**Principles held throughout** (explicit user direction before starting): reuse Phase C's own output
+as input (no new detector); no Fusion Engine v2 `weights.ts` changes (a completely separate module,
+never touched); no new LLM call (`deriveConversationDynamics`/`classifyConversationType` are both
+already zero-LLM); confidence stays explicit (the existing `count(non-null)/Object.keys(subScores).
+length` denominator is dynamic, not hardcoded, so it updated to /13 automatically); flag-gated only
+insofar as the thing being extended already is - Stage D's ranking pass has never had its own feature
+flag (unlike the AI Intelligence v4 phases' API-exposure flags), so no new flag was invented just for
+this one dimension, keeping it consistent with the pattern being extended rather than inventing a new
+one; deterministic logic covered by fixture-based tests at both the unit level
+(`@speedora/clip-ranking`) and a dedicated worker-level integration test proving the Prisma-column ->
+`ComputeClipRankInput` -> `compositeRankSubScores` field-name wiring is genuinely correct end to end
+(not just type-checking); no expansion into visual/reframe scope - this stays a pure numeric
+composite, no crop-path/caption/rendering change anywhere.
+
+**`packages/contracts/src/clip-ranking.ts`**: `clipRankSubScoresSchema` gains `conversationEngagement:
+z.number().min(0).max(100).nullable()`. `computeClipRankInputSchema` gains `conversationDynamics:
+conversationDynamicsSchema.nullable()` and `conversationType: conversationTypeResultSchema.
+nullable()` - both null together whenever a Clip row predates Phase C's migration (the render-graph
+node producing them is `optional: false`, so a post-migration clip always has both or neither).
+
+**`packages/clip-ranking/src/derive-sub-scores.ts`**: a new `conversationEngagementScore()` helper -
+gated by `ConversationTypeResult.type`, not just presence/absence. Null (excluded from the composite
+average, not scored as a low number) for two cases: `type === null` (no diarization data at all) and
+`type === 'monologue'` (a solo speaker) - the second case is the more consequential design decision.
+`interactionIntensity` is mechanically near-zero for any single-speaker clip (no alternation, no
+overlap by definition), so scoring it directly would systematically penalize every solo-creator clip
+purely for being solo. This mirrors `classifyConversationType()`'s own explicit non-penalization rule
+one level up ("single speaker is always monologue... never penalized for having many (self-)turns") -
+conversational interactivity simply isn't a meaningful axis for monologue content, so it's excluded
+from the average entirely rather than dragging it down. Every other type (interview/discussion/
+debate/podcast) scores real `interactionIntensity * 100` - a genuinely low-interaction discussion
+still scores low, that's real signal, not a penalty for content type.
+
+**`apps/worker/src/workers/render-clip.worker.ts`**: the existing Phase 14.2 `renderedSiblings` select
+gains `conversationDynamics`/`conversationType`; the `rankable.map()` call gains the two corresponding
+fields (same single-cast-at-a-boundary convention as every sibling field). Deliberately NOT added to
+the `rankable` filter (unlike `scores`/`viralityPrediction`/`retentionCurveInsights`, which exclude a
+clip from ranking entirely when missing) - a clip predating Phase C's migration still ranks on the
+other 12 dimensions with reduced confidence, rather than being excluded from ranking altogether. This
+is a deliberate departure from the `retention` precedent (also a pure, zero-LLM, always-runs signal,
+but declared non-nullable in the contract because the `rankable` filter already guarantees its
+presence) - `conversationEngagement` stays nullable in the contract specifically so this looser,
+non-excluding wiring choice is honestly reflected in the type.
+
+**Verification**: `packages/contracts` 23/23 (183/183), `packages/clip-ranking` 2/2 (21/21, +6 new -
+null-when-predates-migration, null-when-no-data, null-for-monologue, `it.each` across interview/
+discussion/debate/podcast, real-low-score-not-a-penalty), `packages/shared` 11/11 (84/84, mirrored
+`ClipRankSubScores` type), `apps/worker` 57/57 (753/753, +1 new dedicated integration test proving
+the field-name wiring), `apps/api` 84/84 (1290/1290, unaffected - `compositeRankSubScores` flows
+through its existing opaque-cast mapper unchanged). `typecheck`/`lint`/`format` all green across every
+touched package.
+
 ## 7. Verification convention
 
 Same as every prior v4 phase: after each sub-phase, run the affected package's own test suite, then

@@ -65,6 +65,8 @@ function baseInput(overrides: Partial<ComputeClipRankInput> = {}): ComputeClipRa
     narrativeGraph: null,
     retentionCurveInsights: retentionInsights(),
     semanticEvents: null,
+    conversationDynamics: null,
+    conversationType: null,
     ...overrides,
   };
 }
@@ -167,6 +169,76 @@ describe('deriveSubScores', () => {
     expect(withEngagement).toBeGreaterThan(neutral);
     expect(withDrops).toBeGreaterThanOrEqual(0);
     expect(withEngagement).toBeLessThanOrEqual(100);
+  });
+
+  // Speaker Intelligence Phase D.
+  describe('conversationEngagement', () => {
+    const dynamics = (interactionIntensity: number) => ({
+      speakerCount: 2,
+      turnCount: 4,
+      switchCount: 3,
+      turnDensityPerMinute: 30,
+      averageTurnDurationSeconds: 2,
+      medianTurnDurationSeconds: 2,
+      backAndForthScore: 1,
+      responseLatencySeconds: 0,
+      overlapRatio: 0,
+      interactionIntensity,
+    });
+
+    it('is null when conversationDynamics/conversationType are null (predates Phase C migration)', () => {
+      expect(
+        deriveSubScores(baseInput({ conversationDynamics: null, conversationType: null }))
+          .conversationEngagement,
+      ).toBeNull();
+    });
+
+    it('is null when there is no diarization data at all (type: null)', () => {
+      expect(
+        deriveSubScores(
+          baseInput({
+            conversationDynamics: dynamics(0),
+            conversationType: { type: null, confidence: null },
+          }),
+        ).conversationEngagement,
+      ).toBeNull();
+    });
+
+    it('is null for a monologue - never penalized for having nothing to measure on this axis', () => {
+      expect(
+        deriveSubScores(
+          baseInput({
+            conversationDynamics: dynamics(0.03),
+            conversationType: { type: 'monologue', confidence: 0.9 },
+          }),
+        ).conversationEngagement,
+      ).toBeNull();
+    });
+
+    it.each(['interview', 'discussion', 'debate', 'podcast'] as const)(
+      'scores interactionIntensity * 100 for %s (a genuine multi-speaker type)',
+      (type) => {
+        expect(
+          deriveSubScores(
+            baseInput({
+              conversationDynamics: dynamics(0.75),
+              conversationType: { type, confidence: 0.6 },
+            }),
+          ).conversationEngagement,
+        ).toBe(75);
+      },
+    );
+
+    it('scores a genuinely low-interaction discussion as a real low number, not a penalty', () => {
+      expect(
+        deriveSubScores(
+          baseInput({
+            conversationDynamics: dynamics(0.1),
+            conversationType: { type: 'discussion', confidence: 0.4 },
+          }),
+        ).conversationEngagement,
+      ).toBe(10);
+    });
   });
 
   it('maps the 6 ClipScores dimensions directly, unaltered', () => {
