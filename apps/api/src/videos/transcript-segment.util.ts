@@ -11,6 +11,8 @@ import type {
   ClipRankSubScores,
   ClipScores,
   CompositionFeatures,
+  ConversationDynamics,
+  ConversationTypeResult,
   DiarizationFeatures,
   EditingRhythmFeatures,
   EditingSuggestionTimeline,
@@ -600,4 +602,23 @@ export function toSharedEditingSuggestions(
   editingSuggestions: unknown,
 ): EditingSuggestionTimeline | null {
   return (editingSuggestions as EditingSuggestionTimeline | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.conversationDynamics (Speaker Intelligence Phase C). Same
+// null-semantics as toSharedContextualMomentum/toSharedEmotionalArc/
+// toSharedEditingSuggestions above: null here can ONLY mean this Clip row
+// predates this phase's migration - the render-graph node always produces
+// a real object once it runs.
+export function toSharedConversationDynamics(
+  conversationDynamics: unknown,
+): ConversationDynamics | null {
+  return (conversationDynamics as ConversationDynamics | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as toSharedConversationDynamics
+// above, for Clip.conversationType - computed by the same render-graph
+// node, same migration, same null-semantics.
+export function toSharedConversationType(conversationType: unknown): ConversationTypeResult | null {
+  return (conversationType as ConversationTypeResult | null) ?? null;
 }

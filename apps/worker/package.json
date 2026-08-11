@@ -35,6 +35,7 @@
     "@speedora/composition-intelligence": "workspace:*",
     "@speedora/contextual-momentum": "workspace:*",
     "@speedora/contracts": "workspace:*",
+    "@speedora/conversation-intelligence": "workspace:*",
     "@speedora/cutlist": "workspace:*",
     "@speedora/database": "workspace:^",
     "@speedora/dataset-quality": "workspace:*",

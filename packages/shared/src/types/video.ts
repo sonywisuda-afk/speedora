@@ -1263,6 +1263,43 @@ export interface SpeakerHighlightMoment {
   score: number | null;
 }
 
+// Speaker Intelligence Phase C (Conversation Dynamics - see docs/ai/
+// speaker-intelligence.md). Mirrors @speedora/contracts'
+// conversationDynamicsSchema rather than importing it - same duplication
+// precedent as MomentumSample/SpeakerHighlightMoment above. Per-CLIP (not
+// video-wide), derived from this clip's own re-run of
+// deriveDiarizationFeatures() against its clip-relative SpeakerTurn[] - see
+// that contract file's own null-vs-0 discipline comment (0 is a real
+// answer - "zero turns"/"zero overlap" - while averageTurnDurationSeconds/
+// medianTurnDurationSeconds/backAndForthScore/responseLatencySeconds are
+// null when there's not enough data to average/compute a ratio over).
+export interface ConversationDynamics {
+  speakerCount: number;
+  turnCount: number;
+  switchCount: number;
+  turnDensityPerMinute: number;
+  averageTurnDurationSeconds: number | null;
+  medianTurnDurationSeconds: number | null;
+  backAndForthScore: number | null;
+  responseLatencySeconds: number | null;
+  overlapRatio: number;
+  interactionIntensity: number;
+}
+
+// Mirrors @speedora/contracts' CONVERSATION_TYPES/conversationTypeResultSchema.
+// A deterministic heuristic over ConversationDynamics' own fields (see
+// classifyConversationType()'s own doc comment) - NOT a trained model, NOT
+// calibrated against real engagement data. `type: null` means there wasn't
+// enough diarization data to classify at all (e.g. speakerCount is 0), not
+// a fabricated default.
+export type ConversationType =
+  'monologue' | 'interview' | 'discussion' | 'debate' | 'presentation' | 'podcast';
+
+export interface ConversationTypeResult {
+  type: ConversationType | null;
+  confidence: number | null;
+}
+
 // Fase 29/31 (Mini Fusion Engine v1 -> v2) - @speedora/fusion-engine's
 // feature-level breakdown: one entry per extracted+normalized+weighted
 // named feature (not one opaque sub-score per signal) - see
@@ -1765,6 +1802,23 @@ export interface Clip {
   // affect the actual crop-path/render decision - a later phase's job
   // (C2-C7, see docs/ai/visual-emphasis-engine.md).
   editingSuggestions: EditingSuggestionTimeline | null;
+  // Speaker Intelligence Phase C (Conversation Dynamics) - computed on
+  // every render regardless of CONVERSATION_INTELLIGENCE_ENABLED (the flag
+  // gates API exposure, not computation - see
+  // isConversationIntelligenceEnabled()). Same null-semantics as
+  // contextualMomentum/emotionalArc/editingSuggestions: this node always
+  // produces a real object once it runs (re-running
+  // deriveDiarizationFeatures() against this clip's own SpeakerTurn[] can't
+  // fail the way an LLM call can), so null here can ONLY mean this Clip row
+  // predates this phase's migration.
+  conversationDynamics: ConversationDynamics | null;
+  // Speaker Intelligence Phase C - the ConversationType classification
+  // derived FROM conversationDynamics above (same node, same migration,
+  // same null-semantics - null here can ONLY mean this Clip row predates
+  // the migration, not "classification failed": classifyConversationType()
+  // itself never throws, it returns `{ type: null, confidence: null }` for
+  // the "not enough data" case as a real, present result).
+  conversationType: ConversationTypeResult | null;
   // Phase 4 of the thumbnail roadmap (AI Thumbnail Selection, Level 2) -
   // @speedora/thumbnail-selection's chosen in-clip timestamp, replacing the
   // naive clip-midpoint thumbnailUrl/thumbnailBlurDataUrl are extracted at,

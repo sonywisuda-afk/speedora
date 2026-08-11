@@ -66,6 +66,21 @@ const noSubtitleIntelligence = {
 };
 const noCaptionTreatment: never[] = [];
 const noEditingSuggestions: never[] = [];
+const noConversationIntelligence = {
+  dynamics: {
+    speakerCount: 0,
+    turnCount: 0,
+    switchCount: 0,
+    turnDensityPerMinute: 0,
+    averageTurnDurationSeconds: null,
+    medianTurnDurationSeconds: null,
+    backAndForthScore: null,
+    responseLatencySeconds: null,
+    overlapRatio: 0,
+    interactionIntensity: 0,
+  },
+  classification: { type: null, confidence: null },
+};
 const midpointThumbnailSelection = {
   timestampSeconds: 5,
   confidence: 0,
@@ -120,6 +135,7 @@ function baseResult(overrides: Partial<RenderGraphResult> = {}): RenderGraphResu
     subtitleIntelligence: noSubtitleIntelligence,
     captionTreatment: noCaptionTreatment,
     editingSuggestions: noEditingSuggestions,
+    conversationIntelligence: noConversationIntelligence,
     thumbnailSelection: midpointThumbnailSelection,
     ...overrides,
   };

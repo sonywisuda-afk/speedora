@@ -1295,6 +1295,26 @@ model Clip {
   // of the VISUAL_EMPHASIS_ENABLED flag (gates API exposure only - see
   // isVisualEmphasisEnabled()).
   editingSuggestions          Json?
+  // Speaker Intelligence Phase C (Conversation Dynamics - see docs/ai/
+  // speaker-intelligence.md). @speedora/conversation-intelligence's
+  // ConversationDynamics: turnDensity/backAndForthScore/responseLatency/
+  // overlapRatio/interactionIntensity, derived by re-running the SAME
+  // @speedora/speaker-diarization deriveDiarizationFeatures() this
+  // codebase already uses for the video-wide aggregate, against this
+  // clip's own clip-relative SpeakerTurn[] - zero new detectors. Same
+  // null-semantics/always-a-real-object convention as contextualMomentum/
+  // emotionalArc/editingSuggestions: null here can ONLY mean this Clip row
+  // predates this phase's migration. Computed on every render regardless
+  // of the CONVERSATION_INTELLIGENCE_ENABLED flag (gates API exposure only
+  // - see isConversationIntelligenceEnabled()).
+  conversationDynamics        Json?
+  // Speaker Intelligence Phase C - the ConversationType classification
+  // (monologue/interview/discussion/debate/presentation/podcast) derived
+  // FROM conversationDynamics above, via the SAME render-graph node/
+  // migration/null-semantics. A present value with `type: null` means the
+  // classifier ran but didn't have enough diarization data to classify
+  // (e.g. speakerCount is 0) - a real result, not a failure.
+  conversationType            Json?
   // AI Clip Library roadmap, Phase P1 - denormalized endTime - startTime,
   // set alongside them at every write site (detect-clips.worker.ts's
   // initial prisma.clip.create, and ClipsService.update's manual trim) -

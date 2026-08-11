@@ -51,6 +51,7 @@ import { isMultimodalReasoningEnabled } from '@speedora/multimodal-reasoning';
 import { isSubtitleRewriteEnabled } from '@speedora/subtitle-rewriter';
 import { isDynamicCaptionEnabled } from '@speedora/dynamic-caption';
 import { isVisualEmphasisEnabled } from '@speedora/visual-emphasis';
+import { isConversationIntelligenceEnabled } from '@speedora/conversation-intelligence';
 import { computePlatformFit } from '@speedora/platform-fit';
 import type { Queue } from 'bullmq';
 import type { ClipPlatformCopy } from '@speedora/database';
@@ -88,6 +89,8 @@ import {
   toSharedSubtitleIntelligence,
   toSharedCaptionTreatment,
   toSharedEditingSuggestions,
+  toSharedConversationDynamics,
+  toSharedConversationType,
   toSharedCompositeRankSubScores,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
@@ -576,6 +579,12 @@ export class ClipsService {
         : null,
       editingSuggestions: isVisualEmphasisEnabled()
         ? toSharedEditingSuggestions(clip.editingSuggestions)
+        : null,
+      conversationDynamics: isConversationIntelligenceEnabled()
+        ? toSharedConversationDynamics(clip.conversationDynamics)
+        : null,
+      conversationType: isConversationIntelligenceEnabled()
+        ? toSharedConversationType(clip.conversationType)
         : null,
     };
   }
@@ -1267,6 +1276,8 @@ export class ClipsService {
     subtitleIntelligence: unknown;
     captionTreatment: unknown;
     editingSuggestions: unknown;
+    conversationDynamics: unknown;
+    conversationType: unknown;
     thumbnailSelectionTimestamp: number | null;
     thumbnailSelectionBreakdown: unknown;
     thumbnailSelectionFallback: string | null;
@@ -1371,6 +1382,8 @@ export class ClipsService {
       subtitleIntelligence: toSharedSubtitleIntelligence(clip.subtitleIntelligence),
       captionTreatment: toSharedCaptionTreatment(clip.captionTreatment),
       editingSuggestions: toSharedEditingSuggestions(clip.editingSuggestions),
+      conversationDynamics: toSharedConversationDynamics(clip.conversationDynamics),
+      conversationType: toSharedConversationType(clip.conversationType),
       thumbnailSelectionTimestamp: clip.thumbnailSelectionTimestamp,
       thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
         clip.thumbnailSelectionBreakdown,
