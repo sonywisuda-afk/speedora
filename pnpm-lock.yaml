@@ -1686,9 +1686,15 @@ importers:
       '@speedora/contracts':
         specifier: workspace:*
         version: link:../contracts
+      '@speedora/conversation-intelligence':
+        specifier: workspace:*
+        version: link:../conversation-intelligence
       '@speedora/cutlist':
         specifier: workspace:*
         version: link:../cutlist
+      '@speedora/speaker-diarization':
+        specifier: workspace:*
+        version: link:../speaker-diarization
     devDependencies:
       '@types/jest':
         specifier: ^29.5.2

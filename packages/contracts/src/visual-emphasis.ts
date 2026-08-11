@@ -3,6 +3,7 @@ import { highlightTimelineSchema } from './subtitle-rewriter';
 import { ocrTextTrackSchema } from './ocr';
 import { primarySubjectSampleSchema } from './primary-subject';
 import { retentionCurveInsightsSchema } from './retention-curve-insights';
+import { speakerTurnSchema } from './speaker-diarization';
 import { transcriptWordSchema } from './transcript-word';
 
 // AI Intelligence v4 Track B, Phase C1 (Visual Emphasis Engine, spec Part
@@ -38,6 +39,18 @@ import { transcriptWordSchema } from './transcript-word';
 // follow-up: flag a moment where predicted momentum drops sharply enough
 // that a viewer plausibly starts losing interest) rather than inventing a
 // parallel data structure - see from-drop-points.ts's own comment.
+//
+// 'speaker_focus_shift' is likewise NOT one of spec Part 9's 9 techniques -
+// Speaker Intelligence Phase E (see docs/ai/speaker-intelligence.md),
+// reusing this same delivery shape again, same precedent as attention_cut.
+// Deliberately a SEPARATE value from 'focus_shift', not a second source
+// feeding the same one: both end up merged into the identical downstream
+// {start,end}[] window list @speedora/reframe's buildCropPath() already
+// consumes (zero changes there), but keeping them distinct lets
+// render-clip.worker.ts gate each source with its own independent flag -
+// the same "one flag per trigger source" precedent Visual Emphasis Engine
+// Phase C4 (Digital Push) already established for extending Auto Zoom's
+// trigger set, not a new one invented here.
 export const EDITING_TECHNIQUES = [
   'digital_push',
   'ocr_highlight',
@@ -45,6 +58,7 @@ export const EDITING_TECHNIQUES = [
   'reaction_hold',
   'pause_hold',
   'attention_cut',
+  'speaker_focus_shift',
 ] as const;
 export const editingTechniqueSchema = z.enum(EDITING_TECHNIQUES);
 export type EditingTechnique = z.infer<typeof editingTechniqueSchema>;
@@ -90,5 +104,18 @@ export const computeEditingSuggestionsInputSchema = z.object({
   retentionCurveInsights: retentionCurveInsightsSchema,
   words: z.array(transcriptWordSchema),
   clipDurationSeconds: z.number().nonnegative(),
+  // Speaker Intelligence Phase E ('speaker_focus_shift', see above). Raw,
+  // clip-relative turns - the SAME apps/worker ctx.speakerTurns Phase C's
+  // conversationIntelligence node already reads directly (deps: []), not a
+  // second detector. This module derives deriveDiarizationFeatures()/
+  // deriveConversationDynamics() from it itself (both already-shipped, pure
+  // @speedora/speaker-diarization / @speedora/conversation-intelligence
+  // functions) rather than depending on that node's own output, keeping
+  // this module's dependency graph a straight line from raw turns (same
+  // shape every other input field here already has - "already-computed
+  // elsewhere," not "depends on a sibling render-graph node"). Always a
+  // real (possibly empty) array, never null - matches every other field's
+  // established null-semantics in this schema.
+  speakerTurns: z.array(speakerTurnSchema),
 });
 export type ComputeEditingSuggestionsInput = z.infer<typeof computeEditingSuggestionsInputSchema>;

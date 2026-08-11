@@ -1333,6 +1333,86 @@ severity threshold means none of that spec file's existing fixtures happen to tr
 `typecheck`/`build`/`lint`/`format` all green across `contracts`/`shared`/`visual-emphasis`/`worker`/
 `web`.
 
+## Speaker Intelligence Phase E — "speaker_focus_shift", NOT one of the 9 spec Part 9 techniques
+
+> **Also not part of this doc's own 9-technique roadmap, which stays complete and closed** — same
+> "reuse the shape, don't reopen the closed set" precedent as Attention Curve Optimization above.
+> Owned by the separate Speaker Intelligence & Diarization Engine initiative (see
+> `docs/ai/speaker-intelligence.md`), documented here because it's the file that owns the shape it
+> reuses and the pipeline it feeds.
+
+The user's own explicit brief before starting named the exact boundary: "Speaker transition → Focus
+Shift trigger, dengan confidence gating. Bukan membuat sistem reframing baru" (a trigger for the
+EXISTING Focus Shift mechanism, not a new reframing system), with 8 explicit exclusions (no new
+diarization detector, no Fusion Engine v2 change, no Phase D ranking-formula change, no caption logic,
+no new crop engine, no whole-architecture change, no LLM, and explicitly NOT "every speaker switch =
+a cut"). The central risk named up front: a podcast/interview can switch speaker several times a
+SECOND, and triggering a crop snap on every one would read as jittery, not speaker-aware.
+
+**Audit first**: `fromPrimarySubjectSamples()` (Phase C3) already generates `focus_shift` suggestions,
+but purely from `PrimarySubjectSample.trackId` CHANGES — a VISUAL signal. A genuine speaker change can
+happen with **no** visual trackId change at all (two speakers sharing one frame, or the face tracker
+never losing the shot) — the visual detector structurally cannot see this. Diarization already exists
+(`ctx.speakerTurns`, `@speedora/speaker-diarization`'s `deriveDiarizationFeatures()`) and Speaker
+Intelligence Phase C already ships `deriveConversationDynamics()`'s `interactionIntensity` — both
+reusable verbatim, zero new detector.
+
+`packages/visual-emphasis/src/from-speaker-transitions.ts` (new) — `fromSpeakerTransitions()`: calls
+`deriveDiarizationFeatures()`/`deriveConversationDynamics()` (Phase C's own functions, unmodified)
+against `ctx.speakerTurns`, then applies 3 independent gates before emitting a suggestion:
+1. **Hold duration** (`MIN_SPEAKER_HOLD_SECONDS`, 1.0s, mirrors `fromPrimarySubjectSamples()`'s own
+   `MIN_HOLD_SECONDS` value as an independent local constant) — both the outgoing AND incoming turn
+   must hold the floor long enough to read as deliberate, not a backchannel/interjection.
+2. **Confidence** (`MIN_TRANSITION_CONFIDENCE`, 0.5 base) — `min(outgoingHold, incomingHold) /
+   HOLD_CONFIDENCE_NORMALIZATION_SECONDS`, adaptively RAISED by the clip's own `interactionIntensity`
+   (`INTERACTION_INTENSITY_CONFIDENCE_PENALTY`, up to +0.3) — a clip that is already rapid-exchange
+   overall must clear a stricter per-transition bar, directly reusing Phase C's own composite as the
+   damper rather than inventing a new heuristic.
+3. **Cooldown** (`MIN_SUGGESTION_GAP_SECONDS`, 4.0s, measured from the last ACCEPTED suggestion, not
+   every candidate transition) — prevents closely-spaced individually-qualifying transitions from
+   still reading as jittery.
+
+Fires a **separate** technique value, `'speaker_focus_shift'` — NOT `'focus_shift'` — added to
+`EDITING_TECHNIQUES`/`EditingTechnique` in both `@speedora/contracts` and its `packages/shared`
+mirror, same "reuse the shape, add one enum value" precedent as `attention_cut`. Deliberately kept
+distinct from `focus_shift` (rather than merged into the same value) specifically so
+`render-clip.worker.ts` can gate this new SOURCE with its own independent flag
+(`isSpeakerAwareFocusShiftEnabled()`, `SPEAKER_AWARE_FOCUS_SHIFT_ENABLED`) — same "one flag per
+trigger source, never a shared master flag" precedent Phase C4 (Digital Push) already established
+when it extended Auto Zoom's own trigger set. Both sources are then CONCATENATED into the same plain
+`{start, end}[]` window list `@speedora/reframe`'s `buildCropPath()`/`applyFocusShifts()` already
+consumes — **zero changes to `crop-path.ts` or the reframe planner itself**, satisfying "not a new
+reframing system" structurally, not just by convention.
+
+**Deliberately out of scope, per the user's own 8 exclusions**: no new diarization detector (reuses
+`deriveDiarizationFeatures()`/`deriveConversationDynamics()` verbatim); no Fusion Engine v2
+`weights.ts` change (untouched, separate module); no Phase D ranking-formula change (untouched,
+separate module); no caption/subtitle logic touched; no new crop engine (`buildCropPath()` itself is
+unmodified — only its existing `focusShifts` parameter now receives a second, merged source); no
+whole-`visual-emphasis` architecture change (one new file following the exact existing "one function
+per technique" shape, one new package-level dependency edge, no restructuring); no LLM call (the whole
+function is pure/synchronous); and explicitly not "every speaker switch = a cut" — the 3 gates above
+are the concrete mechanism that keeps this "speaker-aware," not "speaker-triggered."
+
+**Verification**: `packages/visual-emphasis` 8/8 suites (52/52 tests — 34 pre-existing unchanged + 1
+new orchestration-level test in `compute-editing-suggestions.spec.ts` proving the new technique
+merges into the composed timeline + 17 new in a dedicated `from-speaker-transitions.spec.ts`:
+no-turns/single-speaker/same-speaker-split empty cases, the exact rapid-fire false-positive scenario
+the brief named, the hold-floor gate (both a rejection above the floor that still fails confidence,
+and a transition that clears both), the adaptive damper (the SAME 0.6-confidence local hold shape
+accepted in a calm clip vs. rejected in a rapid-exchange clip — every fixture's expected
+confidence/interactionIntensity value hand-verified against the real implementation, not assumed,
+after two initial hand-calculation errors were caught by actually running the tests rather than
+trusting the arithmetic), cooldown suppression and release, determinism, non-mutation, and schema
+conformance).
+`render-clip.worker.spec.ts` 152/152 (148 pre-existing unchanged - no existing fixture in that file
+sets a transcript `speaker` field, so `ctx.speakerTurns` was always `[]` for every prior test, making
+this addition fully inert for them - + 4 new: flag-on real window passthrough, flag-off empty array,
+independence from `isFocusShiftEnabled()`, and a merge test proving both sources reach
+`buildCropPath()` together when both flags are on). `apps/api` 84/84 (1290/1290) unaffected (no
+`apps/api` code touches `@speedora/visual-emphasis` directly). `typecheck`/`lint`/`format` all green
+across every touched package.
+
 ## Explicitly deferred / open questions
 
 - **Whether any of C6-C7 need their own per-clip opt-in toggle** (mirroring `smartSegmentation`/

@@ -19,6 +19,40 @@ Zod schemas and wired to validate their subprocess output with `.parse()`, closi
 they were the only two Python-subprocess-backed modules in this codebase using an unchecked `as`
 cast instead of the established JSON-contract pattern.
 
+**Update (2026-08-11) — a later, phased follow-up initiative shipped real engineering on top of
+this doc's own "schemas only" status, per an explicit audit-first brief (PR #104 Phase 0, PR #105
+Phase C, PR #106 Phase D, PR TBD Phase E)**: **Phase 0** hardened production Diarization
+dependencies (a real `apps/worker` Docker image gap silently affecting Diarization, Vocal Emotion,
+AND Facial Emotion, found and fixed with real HuggingFace-token end-to-end verification), added
+structured `DiarizationError` failure categories, diarization metrics, and a
+`DIARIZATION_DEPENDENCY_MISSING` alert. **Phase C** implemented Level 3's Conversation Type
+Classification row below for real (new `@speedora/conversation-intelligence`,
+`classifyConversationType()`/`deriveConversationDynamics()`, zero new detectors — reuses
+`deriveDiarizationFeatures()` per-clip), wired into the render graph as
+`Clip.conversationDynamics`/`Clip.conversationType`, exposed at `GET /clips/:id/intelligence` behind
+`CONVERSATION_INTELLIGENCE_ENABLED`. **Phase D** (PR #106, stacked on Phase C, shipped separately)
+consumed Phase C's output as a new `conversationEngagement` dimension in the SEPARATE,
+already-shipped Clip Ranking Engine (see `docs/ai/clip-ranking-engine.md`, Phase 14) - NOT the same
+thing as this doc's own Level 3 "Speaker-Centric Clip Ranking" row below, which still refers to a
+genuinely different, still-unbuilt feature (ranking *moments within* a clip via
+`rankedSpeakerMomentSchema`, distinct from ranking *clips against each other*). See
+`docs/ai/clip-ranking-engine.md`'s "Speaker Intelligence Phase D architecture" section for that
+phase's own full design. **Phase E** ("speaker_focus_shift", this PR) gave a genuine speaker CHANGE
+(from `ctx.speakerTurns`/Phase C's own `deriveDiarizationFeatures()`/`deriveConversationDynamics()`,
+no new detector) a way to trigger the SEPARATE, already-shipped Visual Emphasis Engine's Focus Shift
+mechanism (Phase C3, see `docs/ai/visual-emphasis-engine.md`) - a new, independently-flagged trigger
+SOURCE for an existing technique, not a new reframing system; the visual-track-based trigger
+(`fromPrimarySubjectSamples()`) is completely untouched, and `@speedora/reframe`'s `buildCropPath()`
+itself was not modified at all. Explicit false-positive control (hold-duration gate, an adaptive
+confidence threshold that reuses Phase C's own `interactionIntensity` as the damper, and a cooldown)
+was the phase's central design concern, per the user's own explicit warning that a podcast/interview
+can switch speaker several times a second and must not trigger a reframe on every switch. See
+`docs/ai/visual-emphasis-engine.md`'s "Speaker Intelligence Phase E" section for the full design.
+Neither Phase D nor Phase E touched Fusion Engine v2's `weights.ts`, the OTHER phase's own formula,
+caption logic, or added an LLM call - the two are independent siblings, both stacked directly on
+Phase C, not on each other. Remaining Level 1/2/3 items below are still contracts-only except where
+phase-noted (Conversation Type Classification, phase-noted above).
+
 ## Level 1 — Mandatory
 
 | Item | Status | Where | Contract added |
