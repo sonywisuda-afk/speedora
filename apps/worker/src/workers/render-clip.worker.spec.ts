@@ -265,6 +265,15 @@ jest.mock('@speedora/reframe', () => ({
   TARGET_ASPECT_RATIO: 9 / 16,
 }));
 
+// Render Fidelity & Composition Execution Engine, Phase 1 (EffectiveRenderConfig) - mocked the
+// same "test the adapter by mocking the module itself" way as every other @speedora/* package in
+// this file (ARCHITECTURE.md's checklist item 4), not re-tested for its own resolution logic
+// (that's @speedora/render-config's own spec file's job, via pure fixtures).
+const buildEffectiveRenderConfigMock = jest.fn().mockReturnValue({ version: 1 });
+jest.mock('@speedora/render-config', () => ({
+  buildEffectiveRenderConfig: (...args: unknown[]) => buildEffectiveRenderConfigMock(...args),
+}));
+
 let scratchCounter = 0;
 const reserveScratchPathMock = jest.fn((prefix: string, ext: string) => {
   scratchCounter += 1;
@@ -423,6 +432,18 @@ interface RenderClipJobData {
   // concat pass entirely).
   intro?: { key: string; type: 'video' | 'image'; imageDurationSeconds: number | null } | null;
   outro?: { key: string; type: 'video' | 'image'; imageDurationSeconds: number | null } | null;
+  // EffectiveRenderConfig Phase 1 (Render Fidelity Matrix) - optional here (unlike the real
+  // RenderClipJobData) since most existing tests in this file never set any of these; undefined
+  // behaves the same as false/null at the worker.
+  speakerColorCaptions?: boolean;
+  fontFamily?: string | null;
+  watermark?: {
+    key: string;
+    opacity: number;
+    scale: number;
+    margin: number;
+    position: 'TOP_LEFT' | 'TOP_RIGHT' | 'BOTTOM_LEFT' | 'BOTTOM_RIGHT' | 'CENTER';
+  } | null;
 }
 
 // Real deriveAudioFeatures()/deriveFacialEmotionFeatures() output for the
@@ -4210,6 +4231,134 @@ describe('render-clip worker', () => {
 
       const processor = getProcessor();
       const result = await processor(fakeJob(introJobData));
+
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+      expect(uploadObjectMock).toHaveBeenCalledWith(
+        'renders/clip-1.mp4',
+        { fakeStream: expect.stringContaining('output') },
+        'video/mp4',
+      );
+    });
+  });
+
+  // Render Fidelity & Composition Execution Engine, Phase 1 (EffectiveRenderConfig) - see
+  // docs/ai/render-fidelity-matrix.md/packages/contracts/src/render-config.ts's own module
+  // comments for the full design. Tests only the WIRING (the adapter's job, per ARCHITECTURE.md's
+  // checklist item 4) - buildEffectiveRenderConfig()'s own resolution logic is covered purely by
+  // @speedora/render-config's own fixture-based spec, not re-tested here.
+  describe('EffectiveRenderConfig (Render Fidelity Matrix Phase 1) - CONFIG_RESOLVED wiring', () => {
+    it('calls buildEffectiveRenderConfig with the resolved source dimensions, narrowed processingOptions, per-clip overrides, and feature flags', async () => {
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: {
+            version: 1,
+            export: {
+              qualityPreset: 'maximum_quality',
+              aspectRatio: '16:9',
+              resolutionTier: '720p',
+            },
+            smartCrop: { zoomInFraction: 0.4 },
+            broll: { enabled: false, maxCutaways: 2 },
+            sceneAnalysis: {
+              detectSceneCuts: false,
+              detectMotionEnergy: true,
+              detectCameraMotion: false,
+            },
+          },
+        },
+      });
+      getVideoDimensionsMock.mockResolvedValue({ width: 1920, height: 1080 });
+
+      const processor = getProcessor();
+      await processor(
+        fakeJob({
+          ...baseJobData,
+          speakerColorCaptions: true,
+          fontFamily: 'Poppins',
+          watermark: {
+            key: 'brand/watermark.png',
+            opacity: 0.8,
+            scale: 0.15,
+            margin: 0.03,
+            position: 'BOTTOM_RIGHT',
+          },
+        }),
+      );
+
+      expect(buildEffectiveRenderConfigMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clipId: 'clip-1',
+          videoId: 'video-1',
+          sourceWidth: 1920,
+          sourceHeight: 1080,
+          processingOptions: expect.objectContaining({
+            export: {
+              qualityPreset: 'maximum_quality',
+              aspectRatio: '16:9',
+              resolutionTier: '720p',
+            },
+            smartCrop: { zoomInFraction: 0.4 },
+            broll: { enabled: false, maxCutaways: 2 },
+            sceneAnalysis: {
+              detectSceneCuts: false,
+              detectMotionEnergy: true,
+              detectCameraMotion: false,
+            },
+          }),
+          clipOverrides: expect.objectContaining({
+            captionStyle: 'DEFAULT',
+            speakerColorCaptions: true,
+            fontFamily: 'Poppins',
+            watermark: expect.objectContaining({ position: 'BOTTOM_RIGHT' }),
+          }),
+          featureFlags: expect.objectContaining({
+            ocrHighlightEnabled: false,
+            focusShiftEnabled: false,
+            digitalPushEnabled: false,
+            reactionHoldEnabled: false,
+            pauseHoldEnabled: false,
+            speakerAwareFocusShiftEnabled: false,
+          }),
+        }),
+      );
+    });
+
+    it('passes null processingOptions through unchanged when the video has none configured', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildEffectiveRenderConfigMock).toHaveBeenCalledWith(
+        expect.objectContaining({ processingOptions: null }),
+      );
+    });
+
+    it('resolves the real feature-flag booleans from process.env, never leaving that to a downstream ffmpeg-facing function', async () => {
+      process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED = 'true';
+      process.env.VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED = 'true';
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildEffectiveRenderConfigMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          featureFlags: expect.objectContaining({
+            reactionHoldEnabled: true,
+            pauseHoldEnabled: true,
+            ocrHighlightEnabled: false,
+          }),
+        }),
+      );
+
+      delete process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED;
+      delete process.env.VISUAL_EMPHASIS_PAUSE_HOLD_ENABLED;
+    });
+
+    it('does not fail the job or change the uploaded output when buildEffectiveRenderConfig is called (proof-of-integration only, not yet consumed downstream)', async () => {
+      const processor = getProcessor();
+      const result = await processor(fakeJob(baseJobData));
 
       expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
       expect(uploadObjectMock).toHaveBeenCalledWith(

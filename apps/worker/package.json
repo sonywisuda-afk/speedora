@@ -55,6 +55,7 @@
     "@speedora/ocr-intelligence": "workspace:*",
     "@speedora/primary-subject": "workspace:*",
     "@speedora/reframe": "workspace:*",
+    "@speedora/render-config": "workspace:*",
     "@speedora/report-builder": "workspace:*",
     "@speedora/retention-curve-insights": "workspace:*",
     "@speedora/scene-intelligence": "workspace:*",

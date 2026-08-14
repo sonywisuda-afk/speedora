@@ -17,6 +17,7 @@ import type {
   OcrHighlightBox,
   OcrTextTrack,
   PrimarySubjectSample,
+  RenderConfigProcessingOptions,
   RetentionCurveInsights,
   SemanticEvent,
   SpeakerTurn,
@@ -78,6 +79,7 @@ import {
   TARGET_ASPECT_RATIO,
   type FaceSample,
 } from '@speedora/reframe';
+import { buildEffectiveRenderConfig } from '@speedora/render-config';
 import { getObjectStream, uploadObject } from '@speedora/storage';
 import { isDynamicCaptionEnabled } from '@speedora/dynamic-caption';
 import { isSubtitleRewriteEnabled } from '@speedora/subtitle-rewriter';
@@ -284,6 +286,37 @@ function resolveBRollOptions(processingOptions: ProcessingOptions | null): {
   return {
     enabled: processingOptions?.broll.enabled ?? true,
     maxMoments: processingOptions?.broll.maxCutaways ?? undefined,
+  };
+}
+
+// Render Fidelity & Composition Execution Engine, Phase 1 (EffectiveRenderConfig) - see
+// packages/contracts/src/render-config.ts's own module comment for the full scope-boundary
+// reasoning and docs/ai/render-fidelity-matrix.md for the Phase 0 audit this is built on top of.
+// Narrows the real (post-migrateProcessingOptions()) ProcessingOptions down to
+// @speedora/render-config's own deliberately smaller input contract - same "narrow the input to
+// only what the module needs" adapter responsibility toScoringInput()/shortlistRawCandidates()
+// already have in detect-clips.worker.ts. `null` passes straight through, matching every existing
+// resolveX() helper's own "no processingOptions at all -> every default applies" convention.
+function toRenderConfigProcessingOptions(
+  processingOptions: ProcessingOptions | null,
+): RenderConfigProcessingOptions | null {
+  if (!processingOptions) return null;
+  return {
+    export: {
+      qualityPreset: processingOptions.export.qualityPreset,
+      aspectRatio: processingOptions.export.aspectRatio,
+      resolutionTier: processingOptions.export.resolutionTier,
+    },
+    smartCrop: { zoomInFraction: processingOptions.smartCrop.zoomInFraction },
+    broll: {
+      enabled: processingOptions.broll.enabled,
+      maxCutaways: processingOptions.broll.maxCutaways,
+    },
+    sceneAnalysis: {
+      detectSceneCuts: processingOptions.sceneAnalysis.detectSceneCuts,
+      detectMotionEnergy: processingOptions.sceneAnalysis.detectMotionEnergy,
+      detectCameraMotion: processingOptions.sceneAnalysis.detectCameraMotion,
+    },
   };
 }
 
@@ -1395,6 +1428,50 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               clampedAudioChannels,
               sourceAudioChannels,
             } = await computeReframeDimensions(sourcePath, processingOptions);
+
+            // Render Fidelity & Composition Execution Engine, Phase 1 (EffectiveRenderConfig) -
+            // see packages/contracts/src/render-config.ts's own module comment and
+            // docs/ai/render-fidelity-matrix.md for the full design/scope-boundary reasoning.
+            // Built and logged (CONFIG_RESOLVED, mission-brief section 17's own observability
+            // convention) purely as a proof-of-integration for this Foundation phase - NOT yet
+            // consumed by any ffmpeg-facing code below. Every existing resolveRenderQuality()/
+            // resolveTargetAspectRatio()/resolveResolutionTier()/resolveZoomInFraction()/
+            // resolveBRollOptions()/resolveSceneAnalysisFlags() call further down this file is
+            // UNCHANGED and remains the actual source of truth driving this render - see
+            // @speedora/render-config's own module comment for why the cutover is a deliberately
+            // separate, later phase, once this object's output is proven to agree with those
+            // helpers across real renders (this log line IS that proof-gathering mechanism).
+            // The 6 isXEnabled() feature-flag reads happen HERE, once, rather than being left for
+            // a later ffmpeg-facing function to read env vars directly - exactly what the mission
+            // brief's "the renderer must NOT independently read... environment variables" rule
+            // requires, even though nothing downstream consumes the resolved booleans yet.
+            const effectiveRenderConfig = buildEffectiveRenderConfig({
+              clipId,
+              videoId,
+              sourceWidth,
+              sourceHeight,
+              processingOptions: toRenderConfigProcessingOptions(processingOptions),
+              clipOverrides: {
+                captionStyle,
+                speakerColorCaptions,
+                smartSegmentation,
+                dynamicCaptions,
+                captionLanguage,
+                fontFamily,
+                watermark,
+                intro,
+                outro,
+              },
+              featureFlags: {
+                ocrHighlightEnabled: isOcrHighlightEnabled(),
+                focusShiftEnabled: isFocusShiftEnabled(),
+                digitalPushEnabled: isDigitalPushEnabled(),
+                reactionHoldEnabled: isReactionHoldEnabled(),
+                pauseHoldEnabled: isPauseHoldEnabled(),
+                speakerAwareFocusShiftEnabled: isSpeakerAwareFocusShiftEnabled(),
+              },
+            });
+            logger.info('CONFIG_RESOLVED', { clipId, videoId, effectiveRenderConfig });
 
             // Composing multiple modules: the render-clip Feature Orchestrator (see
             // ARCHITECTURE.md) - Scene Intelligence's sceneCuts/sceneCutEvents are the first

@@ -1,0 +1,37 @@
+{
+  "name": "@speedora/render-config",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Stateless module (JSON-in/JSON-out): Render Fidelity & Composition Execution Engine, Phase 1 - builds the single EffectiveRenderConfig object a render should be driven by, from already-resolved ProcessingOptions/per-clip overrides/ops feature flags/source dimensions. No DB/queue/subprocess access at all; see root ARCHITECTURE.md and docs/ai/render-fidelity-matrix.md. Not yet consumed by any ffmpeg-facing code - apps/worker's render-clip.worker.ts logs its output (CONFIG_RESOLVED) alongside the existing resolveX() helpers it doesn't yet replace; see that file's own comment for the phased cutover plan.",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "lint": "eslint \"src/**/*.ts\"",
+    "typecheck": "tsc --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@speedora/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.2",
+    "jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "typescript": "^5.9.3"
+  },
+  "jest": {
+    "moduleFileExtensions": [
+      "js",
+      "json",
+      "ts"
+    ],
+    "rootDir": "src",
+    "testRegex": ".*\\.spec\\.ts$",
+    "transform": {
+      "^.+\\.ts$": "ts-jest"
+    },
+    "testEnvironment": "node"
+  }
+}
