@@ -266,15 +266,24 @@ jest.mock('@speedora/reframe', () => ({
 }));
 
 // Render Fidelity & Composition Execution Engine, Phase 1 (EffectiveRenderConfig) / Phase 2
-// (OutputProfile) - mocked the same "test the adapter by mocking the module itself" way as every
-// other @speedora/* package in this file (ARCHITECTURE.md's checklist item 4), not re-tested for
-// their own resolution logic (that's @speedora/render-config's own spec files' job, via pure
-// fixtures).
-const buildEffectiveRenderConfigMock = jest.fn().mockReturnValue({ version: 1 });
+// (OutputProfile) / Phase 3 (RenderPlan) - mocked the same "test the adapter by mocking the
+// module itself" way as every other @speedora/* package in this file (ARCHITECTURE.md's checklist
+// item 4), not re-tested for their own resolution logic (that's @speedora/render-config's own
+// spec files' job, via pure fixtures).
+const buildEffectiveRenderConfigMock = jest.fn().mockReturnValue({ version: 1, branding: {} });
 const buildOutputProfileMock = jest.fn().mockReturnValue({ width: 1080, height: 1920 });
+const buildRenderPlanMock = jest.fn().mockReturnValue({
+  version: 1,
+  timeline: {},
+  holds: { reactionHoldInstants: [] },
+  framing: { cropPath: null, reframeHints: [] },
+  overlays: { broll: [] },
+  transitions: {},
+});
 jest.mock('@speedora/render-config', () => ({
   buildEffectiveRenderConfig: (...args: unknown[]) => buildEffectiveRenderConfigMock(...args),
   buildOutputProfile: (...args: unknown[]) => buildOutputProfileMock(...args),
+  buildRenderPlan: (...args: unknown[]) => buildRenderPlanMock(...args),
 }));
 
 let scratchCounter = 0;
@@ -3887,12 +3896,16 @@ describe('render-clip worker', () => {
       );
       expect(renderClipMock).toHaveBeenCalledWith(
         expect.objectContaining({
+          // Render Fidelity Matrix Phase 3 - each overlay is now also widened with `keyword`
+          // (see buildBRollOverlays()'s own comment), so this is objectContaining rather than an
+          // exact-shape match; renderClip() itself only ever reads filePath/startTime/endTime,
+          // unaffected by the extra field.
           broll: [
-            {
+            expect.objectContaining({
               filePath: expect.stringContaining('broll-final'),
               startTime: 2,
               endTime: 4.5,
-            },
+            }),
           ],
         }),
       );
@@ -4452,6 +4465,236 @@ describe('render-clip worker', () => {
         { fakeStream: expect.stringContaining('output') },
         'video/mp4',
       );
+    });
+  });
+
+  // Render Fidelity & Composition Execution Engine, Phase 3 (RenderPlan) - see
+  // docs/ai/render-fidelity-matrix.md/packages/contracts/src/render-plan.ts's own module
+  // comments for the full design. Tests only the WIRING (the adapter's job, per ARCHITECTURE.md's
+  // checklist item 4) - buildRenderPlan()'s own assembly logic is covered purely by
+  // @speedora/render-config's own fixture-based spec, not re-tested here. Also proves the two
+  // widened worker-local functions (buildReframePlan/buildBRollOverlays) keep their EXISTING
+  // behavior unchanged for their real, pre-Phase-3 consumers (renderClip's crop/broll args).
+  describe('RenderPlan (Render Fidelity Matrix Phase 3) - RENDER_PLAN_RESOLVED wiring', () => {
+    it('calls buildRenderPlan with the resolved EffectiveRenderConfig/OutputProfile and the requested time range', async () => {
+      buildEffectiveRenderConfigMock.mockReturnValueOnce({
+        version: 1,
+        branding: { watermark: null, intro: null, outro: null },
+      });
+      buildOutputProfileMock.mockReturnValueOnce({ width: 1080, height: 1920 });
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildRenderPlanMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clipId: 'clip-1',
+          videoId: 'video-1',
+          effectiveRenderConfig: {
+            version: 1,
+            branding: { watermark: null, intro: null, outro: null },
+          },
+          outputProfile: { width: 1080, height: 1920 },
+          requestedStartTime: 10,
+          requestedEndTime: 20,
+        }),
+      );
+    });
+
+    it('threads trimApplied: false and removedSeconds: 0 when no cuts were computed', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildRenderPlanMock).toHaveBeenCalledWith(
+        expect.objectContaining({ trimApplied: false, removedSeconds: 0 }),
+      );
+    });
+
+    it('threads trimApplied: true and the real removed seconds when the trim pass actually succeeded', async () => {
+      const processor = getProcessor();
+      await processor(
+        fakeJob({
+          ...baseJobData,
+          transcript: [
+            {
+              start: 10,
+              end: 20,
+              text: 'hi there',
+              words: [
+                { word: 'hi', start: 10, end: 10.3 },
+                { word: 'there', start: 18, end: 18.3 },
+              ],
+            },
+          ],
+        }),
+      );
+
+      expect(trimCutRangesMock).toHaveBeenCalled();
+      expect(buildRenderPlanMock).toHaveBeenCalledWith(
+        expect.objectContaining({ trimApplied: true, removedSeconds: expect.any(Number) }),
+      );
+    });
+
+    it('threads the real computed cropPath from buildReframePlan through unchanged, and it still reaches renderClip() as before (widening is backward-compatible)', async () => {
+      const cropPath = [
+        { t: 0, x: 10, y: 0, width: 136, height: 240 },
+        { t: 0.2, x: 20, y: 0, width: 136, height: 240 },
+      ];
+      buildCropPathMock.mockReturnValue(cropPath);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildRenderPlanMock).toHaveBeenCalledWith(expect.objectContaining({ cropPath }));
+      // renderClip()'s own reframe.sendCmdPath still gets set exactly as before this phase -
+      // the widening added a field, it didn't remove/change the existing reframe shape.
+      expect(renderClipMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reframe: expect.objectContaining({
+            sendCmdPath: expect.stringContaining('reframe-cmds'),
+          }),
+        }),
+      );
+    });
+
+    it('threads null cropPath through unchanged for the default static-crop case', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildRenderPlanMock).toHaveBeenCalledWith(expect.objectContaining({ cropPath: null }));
+    });
+
+    it('threads OCR reframe hints (computeOcrHighlightBoxes output) as reframeHints', async () => {
+      const ocrHighlights = [{ start: 0.5, end: 2, x: 10, y: 20, width: 200, height: 60 }];
+      computeOcrHighlightBoxesMock.mockReturnValue(ocrHighlights);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildRenderPlanMock).toHaveBeenCalledWith(
+        expect.objectContaining({ reframeHints: ocrHighlights }),
+      );
+    });
+
+    it('threads real reaction hold instants and duration when the pass succeeds', async () => {
+      process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED = 'true';
+      computeEditingSuggestionsMock.mockReturnValueOnce([
+        { technique: 'reaction_hold', start: 2, end: 3.5, score: 0.8, reason: 'x' },
+      ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildRenderPlanMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          reactionHoldInstants: [2.75],
+          reactionHoldDurationSeconds: 0.5,
+        }),
+      );
+
+      delete process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED;
+    });
+
+    it('threads an empty reactionHoldInstants array (never [] -> stale data) when applyReactionHolds itself fails', async () => {
+      process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED = 'true';
+      computeEditingSuggestionsMock.mockReturnValueOnce([
+        { technique: 'reaction_hold', start: 2, end: 3.5, score: 0.8, reason: 'x' },
+      ]);
+      applyReactionHoldsMock.mockRejectedValueOnce(new Error('ffmpeg exited with code 1'));
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildRenderPlanMock).toHaveBeenCalledWith(
+        expect.objectContaining({ reactionHoldInstants: [], reactionHoldDurationSeconds: 0 }),
+      );
+
+      delete process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED;
+    });
+
+    it('threads B-roll overlays with their originating keyword preserved (buildBRollOverlays widening), never the ephemeral filePath', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      findBRollMomentsMock.mockReturnValue([{ keyword: 'sunset', t: 2, isBrandCandidate: false }]);
+      searchAssetsMock.mockResolvedValue({
+        id: 'pexels-123',
+        url: 'https://example.com/sunset.mp4',
+        thumbnail: 'https://example.com/sunset-thumb.jpg',
+        sourceName: 'pexels',
+        resolution: { width: 640, height: 1136 },
+        type: 'video',
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob({ ...baseJobData, keywords: ['sunset'] }));
+
+      expect(buildRenderPlanMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          broll: [expect.objectContaining({ keyword: 'sunset', startTime: 2 })],
+        }),
+      );
+      // renderClip() still receives a valid broll overlay with filePath/startTime/endTime exactly
+      // as before this phase - the keyword widening is additive, not a replacement.
+      expect(renderClipMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          broll: [
+            expect.objectContaining({
+              filePath: expect.stringContaining('broll-final'),
+              startTime: 2,
+              endTime: 4.5,
+            }),
+          ],
+        }),
+      );
+    });
+
+    it('threads an empty broll array when B-roll is disabled or finds nothing', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildRenderPlanMock).toHaveBeenCalledWith(expect.objectContaining({ broll: [] }));
+    });
+
+    it('logs RENDER_PLAN_RESOLVED after buildRenderPlan without failing the job or changing the uploaded output (proof-of-integration only)', async () => {
+      const processor = getProcessor();
+      const result = await processor(fakeJob(baseJobData));
+
+      expect(buildRenderPlanMock).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+      expect(uploadObjectMock).toHaveBeenCalledWith(
+        'renders/clip-1.mp4',
+        { fakeStream: expect.stringContaining('output') },
+        'video/mp4',
+      );
+    });
+
+    it('is called BEFORE the intro/outro concat pass, not after (RenderPlan.overlays.watermark/intro/outro only need the resolved EffectiveRenderConfig, not the concat pass itself)', async () => {
+      const callOrder: string[] = [];
+      buildRenderPlanMock.mockImplementationOnce(() => {
+        callOrder.push('buildRenderPlan');
+        return {
+          version: 1,
+          timeline: {},
+          holds: { reactionHoldInstants: [] },
+          framing: { cropPath: null, reframeHints: [] },
+          overlays: { broll: [] },
+          transitions: {},
+        };
+      });
+      concatBrandSegmentMock.mockImplementationOnce(async () => {
+        callOrder.push('concatBrandSegment');
+      });
+
+      const processor = getProcessor();
+      await processor(
+        fakeJob({
+          ...baseJobData,
+          intro: { key: 'brand/intro.mp4', type: 'video', imageDurationSeconds: null },
+        }),
+      );
+
+      expect(callOrder).toEqual(['buildRenderPlan', 'concatBrandSegment']);
     });
   });
 

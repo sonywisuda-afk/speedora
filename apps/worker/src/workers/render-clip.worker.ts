@@ -10,6 +10,7 @@ import type {
   ConversationDynamics,
   ConversationTypeResult,
   CropDimensions,
+  CropWindow,
   EditingSuggestionTimeline,
   FontFamily,
   HookPredictionOutput,
@@ -79,7 +80,11 @@ import {
   TARGET_ASPECT_RATIO,
   type FaceSample,
 } from '@speedora/reframe';
-import { buildEffectiveRenderConfig, buildOutputProfile } from '@speedora/render-config';
+import {
+  buildEffectiveRenderConfig,
+  buildOutputProfile,
+  buildRenderPlan,
+} from '@speedora/render-config';
 import { getObjectStream, uploadObject } from '@speedora/storage';
 import { isDynamicCaptionEnabled } from '@speedora/dynamic-caption';
 import { isSubtitleRewriteEnabled } from '@speedora/subtitle-rewriter';
@@ -892,7 +897,18 @@ async function buildReframePlan(
   // isOcrHighlightEnabled() right here, same "each technique checks its
   // own flag inside this function" shape C3/C4 already established.
   ocrTracks: OcrTextTrack[] | null = null,
-): Promise<{ reframe: ReframeOptions; ocrHighlights: OcrHighlightBox[] }> {
+): Promise<{
+  reframe: ReframeOptions;
+  ocrHighlights: OcrHighlightBox[];
+  // Render Fidelity & Composition Execution Engine, Phase 3 (RenderPlan) - the already-computed
+  // cropPath was previously discarded here once its own sendCmd script was written to disk (the
+  // only thing renderClip() itself needs). Widened to ALSO return it so RenderPlan.framing can
+  // preserve this real, already-made render decision instead of losing it - no change to the
+  // crop/reframe algorithm itself, and every existing caller ignoring this new field sees no
+  // behavior change. null means a static (non-time-varying) center crop was used for the whole
+  // clip, same meaning buildCropPath()'s own null return already has.
+  cropPath: CropWindow[] | null;
+}> {
   const emphasisWords = findEmphasisWords(toClipRelativeWords(transcript, startTime));
   // Visual Emphasis Engine Phase C3 ("Focus Shift") - @speedora/reframe
   // stays decoupled from @speedora/visual-emphasis's own EditingSuggestion
@@ -982,7 +998,7 @@ async function buildReframePlan(
       staticReframe.outputWidth,
       staticReframe.outputHeight,
     );
-    return { reframe: staticReframe, ocrHighlights };
+    return { reframe: staticReframe, ocrHighlights, cropPath: null };
   }
 
   const sendCmdPath = await reserveScratchPath('reframe-cmds', '.txt');
@@ -1004,7 +1020,7 @@ async function buildReframePlan(
     reframe.outputWidth,
     reframe.outputHeight,
   );
-  return { reframe, ocrHighlights };
+  return { reframe, ocrHighlights, cropPath };
 }
 
 // Fase 15 (Auto B-roll) - finds up to a couple of keyword moments in this
@@ -1041,7 +1057,18 @@ async function buildBRollOverlays(
   // trimAndFadeInBRoll() below instead of letting it fall back to a hardcoded 30fps regardless
   // of what rate the rest of this clip actually renders at.
   outputFrameRate: string | null,
-): Promise<{ overlays: BRollOverlay[]; finalPaths: string[] }> {
+): Promise<{
+  // Render Fidelity & Composition Execution Engine, Phase 3 (RenderPlan) - each overlay is
+  // widened with the `keyword` that drove its own search, preserved alongside the fields
+  // renderClip() already reads (filePath/startTime/endTime, unchanged) - structurally still a
+  // valid BRollOverlay[] wherever that's expected (extra field, no removal), so this is a
+  // backward-compatible widening, not a shape change for any existing consumer. Lets
+  // RenderPlan.overlays.broll capture the real decision (which keyword produced which moment)
+  // instead of only the ephemeral render-time file path, which buildRenderPlan() deliberately
+  // never sees (see that module's own comment on why - determinism).
+  overlays: (BRollOverlay & { keyword: string })[];
+  finalPaths: string[];
+}> {
   const moments = findBRollMoments(
     keywords,
     clipRelativeWords,
@@ -1099,6 +1126,7 @@ async function buildBRollOverlays(
             filePath: finalPath,
             startTime: moment.t,
             endTime: moment.t + BROLL_DURATION_SECONDS,
+            keyword: moment.keyword,
           },
           finalPath,
         };
@@ -1112,7 +1140,7 @@ async function buildBRollOverlays(
     }),
   );
 
-  const overlays: BRollOverlay[] = [];
+  const overlays: (BRollOverlay & { keyword: string })[] = [];
   const finalPaths: string[] = [];
   for (const result of results) {
     if (!result) continue;
@@ -1560,7 +1588,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // "C4 rollout" note: one flag per technique, never a shared
             // master flag, so each can be calibrated independently in
             // production).
-            const { reframe, ocrHighlights } = await buildReframePlan(
+            const { reframe, ocrHighlights, cropPath } = await buildReframePlan(
               graphResult.primarySubjectSamples,
               transcript,
               startTime,
@@ -1780,6 +1808,11 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // has moved on to a later pass's output.
             let trimApplied = false;
             let reactionHoldDurationSeconds = 0;
+            // Render Fidelity & Composition Execution Engine, Phase 3 (RenderPlan) - mirrors
+            // reactionHoldDurationSeconds' own "only reflects what actually happened" semantics:
+            // stays [] unless applyReactionHolds() below genuinely succeeds, so RenderPlan.holds
+            // never claims a hold was applied when the pass failed or the flag was off.
+            let reactionHoldInstants: number[] = [];
             if (cuts.length > 0) {
               trimmedPath = await reserveScratchPath('trimmed', '.mp4');
               const totalOutputDuration = endTime - startTime - totalCutSeconds(cuts);
@@ -1853,6 +1886,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                     clampedAudioChannels,
                   );
                   renderedPath = reactionHoldPath;
+                  reactionHoldInstants = holdInstants;
                   reactionHoldDurationSeconds =
                     holdInstants.length * REACTION_HOLD_EXTENSION_SECONDS;
                   logger.info('applied reaction holds', {
@@ -1868,6 +1902,65 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                 }
               }
             }
+
+            // Render Fidelity & Composition Execution Engine, Phase 3 (RenderPlan) - see
+            // packages/contracts/src/render-plan.ts's own module comment for the full
+            // architectural-position reasoning. Built HERE, not right after Phase 1/2's own
+            // CONFIG_RESOLVED/OUTPUT_PROFILE_RESOLVED - this is the first point in the pipeline
+            // where every decision RenderPlan captures (cropPath, reframeHints, reaction hold
+            // instants/duration, B-roll overlays) has actually been made. Deliberately still
+            // BEFORE the intro/outro pass below: RenderPlan.overlays.watermark/intro/outro are
+            // presence-only booleans derived from effectiveRenderConfig.branding (resolved back
+            // in Phase 1, long before this point) - RenderPlan does not need intro/outro's OWN
+            // concat pass to have run, only to know whether one is configured.
+            //
+            // Same proof-of-integration-only posture as Phase 1/2: logged (RENDER_PLAN_RESOLVED)
+            // purely to prove this snapshot agrees with what the existing pipeline already
+            // decided - NOT yet consumed by any ffmpeg-facing code. Every existing pass below
+            // (intro/outro concat, duration verification, upload) is UNCHANGED and continues to
+            // read its own already-resolved local variables directly, exactly as before this
+            // phase existed.
+            const renderPlan = buildRenderPlan({
+              clipId,
+              videoId,
+              effectiveRenderConfig,
+              outputProfile,
+              requestedStartTime: startTime,
+              requestedEndTime: endTime,
+              trimApplied,
+              removedSeconds: totalCutSeconds(cuts),
+              reactionHoldInstants,
+              reactionHoldDurationSeconds,
+              cropPath,
+              reframeHints: ocrHighlights,
+              broll,
+            });
+            // Summary only - deliberately omits the full cropPath keyframe array (can be
+            // hundreds of points for a long clip) and never logs transcript content, matching
+            // this file's own existing "no huge payloads in normal logs" logging discipline
+            // (see e.g. the 'removed silence/filler cuts' log above, which logs cutCount/
+            // removedSeconds rather than the cuts array itself).
+            logger.info('RENDER_PLAN_RESOLVED', {
+              clipId,
+              videoId,
+              version: renderPlan.version,
+              timeline: renderPlan.timeline,
+              holds: {
+                reactionHoldCount: renderPlan.holds.reactionHoldInstants.length,
+                reactionHoldDurationSeconds: renderPlan.holds.reactionHoldDurationSeconds,
+              },
+              framing: {
+                cropPathPointCount: renderPlan.framing.cropPath?.length ?? 0,
+                reframeHintCount: renderPlan.framing.reframeHints.length,
+              },
+              overlays: {
+                brollCount: renderPlan.overlays.broll.length,
+                watermark: renderPlan.overlays.watermark,
+                intro: renderPlan.overlays.intro,
+                outro: renderPlan.overlays.outro,
+              },
+              transitions: renderPlan.transitions,
+            });
 
             // Intro/Outro roadmap (P3d/P3e) - originally documented as "a
             // THIRD (and, when both are configured, fourth) pass, after the
