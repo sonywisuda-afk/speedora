@@ -79,7 +79,7 @@ import {
   TARGET_ASPECT_RATIO,
   type FaceSample,
 } from '@speedora/reframe';
-import { buildEffectiveRenderConfig } from '@speedora/render-config';
+import { buildEffectiveRenderConfig, buildOutputProfile } from '@speedora/render-config';
 import { getObjectStream, uploadObject } from '@speedora/storage';
 import { isDynamicCaptionEnabled } from '@speedora/dynamic-caption';
 import { isSubtitleRewriteEnabled } from '@speedora/subtitle-rewriter';
@@ -1472,6 +1472,44 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               },
             });
             logger.info('CONFIG_RESOLVED', { clipId, videoId, effectiveRenderConfig });
+
+            // Render Fidelity & Composition Execution Engine, Phase 2 (OutputProfile) - see
+            // packages/contracts/src/output-profile.ts's own module comment for the full
+            // scope-boundary reasoning. Same proof-of-integration-only posture as Phase 1 above:
+            // built and logged (OUTPUT_PROFILE_RESOLVED) purely to prove this canonical object
+            // agrees with what the existing pipeline already does - NOT yet consumed by any
+            // ffmpeg-facing code. `outputSize`/`crop` (from computeReframeDimensions() above) are
+            // the pipeline's own REAL, currently-in-effect resolution - buildOutputProfile()
+            // deliberately does NOT read them, since the whole point of this phase is to prove
+            // its OWN independent computation (via the same reusable computeCropDimensions()/
+            // resolveOutputResolution() calls, just invoked a second time here) lands on the
+            // identical answer, not to just copy the existing one forward.
+            //
+            // Source media characteristics, all plain data (no ffprobe/subprocess call happens in
+            // packages/render-config itself):
+            // - width/height/frameRate: the same sourceWidth/sourceHeight/sourceFrameRate already
+            //   probed above for computeReframeDimensions().
+            // - audioSampleRate: this pipeline has no per-source PROBED sample rate anywhere
+            //   (only a channel-count probe, getAudioChannelCount()) - 44100 mirrors the one real
+            //   sample-rate concept that exists today, ffmpeg.ts's own (unexported)
+            //   BRAND_SEGMENT_AUDIO_SAMPLE_RATE constant that trimCutRanges()'s crossfade join/
+            //   applyReactionHolds()/concatBrandSegment() already normalize every audio stream to.
+            // - audioChannels: clampedAudioChannels ?? 2 - the SAME already-clamped value passed
+            //   to trimCutRanges()/applyReactionHolds()/concatBrandSegment() today (never
+            //   re-clamped here), falling back to the stereo-equivalent default only when the
+            //   channel-count probe itself failed, matching resolveAudioEncodeArgs()'s own
+            //   documented "null -> stereo-equivalent" convention (ffmpeg.ts).
+            const outputProfile = buildOutputProfile({
+              effectiveRenderConfig,
+              sourceMedia: {
+                width: sourceWidth,
+                height: sourceHeight,
+                frameRate: sourceFrameRate,
+                audioSampleRate: 44100,
+                audioChannels: clampedAudioChannels ?? 2,
+              },
+            });
+            logger.info('OUTPUT_PROFILE_RESOLVED', { clipId, videoId, outputProfile });
 
             // Composing multiple modules: the render-clip Feature Orchestrator (see
             // ARCHITECTURE.md) - Scene Intelligence's sceneCuts/sceneCutEvents are the first

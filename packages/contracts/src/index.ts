@@ -27,6 +27,7 @@ export * from './multi-speaker-reasoning';
 export * from './narrative-graph';
 export * from './object-intelligence';
 export * from './ocr';
+export * from './output-profile';
 export * from './platform-fit';
 export * from './primary-subject';
 export * from './reframe';

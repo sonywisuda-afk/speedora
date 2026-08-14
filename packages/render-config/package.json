@@ -2,7 +2,7 @@
   "name": "@speedora/render-config",
   "version": "0.1.0",
   "private": true,
-  "description": "Stateless module (JSON-in/JSON-out): Render Fidelity & Composition Execution Engine, Phase 1 - builds the single EffectiveRenderConfig object a render should be driven by, from already-resolved ProcessingOptions/per-clip overrides/ops feature flags/source dimensions. No DB/queue/subprocess access at all; see root ARCHITECTURE.md and docs/ai/render-fidelity-matrix.md. Not yet consumed by any ffmpeg-facing code - apps/worker's render-clip.worker.ts logs its output (CONFIG_RESOLVED) alongside the existing resolveX() helpers it doesn't yet replace; see that file's own comment for the phased cutover plan.",
+  "description": "Stateless module (JSON-in/JSON-out): Render Fidelity & Composition Execution Engine, Phases 1-2 - Phase 1's buildEffectiveRenderConfig() builds the single EffectiveRenderConfig object a render should be driven by, from already-resolved ProcessingOptions/per-clip overrides/ops feature flags/source dimensions; Phase 2's buildOutputProfile() derives the concrete OutputProfile (width/height/fps/codec/audio) from EffectiveRenderConfig.output plus plain source media characteristics, reusing @speedora/reframe's own proven computeCropDimensions()/resolveOutputResolution() rather than re-deriving that geometry. No DB/queue/subprocess/ffprobe access at all; see root ARCHITECTURE.md and docs/ai/render-fidelity-matrix.md. Not yet consumed by any ffmpeg-facing code - apps/worker's render-clip.worker.ts logs both outputs (CONFIG_RESOLVED, OUTPUT_PROFILE_RESOLVED) alongside the existing resolveX() helpers it doesn't yet replace; see that file's own comment for the phased cutover plan.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "scripts": {
@@ -13,7 +13,8 @@
     "test": "jest"
   },
   "dependencies": {
-    "@speedora/contracts": "workspace:*"
+    "@speedora/contracts": "workspace:*",
+    "@speedora/reframe": "workspace:*"
   },
   "devDependencies": {
     "@types/jest": "^29.5.2",

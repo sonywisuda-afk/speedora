@@ -265,13 +265,16 @@ jest.mock('@speedora/reframe', () => ({
   TARGET_ASPECT_RATIO: 9 / 16,
 }));
 
-// Render Fidelity & Composition Execution Engine, Phase 1 (EffectiveRenderConfig) - mocked the
-// same "test the adapter by mocking the module itself" way as every other @speedora/* package in
-// this file (ARCHITECTURE.md's checklist item 4), not re-tested for its own resolution logic
-// (that's @speedora/render-config's own spec file's job, via pure fixtures).
+// Render Fidelity & Composition Execution Engine, Phase 1 (EffectiveRenderConfig) / Phase 2
+// (OutputProfile) - mocked the same "test the adapter by mocking the module itself" way as every
+// other @speedora/* package in this file (ARCHITECTURE.md's checklist item 4), not re-tested for
+// their own resolution logic (that's @speedora/render-config's own spec files' job, via pure
+// fixtures).
 const buildEffectiveRenderConfigMock = jest.fn().mockReturnValue({ version: 1 });
+const buildOutputProfileMock = jest.fn().mockReturnValue({ width: 1080, height: 1920 });
 jest.mock('@speedora/render-config', () => ({
   buildEffectiveRenderConfig: (...args: unknown[]) => buildEffectiveRenderConfigMock(...args),
+  buildOutputProfile: (...args: unknown[]) => buildOutputProfileMock(...args),
 }));
 
 let scratchCounter = 0;
@@ -4360,6 +4363,89 @@ describe('render-clip worker', () => {
       const processor = getProcessor();
       const result = await processor(fakeJob(baseJobData));
 
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+      expect(uploadObjectMock).toHaveBeenCalledWith(
+        'renders/clip-1.mp4',
+        { fakeStream: expect.stringContaining('output') },
+        'video/mp4',
+      );
+    });
+  });
+
+  // Render Fidelity & Composition Execution Engine, Phase 2 (OutputProfile) - see
+  // docs/ai/render-fidelity-matrix.md/packages/contracts/src/output-profile.ts's own module
+  // comments for the full design. Tests only the WIRING (the adapter's job, per ARCHITECTURE.md's
+  // checklist item 4) - buildOutputProfile()'s own resolution logic is covered purely by
+  // @speedora/render-config's own fixture-based spec, not re-tested here.
+  describe('OutputProfile (Render Fidelity Matrix Phase 2) - OUTPUT_PROFILE_RESOLVED wiring', () => {
+    it('calls buildOutputProfile with the resolved EffectiveRenderConfig and plain source media characteristics', async () => {
+      getVideoDimensionsMock.mockResolvedValue({ width: 1920, height: 1080 });
+      getVideoFrameRateStringMock.mockResolvedValue('30000/1001');
+      getAudioChannelCountMock.mockResolvedValue(2);
+      buildEffectiveRenderConfigMock.mockReturnValueOnce({
+        version: 1,
+        output: { aspectRatio: '9:16' },
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildOutputProfileMock).toHaveBeenCalledWith({
+        effectiveRenderConfig: { version: 1, output: { aspectRatio: '9:16' } },
+        sourceMedia: {
+          width: 1920,
+          height: 1080,
+          frameRate: '30000/1001',
+          audioSampleRate: 44100,
+          audioChannels: 2,
+        },
+      });
+    });
+
+    it('falls back to a stereo-equivalent audioChannels default when the channel-count probe failed (never re-clamps a real value)', async () => {
+      getAudioChannelCountMock.mockResolvedValue(null);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildOutputProfileMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceMedia: expect.objectContaining({ audioChannels: 2 }),
+        }),
+      );
+    });
+
+    it('threads a real probed mono channel count through unchanged (never silently upmixed)', async () => {
+      getAudioChannelCountMock.mockResolvedValue(1);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildOutputProfileMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceMedia: expect.objectContaining({ audioChannels: 1 }),
+        }),
+      );
+    });
+
+    it('passes null frameRate through unchanged when the source frame rate could not be probed', async () => {
+      getVideoFrameRateStringMock.mockResolvedValue(null);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildOutputProfileMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sourceMedia: expect.objectContaining({ frameRate: null }),
+        }),
+      );
+    });
+
+    it('logs OUTPUT_PROFILE_RESOLVED after buildOutputProfile without failing the job or changing the uploaded output (proof-of-integration only)', async () => {
+      const processor = getProcessor();
+      const result = await processor(fakeJob(baseJobData));
+
+      expect(buildOutputProfileMock).toHaveBeenCalledTimes(1);
       expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
       expect(uploadObjectMock).toHaveBeenCalledWith(
         'renders/clip-1.mp4',
