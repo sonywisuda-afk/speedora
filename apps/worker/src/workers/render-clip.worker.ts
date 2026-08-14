@@ -127,6 +127,7 @@ import {
   trimAndFadeInBRoll,
   trimCutRanges,
   type BRollOverlay,
+  type ProbedVideoMetadata,
   type ReframeOptions,
 } from '../ffmpeg';
 import { withJobTimeout } from '../jobTimeout';
@@ -1226,16 +1227,24 @@ async function estimateBrandSegmentDurationSeconds(
 // described in docs/ai/render-fidelity-matrix.md's larger proposal). Reconstructs the expected
 // final duration from numbers this same render already computed locally (the original requested
 // span, cuts actually removed, reaction-hold time actually inserted, brand segment durations
-// actually concatenated) and compares it against the REAL final media duration via ffprobe -
-// never trusts `endTime - startTime` alone, since that's exactly the number every one of the 6
-// bugs this fix addresses could silently diverge from. Best-effort and non-fatal by design (the
-// same "unverifiable -> warn, continue" branch of the existing render error model
+// actually concatenated) and compares it against the REAL final media duration - never trusts
+// `endTime - startTime` alone, since that's exactly the number every one of the 6 bugs this fix
+// addresses could silently diverge from. Best-effort and non-fatal by design (the same
+// "unverifiable -> warn, continue" branch of the existing render error model
 // verifyUploadChecksum() already establishes above, not its "confirmed corruption -> throw"
 // branch) - a duration mismatch means the render's own timing may be off, not that the file is
 // corrupted or unplayable, so it must never fail an otherwise-successful render.
+//
+// Phase 9 (Clip Count & Duration Precision Engine, docs/ai/clip-duration-precision-engine.md's
+// own D4) - accepts `actualDurationSeconds` as a parameter rather than self-probing
+// `finalOutputPath` via getMediaDurationSeconds() as it did through Phase 8. The caller now
+// hoists ONE probeVideoMetadata() call (shared with the ffprobe verification step further below
+// and the completion transaction's new renderedDurationSeconds write) instead of this function
+// running its own second, independent ffprobe subprocess against the identical file - see this
+// function's own call site for the full consolidation.
 async function verifyRenderedDuration(params: {
   clipId: string;
-  finalOutputPath: string;
+  actualDurationSeconds: number;
   requestedDurationSeconds: number;
   trimApplied: boolean;
   removedSeconds: number;
@@ -1247,7 +1256,7 @@ async function verifyRenderedDuration(params: {
 }): Promise<void> {
   const {
     clipId,
-    finalOutputPath,
+    actualDurationSeconds,
     requestedDurationSeconds,
     trimApplied,
     removedSeconds,
@@ -1279,7 +1288,6 @@ async function verifyRenderedDuration(params: {
       expectedDurationSeconds += outroDuration;
     }
 
-    const actualDurationSeconds = await getMediaDurationSeconds(finalOutputPath);
     const deltaSeconds = actualDurationSeconds - expectedDurationSeconds;
 
     if (Math.abs(deltaSeconds) > DURATION_VERIFICATION_TOLERANCE_SECONDS) {
@@ -2201,21 +2209,47 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               }
             }
 
+            // Render Fidelity & Composition Execution Engine, Phase 9 (Clip Count & Duration
+            // Precision Engine, docs/ai/clip-duration-precision-engine.md's own D4) - ONE
+            // probeVideoMetadata() call, hoisted here (previously two independent ffprobe
+            // subprocess calls against this SAME finalOutputPath: this file's own now-removed
+            // self-probe inside verifyRenderedDuration(), and Phase 8's own separate call further
+            // below). Its result now feeds THREE consumers: verifyRenderedDuration()'s own
+            // tolerance check immediately below, the ffprobe verification step further below
+            // (Phase 8, unchanged in every other respect), and the completion transaction's new
+            // renderedDurationSeconds write (further below still). null only when the probe
+            // itself failed - every consumer treats that the same "unverifiable -> warn, continue"
+            // way this file's own existing render error model already established, never a
+            // fabricated fallback value.
+            let probeResult: ProbedVideoMetadata | null = null;
+            try {
+              probeResult = await probeVideoMetadata(finalOutputPath);
+            } catch (error) {
+              logger.warn(
+                'ffprobe metadata probe failed - duration verification, ffprobe verification, ' +
+                  'and renderedDurationSeconds persistence all skipped (render/upload unaffected)',
+                { clipId },
+                error,
+              );
+            }
+
             // Render Fidelity Matrix bug fix #5 (docs/ai/render-fidelity-matrix.md) - a focused,
             // best-effort check that the ACTUAL final media duration matches what this render's
             // own passes should have produced; see verifyRenderedDuration()'s own comment.
-            await verifyRenderedDuration({
-              clipId,
-              finalOutputPath,
-              requestedDurationSeconds: endTime - startTime,
-              trimApplied,
-              removedSeconds: totalCutSeconds(cuts),
-              reactionHoldDurationSeconds,
-              introPath,
-              intro,
-              outroPath,
-              outro,
-            });
+            if (probeResult) {
+              await verifyRenderedDuration({
+                clipId,
+                actualDurationSeconds: probeResult.durationSeconds,
+                requestedDurationSeconds: endTime - startTime,
+                trimApplied,
+                removedSeconds: totalCutSeconds(cuts),
+                reactionHoldDurationSeconds,
+                introPath,
+                intro,
+                outroPath,
+                outro,
+              });
+            }
 
             // Render Fidelity & Composition Execution Engine, Phase 4 (FFmpeg Execution
             // Compiler) - see apps/worker/src/render-plan-compiler.ts's own module comment for
@@ -2334,29 +2368,33 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // Render Fidelity & Composition Execution Engine, Phase 8 (ffprobe verification) -
             // the pipeline's own last named stage: reconciling RenderManifest's DECLARED
             // expectedOutput against what a REAL ffprobe of the actual delivered file reports.
-            // Reuses the EXISTING probeVideoMetadata() unchanged (no new ffprobe subprocess code,
-            // no widening for pixelFormat - see packages/contracts/src/render-verification.ts's
-            // own module comment for the full scope-boundary reasoning) against finalOutputPath -
-            // the actual file that was just uploaded, never an intermediate scratch file, so this
-            // verifies exactly what a viewer would receive. Best-effort and non-fatal by design,
-            // same "unverifiable -> warn, continue" branch of the existing render error model
-            // verifyRenderedDuration()/verifyUploadChecksum() already establish - a probe/compare
-            // failure never fails an otherwise-successful render, and is never silently reported
-            // as a pass.
-            try {
-              const probe = await probeVideoMetadata(finalOutputPath);
-              const renderVerification = compareRenderManifestToProbe(renderManifest, probe);
-              logger.info('RENDER_VERIFICATION_RESOLVED', {
-                clipId,
-                videoId,
-                renderVerification,
-              });
-            } catch (error) {
-              logger.warn(
-                'ffprobe verification itself failed, skipping (render/upload unaffected)',
-                { clipId },
-                error,
-              );
+            // Verifies exactly what a viewer would receive (finalOutputPath, never an intermediate
+            // scratch file). Best-effort and non-fatal by design, same "unverifiable -> warn,
+            // continue" branch of the existing render error model verifyRenderedDuration()/
+            // verifyUploadChecksum() already establish - a probe/compare failure never fails an
+            // otherwise-successful render, and is never silently reported as a pass.
+            //
+            // Phase 9 consolidation (docs/ai/clip-duration-precision-engine.md's own D4) - reuses
+            // the SAME probeResult hoisted above; no second, independent probeVideoMetadata() call
+            // exists anywhere in this file anymore.
+            if (probeResult) {
+              try {
+                const renderVerification = compareRenderManifestToProbe(
+                  renderManifest,
+                  probeResult,
+                );
+                logger.info('RENDER_VERIFICATION_RESOLVED', {
+                  clipId,
+                  videoId,
+                  renderVerification,
+                });
+              } catch (error) {
+                logger.warn(
+                  'ffprobe verification comparison itself failed, skipping (render/upload unaffected)',
+                  { clipId },
+                  error,
+                );
+              }
             }
 
             // Product Experience roadmap - a Clip's gallery-card thumbnail.
@@ -2530,6 +2568,18 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                     outputWidth: outputSize.width,
                     outputHeight: outputSize.height,
                     outputAspectRatio: aspectRatioLabel,
+                    // Phase 9 (Clip Count & Duration Precision Engine, docs/ai/
+                    // clip-duration-precision-engine.md) - the REAL, post-render, ffprobe-measured
+                    // duration of the file outputKey now points at, from the SAME hoisted
+                    // probeResult every other consumer above already reused - never a second,
+                    // independent measurement. null when the probe itself failed (never a
+                    // fabricated fallback) - the render/upload still succeed regardless, same
+                    // best-effort posture as every other optional signal in this file. Written
+                    // atomically with outputUrl by this SAME optimistic-concurrency transaction -
+                    // no new concurrency mechanism. See Clip.renderedDurationSeconds's own schema
+                    // comment for its full lifecycle semantics (deliberately distinct from
+                    // durationSeconds, the requested/candidate window, untouched by this phase).
+                    renderedDurationSeconds: probeResult?.durationSeconds ?? null,
                     ...(thumbnailKey ? { thumbnailUrl: thumbnailKey } : {}),
                     ...(thumbnailBlurDataUrl ? { thumbnailBlurDataUrl } : {}),
                     storyboardFrameUrls: storyboardKeys as unknown as Prisma.InputJsonValue,

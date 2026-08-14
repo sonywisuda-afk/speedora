@@ -1054,6 +1054,12 @@ describe('ClipsService', () => {
 
       const result = await service.update('clip-1', 'user-1', { startTime: 12, endTime: 22 });
 
+      // Phase 9 (Clip Count & Duration Precision Engine, docs/ai/
+      // clip-duration-precision-engine.md's own D2) - this exact-literal `data` object is the
+      // regression proof that a manual trim never touches renderedDurationSeconds (it's coupled
+      // to outputUrl's own lifecycle, not durationSeconds' - see that doc's own D2 for the full
+      // reasoning) even on an already-rendered clip (existingClip.outputUrl is set above). If
+      // update() ever started writing that field, this assertion would fail.
       expect(prisma.clip.update).toHaveBeenCalledWith({
         where: { id: 'clip-1' },
         data: {
@@ -1321,9 +1327,12 @@ describe('ClipsService', () => {
           createdById: 'user-1',
         },
       });
+      // Phase 9 (Clip Count & Duration Precision Engine, docs/ai/
+      // clip-duration-precision-engine.md) - renderedDurationSeconds is cleared in lockstep with
+      // outputUrl, in the same update, per that doc's own D2/D6.
       expect(prisma.clip.update).toHaveBeenCalledWith({
         where: { id: 'clip-1' },
-        data: { outputUrl: null },
+        data: { outputUrl: null, renderedDurationSeconds: null },
         ...PUBLISH_RECORDS_INCLUDE,
       });
       expect(renderClipQueue.add).toHaveBeenCalledWith(

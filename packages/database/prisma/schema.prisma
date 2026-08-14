@@ -1340,6 +1340,17 @@ model Clip {
   // cross-column expression Prisma's query builder can't express in a
   // `where`. Null only for pre-existing rows before the backfill script runs.
   durationSeconds             Float?
+  // Phase 9 (Clip Count & Duration Precision Engine, docs/ai/clip-duration-precision-engine.md) -
+  // the REAL, post-render, ffprobe-measured duration of whatever outputUrl currently serves.
+  // Deliberately distinct from durationSeconds above (the requested/candidate window,
+  // unchanged by this phase - see that doc's own D2 for the full lifecycle semantics). null
+  // until the first successful render, and again whenever outputUrl is cleared for a re-render
+  // (ClipsService.render() clears both together, in the same transaction). Written exactly once
+  // per successful render, atomically with outputUrl, by render-clip.worker.ts's existing
+  // optimistic-concurrency completion transaction - never a second, independent write path.
+  // Deliberately no backfill for pre-existing rendered rows (see that doc's own D8) - real
+  // per-clip ffprobe/object-storage cost, unlike durationSeconds' own cheap backfill.
+  renderedDurationSeconds     Float?
   createdAt                   DateTime     @default(now())
   updatedAt                   DateTime     @updatedAt
 

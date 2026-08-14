@@ -882,7 +882,13 @@ export class ClipsService {
 
       return tx.clip.update({
         where: { id },
-        data: { outputUrl: null },
+        // Phase 9 (Clip Count & Duration Precision Engine, docs/ai/
+        // clip-duration-precision-engine.md) - renderedDurationSeconds is cleared in lockstep
+        // with outputUrl: its own invariant is "the real duration of whatever outputUrl
+        // currently serves, or null if nothing is currently being served" - leaving it stale
+        // here would describe a file that's about to stop being downloadable (or, if this
+        // re-render fails, a file that no longer matches the clip's current startTime/endTime).
+        data: { outputUrl: null, renderedDurationSeconds: null },
         include: { publishRecords: { include: { socialAccount: true } } },
       });
     });

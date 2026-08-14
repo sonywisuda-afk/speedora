@@ -1655,6 +1655,9 @@ describe('render-clip worker', () => {
         outputWidth: 136,
         outputHeight: 240,
         outputAspectRatio: '9:16',
+        // Render Fidelity & Composition Execution Engine, Phase 9 (Clip Count & Duration
+        // Precision Engine) - the default probeVideoMetadataMock's own durationSeconds: 10.
+        renderedDurationSeconds: 10,
         storyboardFrameUrls: [],
         sceneCuts: [],
         sceneCutEvents: [],
@@ -5385,6 +5388,133 @@ describe('render-clip worker', () => {
     });
   });
 
+  // Render Fidelity & Composition Execution Engine, Phase 9 (Clip Count & Duration Precision
+  // Engine) - tests the WIRING only (the adapter's job, per ARCHITECTURE.md's checklist item 4):
+  // that render-clip.worker.ts persists a real, post-render Clip.renderedDurationSeconds
+  // atomically with outputUrl, via the SAME single probeVideoMetadata() call already reused for
+  // duration verification and ffprobe verification (Phase 8) - never a second, independent probe.
+  // compareRenderManifestToProbe()'s own comparison logic and buildRenderManifest()'s own
+  // assembly logic are covered by their own dedicated package specs, not re-tested here.
+  describe('Clip Count & Duration Precision Engine (Phase 9) - renderedDurationSeconds persistence', () => {
+    it('persists the real probed duration atomically with outputUrl, in the existing completion transaction', async () => {
+      probeVideoMetadataMock.mockResolvedValue({
+        durationSeconds: 12.34,
+        hasVideoStream: true,
+        hasAudioStream: true,
+        width: 608,
+        height: 1080,
+        fps: 30,
+        videoCodec: 'h264',
+        videoBitrate: null,
+        audioCodec: 'aac',
+        audioSampleRate: 44100,
+        audioChannels: 2,
+        audioBitrate: null,
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          // The SAME optimistic-concurrency claim as every other field this transaction already
+          // writes - Phase 9 introduces no new concurrency mechanism (review boundary #3).
+          where: { id: 'clip-1', outputUrl: null },
+          data: expect.objectContaining({ renderedDurationSeconds: 12.34 }),
+        }),
+      );
+    });
+
+    it('persists null (never a fabricated fallback) when the metadata probe itself fails - outputUrl is still set, job still succeeds', async () => {
+      probeVideoMetadataMock.mockRejectedValueOnce(new Error('ffprobe unavailable'));
+
+      const processor = getProcessor();
+      const result = await processor(fakeJob(baseJobData));
+
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            outputUrl: 'renders/clip-1.mp4',
+            renderedDurationSeconds: null,
+          }),
+        }),
+      );
+    });
+
+    it('calls probeVideoMetadata exactly once per successful render - no second, independent probe (review boundary #2)', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(probeVideoMetadataMock).toHaveBeenCalledTimes(1);
+      // The one call is against the actual delivered file, not a scratch path.
+      expect(probeVideoMetadataMock).toHaveBeenCalledWith(expect.stringContaining('output'));
+    });
+
+    it('still feeds compareRenderManifestToProbe and verifyRenderedDuration from the SAME probe result (both reflect the probe mock, not independent values)', async () => {
+      probeVideoMetadataMock.mockResolvedValue({
+        durationSeconds: 7,
+        hasVideoStream: true,
+        hasAudioStream: true,
+        width: 608,
+        height: 1080,
+        fps: 30,
+        videoCodec: 'h264',
+        videoBitrate: null,
+        audioCodec: 'aac',
+        audioSampleRate: 44100,
+        audioChannels: 2,
+        audioBitrate: null,
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(compareRenderManifestToProbeMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ durationSeconds: 7 }),
+      );
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ renderedDurationSeconds: 7 }),
+        }),
+      );
+    });
+
+    it("does not gate renderedDurationSeconds persistence on a verification mismatch - written regardless of compareRenderManifestToProbe's own passed value", async () => {
+      compareRenderManifestToProbeMock.mockReturnValueOnce({
+        version: 1,
+        clipId: 'clip-1',
+        videoId: 'video-1',
+        fields: { audioSampleRate: { expected: 44100, actual: 48000, matches: false } },
+        passed: false,
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ renderedDurationSeconds: expect.any(Number) }),
+        }),
+      );
+    });
+
+    it('a retried/duplicate job execution is still short-circuited before this logic ever runs (existing idempotency guard, unchanged)', async () => {
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: 'renders/clip-1.mp4',
+        video: { ownerId: 'user-1', title: 'My Video' },
+      });
+
+      const processor = getProcessor();
+      const result = await processor(fakeJob(baseJobData));
+
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+      expect(probeVideoMetadataMock).not.toHaveBeenCalled();
+      expect(clipUpdateMock).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Scene Intelligence (Fase 26)', () => {
     it('calls detectSceneCuts with the source path and clip time range, persisting the resulting cuts', async () => {
       clipFindManyMock.mockResolvedValue([
@@ -5407,6 +5537,9 @@ describe('render-clip worker', () => {
           outputWidth: 136,
           outputHeight: 240,
           outputAspectRatio: '9:16',
+          // Render Fidelity & Composition Execution Engine, Phase 9 (Clip Count & Duration
+          // Precision Engine) - the default probeVideoMetadataMock's own durationSeconds: 10.
+          renderedDurationSeconds: 10,
           storyboardFrameUrls: [],
           sceneCuts: [1.5, 4.2],
           sceneCutEvents: [],
@@ -5566,6 +5699,9 @@ describe('render-clip worker', () => {
           outputWidth: 136,
           outputHeight: 240,
           outputAspectRatio: '9:16',
+          // Render Fidelity & Composition Execution Engine, Phase 9 (Clip Count & Duration
+          // Precision Engine) - the default probeVideoMetadataMock's own durationSeconds: 10.
+          renderedDurationSeconds: 10,
           storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],
@@ -5875,6 +6011,9 @@ describe('render-clip worker', () => {
           outputWidth: 136,
           outputHeight: 240,
           outputAspectRatio: '9:16',
+          // Render Fidelity & Composition Execution Engine, Phase 9 (Clip Count & Duration
+          // Precision Engine) - the default probeVideoMetadataMock's own durationSeconds: 10.
+          renderedDurationSeconds: 10,
           storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],
@@ -6034,6 +6173,9 @@ describe('render-clip worker', () => {
           outputWidth: 136,
           outputHeight: 240,
           outputAspectRatio: '9:16',
+          // Render Fidelity & Composition Execution Engine, Phase 9 (Clip Count & Duration
+          // Precision Engine) - the default probeVideoMetadataMock's own durationSeconds: 10.
+          renderedDurationSeconds: 10,
           storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],
