@@ -206,9 +206,63 @@ export async function parseJsonOrThrow<T>(res: Response): Promise<T> {
   return body as T;
 }
 
+// Reliability fix (2026-08) - the access-token cookie is a short-lived 15m
+// JWT (see apps/api's ACCESS_COOKIE_MAX_AGE_MS) paired with a 30d refresh
+// token, but until now nothing on the frontend ever called POST
+// /auth/refresh: every apiFetch call, SWR poll, and the notification SSE
+// stream just started failing 401 once the access token aged out, with no
+// recovery short of a full manual re-login. This was the root cause of the
+// "(mode polling - koneksi real-time terputus)" banner users kept seeing -
+// useNotificationStream's EventSource auto-reconnects on its own, but every
+// retry carried the same already-expired cookie forever, since nothing ever
+// refreshed it.
+//
+// Deduped via a shared in-flight promise so N concurrent 401s (e.g. several
+// SWR hooks revalidating at once) trigger exactly one POST /auth/refresh,
+// not N. Known gap, not fixed here: two browser tabs racing a refresh at
+// the same instant can collide, since refresh tokens are single-use/rotated
+// server-side (apps/api's rotateRefreshToken) with no grace period - the
+// loser's cookie is simply already-stale by the time it responds. Cross-tab
+// coordination (BroadcastChannel/localStorage mutex) is a reasonable
+// follow-up, not required for the common single-tab case this fixes.
+let refreshPromise: Promise<boolean> | null = null;
+
+function refreshAccessToken(): Promise<boolean> {
+  if (!refreshPromise) {
+    refreshPromise = fetch(`${API_URL}/auth/refresh`, { method: 'POST', credentials: 'include' })
+      .then((res) => res.ok)
+      .catch(() => false)
+      .finally(() => {
+        refreshPromise = null;
+      });
+  }
+  return refreshPromise;
+}
+
+// Exported so callers that want to proactively keep a session alive (see
+// useAuth's scheduled refresh, useNotificationStream's onerror handler)
+// share this same dedup/retry machinery instead of calling the endpoint
+// directly.
+export function refreshSession(): Promise<boolean> {
+  return refreshAccessToken();
+}
+
 // The auth session lives in an httpOnly cookie set by apps/api, so every
-// request needs credentials: 'include' to send/receive it cross-origin.
-function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+// request needs credentials: 'include' to send/receive it cross-origin. A
+// 401 gets exactly one silent-refresh-and-retry - see the reliability-fix
+// comment above. '/auth/refresh' itself is excluded to avoid recursing into
+// itself on its own 401 (an actually-expired/revoked refresh token, not a
+// merely-aged-out access token). The retry is safe to fire even for
+// mutations: NestJS's JwtAuthGuard rejects an unauthenticated request
+// before any controller/service code runs, so the first attempt never had a
+// side effect to duplicate.
+async function apiFetch(path: string, init?: RequestInit): Promise<Response> {
+  const res = await fetch(`${API_URL}${path}`, { ...init, credentials: 'include' });
+  if (res.status !== 401 || path === '/auth/refresh') return res;
+
+  const refreshed = await refreshAccessToken();
+  if (!refreshed) return res;
+
   return fetch(`${API_URL}${path}`, { ...init, credentials: 'include' });
 }
 
