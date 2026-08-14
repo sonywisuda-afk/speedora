@@ -133,6 +133,7 @@ import { publishNotification } from '../notificationPublisher';
 import { prisma } from '../prisma';
 import { generatePlatformCopyQueue, publishClipQueue } from '../queues';
 import { createRedisConnection } from '../redis';
+import { compileRenderPlan } from '../render-plan-compiler';
 import { cleanupTempFile, reserveScratchPath } from '../storage';
 
 const logger = forStage('render-clip');
@@ -2050,6 +2051,53 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               intro,
               outroPath,
               outro,
+            });
+
+            // Render Fidelity & Composition Execution Engine, Phase 4 (FFmpeg Execution
+            // Compiler) - see apps/worker/src/render-plan-compiler.ts's own module comment for
+            // the full design/scope-boundary reasoning. Built HERE, after the intro/outro pass
+            // and verifyRenderedDuration() above (not right after RenderPlan itself) - the real
+            // introConcatPath/outroConcatPath/trimmedPath/reactionHoldPath scratch paths are only
+            // ever reserved (reserveScratchPath()) lazily, inside each pass's own `if` block,
+            // exactly when that pass actually runs; this is the first point where all of them
+            // hold their real, final values (still null when that pass never ran, matching
+            // compileRenderPlan()'s own "?? ''" - never read in that case, since the plan
+            // correctly omits that pass whenever RenderPlan shows nothing to do).
+            //
+            // Same proof-of-integration-only posture as Phases 1-3: logged
+            // (RENDER_EXECUTION_PLAN_COMPILED) purely to prove this compiled plan agrees with
+            // what the existing pipeline already executed - NOT yet used to drive execution.
+            // Every ffmpeg.ts call above this point is UNCHANGED and remains the actual
+            // execution path; the cutover to actually run FROM the compiled plan is a
+            // deliberately separate, later phase (Phase 5).
+            const executionPlan = compileRenderPlan(renderPlan, {
+              sourcePath,
+              outputPath,
+              trimmedPath: trimmedPath ?? '',
+              reactionHoldPath: reactionHoldPath ?? '',
+              introConcatPath: introConcatPath ?? '',
+              outroConcatPath: outroConcatPath ?? '',
+              subtitlesPath,
+              watermarkPath,
+              introPath,
+              outroPath,
+              brollOverlayPaths: broll.map(({ keyword, startTime, filePath }) => ({
+                keyword,
+                startTime,
+                filePath,
+              })),
+              cuts,
+              sourceAudioChannels,
+              reframe,
+            });
+            logger.info('RENDER_EXECUTION_PLAN_COMPILED', {
+              clipId,
+              videoId,
+              passes: executionPlan.passes.map((compiledPass) =>
+                compiledPass.pass === 'concatBrandSegment'
+                  ? `${compiledPass.pass}:${compiledPass.position}`
+                  : compiledPass.pass,
+              ),
             });
 
             const outputKey = `renders/${clipId}.mp4`;

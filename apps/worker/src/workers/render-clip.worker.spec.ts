@@ -286,6 +286,17 @@ jest.mock('@speedora/render-config', () => ({
   buildRenderPlan: (...args: unknown[]) => buildRenderPlanMock(...args),
 }));
 
+// Render Fidelity & Composition Execution Engine, Phase 4 (FFmpeg Execution Compiler) - mocked
+// the same "test the adapter by mocking the module itself" way as every other seam in this file
+// (ARCHITECTURE.md's checklist item 4), not re-tested for its own compilation logic (that's
+// render-plan-compiler.spec.ts's own job, via pure fixtures).
+const compileRenderPlanMock = jest
+  .fn()
+  .mockReturnValue({ clipId: 'clip-1', videoId: 'video-1', passes: [] });
+jest.mock('../render-plan-compiler', () => ({
+  compileRenderPlan: (...args: unknown[]) => compileRenderPlanMock(...args),
+}));
+
 let scratchCounter = 0;
 const reserveScratchPathMock = jest.fn((prefix: string, ext: string) => {
   scratchCounter += 1;
@@ -4695,6 +4706,144 @@ describe('render-clip worker', () => {
       );
 
       expect(callOrder).toEqual(['buildRenderPlan', 'concatBrandSegment']);
+    });
+  });
+
+  // Render Fidelity & Composition Execution Engine, Phase 4 (FFmpeg Execution Compiler) - see
+  // apps/worker/src/render-plan-compiler.ts's own module comments for the full design. Tests
+  // only the WIRING (the adapter's job, per ARCHITECTURE.md's checklist item 4) -
+  // compileRenderPlan()'s own assembly logic is covered purely by
+  // render-plan-compiler.spec.ts's own fixture-based spec, not re-tested here.
+  describe('FFmpeg Execution Compiler (Render Fidelity Matrix Phase 4) - RENDER_EXECUTION_PLAN_COMPILED wiring', () => {
+    it('calls compileRenderPlan with the real RenderPlan (buildRenderPlan output) and the resolved paths, after the intro/outro pass has run', async () => {
+      const fakeRenderPlan = {
+        version: 1,
+        clipId: 'clip-1',
+        videoId: 'video-1',
+        timeline: {},
+        holds: { reactionHoldInstants: [] },
+        framing: { cropPath: null, reframeHints: [] },
+        overlays: { broll: [] },
+        transitions: {},
+      };
+      buildRenderPlanMock.mockReturnValueOnce(fakeRenderPlan);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(compileRenderPlanMock).toHaveBeenCalledWith(
+        fakeRenderPlan,
+        expect.objectContaining({
+          sourcePath: expect.stringContaining('source'),
+          outputPath: expect.stringContaining('output'),
+          cuts: [],
+          brollOverlayPaths: [],
+        }),
+      );
+    });
+
+    it('threads the real cuts array through, matching what trimCutRanges() itself already receives', async () => {
+      const processor = getProcessor();
+      await processor(
+        fakeJob({
+          ...baseJobData,
+          transcript: [
+            {
+              start: 10,
+              end: 20,
+              text: 'hi there',
+              words: [
+                { word: 'hi', start: 10, end: 10.3 },
+                { word: 'there', start: 18, end: 18.3 },
+              ],
+            },
+          ],
+        }),
+      );
+
+      expect(trimCutRangesMock).toHaveBeenCalled();
+      const [, , realCuts] = trimCutRangesMock.mock.calls[0];
+      expect(compileRenderPlanMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ cuts: realCuts }),
+      );
+    });
+
+    it('threads the real reframe object (from buildReframePlan) through unchanged', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(compileRenderPlanMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          reframe: expect.objectContaining({ outputWidth: expect.any(Number) }),
+        }),
+      );
+    });
+
+    it('threads B-roll overlay paths (keyword/startTime/filePath) through when B-roll is present', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      findBRollMomentsMock.mockReturnValue([{ keyword: 'sunset', t: 2, isBrandCandidate: false }]);
+      searchAssetsMock.mockResolvedValue({
+        id: 'pexels-123',
+        url: 'https://example.com/sunset.mp4',
+        thumbnail: 'https://example.com/sunset-thumb.jpg',
+        sourceName: 'pexels',
+        resolution: { width: 640, height: 1136 },
+        type: 'video',
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob({ ...baseJobData, keywords: ['sunset'] }));
+
+      expect(compileRenderPlanMock).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({
+          brollOverlayPaths: [
+            expect.objectContaining({
+              keyword: 'sunset',
+              startTime: 2,
+              filePath: expect.any(String),
+            }),
+          ],
+        }),
+      );
+    });
+
+    it('logs RENDER_EXECUTION_PLAN_COMPILED after compileRenderPlan without failing the job or changing the uploaded output (proof-of-integration only, no cutover)', async () => {
+      const processor = getProcessor();
+      const result = await processor(fakeJob(baseJobData));
+
+      expect(compileRenderPlanMock).toHaveBeenCalledTimes(1);
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+      expect(uploadObjectMock).toHaveBeenCalledWith(
+        'renders/clip-1.mp4',
+        { fakeStream: expect.stringContaining('output') },
+        'video/mp4',
+      );
+    });
+
+    it('is called AFTER concatBrandSegment (the intro/outro pass), not before', async () => {
+      const callOrder: string[] = [];
+      concatBrandSegmentMock.mockImplementationOnce(async () => {
+        callOrder.push('concatBrandSegment');
+      });
+      compileRenderPlanMock.mockImplementationOnce(() => {
+        callOrder.push('compileRenderPlan');
+        return { clipId: 'clip-1', videoId: 'video-1', passes: [] };
+      });
+
+      const processor = getProcessor();
+      await processor(
+        fakeJob({
+          ...baseJobData,
+          intro: { key: 'brand/intro.mp4', type: 'video', imageDurationSeconds: null },
+        }),
+      );
+
+      expect(callOrder).toEqual(['concatBrandSegment', 'compileRenderPlan']);
     });
   });
 
