@@ -280,9 +280,29 @@ const buildRenderPlanMock = jest.fn().mockReturnValue({
   overlays: { broll: [] },
   transitions: {},
 });
+// Render Fidelity & Composition Execution Engine, Phase 7 (Render Manifest) - mocked the same
+// "test the adapter by mocking the module itself" way as every other seam in this file
+// (ARCHITECTURE.md's checklist item 4), not re-tested for its own assembly logic (that's
+// build-render-manifest.spec.ts's own job, via pure fixtures).
+const buildRenderManifestMock = jest.fn().mockReturnValue({
+  version: 1,
+  clipId: 'clip-1',
+  videoId: 'video-1',
+  execution: {
+    passes: ['renderClip'],
+    trimApplied: false,
+    reactionHoldCount: 0,
+    reactionHoldDurationSeconds: 0,
+    introApplied: false,
+    outroApplied: false,
+  },
+  expectedOutput: {},
+  file: { outputKey: 'renders/clip-1.mp4', sizeBytes: 654321, checksumMd5: 'deadbeef' },
+});
 jest.mock('@speedora/render-config', () => ({
   buildEffectiveRenderConfig: (...args: unknown[]) => buildEffectiveRenderConfigMock(...args),
   buildOutputProfile: (...args: unknown[]) => buildOutputProfileMock(...args),
+  buildRenderManifest: (...args: unknown[]) => buildRenderManifestMock(...args),
   buildRenderPlan: (...args: unknown[]) => buildRenderPlanMock(...args),
 }));
 
@@ -5075,6 +5095,132 @@ describe('render-clip worker', () => {
           'video/mp4',
         );
       });
+    });
+  });
+
+  // Render Fidelity & Composition Execution Engine, Phase 7 (Render Manifest) - tests the WIRING
+  // only (the adapter's job, per ARCHITECTURE.md's checklist item 4): that render-clip.worker.ts
+  // builds the manifest exactly once, only after verifyUploadChecksum(), from real outcome values,
+  // and that doing so cannot alter render/upload behavior. buildRenderManifest()'s own assembly
+  // logic is covered purely by build-render-manifest.spec.ts's own fixture-based spec, not
+  // re-tested here.
+  describe('Render Manifest (Render Fidelity Matrix Phase 7) - RENDER_MANIFEST_RESOLVED wiring', () => {
+    it('builds the manifest with the real outputKey/sizeBytes/checksumMd5 already computed for the upload step', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildRenderManifestMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          clipId: 'clip-1',
+          videoId: 'video-1',
+          outputKey: 'renders/clip-1.mp4',
+          sizeBytes: 654321,
+          checksumMd5: 'd41d8cd98f00b204e9800998ecf8427e',
+        }),
+      );
+    });
+
+    it('derives passes/trimApplied/reactionHold fields from the real render outcome, matching what buildRenderPlan itself was called with', async () => {
+      const processor = getProcessor();
+      await processor(
+        fakeJob({
+          ...baseJobData,
+          transcript: [
+            {
+              start: 10,
+              end: 20,
+              text: 'hi there',
+              words: [
+                { word: 'hi', start: 10, end: 10.3 },
+                { word: 'there', start: 18, end: 18.3 },
+              ],
+            },
+          ],
+        }),
+      );
+
+      expect(trimCutRangesMock).toHaveBeenCalled();
+      expect(buildRenderManifestMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          passes: expect.arrayContaining(['renderClip', 'trimCutRanges']),
+          trimApplied: true,
+          reactionHoldInstants: [],
+          reactionHoldDurationSeconds: 0,
+          introApplied: false,
+          outroApplied: false,
+        }),
+      );
+    });
+
+    it('is called AFTER verifyUploadChecksum (i.e. after uploadObject), not before', async () => {
+      const callOrder: string[] = [];
+      uploadObjectMock.mockImplementationOnce(async () => {
+        callOrder.push('uploadObject');
+        return undefined;
+      });
+      buildRenderManifestMock.mockImplementationOnce(() => {
+        callOrder.push('buildRenderManifest');
+        return {
+          version: 1,
+          clipId: 'clip-1',
+          videoId: 'video-1',
+          execution: {
+            passes: ['renderClip'],
+            trimApplied: false,
+            reactionHoldCount: 0,
+            reactionHoldDurationSeconds: 0,
+            introApplied: false,
+            outroApplied: false,
+          },
+          expectedOutput: {},
+          file: { outputKey: 'renders/clip-1.mp4', sizeBytes: 654321, checksumMd5: 'deadbeef' },
+        };
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(callOrder).toEqual(['uploadObject', 'buildRenderManifest']);
+    });
+
+    it('logs RENDER_MANIFEST_RESOLVED after the manifest is built, without failing the job or changing the uploaded output', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        const processor = getProcessor();
+        const result = await processor(fakeJob(baseJobData));
+
+        expect(buildRenderManifestMock).toHaveBeenCalledTimes(1);
+        expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+        expect(uploadObjectMock).toHaveBeenCalledWith(
+          'renders/clip-1.mp4',
+          { fakeStream: expect.stringContaining('output') },
+          'video/mp4',
+        );
+        const loggedLines = consoleLogSpy.mock.calls.map((call) => String(call[0]));
+        expect(loggedLines.some((line) => line.includes('RENDER_MANIFEST_RESOLVED'))).toBe(true);
+      } finally {
+        consoleLogSpy.mockRestore();
+      }
+    });
+
+    it('manifest creation cannot alter render/upload behavior even when introApplied/outroApplied are computed as true', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+
+      const processor = getProcessor();
+      const result = await processor(
+        fakeJob({
+          ...baseJobData,
+          intro: { key: 'brand/intro.mp4', type: 'video', imageDurationSeconds: null },
+          outro: { key: 'brand/outro.mp4', type: 'video', imageDurationSeconds: null },
+        }),
+      );
+
+      // The manifest build is purely observational - the job's own result/upload target are
+      // unchanged from what every pre-Phase-7 test already expects.
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+      expect(buildRenderManifestMock).toHaveBeenCalled();
     });
   });
 

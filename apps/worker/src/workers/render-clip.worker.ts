@@ -83,6 +83,7 @@ import {
 import {
   buildEffectiveRenderConfig,
   buildOutputProfile,
+  buildRenderManifest,
   buildRenderPlan,
 } from '@speedora/render-config';
 import { getObjectStream, uploadObject } from '@speedora/storage';
@@ -1301,6 +1302,29 @@ async function verifyRenderedDuration(params: {
   }
 }
 
+// Render Fidelity & Composition Execution Engine, Phase 7 (Render Manifest) - a real OUTCOME
+// signal, not intent: whether concatBrandSegment() genuinely produced this scratch file, used to
+// derive RenderManifest.execution.introApplied/outroApplied below. Deliberately does NOT reuse
+// the compiled plan's own intent-based pass list (RENDER_EXECUTION_PLAN_COMPILED's `passes` -
+// compiled whenever a pass was ATTEMPTED, regardless of whether it actually succeeded - see
+// render-plan-compiler.ts's own trimCutRanges/concatBrandSegment gating) - the Render Manifest's
+// own explicit charter is to describe what actually happened, not what was merely configured or
+// attempted. A read-only stat() call, after the render/upload have already completed - zero
+// effect on execution behavior, purely observational. Read-only, so this stays correct
+// identically for BOTH execution paths (flag=false's own inline concatBrandSegment() calls and
+// flag=true's opaque executeCompiledRenderPlan() call) without needing any visibility into which
+// one actually ran - concatBrandSegment() only ever writes its own scratch file on real success in
+// either case.
+async function fileWasWritten(path: string | null): Promise<boolean> {
+  if (!path) return false;
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // Defense-in-depth outer bound (see jobTimeout.ts) - RENDER_TIMEOUT_MS (15m)
 // + TRIM_TIMEOUT_MS (5m) from ffmpeg.ts, plus source download, B-roll
 // fetches, and every detector in the render graph (several of which,
@@ -2260,6 +2284,50 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               'video/mp4',
             );
             verifyUploadChecksum(etag, expectedMd5, clipId);
+
+            // Render Fidelity & Composition Execution Engine, Phase 7 (Render Manifest) - see
+            // packages/contracts/src/render-manifest.ts's own module comment for the full design.
+            // Built HERE, exactly once, ONLY after verifyUploadChecksum() above - the first point
+            // where every real outcome value it needs (trimApplied/reactionHoldInstants/
+            // reactionHoldDurationSeconds, outputKey/outputSizeBytes/expectedMd5) already exists,
+            // computed for the upload step itself, never recomputed here. introApplied/
+            // outroApplied are the one thing not already tracked as a local - see
+            // fileWasWritten()'s own comment for why a real (not merely-configured) outcome check
+            // is used instead of the compiled plan's own intent-based pass list.
+            //
+            // Same proof-of-integration-only posture as every earlier phase: logged
+            // (RENDER_MANIFEST_RESOLVED) purely as a real, deterministic snapshot of what this
+            // render actually did and what its delivered file is expected to look like - NOT
+            // consumed by anything, NOT used to drive rendering, NOT itself a verification that
+            // the uploaded file actually matches `expectedOutput` (that's a still-unbuilt LATER
+            // stage - see the contract's own module comment). Every pass above this point (upload,
+            // duration verification) is UNCHANGED and remains exactly what it already was.
+            const introApplied = await fileWasWritten(introConcatPath);
+            const outroApplied = await fileWasWritten(outroConcatPath);
+            const renderManifest = buildRenderManifest({
+              clipId,
+              videoId,
+              outputProfile,
+              // Real outcome only, not intent - renderClip is unconditional (an unhandled failure
+              // would already have aborted the job before this point, so reaching here means it
+              // genuinely succeeded).
+              passes: [
+                'renderClip',
+                ...(trimApplied ? ['trimCutRanges'] : []),
+                ...(reactionHoldInstants.length > 0 ? ['applyReactionHolds'] : []),
+                ...(introApplied ? ['concatBrandSegment:start'] : []),
+                ...(outroApplied ? ['concatBrandSegment:end'] : []),
+              ],
+              trimApplied,
+              reactionHoldInstants,
+              reactionHoldDurationSeconds,
+              introApplied,
+              outroApplied,
+              outputKey,
+              sizeBytes: outputSizeBytes,
+              checksumMd5: expectedMd5,
+            });
+            logger.info('RENDER_MANIFEST_RESOLVED', { clipId, videoId, renderManifest });
 
             // Product Experience roadmap - a Clip's gallery-card thumbnail.
             // Extracted from renderedPath (the FINAL rendered output, not the

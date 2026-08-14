@@ -32,6 +32,7 @@ export * from './platform-fit';
 export * from './primary-subject';
 export * from './reframe';
 export * from './render-config';
+export * from './render-manifest';
 export * from './render-plan';
 export * from './retention-curve-insights';
 export * from './scene-intelligence';
