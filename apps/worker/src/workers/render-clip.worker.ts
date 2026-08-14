@@ -128,6 +128,10 @@ import {
 } from '../ffmpeg';
 import { withJobTimeout } from '../jobTimeout';
 import { forStage } from '../logger';
+import {
+  executeCompiledRenderPlan,
+  isRenderExecutionCompilerEnabled,
+} from '../execute-render-plan';
 import { enqueueNotificationDelivery } from '../notificationDeliveryEnqueuer';
 import { publishNotification } from '../notificationPublisher';
 import { prisma } from '../prisma';
@@ -1765,27 +1769,6 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             }
 
             outputPath = await reserveScratchPath('output', '.mp4');
-            await renderClip({
-              inputPath: sourcePath,
-              startTime,
-              endTime,
-              subtitlesPath,
-              outputPath,
-              reframe,
-              broll,
-              watermark:
-                watermarkPath && watermark
-                  ? {
-                      filePath: watermarkPath,
-                      opacity: watermark.opacity,
-                      scale: watermark.scale,
-                      margin: watermark.margin,
-                      position: watermark.position,
-                    }
-                  : null,
-              quality,
-              sourceAudioChannels,
-            });
 
             // Second pass (see computeClipCuts's comment) - skipped entirely
             // when there's nothing to cut, so a clip with no long pauses/filler
@@ -1794,114 +1777,276 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // (Phase C1's own output, always computed) - computeClipCuts()
             // itself checks isPauseHoldEnabled() before acting on any
             // pause_hold entries within it (Phase C7).
+            //
+            // Render Fidelity & Composition Execution Engine, Phase 5 (Cutover) - hoisted from
+            // this pipeline's own position immediately after renderClip() (Phase 4 and earlier)
+            // to HERE, before renderClip() even runs. Pure/deterministic (only needs
+            // transcript/startTime/endTime/graphResult.editingSuggestions, all already resolved
+            // above) - moving the call earlier changes nothing about its result, only WHEN it's
+            // computed. Required by the flag=true branch below: it needs to know whether a trim
+            // pass will be ATTEMPTED before renderClip() runs (trimCutRanges is pass 2 of the
+            // SAME compiled plan renderClip is pass 1 of) - see execute-render-plan.ts's own
+            // module comment for the full intent-vs-outcome reasoning this hoist exists to
+            // support. The flag=false branch below is otherwise byte-for-byte identical to the
+            // pre-Phase-5 code - it simply reads this already-computed value instead of
+            // re-declaring it at its old position.
             const cuts = computeClipCuts(
               transcript,
               startTime,
               endTime,
               graphResult.editingSuggestions,
             );
-            let renderedPath = outputPath;
+
             // Render Fidelity Matrix bug fix #5 (docs/ai/render-fidelity-matrix.md) - tracked
             // separately from `renderedPath`/`trimmedPath` themselves, which get overwritten by
             // LATER passes (reaction hold, intro/outro) - these two flags/values capture each
             // pass's own success at the moment it happens, so the duration-verification step
             // below can reconstruct "what should the final duration be" even after renderedPath
             // has moved on to a later pass's output.
+            //
+            // Render Fidelity & Composition Execution Engine, Phase 5 (Cutover) - these four
+            // locals are now shared by BOTH branches below (previously only the inline branch
+            // existed), assigned rather than declared inside each one, so every existing consumer
+            // further down this file (buildRenderPlan, verifyRenderedDuration, the post-hoc
+            // compileRenderPlan()+RENDER_EXECUTION_PLAN_COMPILED log, upload, thumbnails, ...)
+            // keeps reading the exact same variable names regardless of which branch produced
+            // their values. finalOutputPath is deliberately NOT shared the same way - see its own
+            // declaration further below, right where intro/outro is handled, for why.
+            let renderedPath: string;
             let trimApplied = false;
             let reactionHoldDurationSeconds = 0;
-            // Render Fidelity & Composition Execution Engine, Phase 3 (RenderPlan) - mirrors
-            // reactionHoldDurationSeconds' own "only reflects what actually happened" semantics:
-            // stays [] unless applyReactionHolds() below genuinely succeeds, so RenderPlan.holds
-            // never claims a hold was applied when the pass failed or the flag was off.
             let reactionHoldInstants: number[] = [];
-            if (cuts.length > 0) {
-              trimmedPath = await reserveScratchPath('trimmed', '.mp4');
-              const totalOutputDuration = endTime - startTime - totalCutSeconds(cuts);
-              // Optional polish, not required for a correct clip - the untrimmed render above is
-              // already a complete, valid output. Caught (not left to fail the whole job) for the same
-              // "external ffmpeg call, bounded by TRIM_TIMEOUT_MS but still allowed to fail" reasoning
-              // as every other optional signal in this file, prompted by a real timeout observed here.
-              try {
-                await trimCutRanges(
-                  outputPath,
-                  trimmedPath,
-                  cuts,
-                  totalOutputDuration,
-                  quality,
-                  sourceFrameRate,
-                  clampedAudioChannels,
-                );
-                renderedPath = trimmedPath;
-                trimApplied = true;
-                logger.info('removed silence/filler cuts', {
-                  clipId,
-                  removedSeconds: Number(totalCutSeconds(cuts).toFixed(1)),
-                  cutCount: cuts.length,
-                });
-              } catch (error) {
-                logger.warn(
-                  'silence/filler trim failed, keeping the untrimmed render',
-                  { clipId },
-                  error,
-                );
-              }
-            }
+            // Only set by the flag=true branch below, where intro/outro already ran as part of
+            // the SAME executeCompiledRenderPlan() call that produced renderedPath - the Phase 5
+            // approval's own "one call replaces the ENTIRE 5-pass sequence" requirement. Stays
+            // null for flag=false, whose own intro/outro handling deliberately stays in its
+            // ORIGINAL position (after buildRenderPlan(), before verifyRenderedDuration()) rather
+            // than being pulled up into this if/else - see this variable's own read, further
+            // below, for why: RenderPlan.overlays.watermark/intro/outro are presence-only
+            // booleans that never depended on intro/outro's OWN concat pass having run (see
+            // buildRenderPlan()'s own call-site comment, unchanged since Phase 3), so moving
+            // buildRenderPlan() itself to after intro/outro would have been a silent, unforced
+            // reordering of an existing, tested call sequence - discovered via a real pre-existing
+            // test failure during Phase 5 implementation, not designed in from the start.
+            let compiledFinalOutputPath: string | null = null;
 
-            // Visual Emphasis Engine Phase C6R.3 ("Reaction Hold Temporal
-            // Extension", docs/ai/visual-emphasis-engine.md) - the C6R
-            // design's own "third pass, after cuts" (on renderedPath as it
-            // stands right now: cropped + captioned + B-roll composed, AND
-            // already cut-trimmed) - freezing a frame of THIS output
-            // automatically freezes whatever crop/caption/B-roll pixel was
-            // showing at that instant, correctly, for free - no separate
-            // caption/crop-path/B-roll remapping needed, same reasoning
-            // Phase C7's own cuts pass above already relies on.
-            // graphResult.editingSuggestions passed through unconditionally
-            // (Phase C1's own output, always computed); the SAME `cuts`
-            // array just used for trimCutRanges() above is reused here so
-            // reaction_hold instants remap onto the ACTUAL post-cut
-            // timeline, including any Phase C7 pause-hold protection -
-            // computeReactionHoldInstants() itself filters to
-            // technique === 'reaction_hold', and this whole pass is gated
-            // by isReactionHoldEnabled() right here, same "each technique
-            // checks its own flag at its own call site" shape C3/C4/C5/C7
-            // already established.
-            if (isReactionHoldEnabled()) {
-              const holdInstants = computeReactionHoldInstants(
-                graphResult.editingSuggestions,
-                cuts,
-                REACTION_HOLD_EXTENSION_SECONDS,
-              );
-              if (holdInstants.length > 0) {
-                reactionHoldPath = await reserveScratchPath('reaction-hold', '.mp4');
-                // Optional polish, not required for a correct clip - same
-                // "external ffmpeg call, allowed to fail without failing
-                // the whole job" posture as the cutlist trim pass above.
-                try {
-                  await applyReactionHolds(
-                    renderedPath,
-                    reactionHoldPath,
-                    holdInstants,
+            if (isRenderExecutionCompilerEnabled()) {
+              // Render Fidelity & Composition Execution Engine, Phase 5 (Cutover) - see
+              // execute-render-plan.ts's own module comment for the full design.
+              // RENDER_EXECUTION_COMPILER_ENABLED is false by default (.env.example) - this
+              // branch is inert in production until a later, separately requested rollout phase
+              // flips it. When it IS on, this replaces the ENTIRE 5-pass sequence the `else`
+              // branch below still runs inline with ONE call into executeCompiledRenderPlan() -
+              // both branches call the exact same ffmpeg.ts functions with provably-equivalent
+              // arguments (Phase 4's own regression suite already established this equivalence
+              // for the post-hoc case; execute-render-plan.spec.ts's own parity fixture
+              // establishes it for this pre-hoc case).
+              //
+              // This RenderPlan is built PRE-EXECUTION (unlike the post-hoc one built further
+              // below, which stays completely unmodified) - trimApplied/reactionHoldInstants/
+              // reactionHoldDurationSeconds here reflect INTENT (should this pass be attempted),
+              // not outcome (did it succeed), since outcome genuinely cannot be known before the
+              // executor runs. This never touches RenderPlan's own Phase 3 contract or its "only
+              // reflects success" semantics: this particular RenderPlan instance is discarded
+              // immediately after driving execution, never logged as RENDER_PLAN_RESOLVED, never
+              // read by verifyRenderedDuration. The REAL, outcome-faithful RenderPlan is still
+              // built exactly where it always was (below, shared by both branches), from the REAL
+              // outcome this branch reports back via executeCompiledRenderPlan()'s own return
+              // value.
+              const reactionHoldCandidates = isReactionHoldEnabled()
+                ? computeReactionHoldInstants(
+                    graphResult.editingSuggestions,
+                    cuts,
                     REACTION_HOLD_EXTENSION_SECONDS,
+                  )
+                : [];
+
+              // Scratch paths reserved upfront (not lazily, as the flag=false branch below still
+              // does) - the executor needs every path it might write to already resolved before
+              // it starts, since (unlike the inline sequence) it doesn't get to reserve one
+              // mid-pass. Each condition exactly mirrors the flag=false branch's own
+              // lazy-reservation gate.
+              if (cuts.length > 0) {
+                trimmedPath = await reserveScratchPath('trimmed', '.mp4');
+              }
+              if (reactionHoldCandidates.length > 0) {
+                reactionHoldPath = await reserveScratchPath('reaction-hold', '.mp4');
+              }
+              if (introPath && intro) {
+                introConcatPath = await reserveScratchPath('with-intro', '.mp4');
+              }
+              if (outroPath && outro) {
+                outroConcatPath = await reserveScratchPath('with-outro', '.mp4');
+              }
+
+              const preExecutionRenderPlan = buildRenderPlan({
+                clipId,
+                videoId,
+                effectiveRenderConfig,
+                outputProfile,
+                requestedStartTime: startTime,
+                requestedEndTime: endTime,
+                trimApplied: cuts.length > 0,
+                removedSeconds: totalCutSeconds(cuts),
+                reactionHoldInstants: reactionHoldCandidates,
+                reactionHoldDurationSeconds:
+                  reactionHoldCandidates.length * REACTION_HOLD_EXTENSION_SECONDS,
+                cropPath,
+                reframeHints: ocrHighlights,
+                broll,
+              });
+              const preExecutionPlan = compileRenderPlan(preExecutionRenderPlan, {
+                sourcePath,
+                outputPath,
+                trimmedPath: trimmedPath ?? '',
+                reactionHoldPath: reactionHoldPath ?? '',
+                introConcatPath: introConcatPath ?? '',
+                outroConcatPath: outroConcatPath ?? '',
+                subtitlesPath,
+                watermarkPath,
+                introPath,
+                outroPath,
+                brollOverlayPaths: broll.map(({ keyword, startTime, filePath }) => ({
+                  keyword,
+                  startTime,
+                  filePath,
+                })),
+                cuts,
+                sourceAudioChannels,
+                reframe,
+              });
+              logger.info('RENDER_EXECUTION_COMPILER_ACTIVE', {
+                clipId,
+                videoId,
+                passes: preExecutionPlan.passes.map((compiledPass) =>
+                  compiledPass.pass === 'concatBrandSegment'
+                    ? `${compiledPass.pass}:${compiledPass.position}`
+                    : compiledPass.pass,
+                ),
+              });
+              const outcome = await executeCompiledRenderPlan(preExecutionPlan);
+              renderedPath = outcome.renderedPath;
+              compiledFinalOutputPath = outcome.finalOutputPath;
+              trimApplied = outcome.trimApplied;
+              reactionHoldInstants = outcome.reactionHoldInstants;
+              reactionHoldDurationSeconds = outcome.reactionHoldDurationSeconds;
+            } else {
+              // --- existing inline execution path, UNCHANGED by Phase 5 ---
+              await renderClip({
+                inputPath: sourcePath,
+                startTime,
+                endTime,
+                subtitlesPath,
+                outputPath,
+                reframe,
+                broll,
+                watermark:
+                  watermarkPath && watermark
+                    ? {
+                        filePath: watermarkPath,
+                        opacity: watermark.opacity,
+                        scale: watermark.scale,
+                        margin: watermark.margin,
+                        position: watermark.position,
+                      }
+                    : null,
+                quality,
+                sourceAudioChannels,
+              });
+              renderedPath = outputPath;
+
+              if (cuts.length > 0) {
+                trimmedPath = await reserveScratchPath('trimmed', '.mp4');
+                const totalOutputDuration = endTime - startTime - totalCutSeconds(cuts);
+                // Optional polish, not required for a correct clip - the untrimmed render above is
+                // already a complete, valid output. Caught (not left to fail the whole job) for the same
+                // "external ffmpeg call, bounded by TRIM_TIMEOUT_MS but still allowed to fail" reasoning
+                // as every other optional signal in this file, prompted by a real timeout observed here.
+                try {
+                  await trimCutRanges(
+                    outputPath,
+                    trimmedPath,
+                    cuts,
+                    totalOutputDuration,
                     quality,
+                    sourceFrameRate,
                     clampedAudioChannels,
                   );
-                  renderedPath = reactionHoldPath;
-                  reactionHoldInstants = holdInstants;
-                  reactionHoldDurationSeconds =
-                    holdInstants.length * REACTION_HOLD_EXTENSION_SECONDS;
-                  logger.info('applied reaction holds', {
+                  renderedPath = trimmedPath;
+                  trimApplied = true;
+                  logger.info('removed silence/filler cuts', {
                     clipId,
-                    holdCount: holdInstants.length,
+                    removedSeconds: Number(totalCutSeconds(cuts).toFixed(1)),
+                    cutCount: cuts.length,
                   });
                 } catch (error) {
                   logger.warn(
-                    'reaction hold pass failed, keeping the pre-hold render',
+                    'silence/filler trim failed, keeping the untrimmed render',
                     { clipId },
                     error,
                   );
                 }
               }
+
+              // Visual Emphasis Engine Phase C6R.3 ("Reaction Hold Temporal
+              // Extension", docs/ai/visual-emphasis-engine.md) - the C6R
+              // design's own "third pass, after cuts" (on renderedPath as it
+              // stands right now: cropped + captioned + B-roll composed, AND
+              // already cut-trimmed) - freezing a frame of THIS output
+              // automatically freezes whatever crop/caption/B-roll pixel was
+              // showing at that instant, correctly, for free - no separate
+              // caption/crop-path/B-roll remapping needed, same reasoning
+              // Phase C7's own cuts pass above already relies on.
+              // graphResult.editingSuggestions passed through unconditionally
+              // (Phase C1's own output, always computed); the SAME `cuts`
+              // array just used for trimCutRanges() above is reused here so
+              // reaction_hold instants remap onto the ACTUAL post-cut
+              // timeline, including any Phase C7 pause-hold protection -
+              // computeReactionHoldInstants() itself filters to
+              // technique === 'reaction_hold', and this whole pass is gated
+              // by isReactionHoldEnabled() right here, same "each technique
+              // checks its own flag at its own call site" shape C3/C4/C5/C7
+              // already established.
+              if (isReactionHoldEnabled()) {
+                const holdInstants = computeReactionHoldInstants(
+                  graphResult.editingSuggestions,
+                  cuts,
+                  REACTION_HOLD_EXTENSION_SECONDS,
+                );
+                if (holdInstants.length > 0) {
+                  reactionHoldPath = await reserveScratchPath('reaction-hold', '.mp4');
+                  // Optional polish, not required for a correct clip - same
+                  // "external ffmpeg call, allowed to fail without failing
+                  // the whole job" posture as the cutlist trim pass above.
+                  try {
+                    await applyReactionHolds(
+                      renderedPath,
+                      reactionHoldPath,
+                      holdInstants,
+                      REACTION_HOLD_EXTENSION_SECONDS,
+                      quality,
+                      clampedAudioChannels,
+                    );
+                    renderedPath = reactionHoldPath;
+                    reactionHoldInstants = holdInstants;
+                    reactionHoldDurationSeconds =
+                      holdInstants.length * REACTION_HOLD_EXTENSION_SECONDS;
+                    logger.info('applied reaction holds', {
+                      clipId,
+                      holdCount: holdInstants.length,
+                    });
+                  } catch (error) {
+                    logger.warn(
+                      'reaction hold pass failed, keeping the pre-hold render',
+                      { clipId },
+                      error,
+                    );
+                  }
+                }
+              }
+              // Intro/outro is deliberately NOT handled here for the flag=false branch - it
+              // stays in its ORIGINAL position, below, after buildRenderPlan() - see
+              // compiledFinalOutputPath's own declaration comment above for why.
             }
 
             // Render Fidelity & Composition Execution Engine, Phase 3 (RenderPlan) - see
@@ -1963,77 +2108,70 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               transitions: renderPlan.transitions,
             });
 
-            // Intro/Outro roadmap (P3d/P3e) - originally documented as "a
-            // THIRD (and, when both are configured, fourth) pass, after the
-            // cutlist trim above" - now the FOURTH (and, when both intro
-            // and outro are configured, fifth) pass, since Visual Emphasis
-            // Engine Phase C6R.3 (Reaction Hold, above) inserted its own
-            // pass between the cutlist trim and this one. Still correct
-            // regardless of the exact count: prepending/appending the
-            // Brand Kit intro/outro onto the fully-finished clip (crop/
-            // B-roll/subtitles/watermark/cutlist-trim/reaction-hold already
-            // applied). finalOutputPath (not renderedPath) is
-            // what gets checksummed/uploaded/sized below - thumbnail/
-            // storyboard/hover-preview extraction further down deliberately
-            // keeps reading renderedPath unchanged, so a thumbnail
-            // represents the clip's own highlight content, not a generic
-            // intro/outro card. Each pass is independently best-effort, same
-            // "degrade gracefully, never fail the job" posture as watermark/
-            // B-roll: a concat failure just uploads the clip without that
-            // one segment rather than failing an otherwise-successful
-            // render - an outro failure after a successful intro concat
-            // still uploads the intro+clip result, not nothing. The outro
-            // pass chains onto whatever the intro pass already produced
-            // (or renderedPath, if there was no intro), reusing the exact
-            // same concatBrandSegment() call shape with position: 'end'
-            // instead of 'start' - see that function's own comment for why
-            // this is a sequential two-pass composition rather than a
-            // single 3-way concat.
-            let finalOutputPath = renderedPath;
-            if (introPath && intro) {
-              try {
-                introConcatPath = await reserveScratchPath('with-intro', '.mp4');
-                await concatBrandSegment(
-                  'start',
-                  finalOutputPath,
-                  {
-                    filePath: introPath,
-                    type: intro.type,
-                    imageDurationSeconds: intro.imageDurationSeconds,
-                  },
-                  reframe.outputWidth,
-                  reframe.outputHeight,
-                  introConcatPath,
-                  quality,
-                  sourceFrameRate,
-                  clampedAudioChannels,
-                );
-                finalOutputPath = introConcatPath;
-              } catch (error) {
-                logger.warn('intro concat failed, uploading without one', { clipId }, error);
+            // Intro/Outro roadmap (P3d/P3e) - ORIGINAL position, unchanged since before Phase 5:
+            // after buildRenderPlan()/RENDER_PLAN_RESOLVED, before verifyRenderedDuration().
+            // finalOutputPath (not renderedPath) is what gets checksummed/uploaded/sized below -
+            // thumbnail/storyboard/hover-preview extraction further down deliberately keeps
+            // reading renderedPath unchanged, so a thumbnail represents the clip's own highlight
+            // content, not a generic intro/outro card. Each pass is independently best-effort,
+            // same "degrade gracefully, never fail the job" posture as watermark/B-roll.
+            //
+            // Render Fidelity & Composition Execution Engine, Phase 5 (Cutover) -
+            // compiledFinalOutputPath is non-null only for the flag=true branch above, where
+            // intro/outro already ran as part of the SAME executeCompiledRenderPlan() call that
+            // produced renderedPath - see that variable's own declaration comment for the full
+            // "why not just move buildRenderPlan() after intro/outro instead" reasoning (a real,
+            // pre-existing test caught that alternative as an unintended ordering change).
+            let finalOutputPath: string;
+            if (compiledFinalOutputPath !== null) {
+              finalOutputPath = compiledFinalOutputPath;
+            } else {
+              finalOutputPath = renderedPath;
+              if (introPath && intro) {
+                try {
+                  introConcatPath = await reserveScratchPath('with-intro', '.mp4');
+                  await concatBrandSegment(
+                    'start',
+                    finalOutputPath,
+                    {
+                      filePath: introPath,
+                      type: intro.type,
+                      imageDurationSeconds: intro.imageDurationSeconds,
+                    },
+                    reframe.outputWidth,
+                    reframe.outputHeight,
+                    introConcatPath,
+                    quality,
+                    sourceFrameRate,
+                    clampedAudioChannels,
+                  );
+                  finalOutputPath = introConcatPath;
+                } catch (error) {
+                  logger.warn('intro concat failed, uploading without one', { clipId }, error);
+                }
               }
-            }
-            if (outroPath && outro) {
-              try {
-                outroConcatPath = await reserveScratchPath('with-outro', '.mp4');
-                await concatBrandSegment(
-                  'end',
-                  finalOutputPath,
-                  {
-                    filePath: outroPath,
-                    type: outro.type,
-                    imageDurationSeconds: outro.imageDurationSeconds,
-                  },
-                  reframe.outputWidth,
-                  reframe.outputHeight,
-                  outroConcatPath,
-                  quality,
-                  sourceFrameRate,
-                  clampedAudioChannels,
-                );
-                finalOutputPath = outroConcatPath;
-              } catch (error) {
-                logger.warn('outro concat failed, uploading without one', { clipId }, error);
+              if (outroPath && outro) {
+                try {
+                  outroConcatPath = await reserveScratchPath('with-outro', '.mp4');
+                  await concatBrandSegment(
+                    'end',
+                    finalOutputPath,
+                    {
+                      filePath: outroPath,
+                      type: outro.type,
+                      imageDurationSeconds: outro.imageDurationSeconds,
+                    },
+                    reframe.outputWidth,
+                    reframe.outputHeight,
+                    outroConcatPath,
+                    quality,
+                    sourceFrameRate,
+                    clampedAudioChannels,
+                  );
+                  finalOutputPath = outroConcatPath;
+                } catch (error) {
+                  logger.warn('outro concat failed, uploading without one', { clipId }, error);
+                }
               }
             }
 
@@ -2056,20 +2194,21 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // Render Fidelity & Composition Execution Engine, Phase 4 (FFmpeg Execution
             // Compiler) - see apps/worker/src/render-plan-compiler.ts's own module comment for
             // the full design/scope-boundary reasoning. Built HERE, after the intro/outro pass
-            // and verifyRenderedDuration() above (not right after RenderPlan itself) - the real
-            // introConcatPath/outroConcatPath/trimmedPath/reactionHoldPath scratch paths are only
-            // ever reserved (reserveScratchPath()) lazily, inside each pass's own `if` block,
-            // exactly when that pass actually runs; this is the first point where all of them
-            // hold their real, final values (still null when that pass never ran, matching
-            // compileRenderPlan()'s own "?? ''" - never read in that case, since the plan
-            // correctly omits that pass whenever RenderPlan shows nothing to do).
+            // and verifyRenderedDuration() above (not right after RenderPlan itself) - by this
+            // point every scratch path (trimmedPath/reactionHoldPath/introConcatPath/
+            // outroConcatPath) holds its real, final value regardless of which branch above set
+            // it (still null when that pass never ran, matching compileRenderPlan()'s own "?? ''"
+            // - never read in that case, since the plan correctly omits that pass whenever
+            // RenderPlan shows nothing to do).
             //
             // Same proof-of-integration-only posture as Phases 1-3: logged
-            // (RENDER_EXECUTION_PLAN_COMPILED) purely to prove this compiled plan agrees with
-            // what the existing pipeline already executed - NOT yet used to drive execution.
-            // Every ffmpeg.ts call above this point is UNCHANGED and remains the actual
-            // execution path; the cutover to actually run FROM the compiled plan is a
-            // deliberately separate, later phase (Phase 5).
+            // (RENDER_EXECUTION_PLAN_COMPILED) purely to prove this compiled plan agrees with what
+            // actually executed above (whichever branch ran). This particular compile+log call is
+            // ALWAYS observability-only, in BOTH flag states - it does not drive execution, even
+            // when RENDER_EXECUTION_COMPILER_ENABLED is true (in that case, real execution already
+            // happened, driven by a SEPARATE, pre-execution compileRenderPlan() call inside the
+            // `if` branch above - see execute-render-plan.ts's own module comment for why two
+            // separate RenderPlan/compileRenderPlan calls exist rather than one).
             const executionPlan = compileRenderPlan(renderPlan, {
               sourcePath,
               outputPath,

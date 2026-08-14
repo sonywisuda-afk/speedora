@@ -4847,6 +4847,237 @@ describe('render-clip worker', () => {
     });
   });
 
+  // Render Fidelity & Composition Execution Engine, Phase 5 (Cutover) - tests the WIRING only
+  // (the adapter's job, per ARCHITECTURE.md's checklist item 4): that render-clip.worker.ts
+  // correctly branches on isRenderExecutionCompilerEnabled(), correctly builds a pre-execution
+  // RenderPlan/compiles it, and correctly threads executeCompiledRenderPlan()'s own outcome back
+  // into the SAME downstream code every flag=false test above already exercises.
+  // executeCompiledRenderPlan()'s own pass-interpretation/fallback/ordering logic is covered
+  // purely by execute-render-plan.spec.ts's own fixture-based spec, not re-tested here -
+  // executeCompiledRenderPlan() itself is REAL in this file (only ../ffmpeg's individual
+  // functions are mocked), so these tests exercise the real executor end to end, just fed a
+  // compileRenderPlanMock-controlled plan.
+  describe('Cutover to Compiled Execution (Render Fidelity Matrix Phase 5) - flag-gated executor wiring', () => {
+    afterEach(() => {
+      delete process.env.RENDER_EXECUTION_COMPILER_ENABLED;
+    });
+
+    it('defaults to false - buildRenderPlan/compileRenderPlan are each called exactly once (post-hoc only), matching pre-Phase-5 behavior', async () => {
+      delete process.env.RENDER_EXECUTION_COMPILER_ENABLED;
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildRenderPlanMock).toHaveBeenCalledTimes(1);
+      expect(compileRenderPlanMock).toHaveBeenCalledTimes(1);
+      // The inline path's own unconditional first pass - proves flag=false still calls
+      // renderClip() directly, not via the (untouched, real) executor.
+      expect(renderClipMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('anything other than the literal string "true" also keeps the inline path active', async () => {
+      process.env.RENDER_EXECUTION_COMPILER_ENABLED = '1';
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildRenderPlanMock).toHaveBeenCalledTimes(1);
+      expect(compileRenderPlanMock).toHaveBeenCalledTimes(1);
+    });
+
+    describe('when RENDER_EXECUTION_COMPILER_ENABLED=true', () => {
+      beforeEach(() => {
+        process.env.RENDER_EXECUTION_COMPILER_ENABLED = 'true';
+        // Dynamically reflects whatever the pre-execution call actually threaded through
+        // (resolved.sourcePath/outputPath/subtitlesPath/reframe/sourceAudioChannels), so these
+        // tests prove REAL data propagation rather than asserting against a hand-picked literal
+        // the production code never actually has to match. A single renderClip pass by default -
+        // individual tests below override this via mockImplementationOnce for a fuller plan.
+        compileRenderPlanMock.mockImplementation((_renderPlan, resolved) => ({
+          clipId: 'clip-1',
+          videoId: 'video-1',
+          passes: [
+            {
+              pass: 'renderClip',
+              args: {
+                inputPath: resolved.sourcePath,
+                startTime: 10,
+                endTime: 20,
+                subtitlesPath: resolved.subtitlesPath,
+                outputPath: resolved.outputPath,
+                reframe: resolved.reframe,
+                broll: [],
+                watermark: null,
+                quality: null,
+                sourceAudioChannels: resolved.sourceAudioChannels,
+              },
+            },
+          ],
+        }));
+      });
+
+      it('drives renderClip() through the executor instead of the inline call site, without double-rendering', async () => {
+        const processor = getProcessor();
+        await processor(fakeJob(baseJobData));
+
+        expect(renderClipMock).toHaveBeenCalledTimes(1);
+        expect(renderClipMock).toHaveBeenCalledWith(
+          expect.objectContaining({
+            inputPath: expect.stringContaining('source'),
+            outputPath: expect.stringContaining('output'),
+          }),
+        );
+      });
+
+      it('calls compileRenderPlan twice - once pre-execution (to drive the executor), once post-hoc (existing Phase 4 observability, unchanged)', async () => {
+        const processor = getProcessor();
+        await processor(fakeJob(baseJobData));
+
+        expect(compileRenderPlanMock).toHaveBeenCalledTimes(2);
+        expect(buildRenderPlanMock).toHaveBeenCalledTimes(2);
+      });
+
+      it('propagates a required-pass (renderClip) failure and fails the job, same as the inline path', async () => {
+        renderClipMock.mockRejectedValue(new Error('ffmpeg exploded'));
+        const processor = getProcessor();
+
+        await expect(processor(fakeJob(baseJobData))).rejects.toThrow('ffmpeg exploded');
+      });
+
+      it('still uploads finalOutputPath and completes the job normally on success', async () => {
+        const processor = getProcessor();
+        const result = await processor(fakeJob(baseJobData));
+
+        expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+        expect(uploadObjectMock).toHaveBeenCalledWith(
+          'renders/clip-1.mp4',
+          { fakeStream: expect.stringContaining('output') },
+          'video/mp4',
+        );
+      });
+
+      it('still cleans up every scratch path in the finally block (cleanup behavior unaffected by which branch ran)', async () => {
+        const processor = getProcessor();
+        await processor(fakeJob(baseJobData));
+
+        expect(cleanupTempFileMock).toHaveBeenCalledWith(expect.stringContaining('output'));
+        expect(cleanupTempFileMock).toHaveBeenCalledWith(expect.stringContaining('source'));
+      });
+
+      it('executes a full plan (cuts + reaction holds + intro + outro) in exact order, chaining intermediate scratch paths correctly', async () => {
+        applyReactionHoldsMock.mockResolvedValue(undefined);
+        const callOrder: string[] = [];
+        renderClipMock.mockImplementationOnce(async () => {
+          callOrder.push('renderClip');
+        });
+        trimCutRangesMock.mockImplementationOnce(async () => {
+          callOrder.push('trimCutRanges');
+        });
+        applyReactionHoldsMock.mockImplementationOnce(async () => {
+          callOrder.push('applyReactionHolds');
+        });
+        concatBrandSegmentMock.mockImplementation(async (position: string) => {
+          callOrder.push(`concatBrandSegment:${position}`);
+        });
+
+        compileRenderPlanMock.mockImplementationOnce((_renderPlan, resolved) => ({
+          clipId: 'clip-1',
+          videoId: 'video-1',
+          passes: [
+            {
+              pass: 'renderClip',
+              args: {
+                inputPath: resolved.sourcePath,
+                startTime: 10,
+                endTime: 20,
+                subtitlesPath: resolved.subtitlesPath,
+                outputPath: resolved.outputPath,
+                reframe: resolved.reframe,
+                broll: [],
+                watermark: null,
+                quality: null,
+                sourceAudioChannels: resolved.sourceAudioChannels,
+              },
+            },
+            {
+              pass: 'trimCutRanges',
+              args: [
+                resolved.outputPath,
+                resolved.trimmedPath || '/tmp/trimmed.mp4',
+                [],
+                10,
+                null,
+                null,
+                null,
+              ],
+            },
+            {
+              pass: 'applyReactionHolds',
+              args: [
+                resolved.trimmedPath || '/tmp/trimmed.mp4',
+                resolved.reactionHoldPath || '/tmp/held.mp4',
+                [3],
+                0.5,
+                null,
+                null,
+              ],
+            },
+            {
+              pass: 'concatBrandSegment',
+              position: 'start',
+              args: [
+                'start',
+                resolved.reactionHoldPath || '/tmp/held.mp4',
+                { filePath: 'intro.mp4', type: 'video', imageDurationSeconds: null },
+                1080,
+                1920,
+                '/tmp/with-intro.mp4',
+                null,
+                null,
+                null,
+              ],
+            },
+            {
+              pass: 'concatBrandSegment',
+              position: 'end',
+              args: [
+                'end',
+                '/tmp/with-intro.mp4',
+                { filePath: 'outro.mp4', type: 'video', imageDurationSeconds: null },
+                1080,
+                1920,
+                '/tmp/with-outro.mp4',
+                null,
+                null,
+                null,
+              ],
+            },
+          ],
+        }));
+
+        const processor = getProcessor();
+        await processor(
+          fakeJob({
+            ...baseJobData,
+            intro: { key: 'brand/intro.mp4', type: 'video', imageDurationSeconds: null },
+            outro: { key: 'brand/outro.mp4', type: 'video', imageDurationSeconds: null },
+          }),
+        );
+
+        expect(callOrder).toEqual([
+          'renderClip',
+          'trimCutRanges',
+          'applyReactionHolds',
+          'concatBrandSegment:start',
+          'concatBrandSegment:end',
+        ]);
+        expect(uploadObjectMock).toHaveBeenCalledWith(
+          'renders/clip-1.mp4',
+          { fakeStream: '/tmp/with-outro.mp4' },
+          'video/mp4',
+        );
+      });
+    });
+  });
+
   describe('Scene Intelligence (Fase 26)', () => {
     it('calls detectSceneCuts with the source path and clip time range, persisting the resulting cuts', async () => {
       clipFindManyMock.mockResolvedValue([
