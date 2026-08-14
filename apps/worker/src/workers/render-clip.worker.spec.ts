@@ -78,6 +78,11 @@ const extractAnimatedPreviewMock = jest.fn();
 // top-level beforeEach below, same convention as every other ffmpeg mock
 // in this block.
 const applyReactionHoldsMock = jest.fn();
+// Render Fidelity Matrix bug fixes #1-3 (docs/ai/render-fidelity-matrix.md) - previously
+// concatBrandSegment() wasn't mocked here at all, so the intro/outro concat pass had zero worker-
+// level wiring coverage (a real, pre-existing gap: it would have thrown "not a function" the
+// instant any test actually exercised that branch, which none did).
+const concatBrandSegmentMock = jest.fn();
 jest.mock('../ffmpeg', () => ({
   renderClip: (...args: unknown[]) => renderClipMock(...args),
   getVideoDimensions: (...args: unknown[]) => getVideoDimensionsMock(...args),
@@ -94,6 +99,7 @@ jest.mock('../ffmpeg', () => ({
   extractBlurPlaceholder: (...args: unknown[]) => extractBlurPlaceholderMock(...args),
   extractAnimatedPreview: (...args: unknown[]) => extractAnimatedPreviewMock(...args),
   applyReactionHolds: (...args: unknown[]) => applyReactionHoldsMock(...args),
+  concatBrandSegment: (...args: unknown[]) => concatBrandSegmentMock(...args),
   // C6R.2's own exported constant - real value, not mocked, so
   // computeReactionHoldInstants()'s minimum-separation math in this spec
   // file matches production exactly.
@@ -411,6 +417,12 @@ interface RenderClipJobData {
   smartSegmentation?: boolean;
   dynamicCaptions?: boolean;
   captionLanguage?: string | null;
+  // Render Fidelity Matrix bug fixes #1-3 (docs/ai/render-fidelity-matrix.md) - optional here
+  // (unlike the real RenderClipJobData) since most existing tests in this file never set either;
+  // undefined behaves the same as null at the worker (both are falsy, skipping the intro/outro
+  // concat pass entirely).
+  intro?: { key: string; type: 'video' | 'image'; imageDurationSeconds: number | null } | null;
+  outro?: { key: string; type: 'video' | 'image'; imageDurationSeconds: number | null } | null;
 }
 
 // Real deriveAudioFeatures()/deriveFacialEmotionFeatures() output for the
@@ -676,6 +688,7 @@ describe('render-clip worker', () => {
     writeFileMock.mockResolvedValue(undefined);
     renderClipMock.mockResolvedValue(undefined);
     trimCutRangesMock.mockResolvedValue(undefined);
+    concatBrandSegmentMock.mockResolvedValue(undefined);
     // Fails by default (not "succeeds with nothing") so the many existing
     // exact-literal clipUpdateMock assertions below don't all need a
     // thumbnailUrl key added - same "opt in to exercise the success path"
@@ -3277,6 +3290,7 @@ describe('render-clip worker', () => {
         [2.75],
         0.5,
         null,
+        null,
       );
       expect(uploadObjectMock).toHaveBeenCalledWith(
         'renders/clip-1.mp4',
@@ -3305,6 +3319,7 @@ describe('render-clip worker', () => {
         expect.stringContaining('reaction-hold'),
         [0.7],
         0.5,
+        null,
         null,
       );
     });
@@ -3341,6 +3356,7 @@ describe('render-clip worker', () => {
         [0.7],
         0.5,
         { preset: 'slow', crf: 18 },
+        null,
       );
     });
 
@@ -3447,6 +3463,7 @@ describe('render-clip worker', () => {
         [3.25],
         0.5,
         null,
+        null,
       );
     });
 
@@ -3470,6 +3487,7 @@ describe('render-clip worker', () => {
         expect.stringContaining('reaction-hold'),
         [2.2],
         0.5,
+        null,
         null,
       );
     });
@@ -3630,6 +3648,7 @@ describe('render-clip worker', () => {
         expect.stringContaining('reaction-hold'),
         [5],
         0.5,
+        null,
         null,
       );
     });
@@ -3834,6 +3853,7 @@ describe('render-clip worker', () => {
         2.5,
         0.3,
         'video',
+        null,
       );
       expect(fadeOutBRollMock).toHaveBeenCalledWith(
         expect.stringContaining('broll-fadein'),
@@ -3858,6 +3878,33 @@ describe('render-clip worker', () => {
       expect(cleanupTempFileMock).toHaveBeenCalledWith(expect.stringContaining('broll-raw'));
       expect(cleanupTempFileMock).toHaveBeenCalledWith(expect.stringContaining('broll-fadein'));
       expect(cleanupTempFileMock).toHaveBeenCalledWith(expect.stringContaining('broll-final'));
+    });
+
+    // Render Fidelity Matrix bug fix #2 (docs/ai/render-fidelity-matrix.md) - previously B-roll
+    // cutaways were always normalized to a hardcoded 30fps regardless of what rate the rest of
+    // the clip actually renders at. Confirms the real, probed source frame rate reaches
+    // trimAndFadeInBRoll() instead.
+    it("threads the probed source frame rate through to trimAndFadeInBRoll()'s own fps normalization", async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      findBRollMomentsMock.mockReturnValue([{ keyword: 'sunset', t: 2, isBrandCandidate: false }]);
+      searchAssetsMock.mockResolvedValue(sunsetAsset);
+      getVideoFrameRateStringMock.mockResolvedValue('60000/1001');
+
+      const processor = getProcessor();
+      await processor(fakeJob({ ...baseJobData, keywords: ['sunset'] }));
+
+      expect(trimAndFadeInBRollMock).toHaveBeenCalledWith(
+        expect.stringContaining('broll-raw'),
+        expect.stringContaining('broll-fadein'),
+        136,
+        240,
+        2.5,
+        0.3,
+        'video',
+        '60000/1001',
+      );
     });
 
     // AI B-roll Recommendation (item 8) - proves the wiring, not just the
@@ -3896,6 +3943,7 @@ describe('render-clip worker', () => {
         2.5,
         0.3,
         'image',
+        null,
       );
     });
 
@@ -4058,6 +4106,116 @@ describe('render-clip worker', () => {
         10,
         undefined,
         [],
+      );
+    });
+  });
+
+  // Render Fidelity Matrix bug fixes #1-3 (docs/ai/render-fidelity-matrix.md) - concatBrandSegment()
+  // (the intro/outro pass) previously wasn't mocked in this spec at all, so this wiring had zero
+  // worker-level coverage; the three params these tests exercise (quality/frameRate/audioChannels)
+  // are exactly the ones that were silently dropped before this fix.
+  describe('Intro/Outro brand segment concat - quality/FPS/audio fidelity (Render Fidelity Matrix bug fixes #1-3)', () => {
+    const introJobData: RenderClipJobData = {
+      ...baseJobData,
+      intro: { key: 'brand/intro.mp4', type: 'video', imageDurationSeconds: null },
+    };
+    const outroJobData: RenderClipJobData = {
+      ...baseJobData,
+      outro: { key: 'brand/outro.mp4', type: 'video', imageDurationSeconds: null },
+    };
+
+    it('threads the resolved quality/frameRate/clampedAudioChannels into concatBrandSegment() for an intro', async () => {
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, export: { qualityPreset: 'maximum_quality' } },
+        },
+      });
+      getVideoFrameRateStringMock.mockResolvedValue('60000/1001');
+      getAudioChannelCountMock.mockResolvedValue(1);
+
+      const processor = getProcessor();
+      await processor(fakeJob(introJobData));
+
+      expect(concatBrandSegmentMock).toHaveBeenCalledWith(
+        'start',
+        expect.stringContaining('output'),
+        expect.objectContaining({
+          filePath: expect.stringContaining('intro'),
+          type: 'video',
+          imageDurationSeconds: null,
+        }),
+        expect.any(Number),
+        expect.any(Number),
+        expect.stringContaining('with-intro'),
+        { preset: 'slow', crf: 18 },
+        '60000/1001',
+        1,
+      );
+    });
+
+    it('threads the resolved quality/frameRate/clampedAudioChannels into concatBrandSegment() for an outro', async () => {
+      clipFindUniqueMock.mockResolvedValue({
+        outputUrl: null,
+        video: {
+          ownerId: 'user-1',
+          title: 'My Video',
+          processingOptions: { version: 1, export: { qualityPreset: 'small_size' } },
+        },
+      });
+      getVideoFrameRateStringMock.mockResolvedValue('30000/1001');
+      getAudioChannelCountMock.mockResolvedValue(2);
+
+      const processor = getProcessor();
+      await processor(fakeJob(outroJobData));
+
+      expect(concatBrandSegmentMock).toHaveBeenCalledWith(
+        'end',
+        expect.stringContaining('output'),
+        expect.objectContaining({
+          filePath: expect.stringContaining('outro'),
+          type: 'video',
+          imageDurationSeconds: null,
+        }),
+        expect.any(Number),
+        expect.any(Number),
+        expect.stringContaining('with-outro'),
+        expect.objectContaining({ preset: expect.any(String), crf: expect.any(Number) }),
+        '30000/1001',
+        2,
+      );
+    });
+
+    it('passes null quality/frameRate/audioChannels through when none could be resolved (unchanged prior behavior)', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob(introJobData));
+
+      expect(concatBrandSegmentMock).toHaveBeenCalledWith(
+        'start',
+        expect.any(String),
+        expect.any(Object),
+        expect.any(Number),
+        expect.any(Number),
+        expect.any(String),
+        null,
+        null,
+        null,
+      );
+    });
+
+    it('uploads without an intro when concatBrandSegment itself throws (best-effort, does not fail the job)', async () => {
+      concatBrandSegmentMock.mockRejectedValueOnce(new Error('ffmpeg exited with code 1'));
+
+      const processor = getProcessor();
+      const result = await processor(fakeJob(introJobData));
+
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+      expect(uploadObjectMock).toHaveBeenCalledWith(
+        'renders/clip-1.mp4',
+        { fakeStream: expect.stringContaining('output') },
+        'video/mp4',
       );
     });
   });

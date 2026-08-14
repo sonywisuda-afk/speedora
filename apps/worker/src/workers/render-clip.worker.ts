@@ -108,6 +108,7 @@ import {
   extractThumbnail,
   fadeOutBRoll,
   getAudioChannelCount,
+  getMediaDurationSeconds,
   getVideoDimensions,
   getVideoFrameRateString,
   MAX_OUTPUT_AUDIO_CHANNELS,
@@ -1002,6 +1003,11 @@ async function buildBRollOverlays(
   outputHeight: number,
   maxMoments: number | undefined,
   namedEntities: string[],
+  // Render Fidelity Matrix bug fix #2 (docs/ai/render-fidelity-matrix.md) - the same
+  // already-probed sourceFrameRate computeReframeDimensions() returns, threaded through to
+  // trimAndFadeInBRoll() below instead of letting it fall back to a hardcoded 30fps regardless
+  // of what rate the rest of this clip actually renders at.
+  outputFrameRate: string | null,
 ): Promise<{ overlays: BRollOverlay[]; finalPaths: string[] }> {
   const moments = findBRollMoments(
     keywords,
@@ -1049,6 +1055,7 @@ async function buildBRollOverlays(
           BROLL_DURATION_SECONDS,
           BROLL_FADE_SECONDS,
           asset.type,
+          outputFrameRate,
         );
 
         const finalPath = await reserveScratchPath('broll-final', '.mov');
@@ -1119,6 +1126,112 @@ function verifyUploadChecksum(
       `Uploaded clip ${clipId} failed checksum verification (local md5 ${expectedMd5Hex}, ` +
         `remote ETag ${normalized}) - possible corrupted upload`,
     );
+  }
+}
+
+// Render Fidelity Matrix bug fix #5 (docs/ai/render-fidelity-matrix.md) - matches the tolerance
+// already independently verified/pinned against real ffmpeg output rounding in
+// ffmpeg.duration.integration.spec.ts, rather than inventing a new number.
+const DURATION_VERIFICATION_TOLERANCE_SECONDS = 1.5;
+
+// A brand segment's own contribution to the final duration - mirrors concatBrandSegment()'s own
+// duration resolution (getMediaDurationSeconds() for a video, imageDurationSeconds for a still)
+// closely enough for a tolerance-based check, WITHOUT duplicating its MAX_INTRO_DURATION_SECONDS
+// cap (private to ffmpeg.ts) - a segment that got capped would make this estimate slightly high,
+// which only makes a real drift LESS likely to trip the warning, never more (a deliberately
+// conservative approximation, not a source of false positives). Returns null when the segment's
+// own contribution genuinely can't be estimated (an image with no known duration) - the caller
+// skips verification entirely rather than compare against a guessed number.
+async function estimateBrandSegmentDurationSeconds(
+  filePath: string,
+  segment: { type: 'video' | 'image'; imageDurationSeconds: number | null },
+): Promise<number | null> {
+  if (segment.type === 'image') {
+    return segment.imageDurationSeconds;
+  }
+  return getMediaDurationSeconds(filePath);
+}
+
+// Render Fidelity Matrix bug fix #5 - "focused verification step" per the fix's own scope
+// boundary (explicitly NOT the full Render Manifest/RenderPlan duration-accounting architecture
+// described in docs/ai/render-fidelity-matrix.md's larger proposal). Reconstructs the expected
+// final duration from numbers this same render already computed locally (the original requested
+// span, cuts actually removed, reaction-hold time actually inserted, brand segment durations
+// actually concatenated) and compares it against the REAL final media duration via ffprobe -
+// never trusts `endTime - startTime` alone, since that's exactly the number every one of the 6
+// bugs this fix addresses could silently diverge from. Best-effort and non-fatal by design (the
+// same "unverifiable -> warn, continue" branch of the existing render error model
+// verifyUploadChecksum() already establishes above, not its "confirmed corruption -> throw"
+// branch) - a duration mismatch means the render's own timing may be off, not that the file is
+// corrupted or unplayable, so it must never fail an otherwise-successful render.
+async function verifyRenderedDuration(params: {
+  clipId: string;
+  finalOutputPath: string;
+  requestedDurationSeconds: number;
+  trimApplied: boolean;
+  removedSeconds: number;
+  reactionHoldDurationSeconds: number;
+  introPath: string | null;
+  intro: { type: 'video' | 'image'; imageDurationSeconds: number | null } | null;
+  outroPath: string | null;
+  outro: { type: 'video' | 'image'; imageDurationSeconds: number | null } | null;
+}): Promise<void> {
+  const {
+    clipId,
+    finalOutputPath,
+    requestedDurationSeconds,
+    trimApplied,
+    removedSeconds,
+    reactionHoldDurationSeconds,
+    introPath,
+    intro,
+    outroPath,
+    outro,
+  } = params;
+  try {
+    let expectedDurationSeconds = requestedDurationSeconds;
+    if (trimApplied) expectedDurationSeconds -= removedSeconds;
+    expectedDurationSeconds += reactionHoldDurationSeconds;
+
+    if (introPath && intro) {
+      const introDuration = await estimateBrandSegmentDurationSeconds(introPath, intro);
+      if (introDuration === null) {
+        logger.info('skipping duration verification - intro segment duration unknown', { clipId });
+        return;
+      }
+      expectedDurationSeconds += introDuration;
+    }
+    if (outroPath && outro) {
+      const outroDuration = await estimateBrandSegmentDurationSeconds(outroPath, outro);
+      if (outroDuration === null) {
+        logger.info('skipping duration verification - outro segment duration unknown', { clipId });
+        return;
+      }
+      expectedDurationSeconds += outroDuration;
+    }
+
+    const actualDurationSeconds = await getMediaDurationSeconds(finalOutputPath);
+    const deltaSeconds = actualDurationSeconds - expectedDurationSeconds;
+
+    if (Math.abs(deltaSeconds) > DURATION_VERIFICATION_TOLERANCE_SECONDS) {
+      logger.warn('rendered clip duration diverges from expected duration beyond tolerance', {
+        clipId,
+        expectedDurationSeconds: Number(expectedDurationSeconds.toFixed(2)),
+        actualDurationSeconds: Number(actualDurationSeconds.toFixed(2)),
+        deltaSeconds: Number(deltaSeconds.toFixed(2)),
+        toleranceSeconds: DURATION_VERIFICATION_TOLERANCE_SECONDS,
+      });
+    } else {
+      logger.info('rendered clip duration verified within tolerance', {
+        clipId,
+        expectedDurationSeconds: Number(expectedDurationSeconds.toFixed(2)),
+        actualDurationSeconds: Number(actualDurationSeconds.toFixed(2)),
+      });
+    }
+  } catch (error) {
+    // Never fails the job over a verification step itself failing (e.g. ffprobe unavailable) -
+    // same best-effort posture as every other optional pass in this file.
+    logger.warn('duration verification itself failed, skipping', { clipId }, error);
   }
 }
 
@@ -1375,6 +1488,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                   reframe.outputHeight,
                   brollOptions.maxMoments,
                   graphResult.hookPrediction?.linguisticFeatures.namedEntities ?? [],
+                  sourceFrameRate,
                 )
               : { overlays: [], finalPaths: [] };
             brollPaths = finalPaths;
@@ -1543,6 +1657,14 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               graphResult.editingSuggestions,
             );
             let renderedPath = outputPath;
+            // Render Fidelity Matrix bug fix #5 (docs/ai/render-fidelity-matrix.md) - tracked
+            // separately from `renderedPath`/`trimmedPath` themselves, which get overwritten by
+            // LATER passes (reaction hold, intro/outro) - these two flags/values capture each
+            // pass's own success at the moment it happens, so the duration-verification step
+            // below can reconstruct "what should the final duration be" even after renderedPath
+            // has moved on to a later pass's output.
+            let trimApplied = false;
+            let reactionHoldDurationSeconds = 0;
             if (cuts.length > 0) {
               trimmedPath = await reserveScratchPath('trimmed', '.mp4');
               const totalOutputDuration = endTime - startTime - totalCutSeconds(cuts);
@@ -1561,6 +1683,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                   clampedAudioChannels,
                 );
                 renderedPath = trimmedPath;
+                trimApplied = true;
                 logger.info('removed silence/filler cuts', {
                   clipId,
                   removedSeconds: Number(totalCutSeconds(cuts).toFixed(1)),
@@ -1612,8 +1735,11 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                     holdInstants,
                     REACTION_HOLD_EXTENSION_SECONDS,
                     quality,
+                    clampedAudioChannels,
                   );
                   renderedPath = reactionHoldPath;
+                  reactionHoldDurationSeconds =
+                    holdInstants.length * REACTION_HOLD_EXTENSION_SECONDS;
                   logger.info('applied reaction holds', {
                     clipId,
                     holdCount: holdInstants.length,
@@ -1669,6 +1795,9 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                   reframe.outputWidth,
                   reframe.outputHeight,
                   introConcatPath,
+                  quality,
+                  sourceFrameRate,
+                  clampedAudioChannels,
                 );
                 finalOutputPath = introConcatPath;
               } catch (error) {
@@ -1689,12 +1818,31 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                   reframe.outputWidth,
                   reframe.outputHeight,
                   outroConcatPath,
+                  quality,
+                  sourceFrameRate,
+                  clampedAudioChannels,
                 );
                 finalOutputPath = outroConcatPath;
               } catch (error) {
                 logger.warn('outro concat failed, uploading without one', { clipId }, error);
               }
             }
+
+            // Render Fidelity Matrix bug fix #5 (docs/ai/render-fidelity-matrix.md) - a focused,
+            // best-effort check that the ACTUAL final media duration matches what this render's
+            // own passes should have produced; see verifyRenderedDuration()'s own comment.
+            await verifyRenderedDuration({
+              clipId,
+              finalOutputPath,
+              requestedDurationSeconds: endTime - startTime,
+              trimApplied,
+              removedSeconds: totalCutSeconds(cuts),
+              reactionHoldDurationSeconds,
+              introPath,
+              intro,
+              outroPath,
+              outro,
+            });
 
             const outputKey = `renders/${clipId}.mp4`;
             // Computed before the upload, from the exact same local file the

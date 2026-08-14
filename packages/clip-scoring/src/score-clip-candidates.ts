@@ -392,7 +392,17 @@ export async function scoreClipCandidates(
           return bPreferred - aPreferred;
         });
 
-  const longEnough = reordered.slice(0, maxCandidates);
+  // Render Fidelity Matrix bug fix #6 (docs/ai/render-fidelity-matrix.md) - the system prompt
+  // above already asks for "non-overlapping clips", but that's guidance only; nothing previously
+  // enforced it in code for candidates from the SAME LLM response (unlike Generate More's
+  // filterOverlappingCandidates(), which only guards against PRE-EXISTING clips). Applied before
+  // the maxCandidates slice below (not after) so the final N candidates are both the
+  // highest-priority ones (already sorted by viralityScore desc, then preferred-intent-first) AND
+  // genuinely distinct - deduplicating after the slice could leave fewer than requested with no
+  // chance to backfill from the rest of the pool.
+  const deduplicated = deduplicateOverlappingCandidates(reordered);
+
+  const longEnough = deduplicated.slice(0, maxCandidates);
 
   const finalCandidates: RawCandidate[] =
     longEnough.length > 0
@@ -455,4 +465,31 @@ export function filterOverlappingCandidates<T extends { startTime: number; endTi
         (range) => candidate.startTime < range.end && range.start < candidate.endTime,
       ),
   );
+}
+
+// Render Fidelity Matrix bug fix #6 (docs/ai/render-fidelity-matrix.md) - the WITHIN-batch
+// counterpart to filterOverlappingCandidates() above (which only guards a NEW candidate against
+// ALREADY-PERSISTED clips). Greedily walks `candidates` in the order given - the caller is
+// expected to have already sorted/reordered by priority (viralityScore desc, then
+// preferred-intent-first, matching scoreClipCandidates()'s own pipeline) - keeping each candidate
+// only if it doesn't intersect any candidate already kept. Same "any overlap at all, no
+// tolerance/ratio" intersection test as filterOverlappingCandidates() (a < d && c < b, touching
+// endpoints don't count as overlap) - reusing the identical rule this codebase already committed
+// to, not inventing a new fuzzy-similarity threshold. Always keeps at least the first candidate
+// (nothing to compare it against), so this can only ever shrink the pool, never empty out a
+// non-empty one.
+export function deduplicateOverlappingCandidates<T extends { startTime: number; endTime: number }>(
+  candidates: T[],
+): T[] {
+  const kept: T[] = [];
+  for (const candidate of candidates) {
+    const overlapsKept = kept.some(
+      (keptCandidate) =>
+        candidate.startTime < keptCandidate.endTime && keptCandidate.startTime < candidate.endTime,
+    );
+    if (!overlapsKept) {
+      kept.push(candidate);
+    }
+  }
+  return kept;
 }

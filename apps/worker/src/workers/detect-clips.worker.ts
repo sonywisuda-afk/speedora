@@ -60,10 +60,13 @@ const logger = forStage('detect-clips');
 // see docs/ai/clip-ranking-engine.md.)
 const UNLIMITED_CLIP_COUNT_CAP = 50;
 
-function toScoringInput(
-  segments: TranscriptSegment[],
-  processingOptions: ProcessingOptions | null,
-): ClipScoringInput {
+// Render Fidelity Matrix bug fix #4 (docs/ai/render-fidelity-matrix.md) - extracted out of
+// toScoringInput() so shortlistRawCandidates() below can resolve the SAME ceiling and pass it
+// through to selectShortlist()'s own targetSize, instead of that stage silently falling back to
+// its own hardcoded DEFAULT_SHORTLIST_TARGET_SIZE (15) regardless of what the user actually
+// requested (clipCount: 20 or 'unlimited', both > 15) - one resolution, reused by both stages of
+// the funnel, rather than two independent decisions that could silently disagree.
+function resolveMaxCandidates(processingOptions: ProcessingOptions | null): number | undefined {
   const clipCount = processingOptions?.clipGeneration.clipCount;
   // AI Intelligence v4 Phase 13.1 (Clip Ranking Engine, see
   // docs/ai/clip-ranking-engine.md) - an explicit clipCount (a number or
@@ -74,10 +77,16 @@ function toScoringInput(
   // funnel's Stage A pool size instead of silently falling through to
   // @speedora/clip-scoring's own small MAX_CANDIDATES default. Flag off (the
   // default) reproduces every pre-Phase-13 render exactly.
-  const maxCandidates =
-    clipCount === 'unlimited'
-      ? UNLIMITED_CLIP_COUNT_CAP
-      : (clipCount ?? (isCandidateExpansionEnabled() ? CANDIDATE_EXPANSION_POOL_SIZE : undefined));
+  return clipCount === 'unlimited'
+    ? UNLIMITED_CLIP_COUNT_CAP
+    : (clipCount ?? (isCandidateExpansionEnabled() ? CANDIDATE_EXPANSION_POOL_SIZE : undefined));
+}
+
+function toScoringInput(
+  segments: TranscriptSegment[],
+  processingOptions: ProcessingOptions | null,
+): ClipScoringInput {
+  const maxCandidates = resolveMaxCandidates(processingOptions);
   return {
     segments: segments.map((segment) => ({
       start: segment.start,
@@ -112,9 +121,17 @@ function toScoringInput(
 // place). @speedora/candidate-shortlist's own passthrough (pool already at
 // or under its target) makes this a genuine no-op, zero extra LLM calls,
 // whenever Phase 13.1's expansion isn't in play - the common case today.
+//
+// Render Fidelity Matrix bug fix #4 - targetSize is now the SAME
+// resolveMaxCandidates() ceiling toScoringInput() asked the LLM for (undefined falls through to
+// selectShortlist()'s own DEFAULT_SHORTLIST_TARGET_SIZE, this function's exact prior behavior).
+// Previously this call passed no targetSize at all, so a user requesting clipCount: 20 (or
+// 'unlimited') would still get silently capped at 15 by this stage even though the LLM was
+// correctly asked for up to 20.
 async function shortlistRawCandidates(
   rawCandidates: ClipScoringCandidate[],
   segments: TranscriptSegment[],
+  processingOptions: ProcessingOptions | null,
 ): Promise<ClipScoringCandidate[]> {
   const { shortlisted } = await selectShortlist(
     {
@@ -127,6 +144,7 @@ async function shortlistRawCandidates(
           (segment) => ({ start: segment.start, end: segment.end, text: segment.text }),
         ),
       })),
+      targetSize: resolveMaxCandidates(processingOptions),
     },
     { openai },
   );
@@ -181,7 +199,11 @@ export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClip
 
             // AI Intelligence v4 Phase 13.2 (Clip Ranking Engine, Stage B) -
             // see shortlistRawCandidates()'s own comment.
-            const shortlistedCandidates = await shortlistRawCandidates(rawCandidates, segments);
+            const shortlistedCandidates = await shortlistRawCandidates(
+              rawCandidates,
+              segments,
+              processingOptions,
+            );
 
             // Generate More Clips roadmap (Phase C) - clip creation and
             // render-enqueue now live in ./clip-persistence.ts, shared with

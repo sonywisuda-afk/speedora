@@ -893,9 +893,20 @@ export async function trimAndFadeInBRoll(
   durationSeconds: number,
   fadeSeconds: number,
   assetType: 'video' | 'image',
+  // Render Fidelity Matrix bug fix #2 (docs/ai/render-fidelity-matrix.md) - the render-clip
+  // pipeline's own already-resolved source/output frame rate (same `sourceFrameRate` value
+  // computeReframeDimensions() probes and trimCutRanges() already consumes), NOT a fresh
+  // decision made here. Previously this cutaway was always normalized to a hardcoded
+  // BROLL_TARGET_FPS regardless of what rate the REST of the clip actually renders at - the
+  // normalization's own stated purpose ("keeps every cutaway's motion smoothness consistent
+  // with the rest of the clip") only holds if the target really is the rest of the clip's own
+  // rate. undefined/null (probe failed, or an existing caller/test that hasn't been updated)
+  // falls back to BROLL_TARGET_FPS, this function's exact prior behavior.
+  outputFrameRate?: string | null,
 ): Promise<void> {
   const inputArgs =
     assetType === 'image' ? ['-f', 'image2', '-loop', '1', '-i', inputPath] : ['-i', inputPath];
+  const targetFps = outputFrameRate ?? String(BROLL_TARGET_FPS);
 
   await execFileAsync(FFMPEG_PATH, [
     '-y',
@@ -904,7 +915,7 @@ export async function trimAndFadeInBRoll(
     durationSeconds.toString(),
     '-vf',
     `scale=${outputWidth}:${outputHeight}:force_original_aspect_ratio=increase,` +
-      `crop=${outputWidth}:${outputHeight},fps=${BROLL_TARGET_FPS},` +
+      `crop=${outputWidth}:${outputHeight},fps=${targetFps},` +
       `colorspace=iall=${BROLL_COLOR_SPACE}:all=${BROLL_COLOR_SPACE}:range=tv,` +
       `format=yuva420p,fade=t=in:st=0:d=${fadeSeconds}:alpha=1`,
     '-c:v',
@@ -1280,6 +1291,24 @@ async function hasAudioStream(inputPath: string): Promise<boolean> {
 const BRAND_SEGMENT_AUDIO_SAMPLE_RATE = 44100;
 const BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT = 'stereo';
 
+// Render Fidelity Matrix bug fix #3 (docs/ai/render-fidelity-matrix.md) - concatBrandSegment()
+// and applyReactionHolds() both need a fixed, matching channel layout on every audio branch they
+// concat together (real audio + synthesized anullsrc silence, or real audio + a brand segment's
+// own audio), the same reason they already force a fixed sample rate. Previously that fixed
+// layout was unconditionally 'stereo', so a genuinely mono source got silently upmixed the
+// moment it passed through either pass - a real divergence from resolveAudioEncodeArgs()'s own
+// documented "never upmix mono" policy (see that function's comment above). `channels` is the
+// SAME already-clamped value renderClip()/trimCutRanges() reuse (see computeReframeDimensions()'s
+// `clampedAudioChannels`) - undefined/null (probe failed, or an existing caller/test) falls back
+// to 'stereo', both functions' exact prior behavior.
+function resolveBrandAudioChannelLayout(channels: number | null | undefined): 'mono' | 'stereo' {
+  return channels === 1 ? 'mono' : BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT;
+}
+
+function brandAudioBitrateKbps(channelLayout: 'mono' | 'stereo'): number {
+  return (channelLayout === 'mono' ? 1 : 2) * AUDIO_BITRATE_PER_CHANNEL_KBPS;
+}
+
 // 'start' (Intro roadmap, P3d) prepends the segment before the clip; 'end'
 // (Outro roadmap, P3e) appends it after. Chosen deliberately over two
 // separate exported functions (concatIntro/concatOutro) - per your own
@@ -1334,7 +1363,24 @@ export async function concatBrandSegment(
   outputWidth: number,
   outputHeight: number,
   outputPath: string,
+  // Render Fidelity Matrix bug fix #1 (docs/ai/render-fidelity-matrix.md) - same shape/meaning as
+  // renderClip()'s/trimCutRanges()'s own `quality` option. This pass is the LAST encode before
+  // upload for any clip with an intro or outro configured, and previously had no quality
+  // parameter at all - a clip with an intro/outro silently lost whatever -preset/-crf the user
+  // chose (fell back to ffmpeg's own CRF 23/medium default), even though every earlier pass
+  // (renderClip, trimCutRanges, applyReactionHolds) already correctly honored it.
+  quality?: { preset: string; crf: number } | null,
+  // Render Fidelity Matrix bug fix #2 - see trimAndFadeInBRoll()'s own `outputFrameRate` comment;
+  // same value, same fallback-to-BROLL_TARGET_FPS behavior when absent. Previously this function
+  // forced BOTH the segment and the already-rendered main clip's own video branch to a hardcoded
+  // BROLL_TARGET_FPS unconditionally - a 60fps source that survived every earlier pass at its
+  // native rate got silently forced down to 30fps the instant an intro/outro was attached.
+  frameRate?: string | null,
+  // Render Fidelity Matrix bug fix #3 - see resolveBrandAudioChannelLayout()'s own comment.
+  audioChannels?: number | null,
 ): Promise<void> {
+  const targetFps = frameRate ?? String(BROLL_TARGET_FPS);
+  const channelLayout = resolveBrandAudioChannelLayout(audioChannels);
   const segmentDuration =
     segment.type === 'image'
       ? (segment.imageDurationSeconds ?? DEFAULT_INTRO_IMAGE_DURATION_SECONDS)
@@ -1358,7 +1404,7 @@ export async function concatBrandSegment(
       'lavfi',
       '-i',
       `anullsrc=sample_rate=${BRAND_SEGMENT_AUDIO_SAMPLE_RATE}:` +
-        `channel_layout=${BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT}`,
+        `channel_layout=${channelLayout}`,
     );
   }
 
@@ -1375,15 +1421,15 @@ export async function concatBrandSegment(
     // corresponding streams, not just equal pixel dimensions, and silently
     // fails ("Input link parameters do not match") otherwise.
     `[0:v]scale=${outputWidth}:${outputHeight}:force_original_aspect_ratio=increase,` +
-      `crop=${outputWidth}:${outputHeight},fps=${BROLL_TARGET_FPS},` +
+      `crop=${outputWidth}:${outputHeight},fps=${targetFps},` +
       `colorspace=iall=${BROLL_COLOR_SPACE}:all=${BROLL_COLOR_SPACE}:range=tv,format=yuv420p,` +
       `setsar=1,trim=duration=${segmentDuration},setpts=PTS-STARTPTS[segv]`,
     `[${segmentAudioLabel}]aformat=sample_rates=${BRAND_SEGMENT_AUDIO_SAMPLE_RATE}:` +
-      `channel_layouts=${BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT},atrim=duration=${segmentDuration},` +
+      `channel_layouts=${channelLayout},atrim=duration=${segmentDuration},` +
       `asetpts=PTS-STARTPTS[sega]`,
-    `[1:v]fps=${BROLL_TARGET_FPS},format=yuv420p,setsar=1[clipv]`,
+    `[1:v]fps=${targetFps},format=yuv420p,setsar=1[clipv]`,
     `[1:a]aformat=sample_rates=${BRAND_SEGMENT_AUDIO_SAMPLE_RATE}:` +
-      `channel_layouts=${BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT}[clipa]`,
+      `channel_layouts=${channelLayout}[clipa]`,
     // The only position-dependent line in this whole function - 'start'
     // (intro) puts the segment first in the concat order, 'end' (outro)
     // puts it last. Everything feeding [segv]/[sega]/[clipv]/[clipa] above
@@ -1393,6 +1439,7 @@ export async function concatBrandSegment(
       : '[clipv][clipa][segv][sega]concat=n=2:v=1:a=1[outv][outa]',
   ];
 
+  const qualityArgs = quality ? ['-preset', quality.preset, '-crf', quality.crf.toString()] : [];
   args.push(
     '-filter_complex',
     complexParts.join(';'),
@@ -1402,17 +1449,17 @@ export async function concatBrandSegment(
     '[outa]',
     '-c:v',
     'libx264',
+    ...qualityArgs,
     '-c:a',
     'aac',
     // Output Resolution/Quality audit, Phase 6 (Audio params finalization) - same explicit-
     // bitrate reasoning as renderClip()/trimCutRanges() (resolveAudioEncodeArgs()'s own comment),
     // but no probe/downmix decision is needed here: this function's own filter graph already
-    // forces BOTH the segment and the main clip's audio to BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT
-    // ('stereo', 2 channels) before the concat above, regardless of either source's real channel
-    // count - so the bitrate is always exactly the 2-channel value, a fixed constant rather than
-    // resolveAudioEncodeArgs(2), which would compute the identical value less directly.
+    // forces BOTH the segment and the main clip's audio onto the SAME channelLayout (see
+    // resolveBrandAudioChannelLayout()) before the concat above, regardless of either source's
+    // real channel count - so the bitrate is always exactly that layout's fixed value.
     '-b:a',
-    `${2 * AUDIO_BITRATE_PER_CHANNEL_KBPS}k`,
+    `${brandAudioBitrateKbps(channelLayout)}k`,
     '-movflags',
     '+faststart',
   );
@@ -1491,6 +1538,8 @@ export async function applyReactionHolds(
   // trimCutRanges() above (see its own comment); this pass previously always silently fell
   // back to ffmpeg's own default CRF/preset regardless of what the user chose.
   quality?: { preset: string; crf: number } | null,
+  // Render Fidelity Matrix bug fix #3 - see resolveBrandAudioChannelLayout()'s own comment.
+  audioChannels?: number | null,
 ): Promise<void> {
   if (holdInstants.length === 0) {
     throw new Error(
@@ -1498,6 +1547,7 @@ export async function applyReactionHolds(
     );
   }
 
+  const channelLayout = resolveBrandAudioChannelLayout(audioChannels);
   const padDuration = round3(Math.max(0, holdDurationSeconds - REACTION_HOLD_FREEZE_SLICE_SECONDS));
 
   const videoParts: string[] = [];
@@ -1515,7 +1565,7 @@ export async function applyReactionHolds(
     audioParts.push(
       `[0:a]atrim=start=${cursor}:end=${t},asetpts=PTS-STARTPTS,` +
         `aformat=sample_rates=${BRAND_SEGMENT_AUDIO_SAMPLE_RATE}:` +
-        `channel_layouts=${BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT}[a${i}pre]`,
+        `channel_layouts=${channelLayout}[a${i}pre]`,
     );
     // Input index 0 is the main clip; 1..N are one anullsrc lavfi input
     // per hold - simpler than fanning a single lavfi source out via
@@ -1525,7 +1575,7 @@ export async function applyReactionHolds(
       'lavfi',
       '-i',
       `anullsrc=sample_rate=${BRAND_SEGMENT_AUDIO_SAMPLE_RATE}:` +
-        `channel_layout=${BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT}`,
+        `channel_layout=${channelLayout}`,
     );
     audioParts.push(`[${i + 1}:a]atrim=duration=${holdDurationSeconds}[a${i}hold]`);
     cursor = freezeEnd;
@@ -1536,7 +1586,7 @@ export async function applyReactionHolds(
   audioParts.push(
     `[0:a]atrim=start=${cursor},asetpts=PTS-STARTPTS,` +
       `aformat=sample_rates=${BRAND_SEGMENT_AUDIO_SAMPLE_RATE}:` +
-      `channel_layouts=${BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT}[a${finalIndex}post]`,
+      `channel_layouts=${channelLayout}[a${finalIndex}post]`,
   );
 
   const videoLabels =
@@ -1572,12 +1622,12 @@ export async function applyReactionHolds(
     'yuv420p',
     '-c:a',
     'aac',
-    // Output Resolution/Quality audit, Phase 6 (Audio params finalization) - same fixed-2-channel
-    // reasoning as concatBrandSegment() above: this function's own audioParts already force
-    // BRAND_SEGMENT_AUDIO_CHANNEL_LAYOUT ('stereo') on [0:a] before the concat, regardless of the
-    // input's real channel count, so the bitrate is always exactly the 2-channel value.
+    // Render Fidelity Matrix bug fix #3 - same reasoning as concatBrandSegment() above: this
+    // function's own audioParts already force `channelLayout` on [0:a] before the concat,
+    // regardless of the input's real channel count, so the bitrate is always exactly that
+    // layout's fixed value (mono when the source is mono, never silently upmixed to stereo).
     '-b:a',
-    `${2 * AUDIO_BITRATE_PER_CHANNEL_KBPS}k`,
+    `${brandAudioBitrateKbps(channelLayout)}k`,
     '-movflags',
     '+faststart',
   ];

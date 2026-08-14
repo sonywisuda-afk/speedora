@@ -1,6 +1,10 @@
 import type { ClipScoringSegment } from '@speedora/contracts';
 import type OpenAI from 'openai';
-import { filterOverlappingCandidates, scoreClipCandidates } from './score-clip-candidates';
+import {
+  deduplicateOverlappingCandidates,
+  filterOverlappingCandidates,
+  scoreClipCandidates,
+} from './score-clip-candidates';
 
 // Pure fixture-based tests - no DB/queue/Sentry mocking at all, since the
 // module never touches any of that (see root ARCHITECTURE.md). Only the LLM
@@ -52,16 +56,20 @@ describe('scoreClipCandidates', () => {
   it('drops out-of-range, inverted, and too-short clips, clamps score, sorts, and caps at 3', async () => {
     const segments: ClipScoringSegment[] = [
       { start: 0, end: 5, text: 'intro' },
-      { start: 5, end: 60, text: 'main content' },
+      { start: 5, end: 90, text: 'main content' },
     ];
     const openai = fakeOpenAI([
       rawCandidate({ startTime: 10, endTime: 35, viralityScore: 150, hookText: 'a' }), // 25s, score clamped to 100
-      rawCandidate({ startTime: 0, endTime: 22, viralityScore: 40, hookText: 'b' }), // 22s
+      rawCandidate({ startTime: 0, endTime: 22, viralityScore: 40, hookText: 'b' }), // 22s, overlaps 'a' - dropped by dedup regardless of the cap below
       rawCandidate({ startTime: 30, endTime: 25, viralityScore: 90, hookText: 'c' }), // invalid: end <= start, dropped
       rawCandidate({ startTime: -5, endTime: 20, viralityScore: 80, hookText: 'd' }), // out of range, dropped
       rawCandidate({ startTime: 40, endTime: 50, viralityScore: 95, hookText: 'x' }), // 10s < 20s min, dropped
-      rawCandidate({ startTime: 35, endTime: 58, viralityScore: 70, hookText: 'e' }), // 23s
-      rawCandidate({ startTime: 30, endTime: 55, viralityScore: 60, hookText: 'f' }), // 25s, 4th valid -> cut by MAX_CANDIDATES
+      rawCandidate({ startTime: 35, endTime: 58, viralityScore: 70, hookText: 'e' }), // 23s, touches 'a' at the boundary only (no overlap)
+      // 25s, 4th-by-score valid candidate, clear of 'a'/'e' (Render Fidelity Matrix bug fix #6 -
+      // deliberately non-overlapping so this test still isolates the range/duration/score/cap-at-3
+      // behavior it's named for, unaffected by within-batch deduplication; see the dedicated
+      // 'within-batch deduplication' describe block below for overlap-specific coverage).
+      rawCandidate({ startTime: 60, endTime: 85, viralityScore: 60, hookText: 'f' }),
     ]);
 
     const result = await scoreClipCandidates({ segments }, { openai });
@@ -70,8 +78,10 @@ describe('scoreClipCandidates', () => {
     expect(result.candidates).toHaveLength(3);
     // 4 candidates survive the range/length/order filter (100, 40, 70, 60);
     // the 10s/score-95 one is dropped for being under the 20s minimum (it
-    // would otherwise top the list), then sorted desc and capped at 3 drops
-    // the lowest survivor (40).
+    // would otherwise top the list). 'b' (40) additionally overlaps 'a' and is
+    // dropped by dedup - moot for this assertion since it was already the
+    // weakest of the 4 and would have been cut by the maxCandidates=3 cap
+    // either way. Sorted desc and capped at 3: [100, 70, 60].
     expect(result.candidates.map((c) => c.viralityScore)).toEqual([100, 70, 60]);
   });
 
@@ -449,6 +459,89 @@ describe('scoreClipCandidates', () => {
       expect(systemMessage.content).toContain('MUST be avoided');
       expect(systemMessage.content).toContain('0.0-20.0');
     });
+  });
+
+  // Render Fidelity Matrix bug fix #6 (docs/ai/render-fidelity-matrix.md) - the prompt already
+  // asks for "non-overlapping clips" (see the system prompt above), but previously nothing
+  // enforced that in code for candidates in the SAME LLM response - see
+  // deduplicateOverlappingCandidates() below for the unit-level coverage of the dedup rule
+  // itself; these confirm it's actually wired into the module's real output.
+  describe('within-batch deduplication', () => {
+    it('drops a lower-scored candidate that overlaps a higher-scored one from the same LLM response', async () => {
+      const segments: ClipScoringSegment[] = [{ start: 0, end: 100, text: 'video', words: [] }];
+      const openai = fakeOpenAI([
+        rawCandidate({ startTime: 40, endTime: 70, viralityScore: 90, hookText: 'best' }),
+        // Overlaps [40,70) - lower score, should be dropped even though it's individually
+        // in-range/long-enough/valid.
+        rawCandidate({ startTime: 50, endTime: 80, viralityScore: 70, hookText: 'overlapping' }),
+        // Clear of both - kept.
+        rawCandidate({ startTime: 0, endTime: 30, viralityScore: 60, hookText: 'clear' }),
+      ]);
+
+      const result = await scoreClipCandidates({ segments, maxCandidates: 3 }, { openai });
+
+      expect(result.candidates.map((c) => c.hookText)).toEqual(['best', 'clear']);
+    });
+
+    it('still yields maxCandidates distinct clips when enough non-overlapping candidates exist', async () => {
+      const segments: ClipScoringSegment[] = [{ start: 0, end: 100, text: 'video', words: [] }];
+      const openai = fakeOpenAI([
+        rawCandidate({ startTime: 40, endTime: 70, viralityScore: 90, hookText: 'a' }),
+        // Overlaps 'a' - dropped, but a 4th distinct candidate below backfills the count since
+        // dedup runs BEFORE the maxCandidates slice, not after.
+        rawCandidate({ startTime: 50, endTime: 80, viralityScore: 85, hookText: 'dupe-of-a' }),
+        rawCandidate({ startTime: 0, endTime: 30, viralityScore: 70, hookText: 'b' }),
+        rawCandidate({ startTime: 80, endTime: 100, viralityScore: 60, hookText: 'c' }),
+      ]);
+
+      const result = await scoreClipCandidates({ segments, maxCandidates: 3 }, { openai });
+
+      expect(result.candidates.map((c) => c.hookText)).toEqual(['a', 'b', 'c']);
+    });
+  });
+});
+
+describe('deduplicateOverlappingCandidates', () => {
+  function candidate(startTime: number, endTime: number) {
+    return { startTime, endTime };
+  }
+
+  it('keeps every candidate unchanged when none overlap', () => {
+    const candidates = [candidate(0, 10), candidate(20, 30), candidate(40, 50)];
+
+    expect(deduplicateOverlappingCandidates(candidates)).toEqual(candidates);
+  });
+
+  it('keeps the first (higher-priority) candidate and drops a later one that overlaps it', () => {
+    const first = candidate(10, 20);
+    const overlapping = candidate(15, 25);
+
+    expect(deduplicateOverlappingCandidates([first, overlapping])).toEqual([first]);
+  });
+
+  it('keeps a candidate that only touches a kept one at the boundary (no overlap)', () => {
+    const candidates = [candidate(10, 20), candidate(20, 30)];
+
+    expect(deduplicateOverlappingCandidates(candidates)).toEqual(candidates);
+  });
+
+  it('drops every subsequent candidate overlapping an already-kept one, keeping only the first survivor per cluster', () => {
+    const a = candidate(0, 10);
+    const overlapsA1 = candidate(5, 15);
+    const overlapsA2 = candidate(2, 8);
+    const b = candidate(20, 30);
+
+    expect(deduplicateOverlappingCandidates([a, overlapsA1, overlapsA2, b])).toEqual([a, b]);
+  });
+
+  it('never empties a non-empty pool - always keeps at least the first candidate', () => {
+    const only = candidate(0, 10);
+
+    expect(deduplicateOverlappingCandidates([only])).toEqual([only]);
+  });
+
+  it('returns an empty array unchanged', () => {
+    expect(deduplicateOverlappingCandidates([])).toEqual([]);
   });
 });
 
