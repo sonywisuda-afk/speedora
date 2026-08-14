@@ -415,6 +415,100 @@ describe('detect-clips worker (adapter)', () => {
 
       expect(clipCreateMock).toHaveBeenCalledTimes(15);
     });
+
+    // Render Fidelity Matrix bug fix #4 (docs/ai/render-fidelity-matrix.md) - previously
+    // selectShortlist() was called without a targetSize at all, so this stage always fell back to
+    // its own hardcoded DEFAULT_SHORTLIST_TARGET_SIZE (15) regardless of what clipCount the user
+    // actually requested. These confirm the user's own requested count now reaches the shortlist
+    // stage, not just the LLM prompt's maxCandidates (already covered by the
+    // CANDIDATE_EXPANSION_ENABLED describe block above).
+    describe('requested clipCount reaching the shortlist target (bug fix #4)', () => {
+      it('requested = 5: caps the shortlist at 5, not the hardcoded default of 15', async () => {
+        const segments: TranscriptSegment[] = [{ start: 0, end: 600, text: 'video' }];
+        scoreClipCandidatesMock.mockResolvedValue({ candidates: manyScoredCandidates(20) });
+        videoFindUniqueMock.mockResolvedValue({
+          status: VideoStatus.TRANSCRIBED,
+          processingOptions: { version: 1, clipGeneration: { clipCount: 5 } },
+        });
+        videoFindUniqueOrThrowMock.mockResolvedValue({
+          id: 'video-1',
+          sourceUrl: 'videos/abc.mp4',
+        });
+
+        const processor = getProcessor();
+        const result = (await processor(fakeJob({ videoId: 'video-1', segments }))) as {
+          candidates: Array<{ viralityScore: number }>;
+        };
+
+        expect(result.candidates).toHaveLength(5);
+        expect(result.candidates.map((c) => c.viralityScore).sort((a, b) => a - b)).toEqual([
+          15, 16, 17, 18, 19,
+        ]);
+      });
+
+      it('requested = 15: an explicit clipCount of 15 matches the same result as the implicit default', async () => {
+        const segments: TranscriptSegment[] = [{ start: 0, end: 600, text: 'video' }];
+        scoreClipCandidatesMock.mockResolvedValue({ candidates: manyScoredCandidates(20) });
+        videoFindUniqueMock.mockResolvedValue({
+          status: VideoStatus.TRANSCRIBED,
+          processingOptions: { version: 1, clipGeneration: { clipCount: 15 } },
+        });
+        videoFindUniqueOrThrowMock.mockResolvedValue({
+          id: 'video-1',
+          sourceUrl: 'videos/abc.mp4',
+        });
+
+        const processor = getProcessor();
+        const result = (await processor(fakeJob({ videoId: 'video-1', segments }))) as {
+          candidates: unknown[];
+        };
+
+        expect(result.candidates).toHaveLength(15);
+      });
+
+      it('requested = 20: a pool larger than 20 is shortlisted down to 20, NOT silently capped at 15', async () => {
+        const segments: TranscriptSegment[] = [{ start: 0, end: 600, text: 'video' }];
+        scoreClipCandidatesMock.mockResolvedValue({ candidates: manyScoredCandidates(25) });
+        videoFindUniqueMock.mockResolvedValue({
+          status: VideoStatus.TRANSCRIBED,
+          processingOptions: { version: 1, clipGeneration: { clipCount: 20 } },
+        });
+        videoFindUniqueOrThrowMock.mockResolvedValue({
+          id: 'video-1',
+          sourceUrl: 'videos/abc.mp4',
+        });
+
+        const processor = getProcessor();
+        const result = (await processor(fakeJob({ videoId: 'video-1', segments }))) as {
+          candidates: Array<{ viralityScore: number }>;
+        };
+
+        expect(result.candidates).toHaveLength(20);
+        expect(result.candidates.map((c) => c.viralityScore).sort((a, b) => a - b)).toEqual(
+          Array.from({ length: 20 }, (_, i) => i + 5),
+        );
+      });
+
+      it("requested = 'unlimited': a 30-candidate pool survives entirely, not slashed to 15", async () => {
+        const segments: TranscriptSegment[] = [{ start: 0, end: 600, text: 'video' }];
+        scoreClipCandidatesMock.mockResolvedValue({ candidates: manyScoredCandidates(30) });
+        videoFindUniqueMock.mockResolvedValue({
+          status: VideoStatus.TRANSCRIBED,
+          processingOptions: { version: 1, clipGeneration: { clipCount: 'unlimited' } },
+        });
+        videoFindUniqueOrThrowMock.mockResolvedValue({
+          id: 'video-1',
+          sourceUrl: 'videos/abc.mp4',
+        });
+
+        const processor = getProcessor();
+        const result = (await processor(fakeJob({ videoId: 'video-1', segments }))) as {
+          candidates: unknown[];
+        };
+
+        expect(result.candidates).toHaveLength(30);
+      });
+    });
   });
 
   it('applies processingOptions.subtitle as the new clip default instead of the schema default', async () => {

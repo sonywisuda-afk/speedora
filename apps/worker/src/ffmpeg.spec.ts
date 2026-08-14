@@ -1126,6 +1126,45 @@ describe('trimAndFadeInBRoll', () => {
     );
   });
 
+  // Render Fidelity Matrix bug fix #2 (docs/ai/render-fidelity-matrix.md) - previously this
+  // cutaway was always normalized to a hardcoded 30fps regardless of what rate the rest of the
+  // clip actually renders at (e.g. a 60fps source). Confirms the real, probed rate is now used
+  // when supplied.
+  it('normalizes fps to the given outputFrameRate instead of the hardcoded 30 default, when supplied', async () => {
+    await trimAndFadeInBRoll(
+      '/tmp/raw.mp4',
+      '/tmp/faded-in.mov',
+      136,
+      240,
+      2.5,
+      0.3,
+      'video',
+      '60000/1001',
+    );
+
+    const [, args] = execFileMock.mock.calls[0];
+    const vf = args[args.indexOf('-vf') + 1];
+    expect(vf).toContain('fps=60000/1001');
+    expect(vf).not.toContain('fps=30');
+  });
+
+  it('falls back to the hardcoded 30fps default when outputFrameRate is null/omitted (unchanged prior behavior)', async () => {
+    await trimAndFadeInBRoll(
+      '/tmp/raw.mp4',
+      '/tmp/faded-in.mov',
+      136,
+      240,
+      2.5,
+      0.3,
+      'video',
+      null,
+    );
+
+    const [, args] = execFileMock.mock.calls[0];
+    const vf = args[args.indexOf('-vf') + 1];
+    expect(vf).toContain('fps=30');
+  });
+
   it('propagates the error when ffmpeg fails', async () => {
     execFileMockBehavior.mockImplementationOnce(
       (
@@ -1568,11 +1607,10 @@ describe('concatBrandSegment (P3d intro / P3e outro)', () => {
     },
   );
 
-  // Output Resolution/Quality audit, Phase 6 (Audio params finalization) - a fixed constant, not
-  // data-dependent, since this function's own filter graph already forces both the segment and
-  // main clip's audio to stereo before the concat (see the filter graph asserted above), regardless
-  // of either source's real channel count.
-  it('always pins -b:a 128k (this function forces stereo audio by construction)', async () => {
+  // Render Fidelity Matrix bug fix #3 (docs/ai/render-fidelity-matrix.md) - stereo/128k is the
+  // DEFAULT when audioChannels isn't passed (every pre-existing caller/test), not an unconditional
+  // constant - see the dedicated audioChannels tests below for the mono case.
+  it('pins -b:a 128k when audioChannels is omitted (unchanged prior default)', async () => {
     await concatBrandSegment(
       'start',
       '/tmp/clip.mp4',
@@ -1583,6 +1621,124 @@ describe('concatBrandSegment (P3d intro / P3e outro)', () => {
     );
 
     const [, args] = execFileMock.mock.calls[0];
+    expect(args).toEqual(expect.arrayContaining(['-b:a', '128k']));
+  });
+
+  // Render Fidelity Matrix bug fix #1 - previously this pass (the LAST encode before upload for
+  // any clip with an intro/outro) never received the user's chosen quality preset at all.
+  it('adds -preset/-crf only when a quality override is passed', async () => {
+    await concatBrandSegment(
+      'start',
+      '/tmp/clip.mp4',
+      { filePath: '/tmp/segment.png', type: 'image', imageDurationSeconds: null },
+      608,
+      1080,
+      '/tmp/output.mp4',
+      { preset: 'slow', crf: 18 },
+    );
+
+    const [, args] = execFileMock.mock.calls[0];
+    expect(args).toEqual(expect.arrayContaining(['-preset', 'slow', '-crf', '18']));
+  });
+
+  it('omits -preset/-crf entirely when quality is not passed (unchanged prior behavior)', async () => {
+    await concatBrandSegment(
+      'start',
+      '/tmp/clip.mp4',
+      { filePath: '/tmp/segment.png', type: 'image', imageDurationSeconds: null },
+      608,
+      1080,
+      '/tmp/output.mp4',
+    );
+
+    const [, args] = execFileMock.mock.calls[0];
+    expect(args).not.toEqual(expect.arrayContaining(['-preset']));
+    expect(args).not.toEqual(expect.arrayContaining(['-crf']));
+  });
+
+  // Render Fidelity Matrix bug fix #2 - previously BOTH the segment and the already-rendered main
+  // clip's own video branch were forced to a hardcoded 30fps unconditionally, silently changing a
+  // 60fps source's delivered frame rate the moment an intro/outro was attached.
+  it('normalizes both branches to a custom frameRate when provided, instead of the hardcoded 30 default', async () => {
+    await concatBrandSegment(
+      'start',
+      '/tmp/clip.mp4',
+      { filePath: '/tmp/segment.png', type: 'image', imageDurationSeconds: null },
+      608,
+      1080,
+      '/tmp/output.mp4',
+      null,
+      '60000/1001',
+    );
+
+    const [, args] = execFileMock.mock.calls[0];
+    const fc = args[args.indexOf('-filter_complex') + 1];
+    expect(fc).toContain('fps=60000/1001');
+    expect(fc).not.toContain('fps=30');
+  });
+
+  it('falls back to the hardcoded 30fps default when frameRate is null/omitted (unchanged prior behavior)', async () => {
+    await concatBrandSegment(
+      'start',
+      '/tmp/clip.mp4',
+      { filePath: '/tmp/segment.png', type: 'image', imageDurationSeconds: null },
+      608,
+      1080,
+      '/tmp/output.mp4',
+    );
+
+    const [, args] = execFileMock.mock.calls[0];
+    const fc = args[args.indexOf('-filter_complex') + 1];
+    expect(fc).toContain('fps=30');
+  });
+
+  // Render Fidelity Matrix bug fix #3 - previously a genuinely mono source was silently upmixed
+  // to stereo (and billed the stereo 128k bitrate) the moment an intro/outro was attached, diverging
+  // from resolveAudioEncodeArgs()'s own documented "never upmix mono" policy.
+  it('uses a mono channel layout and 64k bitrate when audioChannels is 1 (never upmixes mono)', async () => {
+    await concatBrandSegment(
+      'start',
+      '/tmp/clip.mp4',
+      { filePath: '/tmp/segment.png', type: 'image', imageDurationSeconds: null },
+      608,
+      1080,
+      '/tmp/output.mp4',
+      null,
+      null,
+      1,
+    );
+
+    const [, args] = execFileMock.mock.calls[0];
+    expect(args).toEqual(
+      expect.arrayContaining([
+        '-f',
+        'lavfi',
+        '-i',
+        'anullsrc=sample_rate=44100:channel_layout=mono',
+      ]),
+    );
+    const fc = args[args.indexOf('-filter_complex') + 1];
+    expect(fc).toContain('channel_layouts=mono');
+    expect(fc).not.toContain('channel_layouts=stereo');
+    expect(args).toEqual(expect.arrayContaining(['-b:a', '64k']));
+  });
+
+  it('keeps the stereo layout and 128k bitrate when audioChannels is 2', async () => {
+    await concatBrandSegment(
+      'start',
+      '/tmp/clip.mp4',
+      { filePath: '/tmp/segment.png', type: 'image', imageDurationSeconds: null },
+      608,
+      1080,
+      '/tmp/output.mp4',
+      null,
+      null,
+      2,
+    );
+
+    const [, args] = execFileMock.mock.calls[0];
+    const fc = args[args.indexOf('-filter_complex') + 1];
+    expect(fc).toContain('channel_layouts=stereo');
     expect(args).toEqual(expect.arrayContaining(['-b:a', '128k']));
   });
 
@@ -1802,14 +1958,43 @@ describe('applyReactionHolds (C6R.2)', () => {
     expect(args).toEqual(expect.arrayContaining(['-map', '[outv]', '-map', '[outa]']));
   });
 
-  // Output Resolution/Quality audit, Phase 6 (Audio params finalization) - a fixed constant, not
-  // data-dependent, since this function's own audioParts already force stereo audio (see the
-  // aformat=...channel_layouts=stereo calls in the filter graph asserted above) regardless of the
-  // input's real channel count.
-  it('always pins -b:a 128k (this function forces stereo audio by construction)', async () => {
+  // Render Fidelity Matrix bug fix #3 (docs/ai/render-fidelity-matrix.md) - stereo/128k is the
+  // DEFAULT when audioChannels isn't passed (every pre-existing caller/test), not an unconditional
+  // constant - see the dedicated audioChannels tests below for the mono case.
+  it('pins -b:a 128k when audioChannels is omitted (unchanged prior default)', async () => {
     await applyReactionHolds('/tmp/clip.mp4', '/tmp/output.mp4', [3]);
 
     const [, args] = execFileMock.mock.calls[0];
+    expect(args).toEqual(expect.arrayContaining(['-b:a', '128k']));
+  });
+
+  // Render Fidelity Matrix bug fix #3 - previously a genuinely mono source was silently upmixed to
+  // stereo (and billed the stereo 128k bitrate) the moment it passed through a reaction hold,
+  // diverging from resolveAudioEncodeArgs()'s own documented "never upmix mono" policy.
+  it('uses a mono channel layout and 64k bitrate when audioChannels is 1 (never upmixes mono)', async () => {
+    await applyReactionHolds('/tmp/clip.mp4', '/tmp/output.mp4', [3], undefined, null, 1);
+
+    const [, args] = execFileMock.mock.calls[0];
+    expect(args).toEqual(
+      expect.arrayContaining([
+        '-f',
+        'lavfi',
+        '-i',
+        'anullsrc=sample_rate=44100:channel_layout=mono',
+      ]),
+    );
+    const fc = args[args.indexOf('-filter_complex') + 1];
+    expect(fc).toContain('channel_layouts=mono');
+    expect(fc).not.toContain('channel_layouts=stereo');
+    expect(args).toEqual(expect.arrayContaining(['-b:a', '64k']));
+  });
+
+  it('keeps the stereo layout and 128k bitrate when audioChannels is 2', async () => {
+    await applyReactionHolds('/tmp/clip.mp4', '/tmp/output.mp4', [3], undefined, null, 2);
+
+    const [, args] = execFileMock.mock.calls[0];
+    const fc = args[args.indexOf('-filter_complex') + 1];
+    expect(fc).toContain('channel_layouts=stereo');
     expect(args).toEqual(expect.arrayContaining(['-b:a', '128k']));
   });
 
