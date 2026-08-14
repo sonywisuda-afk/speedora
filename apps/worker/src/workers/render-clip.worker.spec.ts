@@ -83,6 +83,11 @@ const applyReactionHoldsMock = jest.fn();
 // level wiring coverage (a real, pre-existing gap: it would have thrown "not a function" the
 // instant any test actually exercised that branch, which none did).
 const concatBrandSegmentMock = jest.fn();
+// Render Fidelity & Composition Execution Engine, Phase 8 (ffprobe verification) - the EXISTING,
+// unmodified probeVideoMetadata() reused for this phase (no new ffprobe wrapper was written).
+// Default resolved value set in the top-level beforeEach below, same convention as every other
+// ffmpeg mock in this block.
+const probeVideoMetadataMock = jest.fn();
 jest.mock('../ffmpeg', () => ({
   renderClip: (...args: unknown[]) => renderClipMock(...args),
   getVideoDimensions: (...args: unknown[]) => getVideoDimensionsMock(...args),
@@ -100,6 +105,7 @@ jest.mock('../ffmpeg', () => ({
   extractAnimatedPreview: (...args: unknown[]) => extractAnimatedPreviewMock(...args),
   applyReactionHolds: (...args: unknown[]) => applyReactionHoldsMock(...args),
   concatBrandSegment: (...args: unknown[]) => concatBrandSegmentMock(...args),
+  probeVideoMetadata: (...args: unknown[]) => probeVideoMetadataMock(...args),
   // C6R.2's own exported constant - real value, not mocked, so
   // computeReactionHoldInstants()'s minimum-separation math in this spec
   // file matches production exactly.
@@ -299,11 +305,23 @@ const buildRenderManifestMock = jest.fn().mockReturnValue({
   expectedOutput: {},
   file: { outputKey: 'renders/clip-1.mp4', sizeBytes: 654321, checksumMd5: 'deadbeef' },
 });
+// Render Fidelity & Composition Execution Engine, Phase 8 (ffprobe verification) - mocked the
+// same "test the adapter by mocking the module itself" way as every other seam in this file
+// (ARCHITECTURE.md's checklist item 4), not re-tested for its own comparison logic (that's
+// compare-render-manifest.spec.ts's own job, via pure fixtures).
+const compareRenderManifestToProbeMock = jest.fn().mockReturnValue({
+  version: 1,
+  clipId: 'clip-1',
+  videoId: 'video-1',
+  fields: {},
+  passed: true,
+});
 jest.mock('@speedora/render-config', () => ({
   buildEffectiveRenderConfig: (...args: unknown[]) => buildEffectiveRenderConfigMock(...args),
   buildOutputProfile: (...args: unknown[]) => buildOutputProfileMock(...args),
   buildRenderManifest: (...args: unknown[]) => buildRenderManifestMock(...args),
   buildRenderPlan: (...args: unknown[]) => buildRenderPlanMock(...args),
+  compareRenderManifestToProbe: (...args: unknown[]) => compareRenderManifestToProbeMock(...args),
 }));
 
 // Render Fidelity & Composition Execution Engine, Phase 4 (FFmpeg Execution Compiler) - mocked
@@ -753,6 +771,23 @@ describe('render-clip worker', () => {
     renderClipMock.mockResolvedValue(undefined);
     trimCutRangesMock.mockResolvedValue(undefined);
     concatBrandSegmentMock.mockResolvedValue(undefined);
+    // Render Fidelity & Composition Execution Engine, Phase 8 (ffprobe verification) - a
+    // realistic default so every existing test (which doesn't care about Phase 8) exercises the
+    // real try/catch/log wiring without needing its own override.
+    probeVideoMetadataMock.mockResolvedValue({
+      durationSeconds: 10,
+      hasVideoStream: true,
+      hasAudioStream: true,
+      width: 608,
+      height: 1080,
+      fps: 30,
+      videoCodec: 'h264',
+      videoBitrate: null,
+      audioCodec: 'aac',
+      audioSampleRate: 44100,
+      audioChannels: 2,
+      audioBitrate: null,
+    });
     // Fails by default (not "succeeds with nothing") so the many existing
     // exact-literal clipUpdateMock assertions below don't all need a
     // thumbnailUrl key added - same "opt in to exercise the success path"
@@ -5221,6 +5256,132 @@ describe('render-clip worker', () => {
       // unchanged from what every pre-Phase-7 test already expects.
       expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
       expect(buildRenderManifestMock).toHaveBeenCalled();
+    });
+  });
+
+  // Render Fidelity & Composition Execution Engine, Phase 8 (ffprobe verification) - tests the
+  // WIRING only (the adapter's job, per ARCHITECTURE.md's checklist item 4): that
+  // render-clip.worker.ts probes the actual finalOutputPath (reusing the existing, unmodified
+  // probeVideoMetadata()), feeds the real probe + manifest into compareRenderManifestToProbe(),
+  // logs RENDER_VERIFICATION_RESOLVED, and never lets a probe/comparison failure affect job or
+  // upload behavior. compareRenderManifestToProbe()'s own comparison logic is covered purely by
+  // compare-render-manifest.spec.ts's own fixture-based spec, not re-tested here.
+  describe('ffprobe Verification (Render Fidelity Matrix Phase 8) - RENDER_VERIFICATION_RESOLVED wiring', () => {
+    it('probes the actual finalOutputPath (the uploaded file), not an intermediate scratch path', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(probeVideoMetadataMock).toHaveBeenCalledWith(expect.stringContaining('output'));
+    });
+
+    it('feeds the real probe result and the real manifest into compareRenderManifestToProbe', async () => {
+      const fakeManifest = {
+        version: 1,
+        clipId: 'clip-1',
+        videoId: 'video-1',
+        execution: {
+          passes: ['renderClip'],
+          trimApplied: false,
+          reactionHoldCount: 0,
+          reactionHoldDurationSeconds: 0,
+          introApplied: false,
+          outroApplied: false,
+        },
+        expectedOutput: { width: 608, height: 1080 },
+        file: { outputKey: 'renders/clip-1.mp4', sizeBytes: 654321, checksumMd5: 'deadbeef' },
+      };
+      buildRenderManifestMock.mockReturnValueOnce(fakeManifest);
+      probeVideoMetadataMock.mockResolvedValueOnce({
+        durationSeconds: 10,
+        hasVideoStream: true,
+        hasAudioStream: true,
+        width: 608,
+        height: 1080,
+        fps: 30,
+        videoCodec: 'h264',
+        videoBitrate: null,
+        audioCodec: 'aac',
+        audioSampleRate: 44100,
+        audioChannels: 2,
+        audioBitrate: null,
+      });
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(compareRenderManifestToProbeMock).toHaveBeenCalledWith(
+        fakeManifest,
+        expect.objectContaining({ width: 608, height: 1080, videoCodec: 'h264' }),
+      );
+    });
+
+    it('logs RENDER_VERIFICATION_RESOLVED without failing the job or changing the uploaded output', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        const processor = getProcessor();
+        const result = await processor(fakeJob(baseJobData));
+
+        expect(compareRenderManifestToProbeMock).toHaveBeenCalledTimes(1);
+        expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+        expect(uploadObjectMock).toHaveBeenCalledWith(
+          'renders/clip-1.mp4',
+          { fakeStream: expect.stringContaining('output') },
+          'video/mp4',
+        );
+        const loggedLines = consoleLogSpy.mock.calls.map((call) => String(call[0]));
+        expect(loggedLines.some((line) => line.includes('RENDER_VERIFICATION_RESOLVED'))).toBe(
+          true,
+        );
+      } finally {
+        consoleLogSpy.mockRestore();
+      }
+    });
+
+    it('remains non-fatal when probeVideoMetadata itself fails - job still succeeds, no RENDER_VERIFICATION_RESOLVED log', async () => {
+      const consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+      probeVideoMetadataMock.mockRejectedValueOnce(new Error('ffprobe unavailable'));
+      try {
+        const processor = getProcessor();
+        const result = await processor(fakeJob(baseJobData));
+
+        expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+        expect(compareRenderManifestToProbeMock).not.toHaveBeenCalled();
+        const loggedLines = consoleLogSpy.mock.calls.map((call) => String(call[0]));
+        expect(loggedLines.some((line) => line.includes('RENDER_VERIFICATION_RESOLVED'))).toBe(
+          false,
+        );
+      } finally {
+        consoleLogSpy.mockRestore();
+      }
+    });
+
+    it('remains non-fatal when the comparison itself reports a mismatch (passed: false) - job still succeeds', async () => {
+      compareRenderManifestToProbeMock.mockReturnValueOnce({
+        version: 1,
+        clipId: 'clip-1',
+        videoId: 'video-1',
+        fields: {
+          audioSampleRate: { expected: 44100, actual: 48000, matches: false },
+        },
+        passed: false,
+      });
+
+      const processor = getProcessor();
+      const result = await processor(fakeJob(baseJobData));
+
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+      expect(uploadObjectMock).toHaveBeenCalled();
+    });
+
+    it('does not silently claim a pass when comparison throws - caught, logged as a warning, job unaffected', async () => {
+      compareRenderManifestToProbeMock.mockImplementationOnce(() => {
+        throw new Error('comparison exploded');
+      });
+
+      const processor = getProcessor();
+      const result = await processor(fakeJob(baseJobData));
+
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
     });
   });
 

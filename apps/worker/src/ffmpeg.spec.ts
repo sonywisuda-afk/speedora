@@ -1085,6 +1085,17 @@ describe('renderClip', () => {
       expect(args).toEqual(expect.arrayContaining(['-b:a', '128k']));
       expect(args).not.toContain('-ac');
     });
+
+    // Render Fidelity & Composition Execution Engine, Phase 8 (ffprobe verification) - the new
+    // sample-rate fix (resolveAudioEncodeArgs()'s own comment has the full story): -ar 44100 is
+    // now always present, regardless of channel count/downmix decision, and never disturbs the
+    // -ac/-b:a args any of the tests above already lock in.
+    it('always pins -ar 44100, regardless of channel count', async () => {
+      for (const channels of [1, 2, 6, null, undefined]) {
+        const args = await renderWithChannels(channels);
+        expect(args).toEqual(expect.arrayContaining(['-ar', '44100']));
+      }
+    });
   });
 });
 

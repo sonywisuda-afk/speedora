@@ -85,6 +85,7 @@ import {
   buildOutputProfile,
   buildRenderManifest,
   buildRenderPlan,
+  compareRenderManifestToProbe,
 } from '@speedora/render-config';
 import { getObjectStream, uploadObject } from '@speedora/storage';
 import { isDynamicCaptionEnabled } from '@speedora/dynamic-caption';
@@ -120,6 +121,7 @@ import {
   getVideoDimensions,
   getVideoFrameRateString,
   MAX_OUTPUT_AUDIO_CHANNELS,
+  probeVideoMetadata,
   REACTION_HOLD_EXTENSION_SECONDS,
   renderClip,
   trimAndFadeInBRoll,
@@ -2328,6 +2330,34 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               checksumMd5: expectedMd5,
             });
             logger.info('RENDER_MANIFEST_RESOLVED', { clipId, videoId, renderManifest });
+
+            // Render Fidelity & Composition Execution Engine, Phase 8 (ffprobe verification) -
+            // the pipeline's own last named stage: reconciling RenderManifest's DECLARED
+            // expectedOutput against what a REAL ffprobe of the actual delivered file reports.
+            // Reuses the EXISTING probeVideoMetadata() unchanged (no new ffprobe subprocess code,
+            // no widening for pixelFormat - see packages/contracts/src/render-verification.ts's
+            // own module comment for the full scope-boundary reasoning) against finalOutputPath -
+            // the actual file that was just uploaded, never an intermediate scratch file, so this
+            // verifies exactly what a viewer would receive. Best-effort and non-fatal by design,
+            // same "unverifiable -> warn, continue" branch of the existing render error model
+            // verifyRenderedDuration()/verifyUploadChecksum() already establish - a probe/compare
+            // failure never fails an otherwise-successful render, and is never silently reported
+            // as a pass.
+            try {
+              const probe = await probeVideoMetadata(finalOutputPath);
+              const renderVerification = compareRenderManifestToProbe(renderManifest, probe);
+              logger.info('RENDER_VERIFICATION_RESOLVED', {
+                clipId,
+                videoId,
+                renderVerification,
+              });
+            } catch (error) {
+              logger.warn(
+                'ffprobe verification itself failed, skipping (render/upload unaffected)',
+                { clipId },
+                error,
+              );
+            }
 
             // Product Experience roadmap - a Clip's gallery-card thumbnail.
             // Extracted from renderedPath (the FINAL rendered output, not the

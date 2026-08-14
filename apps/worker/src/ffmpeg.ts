@@ -1062,14 +1062,29 @@ const AUDIO_BITRATE_PER_CHANNEL_KBPS = 64;
 // takes an already-clamped value rather than re-probing.
 export const MAX_OUTPUT_AUDIO_CHANNELS = 2;
 
-// Resolves the -ac/-b:a args for an audio encode from a probed (or already-clamped) channel count.
-// -ac is only emitted when actually downmixing (sourceChannels really exceeds the cap) - a
-// source already at or under MAX_OUTPUT_AUDIO_CHANNELS is left untouched, so this is a genuine
-// no-op for the overwhelming majority of real content (mono or stereo sources), same as
-// resolveCrossfadeSafeFps()'s own "only ever raises, never re-touches what's already fine"
-// posture. null (probe failed, or no audio stream at all) falls back to the stereo-equivalent
-// bitrate - a safe, conservative default, since every source tested against so far was never
-// anything other than mono or stereo.
+// Resolves the -ac/-ar/-b:a args for an audio encode from a probed (or already-clamped) channel
+// count. -ac is only emitted when actually downmixing (sourceChannels really exceeds the cap) - a
+// source already at or under MAX_OUTPUT_AUDIO_CHANNELS is left untouched, so that part of this
+// function is a genuine no-op for the overwhelming majority of real content (mono or stereo
+// sources), same as resolveCrossfadeSafeFps()'s own "only ever raises, never re-touches what's
+// already fine" posture. null (probe failed, or no audio stream at all) falls back to the
+// stereo-equivalent bitrate - a safe, conservative default, since every source tested against so
+// far was never anything other than mono or stereo.
+//
+// Render Fidelity & Composition Execution Engine, Phase 8 (ffprobe verification) - -ar is a NEW
+// addition, closing a real, audit-confirmed gap: this function previously never set a sample
+// rate at all, so renderClip()/trimCutRanges() (the only two callers) silently passed through
+// whatever rate the SOURCE happened to be at, while OutputProfile.audioSampleRate
+// (packages/contracts/src/output-profile.ts) has always unconditionally declared 44100 - true
+// only once a render ALSO passed through trimCutRanges()'s own crossfade join/
+// applyReactionHolds()/concatBrandSegment() (which separately force
+// BRAND_SEGMENT_AUDIO_SAMPLE_RATE for concat-alignment), never for a plain renderClip()-only
+// render from a non-44.1kHz source. Reuses that SAME existing constant (not a second, competing
+// one) so the whole pipeline normalizes to one real value everywhere audio is ever touched -
+// exactly the invariant Phase 8's own verification step exists to confirm now holds:
+// OutputProfile.audioSampleRate === ffmpeg's declared output rate === what ffprobe observes.
+// Deliberately narrow: does not touch -ac/-b:a's own existing logic, channel-layout behavior, or
+// bitrate behavior - a sample-rate-only fix for a sample-rate-only gap.
 function resolveAudioEncodeArgs(sourceChannels: number | null): string[] {
   const channels =
     sourceChannels !== null && sourceChannels > 0
@@ -1079,6 +1094,7 @@ function resolveAudioEncodeArgs(sourceChannels: number | null): string[] {
   if (sourceChannels !== null && sourceChannels > MAX_OUTPUT_AUDIO_CHANNELS) {
     args.push('-ac', String(channels));
   }
+  args.push('-ar', String(BRAND_SEGMENT_AUDIO_SAMPLE_RATE));
   args.push('-b:a', `${channels * AUDIO_BITRATE_PER_CHANNEL_KBPS}k`);
   return args;
 }

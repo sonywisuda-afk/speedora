@@ -69,6 +69,28 @@ async function hasAudioStream(file: string): Promise<boolean> {
   return stdout.trim().length > 0;
 }
 
+// Render Fidelity & Composition Execution Engine, Phase 8 (ffprobe verification) - proves the
+// "render pipeline with ... brand segments preserves the canonical sample rate" regression case
+// explicitly: this file's own concatBrandSegment() already normalizes to
+// BRAND_SEGMENT_AUDIO_SAMPLE_RATE via its own aformat= filter graph (concat-alignment, unrelated
+// to Phase 8's resolveAudioEncodeArgs() fix) - Phase 8 adds -ar 44100 at the OUTPUT ENCODE step
+// too (every caller, including this one), so this confirms the two layers agree rather than
+// silently conflicting.
+async function ffprobeAudioSampleRate(file: string): Promise<number> {
+  const { stdout } = await execFileAsync(FFPROBE_PATH, [
+    '-v',
+    'error',
+    '-select_streams',
+    'a:0',
+    '-show_entries',
+    'stream=sample_rate',
+    '-of',
+    'csv=p=0',
+    file,
+  ]);
+  return Number(stdout.trim());
+}
+
 const describeIfFfmpeg = isFfmpegAvailable() ? describe : describe.skip;
 
 describeIfFfmpeg('concatBrandSegment against real ffmpeg (P3d intro / P3e outro)', () => {
@@ -146,6 +168,10 @@ describeIfFfmpeg('concatBrandSegment against real ffmpeg (P3d intro / P3e outro)
       // well under MAX_INTRO_DURATION_SECONDS) - expected total is ~3s segment + ~5s clip,
       // regardless of which end it's attached to.
       expect(Math.abs(actualDuration - (3 + clipDuration))).toBeLessThan(1.5);
+      // Phase 8 - the clip source (48kHz) and segment source (44.1kHz) genuinely mismatch, so a
+      // real 44100Hz output here proves BOTH the filter-graph normalization and the new -ar
+      // output-encode fix land on the same canonical rate, not just one or the other.
+      expect(await ffprobeAudioSampleRate(outputPath)).toBe(44100);
     },
     30000,
   );

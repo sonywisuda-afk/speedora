@@ -374,18 +374,25 @@ describeIfFfmpeg('output resolution/aspect-ratio profile against real ffmpeg (Ph
   // but "channels" is no longer a blanket passthrough - a source is preserved up to
   // MAX_OUTPUT_AUDIO_CHANNELS (2), and downmixed above it. See resolveAudioEncodeArgs()'s own
   // comment for the full policy.
-  describe('audio handling (audit rule 5 - AAC, source-preserving sample rate, capped channels)', () => {
-    it('preserves a 48kHz stereo source', async () => {
+  describe('audio handling (audit rule 5 - AAC, canonical 44100Hz sample rate, capped channels)', () => {
+    // Render Fidelity & Composition Execution Engine, Phase 8 (ffprobe verification) - this test
+    // previously asserted the OPPOSITE ("preserves a 48kHz stereo source", sample_rate: 48000).
+    // That was the real, audit-confirmed gap Phase 8's own resolveAudioEncodeArgs() fix closes
+    // (apps/worker/src/ffmpeg.ts's own comment on that function has the full story) -
+    // renderClip() previously never set -ar at all, silently passing the source's own native rate
+    // straight through. Deliberately corrected here, not weakened - this is the exact behavior
+    // change Phase 8 was approved to make, verified against real ffmpeg, not assumed.
+    it('normalizes a 48kHz stereo source to the canonical 44100Hz (was: silently passed through)', async () => {
       const source = await makeSource('audio48k.mp4', 1920, 1080, 30, 48000);
       const output = await renderProfile(source, 1920, 1080, 9 / 16, '1080p', 'audio48k-out.mp4');
       const info = await ffprobeAudio(output);
       expect(info.codec_name).toBe('aac');
-      expect(info.sample_rate).toBe(48000);
+      expect(info.sample_rate).toBe(44100);
       expect(info.channels).toBe(2);
       expect(Math.abs(info.duration - CLIP_DURATION_SECONDS)).toBeLessThan(0.2);
     }, 30000);
 
-    it('preserves a 44.1kHz stereo source (no forced resample to 48kHz)', async () => {
+    it('keeps a 44.1kHz stereo source at 44100Hz (already the canonical rate)', async () => {
       const source = await makeSource('audio44k.mp4', 1920, 1080, 30, 44100);
       const output = await renderProfile(source, 1920, 1080, 9 / 16, '1080p', 'audio44k-out.mp4');
       const info = await ffprobeAudio(output);
@@ -394,13 +401,16 @@ describeIfFfmpeg('output resolution/aspect-ratio profile against real ffmpeg (Ph
     }, 30000);
 
     // Phase 6's own real gap: a mono source must stay mono - never upmixed just because
-    // renderClip()'s own -b:a decision now depends on channel count.
+    // renderClip()'s own -b:a decision now depends on channel count. Phase 8 regression check
+    // added: the new -ar normalization must coexist with this unchanged, never touching channel
+    // layout - a mono 48kHz source still ends up mono, just at the canonical rate now.
     it('never upmixes a mono source to stereo', async () => {
       const source = await makeSource('audio-mono.mp4', 1920, 1080, 30, 48000, 1);
       const output = await renderProfile(source, 1920, 1080, 9 / 16, '1080p', 'audio-mono-out.mp4');
       const info = await ffprobeAudio(output);
       expect(info.codec_name).toBe('aac');
       expect(info.channels).toBe(1);
+      expect(info.sample_rate).toBe(44100);
     }, 30000);
 
     // Phase 6's own real gap: a >2-channel (e.g. 5.1 surround) source is downmixed to stereo, not
@@ -416,6 +426,7 @@ describeIfFfmpeg('output resolution/aspect-ratio profile against real ffmpeg (Ph
       const info = await ffprobeAudio(output);
       expect(info.codec_name).toBe('aac');
       expect(info.channels).toBe(2);
+      expect(info.sample_rate).toBe(44100);
       expect(Math.abs(info.duration - CLIP_DURATION_SECONDS)).toBeLessThan(0.2);
     }, 30000);
   });
