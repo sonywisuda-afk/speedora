@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { API_URL } from './api';
+import { API_URL, refreshSession } from './api';
 
 // Milestone 04c - a thin EventSource wrapper. `withCredentials: true` is
 // required for the httpOnly auth cookie to be sent cross-origin (same
@@ -23,8 +23,20 @@ export function useNotificationStream(onEvent: () => void): { connected: boolean
     const es = new EventSource(`${API_URL}/notifications/stream`, { withCredentials: true });
     es.onopen = () => setConnected(true);
     // EventSource auto-reconnects on its own - this just tracks health so
-    // polling can speed back up until it reconnects.
-    es.onerror = () => setConnected(false);
+    // polling can speed back up until it reconnects. Reliability fix
+    // (2026-08): also fire a best-effort session refresh here. The stale-
+    // cookie deadlock this closes: without it, once the access token ages
+    // out every one of EventSource's own automatic retries sends the SAME
+    // expired cookie forever, since nothing else on this raw EventSource
+    // path ever calls POST /auth/refresh - this was the actual cause of the
+    // "(mode polling - koneksi real-time terputus)" banner staying stuck
+    // rather than recovering. Doesn't touch EventSource's built-in
+    // reconnect/backoff at all - the cookie is just fresh again by the time
+    // (or shortly after) the next automatic retry happens.
+    es.onerror = () => {
+      setConnected(false);
+      void refreshSession();
+    };
     es.onmessage = (e) => {
       try {
         const payload = JSON.parse(e.data);
