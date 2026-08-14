@@ -35,8 +35,11 @@ import { outputProfileSchema } from './output-profile';
 //   path buildCropPath() derived FROM primarySubjectSamples/editingSuggestions, not those inputs
 //   themselves).
 // - No Render Manifest, no ffprobe/final-media verification, no FFmpeg Compiler logic - those are
-//   later phases' jobs (Phase 4 consumes RenderPlan to drive real ffmpeg execution; verification
-//   is Phase 9's).
+//   later phases' jobs (Phase 4 consumes RenderPlan to drive real ffmpeg execution; Render
+//   Manifest is Phase 7's, ffprobe verification is Phase 8's - see docs/ai/render-fidelity-matrix.md
+//   for the full, current phase list; this comment predates Phase 9 becoming the Clip Count &
+//   Duration Precision Engine instead of verification, which had already shipped as Phase 8 by
+//   the time that renumbering happened).
 // - overlays.broll deliberately carries only {keyword, startTime, endTime} - never the ephemeral
 //   local scratch file path (a randomUUID-based path unique to this one render attempt), which
 //   would make RenderPlan non-deterministic across otherwise-identical renders of the same clip.
