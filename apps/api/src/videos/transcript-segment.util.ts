@@ -16,6 +16,7 @@ import type {
   DiarizationFeatures,
   EditingRhythmFeatures,
   EditingSuggestionTimeline,
+  EditorialDecision,
   EmotionalArc,
   FaceLandmarkFeatures,
   FaceLandmarkSample,
@@ -479,6 +480,19 @@ export function toSharedRenderVerification(
   renderVerification: unknown,
 ): RenderVerificationResult | null {
   return (renderVerification as RenderVerificationResult | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for
+// Clip.editorialDecision (Editorial Director Phase A - see docs/ai/
+// editorial-director.md). Null only when `scores` itself was unavailable
+// for this clip - never fabricated, same null-semantics every other v4
+// signal already uses. No consumer reads this field through the DTO yet
+// (Phase A is scoring/observability only) - this narrowing function exists
+// purely to keep VideosService.mapVideoWithClips' own inferred return type
+// nameable (the TS2742 pitfall this file's module comment already
+// documents), same reason every other toShared<X> function here exists.
+export function toSharedEditorialDecision(editorialDecision: unknown): EditorialDecision | null {
+  return (editorialDecision as EditorialDecision | null) ?? null;
 }
 
 // Same "Json column is opaque" situation as the functions above, for

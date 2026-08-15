@@ -34,7 +34,12 @@ interface ShortlistedReport {
   preRankScore: number;
   editorialScore: number | null;
   negativeSignals: { type: string; penalty: number; reason: string }[];
-  boundaryNudge: { applied: boolean; suggestedStartTime: number; suggestedEndTime: number; reason: string } | null;
+  boundaryNudge: {
+    applied: boolean;
+    suggestedStartTime: number;
+    suggestedEndTime: number;
+    reason: string;
+  } | null;
 }
 
 async function runShortlist(
@@ -52,7 +57,9 @@ async function runShortlist(
   return shortlisted.map((entry) => ({
     index: entry.index,
     preRankScore: Math.round(entry.preRankScore * 10) / 10,
-    editorialScore: entry.editorialDecision ? Math.round(entry.editorialDecision.editorialScore * 10) / 10 : null,
+    editorialScore: entry.editorialDecision
+      ? Math.round(entry.editorialDecision.editorialScore * 10) / 10
+      : null,
     negativeSignals: (entry.editorialDecision?.negativeSignals ?? []).filter((s) => s.penalty > 0),
     boundaryNudge:
       entry.boundaryNudge && entry.boundaryNudge.applied
@@ -66,7 +73,11 @@ async function runShortlist(
   }));
 }
 
-function printShortlist(label: string, shortlist: ShortlistedReport[], candidates: CandidateReport[]) {
+function printShortlist(
+  label: string,
+  shortlist: ShortlistedReport[],
+  candidates: CandidateReport[],
+) {
   console.log(`\n### ${label} (${shortlist.length} survivors)\n`);
   for (const entry of shortlist) {
     const c = candidates[entry.index];
@@ -75,10 +86,14 @@ function printShortlist(label: string, shortlist: ShortlistedReport[], candidate
         (entry.editorialScore !== null ? ` editorial=${entry.editorialScore}` : '') +
         ` (${c.startTime.toFixed(0)}s-${c.endTime.toFixed(0)}s) "${c.hookText}"`,
     );
-    console.log(`      topics: ${c.topics.join(', ') || '(none)'} | keywords: ${c.keywords.join(', ') || '(none)'}`);
+    console.log(
+      `      topics: ${c.topics.join(', ') || '(none)'} | keywords: ${c.keywords.join(', ') || '(none)'}`,
+    );
     if (entry.negativeSignals.length > 0) {
       for (const signal of entry.negativeSignals) {
-        console.log(`      PENALTY ${signal.type} (-${signal.penalty.toFixed(1)}): ${signal.reason}`);
+        console.log(
+          `      PENALTY ${signal.type} (-${signal.penalty.toFixed(1)}): ${signal.reason}`,
+        );
       }
     }
     if (entry.boundaryNudge) {
@@ -163,11 +178,13 @@ async function main() {
       endTime: candidate.endTime,
       scores: candidate.scores,
       viralityScore: candidate.viralityScore,
-      segments: filterSegmentsForClip(segments, candidate.startTime, candidate.endTime).map((s) => ({
-        start: s.start,
-        end: s.end,
-        text: s.text,
-      })),
+      segments: filterSegmentsForClip(segments, candidate.startTime, candidate.endTime).map(
+        (s) => ({
+          start: s.start,
+          end: s.end,
+          text: s.text,
+        }),
+      ),
     })),
     targetSize: TARGET_SIZE,
   };
@@ -223,7 +240,15 @@ async function main() {
   fs.writeFileSync(
     outputPath,
     JSON.stringify(
-      { videoId: VIDEO_ID, title: video.title, candidateReports, baseline, treatment, dropped, promoted },
+      {
+        videoId: VIDEO_ID,
+        title: video.title,
+        candidateReports,
+        baseline,
+        treatment,
+        dropped,
+        promoted,
+      },
       null,
       2,
     ),
