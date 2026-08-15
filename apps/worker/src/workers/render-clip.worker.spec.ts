@@ -1702,6 +1702,18 @@ describe('render-clip worker', () => {
           },
           decisions: [],
         },
+        qualityAssessment: {
+          dimensions: {
+            editorialQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+            narrativeQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+            technicalQuality: { score: 100, basis: 'measured', notes: expect.any(String) },
+            visualQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+            audioQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+            captionQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+          },
+          compositeScore: 100,
+          confidence: 1 / 6,
+        },
         storyboardFrameUrls: [],
         sceneCuts: [],
         sceneCutEvents: [],
@@ -5864,6 +5876,109 @@ describe('render-clip worker', () => {
     });
   });
 
+  // Render Quality Judge Phase C1 (docs/ai/render-quality-judge.md) - tests the WIRING only (the
+  // adapter's job, per ARCHITECTURE.md's checklist item 4): that render-clip.worker.ts computes
+  // qualityAssessment ONCE right after renderVerification resolves, reusing editorialDecision/
+  // probeResult/renderVerification exactly as they already exist, ALWAYS regardless of
+  // RENDER_QUALITY_JUDGE_ENABLED (ADR D8). @speedora/render-quality-judge's own derive/compose
+  // logic is covered by that package's own dedicated spec files, not re-tested here.
+  describe('Render Quality Judge Phase C1 - qualityAssessment persistence', () => {
+    const originalEnv = process.env.RENDER_QUALITY_JUDGE_ENABLED;
+
+    afterEach(() => {
+      if (originalEnv === undefined) {
+        delete process.env.RENDER_QUALITY_JUDGE_ENABLED;
+      } else {
+        process.env.RENDER_QUALITY_JUDGE_ENABLED = originalEnv;
+      }
+    });
+
+    beforeEach(() => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+    });
+
+    it('computes and persists a real qualityAssessment when scores are present, regardless of the flag', async () => {
+      delete process.env.RENDER_QUALITY_JUDGE_ENABLED;
+      const processor = getProcessor();
+      await processor(fakeJob({ ...baseJobData, scores: FULL_LLM_SCORES }));
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            qualityAssessment: expect.objectContaining({
+              dimensions: expect.objectContaining({
+                editorialQuality: expect.objectContaining({ basis: 'measured' }),
+                narrativeQuality: expect.objectContaining({ basis: 'measured' }),
+                technicalQuality: expect.objectContaining({ basis: 'measured', score: 100 }),
+                captionQuality: expect.objectContaining({ basis: 'unavailable', score: null }),
+              }),
+              compositeScore: expect.any(Number),
+              confidence: expect.any(Number),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('computation is unaffected by RENDER_QUALITY_JUDGE_ENABLED - flag gates future API exposure only (ADR D8)', async () => {
+      process.env.RENDER_QUALITY_JUDGE_ENABLED = 'true';
+      const processor = getProcessor();
+      await processor(fakeJob({ ...baseJobData, scores: FULL_LLM_SCORES }));
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            qualityAssessment: expect.objectContaining({
+              compositeScore: expect.any(Number),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('degrades every EditorialDecision-derived dimension to unavailable when this clip has no ClipScores - never fabricated', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob({ ...baseJobData, scores: null }));
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            qualityAssessment: expect.objectContaining({
+              dimensions: expect.objectContaining({
+                editorialQuality: expect.objectContaining({ basis: 'unavailable', score: null }),
+                narrativeQuality: expect.objectContaining({ basis: 'unavailable', score: null }),
+                visualQuality: expect.objectContaining({ basis: 'unavailable', score: null }),
+                audioQuality: expect.objectContaining({ basis: 'unavailable', score: null }),
+                // TechnicalQuality is independent of EditorialDecision - still measured.
+                technicalQuality: expect.objectContaining({ basis: 'measured', score: 100 }),
+              }),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('degrades technicalQuality to unavailable when the ffprobe probe fails entirely', async () => {
+      probeVideoMetadataMock.mockRejectedValueOnce(new Error('ffprobe unavailable'));
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            qualityAssessment: expect.objectContaining({
+              dimensions: expect.objectContaining({
+                technicalQuality: expect.objectContaining({ basis: 'unavailable', score: null }),
+              }),
+            }),
+          }),
+        }),
+      );
+    });
+  });
+
   describe('Scene Intelligence (Fase 26)', () => {
     it('calls detectSceneCuts with the source path and clip time range, persisting the resulting cuts', async () => {
       clipFindManyMock.mockResolvedValue([
@@ -5929,6 +6044,18 @@ describe('render-clip worker', () => {
               maxReactionHolds: 1,
             },
             decisions: [],
+          },
+          qualityAssessment: {
+            dimensions: {
+              editorialQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+              narrativeQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+              technicalQuality: { score: 100, basis: 'measured', notes: expect.any(String) },
+              visualQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+              audioQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+              captionQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+            },
+            compositeScore: 100,
+            confidence: 1 / 6,
           },
           storyboardFrameUrls: [],
           sceneCuts: [1.5, 4.2],
@@ -6132,6 +6259,18 @@ describe('render-clip worker', () => {
               maxReactionHolds: 1,
             },
             decisions: [],
+          },
+          qualityAssessment: {
+            dimensions: {
+              editorialQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+              narrativeQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+              technicalQuality: { score: 100, basis: 'measured', notes: expect.any(String) },
+              visualQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+              audioQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+              captionQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+            },
+            compositeScore: 100,
+            confidence: 1 / 6,
           },
           storyboardFrameUrls: [],
           sceneCuts: [],
@@ -6486,6 +6625,18 @@ describe('render-clip worker', () => {
             },
             decisions: [],
           },
+          qualityAssessment: {
+            dimensions: {
+              editorialQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+              narrativeQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+              technicalQuality: { score: 100, basis: 'measured', notes: expect.any(String) },
+              visualQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+              audioQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+              captionQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+            },
+            compositeScore: 100,
+            confidence: 1 / 6,
+          },
           storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],
@@ -6688,6 +6839,18 @@ describe('render-clip worker', () => {
               maxReactionHolds: 1,
             },
             decisions: [],
+          },
+          qualityAssessment: {
+            dimensions: {
+              editorialQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+              narrativeQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+              technicalQuality: { score: 100, basis: 'measured', notes: expect.any(String) },
+              visualQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+              audioQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+              captionQuality: { score: null, basis: 'unavailable', notes: expect.any(String) },
+            },
+            compositeScore: 100,
+            confidence: 1 / 6,
           },
           storyboardFrameUrls: [],
           sceneCuts: [],

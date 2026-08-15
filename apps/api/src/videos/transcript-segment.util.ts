@@ -24,6 +24,7 @@ import type {
   FaceTrackingQualityMetrics,
   FacialEmotionFeatures,
   FacialEmotionSample,
+  FinalClipQualityAssessment,
   FinalSpeakerIntelligence,
   FusionBreakdown,
   FusionExplainability,
@@ -505,6 +506,19 @@ export function toSharedEditorialDecision(editorialDecision: unknown): Editorial
 // here exists.
 export function toSharedEditPlan(editPlan: unknown): EditPlan | null {
   return (editPlan as EditPlan | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as toSharedEditorialDecision/toSharedEditPlan above, for
+// Clip.qualityAssessment (Render Quality Judge Phase C1 - see docs/ai/render-quality-judge.md).
+// Null only when this Clip row predates the migration that added this column -
+// assessClipQuality() itself always returns a real object, regardless of
+// RENDER_QUALITY_JUDGE_ENABLED (that flag gates future API exposure only, ADR D8). No consumer
+// reads this field through the DTO yet - same "keeps the inferred return type nameable" reason
+// every other toShared<X> function here exists.
+export function toSharedQualityAssessment(
+  qualityAssessment: unknown,
+): FinalClipQualityAssessment | null {
+  return (qualityAssessment as FinalClipQualityAssessment | null) ?? null;
 }
 
 // Same "Json column is opaque" situation as the functions above, for

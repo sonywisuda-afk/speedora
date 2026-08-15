@@ -36,6 +36,7 @@ export * from './reframe';
 export * from './render-config';
 export * from './render-manifest';
 export * from './render-plan';
+export * from './render-quality-judge';
 export * from './render-verification';
 export * from './retention-curve-insights';
 export * from './scene-intelligence';

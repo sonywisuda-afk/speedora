@@ -1406,6 +1406,17 @@ model Clip {
   // (i.e. whether anything was actually suppressed/enforced), not whether this column gets
   // written.
   editPlan                    Json?
+  // Render Quality Judge Phase C1 (docs/ai/render-quality-judge.md). @speedora/render-quality-
+  // judge's own FinalClipQualityAssessment - a composite of 6 dimensions (editorialQuality/
+  // narrativeQuality/technicalQuality/visualQuality/audioQuality/captionQuality), each honestly
+  // labeled 'measured'/'proxy'/'unavailable' (see that contract's own basis doc comment) rather
+  // than fabricating a uniform score. DATA ONLY this phase - no gating/reject/re-render behavior
+  // consumes this column yet (a deliberate scope decision, see the doc's own explicit non-goals).
+  // Same null-semantics as editorialDecision/editPlan above: null here can ONLY mean this Clip row
+  // predates this phase's migration - assessClipQuality() itself never returns null. Always
+  // computed and persisted regardless of RENDER_QUALITY_JUDGE_ENABLED (ADR D8 - that flag gates
+  // future API exposure only, same posture as editorialDecision above).
+  qualityAssessment           Json?
   createdAt                   DateTime     @default(now())
   updatedAt                   DateTime     @updatedAt
 

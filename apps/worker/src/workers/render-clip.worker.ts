@@ -56,6 +56,7 @@ import {
   deriveSpeakerClarityScore,
 } from '@speedora/editorial-director';
 import { planEdits } from '@speedora/edit-plan-director';
+import { assessClipQuality } from '@speedora/render-quality-judge';
 import {
   migrateProcessingOptions,
   PUBLISH_RETRY_OPTIONS,
@@ -2464,6 +2465,36 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               }
             }
 
+            // Render Quality Judge Phase C1 (docs/ai/render-quality-judge.md) - an additive,
+            // OBSERVATIONAL FinalClipQualityAssessment composed entirely from already-computed data:
+            // editorialDecision (hoisted pre-render above), and probeResult/renderVerification/the
+            // duration pair (all hoisted just above). Computed ALWAYS (cheap, pure, no I/O - same
+            // ADR D8 "compute always, flag gates future API exposure only" posture as
+            // editorialDecision/editPlan above), right after renderVerification resolves - the
+            // first point every input is simultaneously in scope. No gating/reject/re-render
+            // behavior consumes this yet - see the contract's own explicit non-goals.
+            const qualityAssessment = assessClipQuality({
+              editorialScore: editorialDecision?.editorialScore ?? null,
+              categories: editorialDecision?.categories ?? null,
+              hasVisualInstabilitySignal:
+                editorialDecision?.negativeSignals.some(
+                  (signal) => signal.type === 'visualInstability' && signal.penalty > 0,
+                ) ?? false,
+              technical: {
+                renderVerificationPassed: renderVerification?.passed ?? null,
+                hasVideoStream: probeResult?.hasVideoStream ?? null,
+                hasAudioStream: probeResult?.hasAudioStream ?? null,
+                requestedDurationSeconds: endTime - startTime,
+                renderedDurationSeconds: probeResult?.durationSeconds ?? null,
+              },
+            });
+            logger.info('RENDER_QUALITY_ASSESSMENT_RESOLVED', {
+              clipId,
+              videoId,
+              compositeScore: qualityAssessment.compositeScore,
+              confidence: qualityAssessment.confidence,
+            });
+
             // Product Experience roadmap - a Clip's gallery-card thumbnail.
             // Extracted from renderedPath (the FINAL rendered output, not the
             // raw source) so the thumbnail matches exactly what the viewer
@@ -2672,6 +2703,10 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                       budget: editPlan.budget,
                       decisions: editPlan.decisions,
                     } as unknown as Prisma.InputJsonValue,
+                    // Render Quality Judge Phase C1 - always a real object (see the hoisted
+                    // qualityAssessment computation above; assessClipQuality() itself never
+                    // returns null).
+                    qualityAssessment: qualityAssessment as unknown as Prisma.InputJsonValue,
                     ...(thumbnailKey ? { thumbnailUrl: thumbnailKey } : {}),
                     ...(thumbnailBlurDataUrl ? { thumbnailBlurDataUrl } : {}),
                     storyboardFrameUrls: storyboardKeys as unknown as Prisma.InputJsonValue,
