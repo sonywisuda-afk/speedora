@@ -16,7 +16,11 @@ import type { SemanticEvent } from '@speedora/contracts';
 // valid for Stage B's ungrounded pre-render pass and Stage D's grounded
 // post-render one.
 export function deriveSemanticEventsScore(events: SemanticEvent[] | null): number {
-  if (events === null) return 50;
+  // Loose equality deliberately - same `!= null` fix applied to this file's
+  // sibling, derive-narrative-graph-score.ts (see its own comment for the
+  // full rationale: a render-graph mock/adapter can hand back `undefined`
+  // for an unpopulated node, not just `null`).
+  if (events == null) return 50;
   if (events.length === 0) return 20;
   const averageImportance =
     events.reduce((sum, event) => sum + event.importance, 0) / events.length;

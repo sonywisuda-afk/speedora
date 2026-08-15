@@ -1,5 +1,7 @@
 import {
   shortlistCandidatesOutputSchema,
+  type BoundaryNudge,
+  type EditorialDecision,
   type NarrativeGraph,
   type SemanticEvent,
   type ShortlistCandidateInput,
@@ -7,6 +9,14 @@ import {
   type ShortlistCandidatesOutput,
   type ShortlistDetectionSegment,
 } from '@speedora/contracts';
+import {
+  computeEditorialDecisionForShortlist,
+  detectRedundancy,
+  isEditorialDirectorEnabled,
+  mergeNegativeSignal,
+  selectDiverseShortlist,
+  type DiversityCandidate,
+} from '@speedora/editorial-director';
 import type { StructuredCallDeps } from '@speedora/llm-client';
 import { buildNarrativeGraph } from '@speedora/narrative-graph';
 import { detectSemanticEvents } from '@speedora/semantic-events';
@@ -49,6 +59,12 @@ interface CandidateScoreResult {
   semanticEvents: SemanticEvent[] | null;
   narrativeGraph: NarrativeGraph | null;
   preRankScore: number;
+  // Editorial Director Phase A (docs/ai/editorial-director.md). Null when
+  // EDITORIAL_DIRECTOR_ENABLED is off - the default, and this function's
+  // exact pre-Phase-A behavior otherwise.
+  editorialDecision: EditorialDecision | null;
+  boundaryNudge: BoundaryNudge | null;
+  fullText: string;
 }
 
 // Runs the two Stage B LLM calls for one candidate - best-effort, same
@@ -91,7 +107,38 @@ async function scoreCandidate(
     narrativeGraph,
   });
 
-  return { semanticEvents, narrativeGraph, preRankScore };
+  const fullText = relativeSegments.map((segment) => segment.text).join(' ');
+
+  // Editorial Director Phase A - only ever runs on THIS path, which already
+  // pays for the two LLM calls above (never inside selectShortlist()'s own
+  // small-pool no-op branch below) - a user-confirmed scope decision that
+  // adds zero new ongoing LLM cost this phase (see docs/ai/
+  // editorial-director.md's own "Editorial Director cost scope" decision).
+  let editorialDecision: EditorialDecision | null = null;
+  let boundaryNudge: BoundaryNudge | null = null;
+  if (isEditorialDirectorEnabled()) {
+    const result = computeEditorialDecisionForShortlist({
+      scores: candidate.scores,
+      narrativeGraph,
+      semanticEvents,
+      firstSegmentText: relativeSegments[0]?.text ?? '',
+      lastSegmentText: relativeSegments[relativeSegments.length - 1]?.text ?? '',
+      fullText,
+      candidateStartTime: candidate.startTime,
+      candidateEndTime: candidate.endTime,
+    });
+    editorialDecision = result.decision;
+    boundaryNudge = result.nudge;
+  }
+
+  return {
+    semanticEvents,
+    narrativeGraph,
+    preRankScore,
+    editorialDecision,
+    boundaryNudge,
+    fullText,
+  };
 }
 
 // The module's single entry point (ARCHITECTURE.md's JSON-contract module
@@ -109,6 +156,8 @@ export async function selectShortlist(
   const targetSize = input.targetSize ?? DEFAULT_SHORTLIST_TARGET_SIZE;
 
   if (input.candidates.length <= targetSize) {
+    // Editorial Director Phase A never runs here (the zero-LLM-call no-op
+    // path) - see docs/ai/editorial-director.md's own cost-scope decision.
     return shortlistCandidatesOutputSchema.parse({
       shortlisted: input.candidates.map((candidate, index) => ({
         index,
@@ -120,6 +169,8 @@ export async function selectShortlist(
         }),
         semanticEvents: null,
         narrativeGraph: null,
+        editorialDecision: null,
+        boundaryNudge: null,
       })),
     });
   }
@@ -135,7 +186,66 @@ export async function selectShortlist(
     });
   }
 
-  const shortlisted = scored.sort((a, b) => b.preRankScore - a.preRankScore).slice(0, targetSize);
+  if (!isEditorialDirectorEnabled()) {
+    const shortlisted = scored.sort((a, b) => b.preRankScore - a.preRankScore).slice(0, targetSize);
+    return shortlistCandidatesOutputSchema.parse({
+      shortlisted: shortlisted.map((entry) => ({
+        ...entry,
+        editorialDecision: null,
+        boundaryNudge: null,
+      })),
+    });
+  }
+
+  // Editorial Director Phase A (docs/ai/editorial-director.md) -
+  // diversity-aware re-selection (mission Section 8). `score` blends the
+  // unchanged Tier-1/2 preRankScore (which alone already carries viralityScore
+  // - editorialScore deliberately does NOT re-derive it, see
+  // compose-editorial-score.ts's own category-to-source-signal mapping) with
+  // EditorialDecision.editorialScore (which adds negative-signal penalties
+  // preRankScore alone has no concept of) - averaging keeps BOTH the existing
+  // signal and the new one meaningful, rather than one silently overriding
+  // the other.
+  const diversityCandidates: DiversityCandidate[] = scored.map((entry) => ({
+    index: entry.index,
+    score:
+      entry.editorialDecision == null
+        ? entry.preRankScore
+        : (entry.preRankScore + entry.editorialDecision.editorialScore) / 2,
+    startTime: input.candidates[entry.index].startTime,
+    endTime: input.candidates[entry.index].endTime,
+    text: entry.fullText,
+    semanticEventTypes: (entry.semanticEvents ?? []).map((event) => event.type),
+  }));
+  const selected = selectDiverseShortlist(diversityCandidates, targetSize);
+  const scoredByIndex = new Map(scored.map((entry) => [entry.index, entry]));
+
+  const shortlisted = selected.map((diversityCandidate) => {
+    const entry = scoredByIndex.get(diversityCandidate.index);
+    if (!entry) {
+      throw new Error(
+        `selectDiverseShortlist returned an unknown candidate index: ${diversityCandidate.index}`,
+      );
+    }
+    // Merges in `redundancy` now that the final survivor set is known - a
+    // cross-candidate comparison the per-candidate EditorialDecision above
+    // couldn't see (selectDiverseShortlist's own greedy redundancy-avoidance
+    // already did the real selection work; this is the transparency record
+    // of why a backfilled survivor may still read as somewhat redundant).
+    const others = selected.filter((other) => other.index !== diversityCandidate.index);
+    const redundancy = detectRedundancy(diversityCandidate, [diversityCandidate, ...others]);
+    const editorialDecision = entry.editorialDecision
+      ? mergeNegativeSignal(entry.editorialDecision, redundancy)
+      : null;
+    return {
+      index: entry.index,
+      preRankScore: entry.preRankScore,
+      semanticEvents: entry.semanticEvents,
+      narrativeGraph: entry.narrativeGraph,
+      editorialDecision,
+      boundaryNudge: entry.boundaryNudge,
+    };
+  });
 
   return shortlistCandidatesOutputSchema.parse({ shortlisted });
 }

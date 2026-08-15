@@ -1021,6 +1021,64 @@ export interface EditingSuggestion {
 // not one per input sample.
 export type EditingSuggestionTimeline = EditingSuggestion[];
 
+// Editorial Director Phase A ("Editorial Intelligence 2.0" - see docs/ai/
+// editorial-director.md). Mirrors @speedora/contracts' editorial-director.ts
+// schemas rather than importing them - same duplication precedent as every
+// other v4 type in this file. `mode: 'render'` is the only mode this DTO
+// boundary ever needs to expose today (Clip.editorialDecision is a
+// render-mode-only column; shortlist-mode decisions are never persisted).
+export type EditorialMode = 'shortlist' | 'render';
+
+export type NegativeSignalType =
+  | 'contextDependency'
+  | 'redundancy'
+  | 'deadAir'
+  | 'confusion'
+  | 'incompleteThought'
+  | 'abruptEnding'
+  | 'setupTooLong'
+  | 'payoffMissing'
+  | 'visualInstability'
+  | 'overEditingRisk';
+
+export interface NegativeSignal {
+  type: NegativeSignalType;
+  penalty: number;
+  reason: string;
+}
+
+export interface BoundaryNudge {
+  originalStartTime: number;
+  originalEndTime: number;
+  suggestedStartTime: number;
+  suggestedEndTime: number;
+  reason: string;
+  applied: boolean;
+}
+
+// visualEngagement/speakerClarity are render-mode only - null in shortlist
+// mode (never surfaced through this DTO boundary anyway, see EditorialMode
+// above).
+export interface EditorialCategoryScores {
+  contentValue: number;
+  hookStrength: number;
+  narrativeCompleteness: number;
+  contextCompleteness: number;
+  emotionalPayoff: number;
+  visualEngagement: number | null;
+  speakerClarity: number | null;
+  platformFit: number;
+}
+
+export interface EditorialDecision {
+  mode: EditorialMode;
+  editorialScore: number;
+  categories: EditorialCategoryScores;
+  negativeSignals: NegativeSignal[];
+  boundaryNudge: BoundaryNudge | null;
+  confidence: number;
+}
+
 // AI Fusion roadmap's Face Intelligence initiative, Batch 2 - a per-sample
 // looking-direction bucket, 'center' meaning both iris position and head
 // rotation roughly face the camera. Mirrors @speedora/contracts'

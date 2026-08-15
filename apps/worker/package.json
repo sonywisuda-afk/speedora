@@ -41,6 +41,7 @@
     "@speedora/dataset-quality": "workspace:*",
     "@speedora/dynamic-caption": "workspace:*",
     "@speedora/editing-rhythm": "workspace:*",
+    "@speedora/editorial-director": "workspace:*",
     "@speedora/emoji-suggester": "workspace:*",
     "@speedora/emotional-arc": "workspace:*",
     "@speedora/facial-intelligence": "workspace:*",

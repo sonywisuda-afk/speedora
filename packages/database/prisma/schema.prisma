@@ -1377,6 +1377,25 @@ model Clip {
   // false (see docs/ai/render-fidelity-local-equivalence-gate.md's documented, accepted fps-drift
   // finding) - `passed: false` is a real verification OUTCOME, not the same as this field being null.
   renderVerification          Json?
+  // Editorial Director Phase A (docs/ai/editorial-director.md). @speedora/
+  // editorial-director's EditorialDecision - a render-mode composite over
+  // Content Value/Hook Strength/Narrative Completeness/Context Completeness/
+  // Emotional Payoff/Visual Engagement/Speaker Clarity/Platform Fit, plus
+  // negative-signal penalties (contextDependency/deadAir/confusion/
+  // incompleteThought/abruptEnding/setupTooLong/payoffMissing/
+  // visualInstability/overEditingRisk). Same null-semantics/always-a-real-
+  // object convention as editingSuggestions/conversationDynamics above: null
+  // here can ONLY mean this Clip row predates this phase's migration.
+  // Computed on every render regardless of the EDITORIAL_DIRECTOR_ENABLED
+  // flag (gates future API exposure only, ADR D8 - see
+  // isEditorialDirectorEnabled()) - does NOT gate or reject rendering this
+  // phase (scoring/observability only; a later phase is the eventual
+  // gate/reject consumer). Deliberately separate from, and does not modify,
+  // compositeRankScore/compositeRank/compositeRankConfidence/
+  // compositeRankSubScores above (@speedora/clip-ranking's own, still-inert
+  // composite) - Phase A adds a better signal beside it rather than risking
+  // that one's already-shipped call sites.
+  editorialDecision           Json?
   createdAt                   DateTime     @default(now())
   updatedAt                   DateTime     @updatedAt
 
