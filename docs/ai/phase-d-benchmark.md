@@ -94,9 +94,8 @@ output shape) found:
 None of these are Phase A/B/C1/D's own code — all are pre-existing gaps in unrelated modules,
 surfaced by exercising the real pipeline against a real, 128-second clip for the first time (most
 existing test/harness fixtures use short synthetic clips that never exercised these code paths).
-Per this phase's own explicit non-goal, neither was fixed as part of this phase's own PR — logged
-as backlog; the camera-motion bug was fixed separately, immediately after, at the user's request
-(see below).
+Per this phase's own explicit non-goal, neither was fixed as part of this phase's own PR — both
+were fixed separately, immediately after, at the user's explicit request (see below).
 
 - **A real bug, FIXED**: `apps/worker/scripts/detect_camera_motion.py` crashed with
   `TypeError: Object of type float32 is not JSON serializable` when serializing its own `dx` field
@@ -108,15 +107,28 @@ as backlog; the camera-motion bug was fixed separately, immediately after, at th
   but cast explicitly too rather than relying on that implicitly. Verified with a real run (a
   synthetic `ffmpeg testsrc` clip through the actual script, not a mock) producing real, correctly-
   serialized `dx`/`dy`/`scale`/`rotation`/`ecc` values with no crash.
-- **A sandbox-completeness gap, not a code bug**: this environment is missing the MediaPipe model
-  files `gesture_recognizer.task`, `face_landmarker.task`, and `efficientdet_lite0.tflite`
-  (`apps/worker/models/`), and the `pytesseract` Python package — so Gesture Intelligence, Face
-  Landmarks, Object Intelligence, and OCR Text Detection all return null/empty for this run,
-  regardless of the real clip's content. Confirms the exact caveat `ARCHITECTURE.md` already
+- **A sandbox-completeness gap, FIXED, plus a real production Dockerfile gap it uncovered**: this
+  environment was missing the MediaPipe model files `gesture_recognizer.task`,
+  `face_landmarker.task`, and `efficientdet_lite0.tflite` (`apps/worker/models/`), and the
+  `pytesseract` Python package + a real `tesseract` OCR binary — so Gesture Intelligence, Face
+  Landmarks, Object Intelligence, and OCR Text Detection all returned null/empty for this run,
+  regardless of the real clip's content. Confirmed the exact caveat `ARCHITECTURE.md` already
   documents for Audio/Scene Intelligence ("an honestly-unverified subprocess") extends to these
-  detectors too, in this specific sandbox. This measurably reduced `editingSuggestions` density for
-  this run (see §5) — a real clip with working face/OCR detection could exercise
-  `EDIT_BUDGET_ENABLED`/`EFFECT_CONFLICT_RESOLUTION_ENABLED` more meaningfully.
+  detectors too. Investigating this surfaced a real, separate, more consequential bug:
+  `apps/worker/Dockerfile` fetches `blaze_face_short_range.tflite` and `face_landmarker.task` but
+  **never fetched `gesture_recognizer.task` or `efficientdet_lite0.tflite` at all** — meaning
+  Gesture Intelligence and Object Intelligence were silently null/empty in every **production**
+  container built from this Dockerfile too, not just this local sandbox. Fixed: this sandbox's
+  `apps/worker/models/` now has all 4 model files (downloaded from MediaPipe's own canonical
+  `storage.googleapis.com/mediapipe-models/...` URLs, the same source the existing 2 already used),
+  `pytesseract` + a real Tesseract 5.5.3 binary are installed (`TESSERACT_PATH` set in `.env`, the
+  already-existing, already-documented escape hatch for exactly this), `apps/worker/Dockerfile`
+  gained the 2 missing `curl` fetch steps (same pattern as the existing 2), and `README.md`'s local-
+  dev prerequisites gained the 2 missing model bullets. Verified for real: each of the 4 detector
+  scripts (`detect_gestures.py`/`detect_objects.py`/`detect_face_landmarks.py`/`detect_ocr_text.py`)
+  run directly against synthetic test clips, no crash, real output (OCR correctly read rendered
+  text at 95.5% confidence; the other 3 correctly returned null/empty against clips with no real
+  hands/objects/faces to detect — a correct result, not a failure).
 
 ## 5. Real results (2026-08-15 run, clip `cmsq3ix8a028e2su80g10w5y6`)
 
@@ -154,8 +166,10 @@ actual magnitude. Worth a future calibration note, not a bug in this phase's own
 - **The actual blind human evaluation session** — the packet exists; a human hasn't used it yet.
 - **Multi-clip/multi-video coverage** — this pass covers 1 real clip, proving the harness end-to-
   end. `BENCHMARK_CLIP_ID` is overridable via `--clipId=` for a cheap future expansion.
-- **Fixing the missing model files/`pytesseract` sandbox gap** (§4) — a separately-scoped backlog
-  item, unrelated to Phase A/B/C1/D's own code (the camera-motion float32 bug was fixed, see §4).
+- **Re-running the full Phase D benchmark against this environment's now-complete detector set** —
+  both real findings (§4) are fixed, but the one real benchmark run recorded in §5 predates both
+  fixes; re-running to see richer `editingSuggestions` density (real face/gesture/object/OCR
+  signal, not just LLM-only) is a cheap, valuable follow-up, not done as part of either fix.
 - **Caching/replaying `graphResult` across runs** — deliberately simplified away (§3); a future
   pass could revisit this if LLM cost/non-determinism becomes a real blocker at multi-clip scale.
 - **Real Brand Kit resolution** (watermark/intro/outro) — the harness job data hardcodes these to

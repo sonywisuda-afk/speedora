@@ -211,6 +211,17 @@ RUN mkdir -p /app/models && curl -sL -o /app/models/blaze_face_short_range.tflit
 # while wiring Batch 4 into the same script.
 RUN curl -sL -o /app/models/face_landmarker.task \
     https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
+# GestureRecognizer's OWN `.task` bundle (Gesture Intelligence, ARCHITECTURE.md's own "needs its
+# OWN MediaPipe model file" note) and ObjectDetector's OWN EfficientDet-Lite0 `.tflite` (Object
+# Intelligence Batch OI-1) - the SAME class of gap as face_landmarker.task above (missed when each
+# initiative first shipped, this production image step never added), found for real this time by
+# Phase D's real-video benchmark (docs/ai/phase-d-benchmark.md) actually exercising the full render
+# graph against a real clip - every prior test/harness fixture used short synthetic clips that
+# never triggered either detector's real subprocess call.
+RUN curl -sL -o /app/models/gesture_recognizer.task \
+    https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/latest/gesture_recognizer.task
+RUN curl -sL -o /app/models/efficientdet_lite0.tflite \
+    https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/latest/efficientdet_lite0.tflite
 # Brand Kit roadmap (P3a) - the curated, OFL-licensed caption font list (see
 # packages/subtitles' FONT_FAMILIES - this list and that one must be kept in
 # sync by hand, there's no build-time link between a Dockerfile and a

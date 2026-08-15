@@ -42,6 +42,16 @@ AI video repurposing platform (mirip OpusClip) — upload video panjang, otomati
   curl -sL -o apps/worker/models/face_landmarker.task \
     https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
   ```
+- Model MediaPipe Gesture Recognizer — file `.task` TERPISAH lagi (bukan `.tflite`, bukan `face_landmarker.task` di atas), dipakai `apps/worker/scripts/detect_gestures.py` (Gesture Intelligence). Kalau `apps/worker/models/gesture_recognizer.task` tidak ada, node ini gagal best-effort (render tetap jalan, sinyal gesture-nya saja yang kosong) — nyata terjadi & baru ketahuan lewat Phase D's real-video benchmark, lihat `docs/ai/phase-d-benchmark.md`:
+  ```bash
+  curl -sL -o apps/worker/models/gesture_recognizer.task \
+    https://storage.googleapis.com/mediapipe-models/gesture_recognizer/gesture_recognizer/float16/latest/gesture_recognizer.task
+  ```
+- Model MediaPipe Object Detector (EfficientDet-Lite0) — `.tflite`, dipakai `apps/worker/scripts/detect_objects.py` (Object Intelligence). Sama seperti Gesture Recognizer di atas, tanpa file ini node-nya gagal best-effort saja, ditemukan lewat Phase D's real-video benchmark juga:
+  ```bash
+  curl -sL -o apps/worker/models/efficientdet_lite0.tflite \
+    https://storage.googleapis.com/mediapipe-models/object_detector/efficientdet_lite0/float16/latest/efficientdet_lite0.tflite
+  ```
 - Bucket object storage S3-compatible — video upload dan hasil render disimpan di sini, bukan local disk. Untuk dev lokal, `docker-compose.yml` sudah menyediakan [MinIO](https://min.io/) (endpoint `http://localhost:9000`, bucket dibuat otomatis oleh service `minio-init`) — cukup arahkan `STORAGE_ENDPOINT=http://localhost:9000` dengan kredensial `minioadmin`/`minioadmin`. Untuk produksi pakai provider eksternal (mis. [Cloudflare R2](https://developers.cloudflare.com/r2/), AWS S3). Isi kredensialnya di `STORAGE_*` env var (lihat `.env.example`).
 - [Tesseract OCR](https://github.com/tesseract-ocr/tesseract) binary + `pip install pytesseract` (AI Fusion roadmap's OCR initiative, Batch OCR-1 — deteksi teks-di-layar untuk Fusion Engine, lihat `apps/worker/scripts/detect_ocr_text.py`). Di Debian/Ubuntu: `sudo apt-get install tesseract-ocr tesseract-ocr-eng`. Kalau binary `tesseract` tidak di `PATH`, set `TESSERACT_PATH` di `.env` ke path binary-nya.
 
