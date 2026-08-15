@@ -3,9 +3,11 @@
 > **Status: Phase C1 shipped, flag-gated (`RENDER_QUALITY_JUDGE_ENABLED`, default off, gates future
 > API exposure only).** The third phase of the user's 30-section "Speedora Editorial Operating
 > System" mission, building on Phase A (`docs/ai/editorial-director.md`) and Phase B
-> (`docs/ai/edit-plan-director.md`), both merged. Phase D (real-video benchmark/human evaluation)
-> remains the roadmap's next phase, not started. Phase C2 (real Visual/Audio/Caption quality
-> detectors, auto-reject/re-render) is a deliberately deferred, separately-scoped follow-up — see §6.
+> (`docs/ai/edit-plan-director.md`), both merged. Phase D (real-video benchmark/human evaluation) —
+> see `docs/ai/phase-d-benchmark.md` — has its automated-benchmark half shipped and run for real
+> once; the actual blind human evaluation session hasn't happened. Phase C2 (real Visual/Audio/
+> Caption quality detectors, auto-reject/re-render) is a deliberately deferred, separately-scoped
+> follow-up — see §6.
 
 ## 1. What the mission asked for, and why this phase stops short of it
 

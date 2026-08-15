@@ -66,3 +66,9 @@ coverage/
 # tend to carry hardcoded credentials for a one-time run and are never meant
 # to be shared/committed.
 .dev-storage/
+
+# Phase D real-video benchmark reports (docs/ai/phase-d-benchmark.md) -
+# generated locally by render-clip.worker.phase-d-benchmark.ts, contain
+# short-lived presigned storage URLs (a real credential-equivalent, never
+# committed to VCS) alongside real per-run signal data. Never checked in.
+apps/worker/reports/
