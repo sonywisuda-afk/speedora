@@ -1116,6 +1116,36 @@ export interface EditPlan {
   decisions: ConflictDecision[];
 }
 
+// Render Quality Judge Phase C1 (docs/ai/render-quality-judge.md). Mirrors @speedora/contracts'
+// render-quality-judge.ts schemas rather than importing them - same duplication precedent as
+// every other v4 type in this file. `basis` is the honesty mechanism this phase is built around:
+// 'measured' (a real signal that measures what its name claims), 'proxy' (a real signal that
+// measures something adjacent, weighted down accordingly), or 'unavailable' (no signal exists at
+// all, e.g. captionQuality always - excluded from the composite, never fabricated).
+export type QualityDimension =
+  | 'editorialQuality'
+  | 'narrativeQuality'
+  | 'technicalQuality'
+  | 'visualQuality'
+  | 'audioQuality'
+  | 'captionQuality';
+
+export type QualityDimensionBasis = 'measured' | 'proxy' | 'unavailable';
+
+export interface QualityDimensionScore {
+  score: number | null;
+  basis: QualityDimensionBasis;
+  notes: string;
+}
+
+export type QualityDimensionScores = Record<QualityDimension, QualityDimensionScore>;
+
+export interface FinalClipQualityAssessment {
+  dimensions: QualityDimensionScores;
+  compositeScore: number;
+  confidence: number;
+}
+
 // AI Fusion roadmap's Face Intelligence initiative, Batch 2 - a per-sample
 // looking-direction bucket, 'center' meaning both iris position and head
 // rotation roughly face the camera. Mirrors @speedora/contracts'

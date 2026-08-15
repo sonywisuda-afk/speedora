@@ -58,6 +58,7 @@
     "@speedora/primary-subject": "workspace:*",
     "@speedora/reframe": "workspace:*",
     "@speedora/render-config": "workspace:*",
+    "@speedora/render-quality-judge": "workspace:*",
     "@speedora/report-builder": "workspace:*",
     "@speedora/retention-curve-insights": "workspace:*",
     "@speedora/scene-intelligence": "workspace:*",

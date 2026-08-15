@@ -90,6 +90,7 @@ import {
   toSharedRenderVerification,
   toSharedEditorialDecision,
   toSharedEditPlan,
+  toSharedQualityAssessment,
   toSharedCompositeRankSubScores,
   toSharedLipSyncVerifications,
   toSharedLlmFeatures,
@@ -1892,6 +1893,7 @@ export class VideosService {
           renderVerification,
           editorialDecision,
           editPlan,
+          qualityAssessment,
           ...clip
         }) => ({
           ...clip,
@@ -1967,6 +1969,7 @@ export class VideosService {
           renderVerification: toSharedRenderVerification(renderVerification),
           editorialDecision: toSharedEditorialDecision(editorialDecision),
           editPlan: toSharedEditPlan(editPlan),
+          qualityAssessment: toSharedQualityAssessment(qualityAssessment),
           thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
             thumbnailSelectionBreakdown,
           ),
