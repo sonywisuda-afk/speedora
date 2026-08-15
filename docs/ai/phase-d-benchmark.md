@@ -94,13 +94,20 @@ output shape) found:
 None of these are Phase A/B/C1/D's own code — all are pre-existing gaps in unrelated modules,
 surfaced by exercising the real pipeline against a real, 128-second clip for the first time (most
 existing test/harness fixtures use short synthetic clips that never exercised these code paths).
-Per this phase's own explicit non-goal, none were fixed here — logged as backlog:
+Per this phase's own explicit non-goal, neither was fixed as part of this phase's own PR — logged
+as backlog; the camera-motion bug was fixed separately, immediately after, at the user's request
+(see below).
 
-- **A real bug**: `apps/worker/scripts/detect_camera_motion.py` crashes with
+- **A real bug, FIXED**: `apps/worker/scripts/detect_camera_motion.py` crashed with
   `TypeError: Object of type float32 is not JSON serializable` when serializing its own `dx` field
   — a numpy `float32` never converted to a native Python `float` before `json.dumps()`. Caught by
   the render graph's existing best-effort handling ("camera motion detection failed, continuing
-  without camera motion data"), not fatal.
+  without camera motion data"), not fatal, but silently dropped every camera-motion sample.
+  `decompose_warp()` now explicitly casts all 4 return values (`dx`/`dy`/`scale`/`rotation`) to
+  native `float` — `scale`/`rotation` already came out native via `math.hypot()`/`math.degrees()`,
+  but cast explicitly too rather than relying on that implicitly. Verified with a real run (a
+  synthetic `ffmpeg testsrc` clip through the actual script, not a mock) producing real, correctly-
+  serialized `dx`/`dy`/`scale`/`rotation`/`ecc` values with no crash.
 - **A sandbox-completeness gap, not a code bug**: this environment is missing the MediaPipe model
   files `gesture_recognizer.task`, `face_landmarker.task`, and `efficientdet_lite0.tflite`
   (`apps/worker/models/`), and the `pytesseract` Python package — so Gesture Intelligence, Face
@@ -147,8 +154,8 @@ actual magnitude. Worth a future calibration note, not a bug in this phase's own
 - **The actual blind human evaluation session** — the packet exists; a human hasn't used it yet.
 - **Multi-clip/multi-video coverage** — this pass covers 1 real clip, proving the harness end-to-
   end. `BENCHMARK_CLIP_ID` is overridable via `--clipId=` for a cheap future expansion.
-- **Fixing §4's real findings** (the camera-motion float32 bug, the missing model files/
-  `pytesseract`) — separately-scoped backlog items, unrelated to Phase A/B/C1/D's own code.
+- **Fixing the missing model files/`pytesseract` sandbox gap** (§4) — a separately-scoped backlog
+  item, unrelated to Phase A/B/C1/D's own code (the camera-motion float32 bug was fixed, see §4).
 - **Caching/replaying `graphResult` across runs** — deliberately simplified away (§3); a future
   pass could revisit this if LLM cost/non-determinism becomes a real blocker at multi-clip scale.
 - **Real Brand Kit resolution** (watermark/intro/outro) — the harness job data hardcodes these to

@@ -83,7 +83,13 @@ def decompose_warp(warp: np.ndarray, frame_width: int, frame_height: int):
     # ratios (packages/facial-intelligence).
     dx = tx / frame_width
     dy = ty / frame_height
-    return dx, dy, scale, rotation
+    # warp's entries (a, b, tx, c, d, ty) are numpy.float32 (cv2.findTransformECC's own dtype),
+    # so dx/dy - plain division, never passed through a math.* function - stay numpy.float32
+    # too. json.dumps() can't serialize that (a real bug this project hit on a real, longer
+    # clip - see docs/ai/phase-d-benchmark.md's own finding). scale/rotation already come out
+    # native via math.hypot()/math.degrees(), but cast explicitly here too rather than relying
+    # on that implicitly - one place, no doubt left for a future numpy/OpenCV version to break.
+    return float(dx), float(dy), float(scale), float(rotation)
 
 
 def main() -> None:
