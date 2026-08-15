@@ -7,6 +7,7 @@ import type {
   ViralityPrediction,
   ViralitySubProbabilities,
 } from '@speedora/contracts';
+import { hasUnresolvedTension } from './has-unresolved-tension';
 import { isPayoffSegmentType } from './is-payoff-segment-type';
 
 function clamp01(value: number): number {
@@ -36,17 +37,6 @@ function hasPayoff(narrativeGraph: NarrativeGraph): boolean {
     narrativeGraph.relations.some((relation) => relation.type === 'resolves') ||
     narrativeGraph.segments.some((segment) => isPayoffSegmentType(segment.type))
   );
-}
-
-// A conflict/escalation segment with no `resolves` relation reads as
-// "unresolved tension" - the kind of open loop that invites comments
-// (agreement/disagreement/questions), distinct from hasPayoff() above.
-function hasUnresolvedTension(narrativeGraph: NarrativeGraph): boolean {
-  const hasTensionSegment = narrativeGraph.segments.some(
-    (segment) => segment.type === 'conflict' || segment.type === 'escalation',
-  );
-  const hasResolution = narrativeGraph.relations.some((relation) => relation.type === 'resolves');
-  return hasTensionSegment && !hasResolution;
 }
 
 function hasTakeaway(narrativeGraph: NarrativeGraph): boolean {

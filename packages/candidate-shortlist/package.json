@@ -14,6 +14,7 @@
   },
   "dependencies": {
     "@speedora/contracts": "workspace:*",
+    "@speedora/editorial-director": "workspace:*",
     "@speedora/llm-client": "workspace:*",
     "@speedora/narrative-graph": "workspace:*",
     "@speedora/semantic-events": "workspace:*",

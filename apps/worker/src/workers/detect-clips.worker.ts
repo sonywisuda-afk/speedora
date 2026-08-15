@@ -148,7 +148,22 @@ async function shortlistRawCandidates(
     },
     { openai },
   );
-  return shortlisted.map((entry) => rawCandidates[entry.index]);
+  // Editorial Director Phase A (docs/ai/editorial-director.md) - the one
+  // real behavior-changing line: applies a survivor's own suggested
+  // boundary nudge (only ever present when EDITORIAL_DIRECTOR_ENABLED is on
+  // AND selectShortlist() actually decided to apply it - see
+  // BoundaryNudge.applied) before this candidate becomes a persisted Clip
+  // row with a fixed startTime/endTime. Every other candidate (the default,
+  // flag-off case) passes through unchanged.
+  return shortlisted.map((entry) => {
+    const candidate = rawCandidates[entry.index];
+    if (!entry.boundaryNudge?.applied) return candidate;
+    return {
+      ...candidate,
+      startTime: entry.boundaryNudge.suggestedStartTime,
+      endTime: entry.boundaryNudge.suggestedEndTime,
+    };
+  });
 }
 
 export function createDetectClipsWorker(): Worker<DetectClipsJobData, DetectClipsJobResult> {

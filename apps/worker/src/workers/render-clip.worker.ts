@@ -52,6 +52,10 @@ import {
 } from '@speedora/database';
 import { computeHighlightScore, rankClips } from '@speedora/fusion-engine';
 import {
+  computeEditorialDecisionForRender,
+  deriveSpeakerClarityScore,
+} from '@speedora/editorial-director';
+import {
   migrateProcessingOptions,
   PUBLISH_RETRY_OPTIONS,
   QueueName,
@@ -1607,6 +1611,41 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // render-graph/nodes/*.ts for each one's derivation and render-graph/sinks.ts for how
             // `graphResult` reaches computeHighlightScore()/prisma.clip.update() below.
 
+            // Editorial Director Phase A (docs/ai/editorial-director.md) - mode: 'render'. Computed
+            // ALWAYS (cheap, pure, no I/O) regardless of EDITORIAL_DIRECTOR_ENABLED, same ADR D8
+            // "compute always, flag gates future API exposure only" posture as every other v4
+            // render-graph node - not wired inside the existing compositeRank block further below
+            // (that block re-queries siblings without transcript text, so it can't run the
+            // contextDependency scan). `transcript` is already this clip's own scoped segments (every
+            // sibling helper below maps it directly with no endTime filter), so no re-slicing is
+            // needed for its own text. null only when `scores` itself is null (this clip's own
+            // ClipScores never got persisted at candidate-creation time) - never fabricated, same
+            // "an optional signal genuinely unavailable never counts against a candidate" convention
+            // as every other v4 signal's own null-handling.
+            const editorialDecision = scores
+              ? computeEditorialDecisionForRender({
+                  scores,
+                  text: transcript.map((segment) => segment.text).join(' '),
+                  namedEntities: graphResult.hookPrediction?.linguisticFeatures.namedEntities ?? [],
+                  narrativeGraph: graphResult.narrativeGraph,
+                  semanticEvents: graphResult.semanticEvents,
+                  hookProbability: graphResult.hookPrediction?.hookProbability ?? null,
+                  topicShiftScore:
+                    graphResult.hookPrediction?.linguisticFeatures.topicShiftScore ?? null,
+                  dropPoints: graphResult.retentionCurveInsights.dropPoints,
+                  emotionalArcPeakIntensity:
+                    graphResult.emotionalArc.length === 0
+                      ? null
+                      : Math.max(...graphResult.emotionalArc.map((sample) => sample.intensity)),
+                  editingSuggestions: graphResult.editingSuggestions,
+                  clipDurationSeconds: endTime - startTime,
+                  speakerClarityScore: deriveSpeakerClarityScore(
+                    graphResult.conversationIntelligence.dynamics,
+                    graphResult.conversationIntelligence.classification,
+                  ),
+                })
+              : null;
+
             // Visual Emphasis Engine Phase C2 (docs/ai/visual-emphasis-engine.md,
             // ADR DC3) - built AFTER the render graph specifically so it can
             // consume graphResult.primarySubjectSamples (Composition
@@ -2599,6 +2638,10 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                     renderManifest: renderManifest as unknown as Prisma.InputJsonValue,
                     renderVerification:
                       (renderVerification as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
+                    // Editorial Director Phase A - null only when `scores` itself was null (see the
+                    // hoisted editorialDecision computation above).
+                    editorialDecision:
+                      (editorialDecision as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
                     ...(thumbnailKey ? { thumbnailUrl: thumbnailKey } : {}),
                     ...(thumbnailBlurDataUrl ? { thumbnailBlurDataUrl } : {}),
                     storyboardFrameUrls: storyboardKeys as unknown as Prisma.InputJsonValue,

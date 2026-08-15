@@ -1688,6 +1688,10 @@ describe('render-clip worker', () => {
           fields: {},
           passed: true,
         },
+        // Editorial Director Phase A (docs/ai/editorial-director.md) - null because
+        // baseJobData.scores is null (never fabricated - see the hoisted editorialDecision
+        // computation in render-clip.worker.ts).
+        editorialDecision: Prisma.JsonNull,
         storyboardFrameUrls: [],
         sceneCuts: [],
         sceneCutEvents: [],
@@ -5636,6 +5640,94 @@ describe('render-clip worker', () => {
     });
   });
 
+  // Editorial Director Phase A (docs/ai/editorial-director.md) - tests the WIRING only (the
+  // adapter's job, per ARCHITECTURE.md's checklist item 4): that render-clip.worker.ts computes and
+  // persists Clip.editorialDecision from graphResult's own already-resolved fields, using the REAL
+  // @speedora/editorial-director package (not mocked) - its own detector/composer logic is covered
+  // by that package's own dedicated spec files, not re-tested here.
+  describe('Editorial Director Phase A (render mode) - editorialDecision persistence', () => {
+    const originalEnv = process.env.EDITORIAL_DIRECTOR_ENABLED;
+
+    afterEach(() => {
+      if (originalEnv === undefined) {
+        delete process.env.EDITORIAL_DIRECTOR_ENABLED;
+      } else {
+        process.env.EDITORIAL_DIRECTOR_ENABLED = originalEnv;
+      }
+    });
+
+    it('computes and persists a real editorialDecision when scores are present, regardless of the flag', async () => {
+      delete process.env.EDITORIAL_DIRECTOR_ENABLED;
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      const processor = getProcessor();
+      await processor(fakeJob({ ...baseJobData, scores: FULL_LLM_SCORES }));
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            editorialDecision: expect.objectContaining({
+              mode: 'render',
+              editorialScore: expect.any(Number),
+              categories: expect.any(Object),
+              negativeSignals: expect.any(Array),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('computation is unaffected by EDITORIAL_DIRECTOR_ENABLED - same posture as every other v4 render-graph node (ADR D8, flag gates future API exposure only)', async () => {
+      process.env.EDITORIAL_DIRECTOR_ENABLED = 'true';
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      const processor = getProcessor();
+      await processor(fakeJob({ ...baseJobData, scores: FULL_LLM_SCORES }));
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            editorialDecision: expect.objectContaining({ mode: 'render' }),
+          }),
+        }),
+      );
+    });
+
+    it('persists Prisma.JsonNull when this clip has no ClipScores at all - never fabricated', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      const processor = getProcessor();
+      await processor(fakeJob({ ...baseJobData, scores: null }));
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ editorialDecision: Prisma.JsonNull }),
+        }),
+      );
+    });
+
+    it('is purely additive - every other field already persisted before this phase is unaffected', async () => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            outputUrl: 'renders/clip-1.mp4',
+            renderPlan: buildRenderPlanMock.mock.results[0].value,
+            renderManifest: buildRenderManifestMock.mock.results[0].value,
+          }),
+        }),
+      );
+    });
+  });
+
   describe('Scene Intelligence (Fase 26)', () => {
     it('calls detectSceneCuts with the source path and clip time range, persisting the resulting cuts', async () => {
       clipFindManyMock.mockResolvedValue([
@@ -5691,6 +5783,7 @@ describe('render-clip worker', () => {
             fields: {},
             passed: true,
           },
+          editorialDecision: Prisma.JsonNull,
           storyboardFrameUrls: [],
           sceneCuts: [1.5, 4.2],
           sceneCutEvents: [],
@@ -5883,6 +5976,7 @@ describe('render-clip worker', () => {
             fields: {},
             passed: true,
           },
+          editorialDecision: Prisma.JsonNull,
           storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],
@@ -6225,6 +6319,7 @@ describe('render-clip worker', () => {
             fields: {},
             passed: true,
           },
+          editorialDecision: Prisma.JsonNull,
           storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],
@@ -6417,6 +6512,7 @@ describe('render-clip worker', () => {
             fields: {},
             passed: true,
           },
+          editorialDecision: Prisma.JsonNull,
           storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],

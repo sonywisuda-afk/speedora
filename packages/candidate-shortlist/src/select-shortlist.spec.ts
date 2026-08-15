@@ -146,4 +146,121 @@ describe('selectShortlist', () => {
     const call = buildNarrativeGraphMock.mock.calls[0][0];
     expect(call.semanticEvents).toEqual(detected);
   });
+
+  // Editorial Director Phase A (docs/ai/editorial-director.md) - see that
+  // doc for the full design. EDITORIAL_DIRECTOR_ENABLED defaults off; every
+  // test above already runs with it unset, proving this phase changed
+  // nothing about this module's default behavior. This block covers the
+  // flag-on paths specifically.
+  describe('Editorial Director Phase A wiring', () => {
+    const originalEnv = process.env.EDITORIAL_DIRECTOR_ENABLED;
+
+    afterEach(() => {
+      if (originalEnv === undefined) {
+        delete process.env.EDITORIAL_DIRECTOR_ENABLED;
+      } else {
+        process.env.EDITORIAL_DIRECTOR_ENABLED = originalEnv;
+      }
+    });
+
+    it('flag off: editorialDecision/boundaryNudge are always null, same shortlist as before this phase', async () => {
+      delete process.env.EDITORIAL_DIRECTOR_ENABLED;
+      const candidates = [
+        candidate({ viralityScore: 90 }),
+        candidate({ viralityScore: 10 }),
+        candidate({ viralityScore: 50 }),
+        candidate({ viralityScore: 50 }),
+      ];
+
+      const result = await selectShortlist({ candidates, targetSize: 2 }, { openai: fakeOpenAI });
+
+      expect(result.shortlisted).toHaveLength(2);
+      expect(result.shortlisted[0].index).toBe(0);
+      expect(result.shortlisted.every((entry) => entry.editorialDecision === null)).toBe(true);
+      expect(result.shortlisted.every((entry) => entry.boundaryNudge === null)).toBe(true);
+    });
+
+    it('flag on: prefers a lower-scored but topically distinct candidate over a redundant higher-scored one', async () => {
+      process.env.EDITORIAL_DIRECTOR_ENABLED = 'true';
+      detectSemanticEventsMock.mockImplementation(
+        async (input: { segments: { text: string }[] }) => {
+          const text = input.segments[0]?.text ?? '';
+          return text.includes('billion rupiah')
+            ? [{ type: 'money', t: 1, confidence: 0.9, importance: 0.8, evidence: [], reason: 'x' }]
+            : [];
+        },
+      );
+
+      // Distinct, NON-OVERLAPPING timestamps - true time-range overlaps are
+      // deliberately excluded from redundancy consideration (handled
+      // upstream by @speedora/clip-scoring's own
+      // deduplicateOverlappingCandidates); this test is specifically about
+      // near-duplicate TOPICS at different moments in the video.
+      const candidates = [
+        candidate({
+          startTime: 0,
+          endTime: 30,
+          viralityScore: 90,
+          segments: [{ start: 0, end: 30, text: 'I lost a billion rupiah in one bad trade' }],
+        }),
+        candidate({
+          startTime: 100,
+          endTime: 130,
+          viralityScore: 85,
+          segments: [
+            { start: 100, end: 130, text: 'I lost a billion rupiah on one terrible trade' },
+          ],
+        }),
+        candidate({
+          startTime: 200,
+          endTime: 230,
+          viralityScore: 70,
+          segments: [
+            { start: 200, end: 230, text: 'a completely different story about my childhood dog' },
+          ],
+        }),
+      ];
+
+      const result = await selectShortlist({ candidates, targetSize: 2 }, { openai: fakeOpenAI });
+
+      expect(result.shortlisted.map((entry) => entry.index).sort()).toEqual([0, 2]);
+    });
+
+    it('flag on: applies an in-bounds boundary nudge before returning', async () => {
+      process.env.EDITORIAL_DIRECTOR_ENABLED = 'true';
+      buildNarrativeGraphMock.mockResolvedValue({
+        segments: [
+          { id: 0, type: 'conflict', startTime: 0, endTime: 30, confidence: 0.9, reason: 'x' },
+        ],
+        relations: [],
+        unsegmented: false,
+      });
+      // 4 candidates with a targetSize of 2 (< candidates.length) so this
+      // actually exercises the LLM-scoring path, not selectShortlist()'s own
+      // zero-LLM-call no-op passthrough (which never runs Editorial
+      // Director - see the "flag off" test above, and this module's own
+      // cost-scope decision in docs/ai/editorial-director.md).
+      const candidates = Array.from({ length: 4 }, (_, i) =>
+        candidate({
+          startTime: 100 + i * 100,
+          endTime: 130 + i * 100,
+          segments: [
+            {
+              start: 100 + i * 100,
+              end: 130 + i * 100,
+              text: 'and that is when everything changed for us',
+            },
+          ],
+        }),
+      );
+
+      const result = await selectShortlist({ candidates, targetSize: 2 }, { openai: fakeOpenAI });
+
+      expect(result.shortlisted).toHaveLength(2);
+      expect(result.shortlisted.every((entry) => entry.boundaryNudge?.applied)).toBe(true);
+      expect(result.shortlisted[0].boundaryNudge?.suggestedStartTime).toBeLessThan(
+        result.shortlisted[0].boundaryNudge!.originalStartTime,
+      );
+    });
+  });
 });

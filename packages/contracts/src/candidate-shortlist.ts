@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { clipScoresSchema } from './clip-scoring';
+import { boundaryNudgeSchema, editorialDecisionSchema } from './editorial-director';
 import { narrativeGraphSchema } from './narrative-graph';
 import { semanticEventSchema } from './semantic-events';
 
@@ -65,6 +66,21 @@ export const shortlistedCandidateSchema = z.object({
   // deliberate scope decision, not an oversight.
   semanticEvents: z.array(semanticEventSchema).nullable(),
   narrativeGraph: narrativeGraphSchema.nullable(),
+  // Editorial Director Phase A (docs/ai/editorial-director.md). Null when
+  // EDITORIAL_DIRECTOR_ENABLED is off (the default - selectShortlist()'s
+  // behavior is then byte-for-byte identical to before this phase), or when
+  // this candidate never reached @speedora/candidate-shortlist's own
+  // LLM-calling path (the small-pool no-op branch, which never runs
+  // Editorial Director - see docs/ai/editorial-director.md's own cost-scope
+  // decision). Present for transparency/debugging only, same posture as
+  // semanticEvents/narrativeGraph above - nothing downstream this phase
+  // persists it onto a Clip row.
+  editorialDecision: editorialDecisionSchema.nullable(),
+  // A suggested (never applied by this module itself) boundary expansion -
+  // the CALLER (apps/worker's detect-clips.worker.ts) decides whether to
+  // adopt applied: true nudges before creating Clip rows. Same null
+  // conditions as editorialDecision above.
+  boundaryNudge: boundaryNudgeSchema.nullable(),
 });
 export type ShortlistedCandidate = z.infer<typeof shortlistedCandidateSchema>;
 

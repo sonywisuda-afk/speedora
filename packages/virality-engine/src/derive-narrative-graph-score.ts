@@ -34,7 +34,14 @@ import { isPayoffSegmentType } from './is-payoff-segment-type';
 // the same function is valid for Stage B's ungrounded pre-render pass and
 // Stage D's grounded post-render one.
 export function deriveNarrativeGraphScore(graph: NarrativeGraph | null): number {
-  if (graph === null) return 50;
+  // Loose equality deliberately - the same `!= null` fix Phase 9's own
+  // computeViralityPrediction() already needed (a render-graph mock/adapter
+  // can hand back `undefined` for an unpopulated node, not just `null`; a
+  // strict `=== null` check let that crash here instead of degrading to the
+  // neutral midpoint - caught while wiring Editorial Director Phase A's own
+  // render-mode call site against a real test fixture, see docs/ai/
+  // editorial-director.md).
+  if (graph == null) return 50;
   if (graph.unsegmented || graph.segments.length === 0) return 40;
   const averageConfidence =
     graph.segments.reduce((sum, segment) => sum + segment.confidence, 0) / graph.segments.length;

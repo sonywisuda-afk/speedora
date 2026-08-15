@@ -10,6 +10,7 @@ export * from './conversation-intelligence';
 export * from './cutlist';
 export * from './dynamic-caption';
 export * from './editing-rhythm';
+export * from './editorial-director';
 export * from './emoji-suggestions';
 export * from './emotional-arc';
 export * from './export-center';
