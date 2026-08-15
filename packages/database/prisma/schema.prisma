@@ -1351,6 +1351,32 @@ model Clip {
   // Deliberately no backfill for pre-existing rendered rows (see that doc's own D8) - real
   // per-clip ffprobe/object-storage cost, unlike durationSeconds' own cheap backfill.
   renderedDurationSeconds     Float?
+  // Render Fidelity & Composition Execution Engine - Path B (docs/ai/render-fidelity-local-
+  // equivalence-gate.md's own "next up" note; see docs/ai/render-fidelity-matrix.md for the full
+  // phase history). Phases 3/7/8 built RenderPlan/RenderManifest/RenderVerificationResult as
+  // proof-of-integration-only - computed and structured-logged (RENDER_PLAN_RESOLVED/
+  // RENDER_MANIFEST_RESOLVED/RENDER_VERIFICATION_RESOLVED) on every render, but never persisted
+  // anywhere a later API/UI consumer could read. These 3 columns close that gap: written by the
+  // SAME optimistic-concurrency completion transaction as renderedDurationSeconds above, from the
+  // SAME already-computed local variables (never recomputed). No feature flag - unlike AI
+  // Intelligence v4's exposure-only flags (experimental predictions), this is factual/
+  // deterministic "what actually happened during this render" data, same posture as
+  // renderedDurationSeconds itself. No backfill for pre-existing rendered rows (same reasoning as
+  // renderedDurationSeconds - these are execution-time snapshots, not cheaply recomputable).
+  //
+  // renderPlan/renderManifest: null only for a clip that predates this migration, or one that
+  // never successfully rendered (outputUrl also null in both cases) - buildRenderPlan()/
+  // buildRenderManifest() are pure and always succeed once execution reaches this point, no
+  // separate failure mode of their own.
+  renderPlan                  Json?
+  renderManifest              Json?
+  // renderVerification: additionally null when the post-render ffprobe probe itself failed (see
+  // probeResult's own comment in render-clip.worker.ts) or compareRenderManifestToProbe() itself
+  // threw - both best-effort, non-fatal to the render/upload, same "unverifiable -> null, continue"
+  // posture Phase 8 already established. A present object's own `passed` field can legitimately be
+  // false (see docs/ai/render-fidelity-local-equivalence-gate.md's documented, accepted fps-drift
+  // finding) - `passed: false` is a real verification OUTCOME, not the same as this field being null.
+  renderVerification          Json?
   createdAt                   DateTime     @default(now())
   updatedAt                   DateTime     @updatedAt
 

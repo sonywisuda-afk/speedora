@@ -2377,12 +2377,19 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // Phase 9 consolidation (docs/ai/clip-duration-precision-engine.md's own D4) - reuses
             // the SAME probeResult hoisted above; no second, independent probeVideoMetadata() call
             // exists anywhere in this file anymore.
+            //
+            // Path B (docs/ai/render-fidelity-local-equivalence-gate.md) - renderVerification is
+            // now `let`-declared in the OUTER scope (previously a `const` scoped to this try block
+            // alone) so the completion transaction further below can persist it to
+            // Clip.renderVerification, the same "hoist so a later consumer can read it" shape
+            // probeResult itself already uses. Stays null when the probe failed above (never
+            // reached this block) or when compareRenderManifestToProbe() itself throws (caught
+            // below) - both real, non-fabricated "unverifiable" outcomes, never coerced to a fake
+            // passing result.
+            let renderVerification: ReturnType<typeof compareRenderManifestToProbe> | null = null;
             if (probeResult) {
               try {
-                const renderVerification = compareRenderManifestToProbe(
-                  renderManifest,
-                  probeResult,
-                );
+                renderVerification = compareRenderManifestToProbe(renderManifest, probeResult);
                 logger.info('RENDER_VERIFICATION_RESOLVED', {
                   clipId,
                   videoId,
@@ -2580,6 +2587,18 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                     // comment for its full lifecycle semantics (deliberately distinct from
                     // durationSeconds, the requested/candidate window, untouched by this phase).
                     renderedDurationSeconds: probeResult?.durationSeconds ?? null,
+                    // Path B (docs/ai/render-fidelity-local-equivalence-gate.md) - persists what
+                    // was previously log-only (RENDER_PLAN_RESOLVED/RENDER_MANIFEST_RESOLVED/
+                    // RENDER_VERIFICATION_RESOLVED), from the SAME already-computed local
+                    // variables, atomically with outputUrl by this SAME transaction - no second
+                    // write path, no recomputation. renderPlan/renderManifest are always real
+                    // objects once execution reaches this point (both pure, always-succeed
+                    // builders); renderVerification can genuinely be null (probe failure or the
+                    // comparison itself throwing, see its own hoisted declaration above).
+                    renderPlan: renderPlan as unknown as Prisma.InputJsonValue,
+                    renderManifest: renderManifest as unknown as Prisma.InputJsonValue,
+                    renderVerification:
+                      (renderVerification as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
                     ...(thumbnailKey ? { thumbnailUrl: thumbnailKey } : {}),
                     ...(thumbnailBlurDataUrl ? { thumbnailBlurDataUrl } : {}),
                     storyboardFrameUrls: storyboardKeys as unknown as Prisma.InputJsonValue,

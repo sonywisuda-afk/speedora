@@ -1,6 +1,7 @@
 export * from './types/video';
 export * from './types/explainability';
 export * from './types/intelligence-v4';
+export * from './types/render-fidelity';
 export * from './types/clip-performance';
 export * from './types/analytics';
 export * from './types/dashboard';

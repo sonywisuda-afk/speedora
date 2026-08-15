@@ -85,6 +85,9 @@ import {
   toSharedConversationDynamics,
   toSharedConversationType,
   toSharedFinalSpeakerIntelligence,
+  toSharedRenderPlan,
+  toSharedRenderManifest,
+  toSharedRenderVerification,
   toSharedCompositeRankSubScores,
   toSharedLipSyncVerifications,
   toSharedLlmFeatures,
@@ -1882,6 +1885,9 @@ export class VideosService {
           thumbnailSelectionBreakdown,
           thumbnailSelectionFallback,
           compositeRankSubScores,
+          renderPlan,
+          renderManifest,
+          renderVerification,
           ...clip
         }) => ({
           ...clip,
@@ -1952,6 +1958,9 @@ export class VideosService {
           conversationDynamics: toSharedConversationDynamics(conversationDynamics),
           conversationType: toSharedConversationType(conversationType),
           finalSpeakerIntelligence: toSharedFinalSpeakerIntelligence(finalSpeakerIntelligence),
+          renderPlan: toSharedRenderPlan(renderPlan),
+          renderManifest: toSharedRenderManifest(renderManifest),
+          renderVerification: toSharedRenderVerification(renderVerification),
           thumbnailSelectionBreakdown: toSharedThumbnailSelectionBreakdown(
             thumbnailSelectionBreakdown,
           ),

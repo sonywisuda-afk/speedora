@@ -279,6 +279,17 @@ export class ClipsController {
     return this.clipsService.getIntelligence(id, user.id);
   }
 
+  // Render Fidelity & Composition Execution Engine, Path B (see docs/ai/
+  // render-fidelity-local-equivalence-gate.md) - a read-only view of what
+  // this clip's render actually decided/did/verified (RenderPlan/
+  // RenderManifest/RenderVerificationResult), separate from getIntelligence
+  // above (AI predictions) and getExplainability above (highlightScore
+  // engines). See ClipsService.getRenderFidelity.
+  @Get(':id/render-fidelity')
+  getRenderFidelity(@CurrentUser() user: SafeUser, @Param('id') id: string) {
+    return this.clipsService.getRenderFidelity(id, user.id);
+  }
+
   // Sprint 6C (Analytics Dashboard Expansion) - a read-only, single-clip
   // view of real per-platform engagement history, distribution metadata,
   // and the same frozen AI score getExplainability returns - never an

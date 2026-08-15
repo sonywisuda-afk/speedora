@@ -29,6 +29,7 @@ import {
   type ClipPlatformCopyDto,
   type ClipPlatformCopyListDto,
   type ClipPlatformFitDto,
+  type ClipRenderFidelityDto,
   type ClipVersionDto,
   type ClipVersionListDto,
   type GeneratePlatformCopyJobData,
@@ -93,6 +94,9 @@ import {
   toSharedConversationDynamics,
   toSharedConversationType,
   toSharedFinalSpeakerIntelligence,
+  toSharedRenderPlan,
+  toSharedRenderManifest,
+  toSharedRenderVerification,
   toSharedCompositeRankSubScores,
   toSharedLlmFeatures,
   toSharedOcrFeatures,
@@ -591,6 +595,26 @@ export class ClipsService {
       finalSpeakerIntelligence: isSpeakerFusionEnabled()
         ? toSharedFinalSpeakerIntelligence(clip.finalSpeakerIntelligence)
         : null,
+    };
+  }
+
+  // Render Fidelity & Composition Execution Engine, Path B (see docs/ai/
+  // render-fidelity-local-equivalence-gate.md) - a separate endpoint from
+  // getIntelligence/getExplainability above, not a third field group folded
+  // into either: this is factual "what did this render actually decide/do/
+  // verify" data (Phases 3/7/8's RenderPlan/RenderManifest/
+  // RenderVerificationResult), not an AI prediction or a highlightScore-
+  // engine result, so none of its 3 fields are flag-gated - same posture
+  // Clip.renderedDurationSeconds itself already has. Same ownership-check
+  // pattern as getIntelligence/getExplainability.
+  async getRenderFidelity(id: string, requesterId: string): Promise<ClipRenderFidelityDto> {
+    const clip = await this.findOwnedOrThrow(id, requesterId);
+
+    return {
+      clipId: clip.id,
+      renderPlan: toSharedRenderPlan(clip.renderPlan),
+      renderManifest: toSharedRenderManifest(clip.renderManifest),
+      renderVerification: toSharedRenderVerification(clip.renderVerification),
     };
   }
 

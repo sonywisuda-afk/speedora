@@ -45,6 +45,9 @@ import type {
   OcrTextTrack,
   ProcessingOptions,
   CaptionTreatmentTimeline,
+  RenderManifest,
+  RenderPlan,
+  RenderVerificationResult,
   RetentionCurveInsights,
   SceneCutEvent,
   SceneFeatures,
@@ -454,6 +457,28 @@ export function toSharedHighlightRecommendation(
 // failed (optional: true, fallback: null), not fabricated.
 export function toSharedHookPrediction(hookPrediction: unknown): HookPredictionOutput | null {
   return (hookPrediction as HookPredictionOutput | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as the functions above, for Clip.renderPlan/
+// renderManifest/renderVerification (Render Fidelity & Composition Execution Engine, Path B - see
+// docs/ai/render-fidelity-local-equivalence-gate.md). Null for renderPlan/renderManifest only when
+// this Clip row predates the migration that added these columns, or the clip never successfully
+// rendered - both pure, always-succeed builders once execution reaches the point they're built, no
+// LLM-style failure mode of their own. renderVerification is additionally null when the post-
+// render ffprobe probe itself failed or the comparison itself threw - see ClipRenderFidelityDto's
+// own field comments (packages/shared) for the full null-semantics.
+export function toSharedRenderPlan(renderPlan: unknown): RenderPlan | null {
+  return (renderPlan as RenderPlan | null) ?? null;
+}
+
+export function toSharedRenderManifest(renderManifest: unknown): RenderManifest | null {
+  return (renderManifest as RenderManifest | null) ?? null;
+}
+
+export function toSharedRenderVerification(
+  renderVerification: unknown,
+): RenderVerificationResult | null {
+  return (renderVerification as RenderVerificationResult | null) ?? null;
 }
 
 // Same "Json column is opaque" situation as the functions above, for

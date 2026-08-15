@@ -553,6 +553,126 @@ describe('ClipsService', () => {
     });
   });
 
+  // Render Fidelity & Composition Execution Engine, Path B (see docs/ai/
+  // render-fidelity-local-equivalence-gate.md) - unlike getIntelligence above, none of these 3
+  // fields are flag-gated (factual/deterministic render-outcome data, not an AI prediction - same
+  // posture Clip.renderedDurationSeconds itself already has), so there's no flag on/off matrix to
+  // cover here, only the real null-semantics: pre-migration/never-rendered row vs. a genuinely
+  // present (including passed: false) result.
+  describe('getRenderFidelity', () => {
+    const renderPlan = {
+      version: 1,
+      clipId: 'clip-1',
+      videoId: 'video-1',
+      timeline: {
+        requestedStartTime: 0,
+        requestedEndTime: 10,
+        requestedDurationSeconds: 10,
+        effectiveDurationSeconds: 10,
+      },
+      holds: { reactionHoldInstants: [], reactionHoldDurationSeconds: 0 },
+      framing: { cropPath: null, reframeHints: [] },
+      overlays: { broll: [], watermark: false, intro: false, outro: false },
+      transitions: { crossfadeSeconds: 0.5 },
+    };
+    const renderManifest = {
+      version: 1,
+      clipId: 'clip-1',
+      videoId: 'video-1',
+      execution: {
+        passes: ['renderClip'],
+        trimApplied: false,
+        reactionHoldCount: 0,
+        reactionHoldDurationSeconds: 0,
+        introApplied: false,
+        outroApplied: false,
+      },
+      expectedOutput: {},
+      file: { outputKey: 'renders/clip-1.mp4', sizeBytes: 654321, checksumMd5: 'deadbeef' },
+    };
+    const renderVerification = {
+      version: 1,
+      clipId: 'clip-1',
+      videoId: 'video-1',
+      fields: { fps: { expected: 25, actual: 24.86, matches: false } },
+      passed: false,
+    };
+    const clip = {
+      id: 'clip-1',
+      video: { ownerId: 'user-1' },
+      renderPlan,
+      renderManifest,
+      renderVerification,
+    };
+
+    it('exposes real renderPlan/renderManifest/renderVerification for a rendered clip - no flag gate', async () => {
+      prisma.clip.findUnique.mockResolvedValue(clip);
+
+      const result = await service.getRenderFidelity('clip-1', 'user-1');
+
+      expect(result).toEqual({
+        clipId: 'clip-1',
+        renderPlan,
+        renderManifest,
+        renderVerification,
+      });
+    });
+
+    it("exposes a genuinely present renderVerification whose own passed is false as-is - not coerced to null (docs/ai/render-fidelity-local-equivalence-gate.md's own documented fps-drift finding)", async () => {
+      prisma.clip.findUnique.mockResolvedValue(clip);
+
+      const result = await service.getRenderFidelity('clip-1', 'user-1');
+
+      expect(result.renderVerification).toEqual(renderVerification);
+      expect(result.renderVerification?.passed).toBe(false);
+    });
+
+    it('reports all three fields null (not a crash) for a pre-migration/never-rendered row', async () => {
+      prisma.clip.findUnique.mockResolvedValue({
+        ...clip,
+        renderPlan: null,
+        renderManifest: null,
+        renderVerification: null,
+      });
+
+      const result = await service.getRenderFidelity('clip-1', 'user-1');
+
+      expect(result).toEqual({
+        clipId: 'clip-1',
+        renderPlan: null,
+        renderManifest: null,
+        renderVerification: null,
+      });
+    });
+
+    it('reports renderVerification: null while renderPlan/renderManifest stay present - the probe-failure case', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, renderVerification: null });
+
+      const result = await service.getRenderFidelity('clip-1', 'user-1');
+
+      expect(result.renderPlan).toEqual(renderPlan);
+      expect(result.renderManifest).toEqual(renderManifest);
+      expect(result.renderVerification).toBeNull();
+    });
+
+    it('throws NotFoundException when the clip does not exist', async () => {
+      prisma.clip.findUnique.mockResolvedValue(null);
+
+      await expect(service.getRenderFidelity('missing', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('throws NotFoundException when the requester has no workspace access', async () => {
+      prisma.clip.findUnique.mockResolvedValue({ ...clip, video: { workspaceId: 'ws-1' } });
+      workspaceAccess.assertMinRole.mockRejectedValueOnce(new NotFoundException());
+
+      await expect(service.getRenderFidelity('clip-1', 'user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+  });
+
   describe('getPerformance', () => {
     const clipWithPerformance = {
       id: 'clip-1',

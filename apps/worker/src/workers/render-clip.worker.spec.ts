@@ -1658,6 +1658,36 @@ describe('render-clip worker', () => {
         // Render Fidelity & Composition Execution Engine, Phase 9 (Clip Count & Duration
         // Precision Engine) - the default probeVideoMetadataMock's own durationSeconds: 10.
         renderedDurationSeconds: 10,
+        renderPlan: {
+          version: 1,
+          timeline: {},
+          holds: { reactionHoldInstants: [] },
+          framing: { cropPath: null, reframeHints: [] },
+          overlays: { broll: [] },
+          transitions: {},
+        },
+        renderManifest: {
+          version: 1,
+          clipId: 'clip-1',
+          videoId: 'video-1',
+          execution: {
+            passes: ['renderClip'],
+            trimApplied: false,
+            reactionHoldCount: 0,
+            reactionHoldDurationSeconds: 0,
+            introApplied: false,
+            outroApplied: false,
+          },
+          expectedOutput: {},
+          file: { outputKey: 'renders/clip-1.mp4', sizeBytes: 654321, checksumMd5: 'deadbeef' },
+        },
+        renderVerification: {
+          version: 1,
+          clipId: 'clip-1',
+          videoId: 'video-1',
+          fields: {},
+          passed: true,
+        },
         storyboardFrameUrls: [],
         sceneCuts: [],
         sceneCutEvents: [],
@@ -5515,6 +5545,97 @@ describe('render-clip worker', () => {
     });
   });
 
+  // Render Fidelity & Composition Execution Engine, Path B (docs/ai/render-fidelity-local-
+  // equivalence-gate.md) - tests the WIRING only (the adapter's job, per ARCHITECTURE.md's
+  // checklist item 4): that render-clip.worker.ts persists Clip.renderPlan/renderManifest/
+  // renderVerification atomically with outputUrl, from the SAME already-computed local variables
+  // buildRenderPlan()/buildRenderManifest()/compareRenderManifestToProbe() already produce for
+  // RENDER_PLAN_RESOLVED/RENDER_MANIFEST_RESOLVED/RENDER_VERIFICATION_RESOLVED logging - never
+  // recomputed a second time. Those functions' own assembly/comparison logic is covered by their
+  // own dedicated package specs, not re-tested here.
+  describe('Render Fidelity Local Equivalence Gate follow-up (Path B) - renderPlan/renderManifest/renderVerification persistence', () => {
+    it('persists renderPlan and renderManifest from the same buildRenderPlan()/buildRenderManifest() calls already logged', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            renderPlan: buildRenderPlanMock.mock.results[0].value,
+            renderManifest: buildRenderManifestMock.mock.results[0].value,
+          }),
+        }),
+      );
+    });
+
+    it('persists renderVerification from the same compareRenderManifestToProbe() call when the probe succeeds', async () => {
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            renderVerification: compareRenderManifestToProbeMock.mock.results[0].value,
+          }),
+        }),
+      );
+    });
+
+    it('persists renderVerification as null (Prisma.JsonNull) when the metadata probe itself fails - renderPlan/renderManifest are unaffected', async () => {
+      probeVideoMetadataMock.mockRejectedValueOnce(new Error('ffprobe unavailable'));
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(compareRenderManifestToProbeMock).not.toHaveBeenCalled();
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            renderVerification: Prisma.JsonNull,
+            renderPlan: buildRenderPlanMock.mock.results[0].value,
+            renderManifest: buildRenderManifestMock.mock.results[0].value,
+          }),
+        }),
+      );
+    });
+
+    it('persists renderVerification as null (Prisma.JsonNull) when compareRenderManifestToProbe() itself throws - the render/upload are otherwise unaffected', async () => {
+      compareRenderManifestToProbeMock.mockImplementationOnce(() => {
+        throw new Error('comparison itself failed');
+      });
+
+      const processor = getProcessor();
+      const result = await processor(fakeJob(baseJobData));
+
+      expect(result).toEqual({ clipId: 'clip-1', outputUrl: 'renders/clip-1.mp4' });
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ renderVerification: Prisma.JsonNull }),
+        }),
+      );
+    });
+
+    it("persists renderVerification with a real, present `passed: false` outcome as-is - not coerced to null or hidden (docs/ai/render-fidelity-local-equivalence-gate.md's own documented fps-drift finding)", async () => {
+      const failedVerification = {
+        version: 1,
+        clipId: 'clip-1',
+        videoId: 'video-1',
+        fields: { fps: { expected: 25, actual: 24.86, matches: false } },
+        passed: false,
+      };
+      compareRenderManifestToProbeMock.mockReturnValueOnce(failedVerification);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ renderVerification: failedVerification }),
+        }),
+      );
+    });
+  });
+
   describe('Scene Intelligence (Fase 26)', () => {
     it('calls detectSceneCuts with the source path and clip time range, persisting the resulting cuts', async () => {
       clipFindManyMock.mockResolvedValue([
@@ -5540,6 +5661,36 @@ describe('render-clip worker', () => {
           // Render Fidelity & Composition Execution Engine, Phase 9 (Clip Count & Duration
           // Precision Engine) - the default probeVideoMetadataMock's own durationSeconds: 10.
           renderedDurationSeconds: 10,
+          renderPlan: {
+            version: 1,
+            timeline: {},
+            holds: { reactionHoldInstants: [] },
+            framing: { cropPath: null, reframeHints: [] },
+            overlays: { broll: [] },
+            transitions: {},
+          },
+          renderManifest: {
+            version: 1,
+            clipId: 'clip-1',
+            videoId: 'video-1',
+            execution: {
+              passes: ['renderClip'],
+              trimApplied: false,
+              reactionHoldCount: 0,
+              reactionHoldDurationSeconds: 0,
+              introApplied: false,
+              outroApplied: false,
+            },
+            expectedOutput: {},
+            file: { outputKey: 'renders/clip-1.mp4', sizeBytes: 654321, checksumMd5: 'deadbeef' },
+          },
+          renderVerification: {
+            version: 1,
+            clipId: 'clip-1',
+            videoId: 'video-1',
+            fields: {},
+            passed: true,
+          },
           storyboardFrameUrls: [],
           sceneCuts: [1.5, 4.2],
           sceneCutEvents: [],
@@ -5702,6 +5853,36 @@ describe('render-clip worker', () => {
           // Render Fidelity & Composition Execution Engine, Phase 9 (Clip Count & Duration
           // Precision Engine) - the default probeVideoMetadataMock's own durationSeconds: 10.
           renderedDurationSeconds: 10,
+          renderPlan: {
+            version: 1,
+            timeline: {},
+            holds: { reactionHoldInstants: [] },
+            framing: { cropPath: null, reframeHints: [] },
+            overlays: { broll: [] },
+            transitions: {},
+          },
+          renderManifest: {
+            version: 1,
+            clipId: 'clip-1',
+            videoId: 'video-1',
+            execution: {
+              passes: ['renderClip'],
+              trimApplied: false,
+              reactionHoldCount: 0,
+              reactionHoldDurationSeconds: 0,
+              introApplied: false,
+              outroApplied: false,
+            },
+            expectedOutput: {},
+            file: { outputKey: 'renders/clip-1.mp4', sizeBytes: 654321, checksumMd5: 'deadbeef' },
+          },
+          renderVerification: {
+            version: 1,
+            clipId: 'clip-1',
+            videoId: 'video-1',
+            fields: {},
+            passed: true,
+          },
           storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],
@@ -6014,6 +6195,36 @@ describe('render-clip worker', () => {
           // Render Fidelity & Composition Execution Engine, Phase 9 (Clip Count & Duration
           // Precision Engine) - the default probeVideoMetadataMock's own durationSeconds: 10.
           renderedDurationSeconds: 10,
+          renderPlan: {
+            version: 1,
+            timeline: {},
+            holds: { reactionHoldInstants: [] },
+            framing: { cropPath: null, reframeHints: [] },
+            overlays: { broll: [] },
+            transitions: {},
+          },
+          renderManifest: {
+            version: 1,
+            clipId: 'clip-1',
+            videoId: 'video-1',
+            execution: {
+              passes: ['renderClip'],
+              trimApplied: false,
+              reactionHoldCount: 0,
+              reactionHoldDurationSeconds: 0,
+              introApplied: false,
+              outroApplied: false,
+            },
+            expectedOutput: {},
+            file: { outputKey: 'renders/clip-1.mp4', sizeBytes: 654321, checksumMd5: 'deadbeef' },
+          },
+          renderVerification: {
+            version: 1,
+            clipId: 'clip-1',
+            videoId: 'video-1',
+            fields: {},
+            passed: true,
+          },
           storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],
@@ -6176,6 +6387,36 @@ describe('render-clip worker', () => {
           // Render Fidelity & Composition Execution Engine, Phase 9 (Clip Count & Duration
           // Precision Engine) - the default probeVideoMetadataMock's own durationSeconds: 10.
           renderedDurationSeconds: 10,
+          renderPlan: {
+            version: 1,
+            timeline: {},
+            holds: { reactionHoldInstants: [] },
+            framing: { cropPath: null, reframeHints: [] },
+            overlays: { broll: [] },
+            transitions: {},
+          },
+          renderManifest: {
+            version: 1,
+            clipId: 'clip-1',
+            videoId: 'video-1',
+            execution: {
+              passes: ['renderClip'],
+              trimApplied: false,
+              reactionHoldCount: 0,
+              reactionHoldDurationSeconds: 0,
+              introApplied: false,
+              outroApplied: false,
+            },
+            expectedOutput: {},
+            file: { outputKey: 'renders/clip-1.mp4', sizeBytes: 654321, checksumMd5: 'deadbeef' },
+          },
+          renderVerification: {
+            version: 1,
+            clipId: 'clip-1',
+            videoId: 'video-1',
+            fields: {},
+            passed: true,
+          },
           storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],
