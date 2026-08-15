@@ -6,6 +6,50 @@ execute-render-plan.ts`) can eventually be turned on in production, and what can
 without further implementation work. This runbook does not itself perform a rollout, enable the
 flag anywhere, or build any rollout mechanism — it is the reference a future rollout would follow.
 
+## 0. Rollout sequence
+
+Written before Phase 6 first shipped, this runbook originally jumped straight to §2's instance-
+based canary — implicitly assuming a real production deployment already existed to canary against.
+It was later discovered (2026-08-14) that Speedora has **no real production deployment at all
+yet** — still local-development only — which made §2 inapplicable as a *first* step (there is
+nothing live to verify topology against, let alone canary on). The real gate sequence, reflecting
+what's actually true today:
+
+```
+LOCAL EQUIVALENCE GATE
+        ↓ PASS
+Production deployment
+        ↓
+Production smoke test
+        ↓
+Canary / full rollout
+```
+
+- **LOCAL EQUIVALENCE GATE** — `apps/worker/src/workers/render-clip.worker.local-comparison.ts`
+  (docs/ai/render-fidelity-local-equivalence-gate.md), a real end-to-end proof that the compiled
+  executor (flag on) matches the legacy inline path (flag off) for the SAME job, run entirely
+  locally against real ffmpeg — the pre-production substitute for a canary this initiative built
+  precisely because a live deployment didn't exist to canary against. **Status: PASSED**
+  (2026-08-15) — 5/5 scenarios, 10/10 real renders, every field identical between branches,
+  including the full 5-execution-pass sequence. One orthogonal, non-blocking finding from that
+  work (a bounded, non-growing `concatBrandSegment()` fps-drift artifact) is documented separately,
+  not a gate failure — see that doc's own "known, accepted" section.
+- **Production deployment** — does not exist yet. Everything from here down in this runbook is
+  still describing a FUTURE state, not a current one.
+- **Production smoke test** — once a real deployment exists, re-run the SAME local-comparison
+  harness's underlying technique against real production data/config before touching live traffic
+  at all (a manual, deliberate step - the harness itself stays local-only by design, see its own
+  file header for why; "smoke test" here means re-validating equivalence isn't assumed to transfer
+  automatically from local fixtures to whatever real deployment config/source-video mix turns out
+  to exist, not literally running the Jest file against production).
+- **Canary / full rollout** — §2 (instance-based) or §3 (single-instance, all-or-nothing) below,
+  once the smoke test above has passed. Strategy B (§4, percentage-based) remains explicitly
+  deferred/not implemented — no real justification to build it before a live deployment's actual
+  topology is known (see that section's own reasoning).
+
+The rest of this runbook (§1 onward) is unchanged in substance from when it was originally
+written — it describes the canary mechanism itself, not this gate sequence around it.
+
 ## 1. Current state
 
 - `RENDER_EXECUTION_COMPILER_ENABLED` exists (`.env.example`, read by `apps/worker/src/
@@ -134,6 +178,12 @@ been scoped (see `docs/ai/render-fidelity-matrix.md`'s Phase 1–5 history).
     `RENDER_PLAN_RESOLVED`, `RENDER_EXECUTION_PLAN_COMPILED` — searchable/countable per instance,
     letting an operator confirm which renders actually went through the compiled path and inspect
     their compiled pass lists directly.
+  - `GET /clips/:id/render-fidelity` (Path B, docs/ai/render-fidelity-local-equivalence-gate.md) -
+    added AFTER this runbook was first written, this is a real per-clip queryable alternative to
+    grepping logs: `renderManifest.execution.passes` shows exactly which passes a specific canary
+    render actually took, and `renderVerification` shows whether that render's own ffprobe
+    reconciliation passed - both persisted (`Clip.renderPlan`/`renderManifest`/`renderVerification`),
+    not just logged, so they're inspectable well after the render finished, not only in real time.
 
 ## 6. Rollback
 
