@@ -40,6 +40,7 @@
     "@speedora/database": "workspace:^",
     "@speedora/dataset-quality": "workspace:*",
     "@speedora/dynamic-caption": "workspace:*",
+    "@speedora/edit-plan-director": "workspace:*",
     "@speedora/editing-rhythm": "workspace:*",
     "@speedora/editorial-director": "workspace:*",
     "@speedora/emoji-suggester": "workspace:*",

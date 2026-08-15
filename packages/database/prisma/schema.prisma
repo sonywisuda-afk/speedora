@@ -1396,6 +1396,16 @@ model Clip {
   // composite) - Phase A adds a better signal beside it rather than risking
   // that one's already-shipped call sites.
   editorialDecision           Json?
+  // Edit Plan Director Phase B (docs/ai/edit-plan-director.md). @speedora/edit-plan-director's
+  // EditPlanResult minus its own `suggestions` array (already covered by editingSuggestions above
+  // - this column only adds the NEW information Phase B produces: the computed EditBudget and the
+  // ConflictDecision[] trail explaining what changed from editingSuggestions and why). Same null-
+  // semantics as editorialDecision above: null here can ONLY mean this Clip row predates this
+  // phase's migration. `budget` is always computed (cheap, pure) regardless of EDIT_BUDGET_ENABLED/
+  // EFFECT_CONFLICT_RESOLUTION_ENABLED - both flags gate whether `decisions` is ever non-empty
+  // (i.e. whether anything was actually suppressed/enforced), not whether this column gets
+  // written.
+  editPlan                    Json?
   createdAt                   DateTime     @default(now())
   updatedAt                   DateTime     @updatedAt
 
