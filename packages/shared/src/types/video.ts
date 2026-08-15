@@ -1079,6 +1079,43 @@ export interface EditorialDecision {
   confidence: number;
 }
 
+// Edit Plan Director Phase B (docs/ai/edit-plan-director.md). Mirrors
+// @speedora/contracts' edit-plan-director.ts schemas rather than importing
+// them - same duplication precedent as every other v4 type in this file.
+export interface EditBudget {
+  maxFocusShifts: number;
+  maxSpeakerFocusShifts: number;
+  maxDigitalPush: number;
+  maxOcrHighlights: number;
+  maxReactionHolds: number;
+}
+
+export type ConflictDecisionReasonCode =
+  | 'focus_shift_digital_push_overlap'
+  | 'ocr_highlight_crop_movement_overlap'
+  | 'reaction_hold_pause_hold_product_dependency'
+  | 'over_budget';
+
+export interface ConflictDecision {
+  action: 'suppressed' | 'kept';
+  reasonCode: ConflictDecisionReasonCode;
+  technique: EditingTechnique;
+  start: number;
+  end: number;
+  relatedTechnique: EditingTechnique | null;
+  reason: string;
+}
+
+// What Clip.editPlan actually persists - EditPlanResult minus its own
+// `suggestions` array (already covered by Clip.editingSuggestions, the pre-
+// arbitration array - see render-clip.worker.ts's own comment at its
+// editPlan persistence call site for why `suggestions` isn't duplicated
+// here).
+export interface EditPlan {
+  budget: EditBudget;
+  decisions: ConflictDecision[];
+}
+
 // AI Fusion roadmap's Face Intelligence initiative, Batch 2 - a per-sample
 // looking-direction bucket, 'center' meaning both iris position and head
 // rotation roughly face the camera. Mirrors @speedora/contracts'

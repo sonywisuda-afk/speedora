@@ -17,6 +17,7 @@ import type {
   EditingRhythmFeatures,
   EditingSuggestionTimeline,
   EditorialDecision,
+  EditPlan,
   EmotionalArc,
   FaceLandmarkFeatures,
   FaceLandmarkSample,
@@ -493,6 +494,17 @@ export function toSharedRenderVerification(
 // documents), same reason every other toShared<X> function here exists.
 export function toSharedEditorialDecision(editorialDecision: unknown): EditorialDecision | null {
   return (editorialDecision as EditorialDecision | null) ?? null;
+}
+
+// Same "Json column is opaque" situation as toSharedEditorialDecision above, for Clip.editPlan
+// (Edit Plan Director Phase B - see docs/ai/edit-plan-director.md). Null only when this Clip row
+// predates the migration that added this column - editPlan is always computed regardless of
+// EDIT_BUDGET_ENABLED/EFFECT_CONFLICT_RESOLUTION_ENABLED (both flags gate whether `decisions` is
+// ever non-empty, not whether this column gets written). No consumer reads this field through the
+// DTO yet - same "keeps the inferred return type nameable" reason every other toShared<X> function
+// here exists.
+export function toSharedEditPlan(editPlan: unknown): EditPlan | null {
+  return (editPlan as EditPlan | null) ?? null;
 }
 
 // Same "Json column is opaque" situation as the functions above, for

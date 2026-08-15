@@ -1692,6 +1692,16 @@ describe('render-clip worker', () => {
         // baseJobData.scores is null (never fabricated - see the hoisted editorialDecision
         // computation in render-clip.worker.ts).
         editorialDecision: Prisma.JsonNull,
+        editPlan: {
+          budget: {
+            maxFocusShifts: 2,
+            maxSpeakerFocusShifts: 0,
+            maxDigitalPush: 2,
+            maxOcrHighlights: 1,
+            maxReactionHolds: 1,
+          },
+          decisions: [],
+        },
         storyboardFrameUrls: [],
         sceneCuts: [],
         sceneCutEvents: [],
@@ -5728,6 +5738,132 @@ describe('render-clip worker', () => {
     });
   });
 
+  // Edit Plan Director Phase B (docs/ai/edit-plan-director.md) - tests the WIRING only (the
+  // adapter's job, per ARCHITECTURE.md's checklist item 4): that render-clip.worker.ts computes
+  // editPlan ONCE right after graphResult resolves, and that its arbitrated `suggestions` array
+  // (not the raw graphResult.editingSuggestions) is what actually reaches EVERY downstream
+  // consumer - buildCropPath() (via buildReframePlan()) AND applyReactionHolds() (via the local
+  // computeReactionHoldInstants()), the two real, externally-mockable seams the render pipeline
+  // exposes for this. @speedora/edit-plan-director's own detector/composer logic (the conflict
+  // rules, budget scaling) is covered by that package's own dedicated spec files, not re-tested
+  // here.
+  describe('Edit Plan Director Phase B - editing-suggestion arbitration wiring', () => {
+    const originalEnv = {
+      EDIT_BUDGET_ENABLED: process.env.EDIT_BUDGET_ENABLED,
+      EFFECT_CONFLICT_RESOLUTION_ENABLED: process.env.EFFECT_CONFLICT_RESOLUTION_ENABLED,
+      VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED: process.env.VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED,
+      VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED: process.env.VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED,
+      VISUAL_EMPHASIS_REACTION_HOLD_ENABLED: process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED,
+    };
+
+    afterEach(() => {
+      for (const [key, value] of Object.entries(originalEnv)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      buildCropPathMock.mockReturnValue(null);
+    });
+
+    beforeEach(() => {
+      clipFindManyMock.mockResolvedValue([
+        { id: 'clip-1', outputUrl: 'renders/clip-1.mp4', highlightScore: null },
+      ]);
+    });
+
+    it('flag off (default): buildCropPath still receives the unarbitrated focus_shift + digital_push suggestions unchanged', async () => {
+      process.env.VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED = 'true';
+      process.env.VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED = 'true';
+      delete process.env.EFFECT_CONFLICT_RESOLUTION_ENABLED;
+      computeEditingSuggestionsMock.mockReturnValueOnce([
+        { technique: 'focus_shift', start: 0.4, end: 0.8, score: 0.8, reason: 'x' },
+        { technique: 'digital_push', start: 0.5, end: 0.6, score: 0.8, reason: 'y' },
+      ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildCropPathMock).toHaveBeenCalledWith(
+        [],
+        [],
+        { width: 136, height: 240 },
+        320,
+        240,
+        10,
+        undefined,
+        [{ start: 0.4, end: 0.8 }],
+        [0.5],
+      );
+    });
+
+    it('flag on: buildCropPath receives digital_push suppressed once it overlaps the focus_shift window (Gate B1)', async () => {
+      process.env.VISUAL_EMPHASIS_FOCUS_SHIFT_ENABLED = 'true';
+      process.env.VISUAL_EMPHASIS_DIGITAL_PUSH_ENABLED = 'true';
+      process.env.EFFECT_CONFLICT_RESOLUTION_ENABLED = 'true';
+      computeEditingSuggestionsMock.mockReturnValueOnce([
+        { technique: 'focus_shift', start: 0.4, end: 0.8, score: 0.8, reason: 'x' },
+        { technique: 'digital_push', start: 0.5, end: 0.6, score: 0.8, reason: 'y' },
+      ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      expect(buildCropPathMock).toHaveBeenCalledWith(
+        [],
+        [],
+        { width: 136, height: 240 },
+        320,
+        240,
+        10,
+        undefined,
+        [{ start: 0.4, end: 0.8 }],
+        [], // digital_push suppressed - the focus_shift window survives unchanged
+      );
+      expect(clipUpdateMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            editPlan: expect.objectContaining({
+              decisions: expect.arrayContaining([
+                expect.objectContaining({
+                  action: 'suppressed',
+                  reasonCode: 'focus_shift_digital_push_overlap',
+                  technique: 'digital_push',
+                }),
+              ]),
+            }),
+          }),
+        }),
+      );
+    });
+
+    it('flag on: budget enforcement reaches applyReactionHolds, not just buildCropPath - only the higher-scored reaction_hold survives', async () => {
+      process.env.EDIT_BUDGET_ENABLED = 'true';
+      process.env.VISUAL_EMPHASIS_REACTION_HOLD_ENABLED = 'true';
+      computeEditingSuggestionsMock.mockReturnValueOnce([
+        { technique: 'reaction_hold', start: 2, end: 3, score: 0.9, reason: 'high' },
+        { technique: 'reaction_hold', start: 5, end: 6, score: 0.2, reason: 'low' },
+      ]);
+
+      const processor = getProcessor();
+      await processor(fakeJob(baseJobData));
+
+      // baseJobData's transcript has no `words`, so computeSilenceCuts() returns no cuts - each
+      // surviving instant passes through remapTimestamp() unchanged, landing on its own
+      // suggestion window's midpoint (same "no cuts" simplicity the pre-existing C6R.3 wiring
+      // tests already rely on). baseJobData's 10s duration scales maxReactionHolds down to 1 (see
+      // packages/edit-plan-director's own compute-edit-budget.spec.ts), so only the score-0.9
+      // suggestion's midpoint (2.5) should reach applyReactionHolds - the score-0.2 one (midpoint
+      // 5.5) was dropped by budget enforcement before computeReactionHoldInstants ever ran.
+      expect(applyReactionHoldsMock).toHaveBeenCalledWith(
+        expect.stringContaining('output'),
+        expect.stringContaining('reaction-hold'),
+        [2.5],
+        0.5,
+        null,
+        null,
+      );
+    });
+  });
+
   describe('Scene Intelligence (Fase 26)', () => {
     it('calls detectSceneCuts with the source path and clip time range, persisting the resulting cuts', async () => {
       clipFindManyMock.mockResolvedValue([
@@ -5784,6 +5920,16 @@ describe('render-clip worker', () => {
             passed: true,
           },
           editorialDecision: Prisma.JsonNull,
+          editPlan: {
+            budget: {
+              maxFocusShifts: 2,
+              maxSpeakerFocusShifts: 0,
+              maxDigitalPush: 2,
+              maxOcrHighlights: 1,
+              maxReactionHolds: 1,
+            },
+            decisions: [],
+          },
           storyboardFrameUrls: [],
           sceneCuts: [1.5, 4.2],
           sceneCutEvents: [],
@@ -5977,6 +6123,16 @@ describe('render-clip worker', () => {
             passed: true,
           },
           editorialDecision: Prisma.JsonNull,
+          editPlan: {
+            budget: {
+              maxFocusShifts: 2,
+              maxSpeakerFocusShifts: 0,
+              maxDigitalPush: 2,
+              maxOcrHighlights: 1,
+              maxReactionHolds: 1,
+            },
+            decisions: [],
+          },
           storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],
@@ -6320,6 +6476,16 @@ describe('render-clip worker', () => {
             passed: true,
           },
           editorialDecision: Prisma.JsonNull,
+          editPlan: {
+            budget: {
+              maxFocusShifts: 2,
+              maxSpeakerFocusShifts: 0,
+              maxDigitalPush: 2,
+              maxOcrHighlights: 1,
+              maxReactionHolds: 1,
+            },
+            decisions: [],
+          },
           storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],
@@ -6513,6 +6679,16 @@ describe('render-clip worker', () => {
             passed: true,
           },
           editorialDecision: Prisma.JsonNull,
+          editPlan: {
+            budget: {
+              maxFocusShifts: 2,
+              maxSpeakerFocusShifts: 0,
+              maxDigitalPush: 2,
+              maxOcrHighlights: 1,
+              maxReactionHolds: 1,
+            },
+            decisions: [],
+          },
           storyboardFrameUrls: [],
           sceneCuts: [],
           sceneCutEvents: [],

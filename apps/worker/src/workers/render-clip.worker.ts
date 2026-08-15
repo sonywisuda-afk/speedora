@@ -55,6 +55,7 @@ import {
   computeEditorialDecisionForRender,
   deriveSpeakerClarityScore,
 } from '@speedora/editorial-director';
+import { planEdits } from '@speedora/edit-plan-director';
 import {
   migrateProcessingOptions,
   PUBLISH_RETRY_OPTIONS,
@@ -1646,6 +1647,31 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                 })
               : null;
 
+            // Edit Plan Director Phase B (docs/ai/edit-plan-director.md) - governs the SAME
+            // graphResult.editingSuggestions timeline every downstream consumer below used to read
+            // directly (buildReframePlan()'s own 3 per-technique filters, computeClipCuts()'s
+            // Pause Hold protection, and both Reaction Hold call sites further down) - computed
+            // ONCE here so all 4 consumers see the identical arbitrated result, not 4 independent
+            // arbitration passes. `budget` is always computed (cheap, pure - same ADR D8 "compute
+            // always" posture as editorialDecision above); `editPlan.suggestions` is the identical
+            // input array, unchanged, whenever both EDIT_BUDGET_ENABLED and
+            // EFFECT_CONFLICT_RESOLUTION_ENABLED are off (the default) - see
+            // @speedora/edit-plan-director's own planEdits() doc comment.
+            // hasVisualInstabilityOrOverEditingRisk reuses Phase A's own EditorialDecision.
+            // negativeSignals directly (a real cross-phase integration point, not a second,
+            // independent instability detector - see compute-edit-budget.ts's own doc comment).
+            const editPlan = planEdits({
+              suggestions: graphResult.editingSuggestions,
+              clipDurationSeconds: endTime - startTime,
+              speakerCount: graphResult.conversationIntelligence.dynamics.speakerCount,
+              hasVisualInstabilityOrOverEditingRisk:
+                editorialDecision?.negativeSignals.some(
+                  (signal) =>
+                    (signal.type === 'visualInstability' || signal.type === 'overEditingRisk') &&
+                    signal.penalty > 0,
+                ) ?? false,
+            });
+
             // Visual Emphasis Engine Phase C2 (docs/ai/visual-emphasis-engine.md,
             // ADR DC3) - built AFTER the render graph specifically so it can
             // consume graphResult.primarySubjectSamples (Composition
@@ -1676,7 +1702,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               sourceHeight,
               endTime - startTime,
               resolveZoomInFraction(processingOptions),
-              graphResult.editingSuggestions,
+              editPlan.suggestions,
               graphResult.ocrTracks,
             );
             sendCmdPath = reframe.sendCmdPath;
@@ -1863,12 +1889,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
             // support. The flag=false branch below is otherwise byte-for-byte identical to the
             // pre-Phase-5 code - it simply reads this already-computed value instead of
             // re-declaring it at its old position.
-            const cuts = computeClipCuts(
-              transcript,
-              startTime,
-              endTime,
-              graphResult.editingSuggestions,
-            );
+            const cuts = computeClipCuts(transcript, startTime, endTime, editPlan.suggestions);
 
             // Render Fidelity Matrix bug fix #5 (docs/ai/render-fidelity-matrix.md) - tracked
             // separately from `renderedPath`/`trimmedPath` themselves, which get overwritten by
@@ -1928,7 +1949,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               // value.
               const reactionHoldCandidates = isReactionHoldEnabled()
                 ? computeReactionHoldInstants(
-                    graphResult.editingSuggestions,
+                    editPlan.suggestions,
                     cuts,
                     REACTION_HOLD_EXTENSION_SECONDS,
                   )
@@ -2082,7 +2103,7 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
               // already established.
               if (isReactionHoldEnabled()) {
                 const holdInstants = computeReactionHoldInstants(
-                  graphResult.editingSuggestions,
+                  editPlan.suggestions,
                   cuts,
                   REACTION_HOLD_EXTENSION_SECONDS,
                 );
@@ -2642,6 +2663,15 @@ export function createRenderClipWorker(): Worker<RenderClipJobData, RenderClipJo
                     // hoisted editorialDecision computation above).
                     editorialDecision:
                       (editorialDecision as unknown as Prisma.InputJsonValue) ?? Prisma.JsonNull,
+                    // Edit Plan Director Phase B - always a real object (see the hoisted editPlan
+                    // computation above). `suggestions` is deliberately excluded from what's
+                    // persisted here - already covered by Clip.editingSuggestions (the pre-
+                    // arbitration array) plus `decisions` below (which explains what changed from
+                    // it and why).
+                    editPlan: {
+                      budget: editPlan.budget,
+                      decisions: editPlan.decisions,
+                    } as unknown as Prisma.InputJsonValue,
                     ...(thumbnailKey ? { thumbnailUrl: thumbnailKey } : {}),
                     ...(thumbnailBlurDataUrl ? { thumbnailBlurDataUrl } : {}),
                     storyboardFrameUrls: storyboardKeys as unknown as Prisma.InputJsonValue,

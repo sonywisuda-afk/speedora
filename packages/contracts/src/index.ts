@@ -9,6 +9,7 @@ export * from './contextual-momentum';
 export * from './conversation-intelligence';
 export * from './cutlist';
 export * from './dynamic-caption';
+export * from './edit-plan-director';
 export * from './editing-rhythm';
 export * from './editorial-director';
 export * from './emoji-suggestions';
