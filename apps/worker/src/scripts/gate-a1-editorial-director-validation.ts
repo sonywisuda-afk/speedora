@@ -123,11 +123,30 @@ async function main() {
   }
   console.log(`Title: ${video.title}`);
 
-  const segments = await prisma.transcriptSegment.findMany({
+  const rows = await prisma.transcriptSegment.findMany({
     where: { videoId: VIDEO_ID },
     orderBy: { start: 'asc' },
   });
-  console.log(`Transcript segments: ${segments.length}`);
+  console.log(`Transcript segments: ${rows.length}`);
+
+  // Narrows the raw Prisma row shape (nullable fields) into @speedora/
+  // shared's own TranscriptSegment (optional fields) - same "un-narrowed
+  // Json/nullable Prisma field doesn't structurally match the shared type"
+  // situation apps/api's transcript-segment.util.ts exists to solve, here
+  // inlined for this one-off script rather than pulling in that app's own
+  // helper.
+  const segments: import('@speedora/shared').TranscriptSegment[] = rows.map((row) => ({
+    id: row.id,
+    start: row.start,
+    end: row.end,
+    text: row.text,
+    speaker: row.speaker ?? undefined,
+    emotion: row.emotion ?? undefined,
+    words: (row.words as { word: string; start: number; end: number }[] | null) ?? undefined,
+    rmsDb: row.rmsDb ?? undefined,
+    peakDb: row.peakDb ?? undefined,
+    speakingRateWordsPerSecond: row.speakingRateWordsPerSecond ?? undefined,
+  }));
 
   // Step 1: ONE real clip-scoring LLM call - the shared candidate pool both
   // flag states compare against.
