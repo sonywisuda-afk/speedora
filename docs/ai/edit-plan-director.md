@@ -2,9 +2,10 @@
 
 > **Status: Phase B shipped, flag-gated (`EDIT_BUDGET_ENABLED`, `EFFECT_CONFLICT_RESOLUTION_ENABLED`,
 > both default off).** The second phase of the user's 30-section "Speedora Editorial Operating
-> System" mission, building on Phase A (`docs/ai/editorial-director.md`, merged). Phases C (Render
-> QA/auto-reject/fallback) and D (real-video benchmark/human evaluation) remain the roadmap's next
-> phases, not started.
+> System" mission, building on Phase A (`docs/ai/editorial-director.md`, merged). Phase C1 (Render
+> QA, data only — `docs/ai/render-quality-judge.md`) and Phase D's automated-benchmark half
+> (`docs/ai/phase-d-benchmark.md`) are both shipped; Phase C2 (auto-reject/fallback) and Phase D's
+> blind human evaluation session remain not started.
 
 ## 1. What this phase builds on
 
