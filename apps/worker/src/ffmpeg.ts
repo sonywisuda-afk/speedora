@@ -1476,6 +1476,17 @@ export async function concatBrandSegment(
     // real channel count - so the bitrate is always exactly that layout's fixed value.
     '-b:a',
     `${brandAudioBitrateKbps(channelLayout)}k`,
+    // docs/ai/render-fidelity-local-equivalence-gate.md's own documented fps-drift finding - the
+    // segment's own AAC re-encode carries encoder-delay/priming-sample padding the filter-graph-
+    // level `concat=` above has no edit-list awareness of, so [outa] ends up very slightly (real,
+    // not metadata-only) longer than [outv] - confirmed via real per-frame PTS measurement:
+    // [outv] stays evenly spaced at exactly `targetFps` throughout, only [outa] runs long. Standard
+    // ffmpeg mechanism for exactly this class of A/V-length mismatch: `-shortest` truncates the
+    // OUTPUT to the shorter stream's real length at mux time - direction-agnostic (protects
+    // whichever stream ends up longer, not hardcoded to "audio"), and confirmed via real ffprobe
+    // (frame count/avg_frame_rate/duration, both single-call and the 2-call intro+outro chain)
+    // to trim only the audio overshoot, never real video content (`nb_read_frames` unchanged).
+    '-shortest',
     '-movflags',
     '+faststart',
   );

@@ -51,15 +51,17 @@ local evidence for the compiled executor to be a real candidate for a first depl
 harness is the reusable mechanism for a live smoke test/canary once that deployment exists — no
 need to rebuild the comparison mechanism itself at that point, only to point it at real traffic.
 
-## A known, accepted finding (documented, not fixed): `concatBrandSegment()`'s fps drift
+## `concatBrandSegment()`'s fps drift — found, root-caused, and fixed
 
 Two of the five scenarios (Intro + outro, Full pipeline — the two that call `concatBrandSegment()`)
-show Phase 8's own `compareRenderManifestToProbe()` failing on `fps` (`packages/render-config/src/
-compare-render-manifest.ts`, `FPS_COMPARISON_EPSILON = 0.001` — deliberately tight, "float-precision
-only, not a real tolerance"): expected 25, actual ~24.77–24.86 depending on scenario. Graded PASS by
-the equivalence gate itself, since the acceptance criterion is legacy-vs-compiled *consistency*
-(both branches fail identically), not "both individually pass" — this is not a legacy/compiled
-divergence.
+originally showed Phase 8's own `compareRenderManifestToProbe()` failing on `fps` (`packages/
+render-config/src/compare-render-manifest.ts`, `FPS_COMPARISON_EPSILON = 0.001` — deliberately
+tight, "float-precision only, not a real tolerance"): expected 25, actual ~24.77–24.86 depending on
+scenario. Graded PASS by the equivalence gate itself at the time, since the acceptance criterion is
+legacy-vs-compiled *consistency* (both branches failed identically), not "both individually pass" —
+never a legacy/compiled divergence. **Fixed 2026-08-15 — see "Fix" below.** The investigation
+sections that follow are kept as the historical record of how the root cause was found; they no
+longer describe current behavior.
 
 ### Root cause (isolated reproduction, not from the equivalence gate's own logs)
 
@@ -108,38 +110,65 @@ of that same real endpoint — both streams agree closely with each other; what'
 *declared* fps=25 assumption (and Phase 8's `expectedOutput.fps` derived from it) doesn't account
 for this per-segment shift.
 
-### Why this is accepted, not fixed, here
+### Why this was bounded enough to safely fix (not just accept)
 
-Same "accept and document rather than block" posture `docs/ai/silence-compression.md`'s own
-Reaction Hold × crossfade interaction and the Visual Emphasis Integration Audit's Gate B (B2, OCR
-Highlight's static-snapshot drift) already established for structurally similar bounded, sub-frame-
-scale drift:
+Same rigor `docs/ai/silence-compression.md`'s own Reaction Hold × crossfade interaction and the
+Visual Emphasis Integration Audit's Gate B (B2, OCR Highlight's static-snapshot drift) already
+established for structurally similar bounded, sub-frame-scale drift - measured before deciding, not
+assumed:
 
-- Bounded and **compounds per `concatBrandSegment` call**, not per clip duration — observed ~15ms
-  after 1 call (intro only), ~40ms after 2 calls (intro + outro). This pipeline only ever attaches
-  one intro and one outro per clip today, so 2 calls is the real-world ceiling for this specific
-  mechanism as currently used.
-- At 40ms for the worst case, this sits at the edge of commonly-cited professional A/V-sync
-  tolerance (~20–40ms) but below what most viewers would consciously notice for a single concat
-  boundary — not verified against real human perception, just against the commonly-cited numeric
-  range.
-- Phase 8's own comparator is working exactly as designed here — a real, if narrow and content-
-  harmless (no dropped/duplicated frames), gap between "declared" and "as-muxed" fps, exactly what
-  that phase's tight epsilon exists to catch.
+- Bounded and **compounded per `concatBrandSegment` call**, not per clip duration — ~15ms after 1
+  call (intro only), ~40ms after 2 calls (intro + outro). This pipeline only ever attaches one
+  intro and one outro per clip today, so 2 calls was the real-world ceiling for this mechanism.
+- No dropped/duplicated video content at any point — confirmed via real decode-based frame
+  counting, not container metadata.
+- Phase 8's own comparator was working exactly as designed — a real, if narrow, gap between
+  "declared" and "as-muxed" fps, exactly what that phase's tight epsilon exists to catch.
+
+This combination (small, bounded, root-caused down to a specific mechanism, with a standard ffmpeg
+primitive available to close it) is what made this a genuine fix candidate rather than an
+accept-and-document case — unlike the Reaction Hold × crossfade interaction (a real design change
+to a different phase's own contract) or OCR Highlight's static-snapshot drift (an open product
+question about the fix's own shape - suppress/reposition/track - not yet decided).
+
+## Fix (2026-08-15)
+
+`apps/worker/src/ffmpeg.ts`'s `concatBrandSegment()` now adds `-shortest` to the output-encode args.
+Standard ffmpeg mechanism for exactly this class of A/V-length mismatch: truncates the OUTPUT to
+the shorter stream's real length at mux time. Direction-agnostic (protects whichever stream ends up
+longer, not hardcoded to "audio") and confirmed, not assumed, to trim only the audio overshoot and
+never real video content.
+
+**Verified two ways**:
+1. A standalone reconstruction of the exact filter graph (with the fix) against the same fixtures/
+   chain that originally found the bug — `avg_frame_rate` stayed exactly `25/1` and container
+   duration matched real frame count / fps exactly, at both 1 and 2 chained calls, with the SAME
+   real decoded frame counts as before (150, then 175 — confirming zero video content trimmed).
+2. A new permanent regression test, `ffmpeg.brand-segment-concat.integration.spec.ts`'s "keeps
+   avg_frame_rate exact and container duration tied to the real frame count after chaining an intro
+   AND an outro" — real ffmpeg, chains both a `'start'` and `'end'` `concatBrandSegment()` call (the
+   exact 2-call scenario that made the drift measurable), asserts `avg_frame_rate` stays within
+   0.001 of the true rate and container duration ties to real frame count. A mocked-args companion
+   test in `ffmpeg.spec.ts` covers only that `-shortest` is present in the built args - the
+   integration test is what actually proves the flag works, not just that it's there.
+
+Re-running the Local Equivalence Gate harness after this fix (`npx jest --testRegex
+"local-comparison\.ts$" --runInBand`) should now show a genuine `Verification: PASS` (both branches
+individually `passed: true`) for the Intro + outro and Full pipeline scenarios, not the previous
+consistent-but-`passed: false` result — see that run's own output for current confirmation.
 
 ## Explicitly not done here
 
-- **No fix to `concatBrandSegment()`'s trim/duration reconciliation.** A real fix would mean giving
-  the video and audio branches a shared duration constraint (e.g. via `-shortest`, or an explicit
-  post-concat `trim=`/`atrim=` pass keyed off the SAME measured value) rather than two independent
-  per-branch trims — real design work, not attempted in this investigation.
 - **No check of whether B-roll (`trimAndFadeInBRoll`/`fadeOutBRoll`) or Reaction Hold
-  (`applyReactionHolds`) share this same AAC-reencode-concat mechanism.** Only `concatBrandSegment`
-  was reproduced and measured here.
+  (`applyReactionHolds`) have (or need) a similar fix.** Neither shares `concatBrandSegment()`'s own
+  filter graph, and neither was reproduced/measured as part of this investigation - if either turns
+  out to have an analogous A/V-length-mismatch source, that's a separate finding, not assumed fixed
+  by this change.
 - **No measurement beyond 2 chained `concatBrandSegment` calls.** Whether a hypothetical future
-  passthrough of more brand segments would keep compounding linearly, sub-linearly, or plateau is
-  unmeasured.
+  passthrough of more brand segments would still fully resolve under `-shortest` is unmeasured
+  (though `-shortest`'s own mechanism - truncate to whichever real stream is shorter - has no
+  inherent call-count limit the way the ORIGINAL bug's per-call compounding did).
 
-Worth revisiting if real-footage calibration (the Visual Emphasis Integration Audit's own deferred
-Gate C, `docs/ai/visual-emphasis-integration-audit.md`) or a real production deployment ever surfaces
-this as an actually perceptible problem — not before.
+Real-footage calibration (the Visual Emphasis Integration Audit's own deferred Gate C, `docs/ai/
+visual-emphasis-integration-audit.md`) remains blocked on real footage regardless of this fix - not
+related to closing it.

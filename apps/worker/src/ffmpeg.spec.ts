@@ -1635,6 +1635,24 @@ describe('concatBrandSegment (P3d intro / P3e outro)', () => {
     expect(args).toEqual(expect.arrayContaining(['-b:a', '128k']));
   });
 
+  // docs/ai/render-fidelity-local-equivalence-gate.md's own documented fps-drift finding - see
+  // this flag's own comment in ffmpeg.ts for the full root-cause/why-this-mechanism reasoning.
+  // Real-ffmpeg proof that it actually closes the gap (not just that the flag is present) lives in
+  // ffmpeg.brand-segment-concat.integration.spec.ts.
+  it('always adds -shortest, closing the AAC-encoder-delay A/V-length-mismatch gap', async () => {
+    await concatBrandSegment(
+      'start',
+      '/tmp/clip.mp4',
+      { filePath: '/tmp/segment.png', type: 'image', imageDurationSeconds: null },
+      608,
+      1080,
+      '/tmp/output.mp4',
+    );
+
+    const [, args] = execFileMock.mock.calls[0];
+    expect(args).toEqual(expect.arrayContaining(['-shortest']));
+  });
+
   // Render Fidelity Matrix bug fix #1 - previously this pass (the LAST encode before upload for
   // any clip with an intro/outro) never received the user's chosen quality preset at all.
   it('adds -preset/-crf only when a quality override is passed', async () => {

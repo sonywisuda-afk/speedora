@@ -91,6 +91,42 @@ async function ffprobeAudioSampleRate(file: string): Promise<number> {
   return Number(stdout.trim());
 }
 
+// docs/ai/render-fidelity-local-equivalence-gate.md's own documented fps-drift finding - real,
+// decode-based frame count (not container `nb_frames` metadata), same "the only metric a held-
+// frame/metadata artifact can't fool" reasoning ffmpeg.crossfade.integration.spec.ts's own
+// ffprobeVideoFrameCount() already established.
+async function ffprobeRealFrameCount(file: string): Promise<number> {
+  const { stdout } = await execFileAsync(FFPROBE_PATH, [
+    '-v',
+    'error',
+    '-select_streams',
+    'v:0',
+    '-count_frames',
+    '-show_entries',
+    'stream=nb_read_frames',
+    '-of',
+    'default=noprint_wrappers=1:nokey=1',
+    file,
+  ]);
+  return Number(stdout.trim());
+}
+
+async function ffprobeAvgFrameRate(file: string): Promise<number> {
+  const { stdout } = await execFileAsync(FFPROBE_PATH, [
+    '-v',
+    'error',
+    '-select_streams',
+    'v:0',
+    '-show_entries',
+    'stream=avg_frame_rate',
+    '-of',
+    'default=noprint_wrappers=1:nokey=1',
+    file,
+  ]);
+  const [num, den] = stdout.trim().split('/').map(Number);
+  return num / den;
+}
+
 const describeIfFfmpeg = isFfmpegAvailable() ? describe : describe.skip;
 
 describeIfFfmpeg('concatBrandSegment against real ffmpeg (P3d intro / P3e outro)', () => {
@@ -234,4 +270,77 @@ describeIfFfmpeg('concatBrandSegment against real ffmpeg (P3d intro / P3e outro)
     },
     30000,
   );
+
+  // docs/ai/render-fidelity-local-equivalence-gate.md's own documented fps-drift finding, and the
+  // `-shortest` fix - see that flag's own comment in ffmpeg.ts for the full root-cause reasoning.
+  // Chains BOTH an intro ('start') and outro ('end') concatBrandSegment() call against the SAME
+  // clip, the exact scenario that originally surfaced the bug (a single call's own overshoot is
+  // too small to move avg_frame_rate; it only became measurable after 2 chained calls). Proves the
+  // fix with the SAME real, decode-based frame-count check that originally diagnosed the bug (not
+  // container `nb_frames` metadata, which held the wrong (drifted) avg_frame_rate right up until
+  // this exact assertion would have caught it) - a real regression test, not just an exact-args
+  // assertion (ffmpeg.spec.ts's own `-shortest` presence test can't prove the flag actually works).
+  it('keeps avg_frame_rate exact and container duration tied to the real frame count after chaining an intro AND an outro (not just one)', async () => {
+    const FPS = 25;
+    const clipPath = path.join(dir, 'fps-drift-clip.mp4');
+    const introPath = path.join(dir, 'fps-drift-intro.mp4');
+    const outroPath = path.join(dir, 'fps-drift-outro.mp4');
+    const withIntroPath = path.join(dir, 'fps-drift-with-intro.mp4');
+    const finalPath = path.join(dir, 'fps-drift-final.mp4');
+
+    async function makeColorClip(outputPath: string, color: string, durationSeconds: number) {
+      await execFileAsync(FFMPEG_PATH, [
+        '-y',
+        '-f',
+        'lavfi',
+        '-i',
+        `color=c=${color}:size=${OUTPUT_WIDTH}x${OUTPUT_HEIGHT}:rate=${FPS}:duration=${durationSeconds}`,
+        '-f',
+        'lavfi',
+        '-i',
+        `sine=frequency=440:sample_rate=44100:duration=${durationSeconds}`,
+        '-pix_fmt',
+        'yuv420p',
+        '-c:v',
+        'libx264',
+        '-c:a',
+        'aac',
+        outputPath,
+      ]);
+    }
+    await makeColorClip(clipPath, 'blue', 5);
+    await makeColorClip(introPath, 'green', 1);
+    await makeColorClip(outroPath, 'red', 1);
+
+    await concatBrandSegment(
+      'start',
+      clipPath,
+      { filePath: introPath, type: 'video', imageDurationSeconds: null },
+      OUTPUT_WIDTH,
+      OUTPUT_HEIGHT,
+      withIntroPath,
+      null,
+      `${FPS}/1`,
+    );
+    await concatBrandSegment(
+      'end',
+      withIntroPath,
+      { filePath: outroPath, type: 'video', imageDurationSeconds: null },
+      OUTPUT_WIDTH,
+      OUTPUT_HEIGHT,
+      finalPath,
+      null,
+      `${FPS}/1`,
+    );
+
+    const realFrameCount = await ffprobeRealFrameCount(finalPath);
+    const avgFrameRate = await ffprobeAvgFrameRate(finalPath);
+    const containerDuration = await ffprobeDuration(finalPath);
+
+    // 175 real frames = 125 (5s clip) + 25 (1s intro) + 25 (1s outro), at exactly 25fps - no
+    // frames dropped or duplicated by either concat pass.
+    expect(realFrameCount).toBe(175);
+    expect(avgFrameRate).toBeCloseTo(FPS, 3);
+    expect(containerDuration).toBeCloseTo(realFrameCount / FPS, 2);
+  }, 30000);
 });
