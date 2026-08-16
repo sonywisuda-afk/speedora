@@ -1,16 +1,17 @@
 # Phase D — Real-Video Benchmark + Human-Review Packet
 
 > **Status: the automated-benchmark half of Phase D shipped and run for real three times, against
-> one real clip** — Run 1 before this sandbox's detector gaps (§4) were fixed, Run 2 after the
-> camera-motion/model-file fixes but before the Kalman-filter fix, Run 3 after all 3 real pipeline
-> bugs were fixed. Run 3 is the first run to show real `EDIT_BUDGET_ENABLED`/
-> `EFFECT_CONFLICT_RESOLUTION_ENABLED` arbitration and a real physical-output difference between
-> flag states — see §5. The fourth and final phase of the "Speedora Editorial Operating System"
-> mission, closing out Phase A (`docs/ai/editorial-director.md`), Phase B
-> (`docs/ai/edit-plan-director.md`), and Phase C1 (`docs/ai/render-quality-judge.md`), all merged.
-> The actual **blind human evaluation** — a human watching both rendered outputs and filling in the
-> packet's Rubric section — has NOT happened; that's explicitly not something an agent can perform.
-> Multi-clip/multi-video expansion is a documented non-goal for this first pass, not started.
+> one real clip, and the blind human evaluation itself has now happened once too** — Run 1 before
+> this sandbox's detector gaps (§4) were fixed, Run 2 after the camera-motion/model-file fixes but
+> before the Kalman-filter fix, Run 3 after all 3 real pipeline bugs were fixed. Run 3 is the first
+> run to show real `EDIT_BUDGET_ENABLED`/`EFFECT_CONFLICT_RESOLUTION_ENABLED` arbitration and a real
+> physical-output difference between flag states — see §5. The fourth and final phase of the
+> "Speedora Editorial Operating System" mission, closing out Phase A
+> (`docs/ai/editorial-director.md`), Phase B (`docs/ai/edit-plan-director.md`), and Phase C1
+> (`docs/ai/render-quality-judge.md`), all merged. The user watched Run 3's two rendered outputs and
+> filled in the packet's Rubric — see §7 for the real, human-authored result (not agent-scored, per
+> this phase's own explicit design). Multi-clip/multi-video expansion and evaluating Runs 1-2 remain
+> documented non-goals, not started.
 
 ## 1. What Phase D asks for, and the real scope fork it required
 
@@ -320,9 +321,10 @@ indirectly through the proxy, not a flag-driven change.
 
 ## 6. Explicit non-goals for this pass
 
-- **The actual blind human evaluation session** — the packet exists; a human hasn't used it yet
-  (now with 3 real report packets to choose from, Run 3's being the most informative since it's the
-  only one where the two versions actually differ).
+- **Evaluating Run 1/Run 2's packets** — the human evaluation (§7) covered Run 3 only, the only run
+  where the two rendered versions actually differ. Run 1/Run 2's off/on outputs are byte-identical
+  to each other within each run (see §5), so there was nothing for a reviewer to meaningfully
+  compare in those two packets.
 - **Multi-clip/multi-video coverage** — this pass covers 1 real clip, proving the harness end-to-
   end. `BENCHMARK_CLIP_ID` is overridable via `--clipId=` for a cheap future expansion.
 - **Enabling `VISUAL_EMPHASIS_*_ENABLED` flags** — turned out to be unnecessary, not merely
@@ -338,3 +340,37 @@ indirectly through the proxy, not a flag-driven change.
   `null` rather than reproducing `ClipsService`'s own resolution chain; a documented scope
   simplification since Phase D's own question is `editPlan`/`editorialDecision`/
   `qualityAssessment`, not brand-kit fidelity.
+
+## 7. The blind human evaluation — first real result (Run 3, one reviewer, one clip)
+
+Full rubric: `apps/worker/reports/phase-d-benchmark-2026-08-16T01-43-41-534Z.md`'s own "Human
+Review Rubric" section (local only, not committed). Collected turn-by-turn over chat rather than in
+one pasted block — each answer below is the reviewer's own verbatim word, transcribed by the agent
+without interpretation, per this phase's own explicit "NOT scored by the agent" design (§1, §3).
+
+**Editorial** — all 5 "yes": real hook, valuable content, narratively complete, understandable
+without the source video, lands an emotional payoff.
+
+**Visual** — both "yes": crop/zoom/highlight effects felt purposeful (not distracting/excessive),
+framing felt stable (not jittery/jarring).
+
+**Audio** — "yes" for clear/well-paced; turn-taking marked "N/A" (this clip has one speaker, not
+multiple).
+
+**Overall** — prefers the **flag-on** version (`EDIT_BUDGET_ENABLED`/
+`EFFECT_CONFLICT_RESOLUTION_ENABLED` active) and would publish it as-is. A separate fragment from
+the same reviewer ("flag off") arrived ahead of the two Overall answers but wasn't clearly
+attributable to either question — preserved verbatim in the rubric file rather than guessed into a
+checkbox; not folded into either count below.
+
+**Reading this honestly**: this is one reviewer's judgment on one clip, not a statistically
+meaningful sample — it doesn't validate Phase B's (Edit Plan Director) arbitration logic at any
+generalizable level, and no further claim is made here beyond what was actually observed. What it
+does add, as a real (not simulated) data point: for this specific clip, the human reviewer found
+both versions editorially sound (identical "yes" across all 5 Editorial questions — expected, since
+`EDIT_BUDGET_ENABLED`/`EFFECT_CONFLICT_RESOLUTION_ENABLED` only affect Visual Emphasis suggestion
+arbitration, never the transcript-level signals Editorial Director's own `EditorialDecision`
+measures), and preferred the version where Edit Plan Director's budget/conflict logic had actually
+acted on the render (§5's Run 3: 3 surviving `focus_shift` + 1 surviving `reaction_hold`
+suggestions, down from 65 and 2 candidates respectively) over the un-arbitrated baseline. Multi-clip
+expansion (§6) would be the natural next step before drawing any broader conclusion.
