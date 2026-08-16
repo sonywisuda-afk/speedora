@@ -130,19 +130,33 @@ were fixed separately, immediately after, at the user's explicit request (see be
   run directly against synthetic test clips, no crash, real output (OCR correctly read rendered
   text at 95.5% confidence; the other 3 correctly returned null/empty against clips with no real
   hands/objects/faces to detect — a correct result, not a failure).
-- **A NEW real bug, found only once the model file above actually loaded — NOT fixed yet**:
-  `detect_face_landmarks.py`'s own Kalman-filter tracker throws a real OpenCV assertion,
+- **A NEW real bug, found only once the model file above actually loaded — FIXED**:
+  `detect_face_landmarks.py`'s own Kalman-filter tracker threw a real OpenCV assertion,
   `cv2.error: ... (-215:Assertion failed) a_size.width == len in function 'cv::gemm'`, inside both
-  `_predicted_box()` and `mark_missed()` — a state/transition-matrix dimension mismatch in the
-  tracker's own `cv2.KalmanFilter` setup. This code path was NEVER exercised before this sandbox
+  `_predicted_box()` and `mark_missed()`. This code path was NEVER exercised before this sandbox
   had a real `face_landmarker.task` to load (every prior test/harness run either lacked the model
-  file or used synthetic clips with no trackable face), so the bug has been latent since this
-  tracker was written. Caught by the render graph's existing best-effort handling ("face landmark
-  detection failed, continuing without face landmark data"), not fatal — but it means Face
-  Landmarks/Composition Intelligence's primary-subject selection still returns null on a real face-
-  containing clip in this sandbox, for a different reason than before. Logged as open backlog, not
-  fixed as part of this benchmark re-run — a real code bug in the tracker's own matrix dimensions
-  needs its own focused fix, not a drive-by patch.
+  file or used synthetic clips with no trackable face), so the bug had been latent since this
+  tracker was written. Root cause: `cv2.KalmanFilter`'s `statePre`/`statePost` need a real
+  `(n, 1)` column-vector `Mat`, not a flat `(n,)` 1D array — a well-known cv2 Python-binding
+  gotcha; `_init_kalman()` was assigning a flat array, which `predict()`'s internal `cv::gemm`
+  call then rejected on dimension mismatch. Once `update()`'s own real `predict()` call threw,
+  the `except Exception:` handler around it called `tracker.mark_missed()` as a fallback, which
+  hit the SAME broken state and ALSO threw — this second, uncaught exception is what actually
+  crashed the whole script (matching the real traceback exactly). Fixed: `_init_kalman()` now
+  `.reshape(-1, 1)`s the state before assigning `statePre`/`statePost` (and `update()`'s own
+  `correct()` measurement, defensively, for the same reason); `_predicted_box()` now
+  `.flatten()`s `predict()`'s return before scalar-indexing it (a real, necessary follow-up once
+  `predict()` started correctly returning an `(8, 1)` array instead of silently-wrong data).
+  Verified for real: reproduced the exact crash against the exact real McDonald's clip window
+  that originally triggered it (via `git stash` back to the pre-fix code), confirmed the fix
+  eliminates it on that same real data, and additionally drove `FaceTracker.update()` through 3
+  consecutive real detections directly (a synthetic unit-style test, since this specific real clip
+  window rarely has a face visible across 2+ consecutive sampled seconds) to exercise the
+  `update()`-then-`predict()` path the crash trace's own primary frame came from, not just
+  `mark_missed()`'s fallback path. A genuinely richer result too, not just "didn't crash": the
+  real clip that used to silently report "no face" on every sample (each real detection's
+  `update()` call throwing, caught, converted to an empty/null result) now correctly reports a
+  real, continuously-tracked face across the same window.
 - **A harness-only timing finding, FIXED**: the harness's own Jest test timeout (originally 30
   minutes) was sized against the FIRST real run, where most detectors failed fast (missing file/
   model). Once the 3 fixes above let every detector actually run to completion, the same benchmark
@@ -225,8 +239,9 @@ itself (still empty either way — see above) or the physical render.
   (now with 2 real report packets to choose from, or use both).
 - **Multi-clip/multi-video coverage** — this pass covers 1 real clip, proving the harness end-to-
   end. `BENCHMARK_CLIP_ID` is overridable via `--clipId=` for a cheap future expansion.
-- **Fixing `detect_face_landmarks.py`'s own Kalman-filter `cv::gemm` bug** (§4, found in Run 2) —
-  a real, separately-scoped tracker bug, unrelated to Phase A/B/C1/D's own code, left as backlog.
+- **Re-running the full benchmark a third time now that the Kalman-filter bug (§4) is fixed too**
+  — a cheap, valuable follow-up (richer real face-tracking data feeding `editingSuggestions`), not
+  done as part of the fix itself.
 - **Enabling `VISUAL_EMPHASIS_*_ENABLED` flags to get a real `editPlan`/`EDIT_BUDGET_ENABLED`/
   `EFFECT_CONFLICT_RESOLUTION_ENABLED` comparison** — §4/§5's own root-cause finding: neither real
   run so far has exercised these two flags' actual arbitration behavior, since the harness never
