@@ -625,12 +625,15 @@ describeIfFfmpeg(
       // playable output, or the harness itself is broken, not the pipeline under observation.
       expect(off.probe.hasVideoStream && off.probe.hasAudioStream).toBe(true);
       expect(on.probe.hasVideoStream && on.probe.hasAudioStream).toBe(true);
-      // 45 min, up from 30 - once this sandbox's model files were fixed (docs/ai/
-      // phase-d-benchmark.md), every real detector actually runs to completion instead of
-      // failing fast on a missing file, adding real wall-clock time. 30 min was cutting it close
-      // even before that fix; a real run after it hit the old ceiling right at the final upload/
-      // report-writing step (Jest tore the test environment down mid-`await`), after the render
-      // itself had already succeeded - a genuine "needs more headroom" finding, not a hang.
-    }, 2_700_000);
+      // 90 min, up from 45 - a 2nd-clip expansion run (McDonald's video's other real clip,
+      // 107.8s - shorter than the first-pass clip, yet slower end to end) hit the 45-min ceiling
+      // at the exact same "render succeeded, teardown happened before upload/report ran" point as
+      // the earlier 30->45 min bump. Root cause this time is understood, not guessed: ffmpeg.ts's
+      // own TRIM_TIMEOUT_MS (5 min, a deliberate, pre-existing, documented safety net on
+      // trimCutRanges() unrelated to this harness) can fire independently in EACH of the two runs
+      // (trimming isn't gated by EDIT_BUDGET_ENABLED/EFFECT_CONFLICT_RESOLUTION_ENABLED) - up to
+      // ~10 min alone across both runs, on top of full real detector+LLM work twice. 90 min gives
+      // real headroom over the ~50+ min this run actually needed, rather than another blind bump.
+    }, 5_400_000);
   },
 );
