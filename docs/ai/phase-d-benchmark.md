@@ -10,8 +10,10 @@
 > (`docs/ai/editorial-director.md`), Phase B (`docs/ai/edit-plan-director.md`), and Phase C1
 > (`docs/ai/render-quality-judge.md`), all merged. The user watched Run 3's two rendered outputs and
 > filled in the packet's Rubric — see §7 for the real, human-authored result (not agent-scored, per
-> this phase's own explicit design). Multi-clip/multi-video expansion and evaluating Runs 1-2 remain
-> documented non-goals, not started.
+> this phase's own explicit design). **A multi-clip expansion attempt (§8) was tried and abandoned**
+> after 5 consecutive attempts against a 2nd real clip each failed in a different way, with no
+> reproducible root cause found — user-directed hard stop, not a scope failure. Run 3 remains this
+> initiative's sole real-world evidence; evaluating Runs 1-2 remains a documented non-goal.
 
 ## 1. What Phase D asks for, and the real scope fork it required
 
@@ -374,3 +376,76 @@ measures), and preferred the version where Edit Plan Director's budget/conflict 
 acted on the render (§5's Run 3: 3 surviving `focus_shift` + 1 surviving `reaction_hold`
 suggestions, down from 65 and 2 candidates respectively) over the un-arbitrated baseline. Multi-clip
 expansion (§6) would be the natural next step before drawing any broader conclusion.
+
+## 8. Multi-clip expansion — attempted, abandoned after 5 failures with no reproducible root cause
+
+User-directed attempt to benchmark a 2nd real clip (the McDonald's video's other real clip,
+`cmsq3ix7x028d2su8pchnyyw3`, 107.8s window, chosen over 2 longer clips from different videos as the
+lowest-risk first expansion — see §6's original framing). **Result: 5 consecutive attempts, 5
+different failure modes, no successful run, no report produced.** User-directed hard stop after
+attempt 5 — not a scope failure, not abandoned due to lack of effort, and explicitly not "fixed" by
+changing scope/architecture to force a pass.
+
+**What was found and fixed along the way (real, kept)**:
+
+- **Attempt 1** hit the harness's own 45-min Jest timeout right at the final upload/report step —
+  the render itself succeeded (confirmed via log: `[render-clip] clip rendered`), only the
+  post-teardown upload/presign/report-write steps failed (`ReferenceError: trying to import a file
+  after the Jest environment has been torn down`, `realStorage.uploadObject is not a function` - a
+  teardown cascade, not an independent bug). **Root cause understood, not guessed**:
+  `apps/worker/src/ffmpeg.ts`'s own pre-existing, documented `TRIM_TIMEOUT_MS = 5 * 60 * 1000` (a
+  deliberate safety net on `trimCutRanges()`, added specifically to prevent a worse failure mode -
+  its own comment records "observed for real hanging well past 25 minutes... with no ffmpeg output
+  changing at all"). This clip's 7 kept segments (post-silence-removal) genuinely needed longer than
+  5 minutes to re-encode with xfade/acrossfade at 1440×1080/CRF18/`preset=slow` under this sandbox's
+  real CPU throughput (~0.24x realtime observed), so the timeout correctly fired and the pipeline
+  correctly fell back to "keep the untrimmed render" - working exactly as designed. Because trimming
+  isn't gated by `EDIT_BUDGET_ENABLED`/`EFFECT_CONFLICT_RESOLUTION_ENABLED`, this can fire
+  independently in both the flag-off and flag-on runs, costing up to ~10 minutes on top of full real
+  detector+LLM work twice. **Fixed**: the harness's own Jest `testTimeout` bumped 45→90 minutes
+  (`2_700_000` → `5_400_000`), matching the same "generous but bounded, not unbounded" reasoning as
+  `TRIM_TIMEOUT_MS` itself - kept as a real, valid improvement regardless of the outcome below.
+- **Attempt 2** was killed (task status `killed`, not `failed`) partway through initial setup
+  (reached `OUTPUT_PROFILE_RESOLVED`, the same early checkpoint every successful run passes within
+  its first minute or two) - consistent with a session-boundary interruption, the same class of
+  event Phase D's very first-ever run hit before succeeding on retry (see the project memory for
+  that precedent). No process/resource explanation found.
+- **Attempt 3** was killed almost instantly (empty log, within about a minute of launch) - a
+  different severity than attempt 2 (died earlier), same `killed` status. A leftover-process check
+  found nothing: no orphaned `node`/`ffmpeg`/`ffprobe` processes, no disk-space pressure (122G free),
+  no lock contention identified.
+- **Attempt 4** did NOT get killed - it completed cleanly in ~38 seconds, but the test suite
+  self-skipped (`Tests: 1 skipped, 1 total`) because its own `isFfmpegAvailable()` pre-check
+  (`execFileSync(FFMPEG_PATH, ['-version'])`, evaluated at module load via
+  `describe.skip`-if-unavailable) reported ffmpeg as unavailable. Directly verified moments later
+  that ffmpeg was genuinely reachable both via the exact configured `FFMPEG_PATH` and via bare
+  `ffmpeg` on `PATH` - the pre-check's failure did not reflect real environment state at the time of
+  verification, pointing to a transient spawn hiccup rather than a real, standing ffmpeg
+  availability problem.
+- **Attempt 5** (the user-designated final attempt, explicit hard-stop conditions agreed in
+  advance) failed cleanly with `'jest' is not recognized as an internal or external command,
+  operable program or batch file.` - an `npx`/shell resolution failure, a 5th genuinely distinct
+  failure mode from the 4 before it (2 kills of different severity, 1 self-skip, 1 shell-resolution
+  error). Per the user's own explicit instruction, this triggered an immediate stop with **no
+  attempt 6** and no scope/architecture changes to try to force a pass.
+
+**Why this is reported as "no reproducible root cause," not swept under one explanation**: five
+attempts produced five distinct failure signatures (a real timeout with an understood cause, two
+kills of different severity with no common resource/process explanation, a false-negative
+availability pre-check, and a shell command-resolution failure) with no single fix addressing more
+than one of them. The only fix that came out of this (the 90-minute timeout bump) only ever
+addressed attempt 1's failure mode - it was never the cause of attempts 2-5. This is being recorded
+honestly as an unresolved environment reliability question for this specific sandbox running
+long-lived (many-minute), resource-heavy (`npx jest --runInBand` spawning real ffmpeg/Python
+subprocess trees) background jobs back-to-back - not as a pipeline bug, and not as evidence against
+the multi-clip expansion idea itself.
+
+**What this means for the mission**: Run 3 (§5, §7) remains this initiative's sole piece of
+real-render, real-human-reviewed evidence. It is not weakened by this section - the 5 failures here
+are infrastructure/environment reliability issues in reproducing a SECOND benchmark run, not a
+finding about the pipeline the benchmark exists to observe. A future attempt (a different sandbox,
+a different time of day, or simply trying again later) may well succeed on the first try; nothing
+found here rules that out. `BENCHMARK_CLIP_ID`/`--clipId=` remains a supported, working override
+(confirmed directly, independent of these 5 attempts - the McDonald's sibling clip's window and
+transcript segment count resolved correctly every single time, including in all 5 failed attempts)
+for whenever multi-clip expansion is picked up again.
