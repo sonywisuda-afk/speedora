@@ -332,7 +332,14 @@ async function withEnv<T>(
 
 interface RunResult {
   editorialDecision: EditorialDecision | null;
-  editPlan: EditPlanResult;
+  // NOT the full EditPlanResult - captured from the mocked clip.update() call's own `data`
+  // argument, which mirrors exactly what real production code persists to Clip.editPlan
+  // (budget + decisions only, deliberately excluding `suggestions` - see
+  // docs/ai/edit-plan-director.md's own "Wiring" section for why). A real bug in an earlier
+  // version of this harness typed this as the full EditPlanResult and compared a `suggestions`
+  // field that was always `undefined` on both sides - fixed by being honest about the real shape
+  // here instead.
+  editPlan: Omit<EditPlanResult, 'suggestions'>;
   qualityAssessment: FinalClipQualityAssessment;
   renderedPath: string;
   probe: ProbedVideoMetadata;
@@ -373,7 +380,7 @@ async function runOnce(jobData: HarnessJobData, flagsOn: boolean): Promise<RunRe
 
   return {
     editorialDecision: (data.editorialDecision as EditorialDecision | null | undefined) ?? null,
-    editPlan: data.editPlan as EditPlanResult,
+    editPlan: data.editPlan as Omit<EditPlanResult, 'suggestions'>,
     qualityAssessment: data.qualityAssessment as FinalClipQualityAssessment,
     renderedPath: capturedRenderedPath,
     probe,
@@ -593,8 +600,12 @@ describeIfFfmpeg(
         },
         editorialDecisionIdentical:
           off.editorialDecision?.editorialScore === on.editorialDecision?.editorialScore,
-        editPlanSuggestionsIdentical:
-          JSON.stringify(off.editPlan.suggestions) === JSON.stringify(on.editPlan.suggestions),
+        // NOT a comparison of off.editPlan.suggestions vs on.editPlan.suggestions -
+        // Clip.editPlan's own persisted shape never includes `suggestions` at all (see
+        // phase-d-report.ts's own comment on this field), so both sides would always be
+        // `undefined` regardless of what actually happened - a real bug this harness's own 3rd
+        // real run caught. `on.editPlan.decisions` is the real, meaningful signal instead.
+        editPlanArbitrationFired: on.editPlan.decisions.length > 0,
         physicalOutputIdentical: off.checksumMd5 === on.checksumMd5,
       };
 
