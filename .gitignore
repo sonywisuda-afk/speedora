@@ -13,6 +13,13 @@ packages/database/src/generated/
 # apps/worker/Dockerfile and README.md), not tracked in git as a binary blob.
 apps/worker/models/
 
+# Python bytecode cache - apps/worker/scripts/ has several standalone detector
+# scripts (detect_faces.py, detect_ocr_text.py, ...) that get run directly by
+# apps/worker's subprocess wrappers; running any of them locally leaves one of
+# these behind.
+__pycache__/
+*.pyc
+
 # yt-dlp binary managed by the manual pnpm yt-dlp:update/:rollback scripts
 # (packages/video-import-engine, apps/worker/src/scripts/yt-dlp-*.ts) - a
 # fetched, platform-specific binary blob, not source; production instead

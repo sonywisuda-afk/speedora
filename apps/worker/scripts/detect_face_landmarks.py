@@ -379,12 +379,25 @@ class FaceTracker:
         measurement = np.array(
             [box["xCenter"], box["yCenter"], box["width"], box["height"]], dtype=np.float32
         )
-        kalman.statePre = np.concatenate([measurement, np.zeros(4, dtype=np.float32)])
-        kalman.statePost = kalman.statePre.copy()
+        # cv2.KalmanFilter's statePre/statePost need a real (n, 1) COLUMN VECTOR, not a flat
+        # (n,) 1D array - a well-known cv2 Python-binding gotcha (a flat array binds to an
+        # ambiguously-shaped Mat, not the 8x1 predict()/correct() itself expects). Without the
+        # reshape here, the very next predict() call throws a real
+        # "cv::gemm ... a_size.width == len" assertion - found for real by Phase D's benchmark
+        # (docs/ai/phase-d-benchmark.md) the first time this tracker ever ran against a real,
+        # actually-loaded model + a real trackable face (every prior run either lacked the model
+        # file or used a synthetic clip with nothing to track, so this was never exercised).
+        state = np.concatenate([measurement, np.zeros(4, dtype=np.float32)])
+        kalman.statePre = state.reshape(-1, 1)
+        kalman.statePost = state.reshape(-1, 1).copy()
         return kalman
 
     def _predicted_box(self):
-        state = self.kalman.predict()
+        # predict() now returns a real (8, 1) column vector (matching the corrected statePre/
+        # statePost shape above), not the flat (8,) array this code originally assumed -
+        # .flatten() first so state[i] below yields a real scalar again, not a (1,)-shaped
+        # sub-array (which newer numpy refuses to implicitly convert via float()).
+        state = self.kalman.predict().flatten()
         return {
             "xCenter": float(state[0]),
             "yCenter": float(state[1]),
@@ -425,9 +438,12 @@ class FaceTracker:
 
         is_match = assigned_cost <= MATCH_THRESHOLD and self.misses <= MAX_MISSES
         if is_match:
+            # Same (n, 1) column-vector requirement as statePre/statePost in _init_kalman()
+            # above - correct() happens not to crash on a flat array in practice, but shaping
+            # it explicitly here too removes any doubt for a future cv2 version.
             measurement = np.array(
                 [box["xCenter"], box["yCenter"], box["width"], box["height"]], dtype=np.float32
-            )
+            ).reshape(-1, 1)
             self.kalman.correct(measurement)
         else:
             self.track_id += 1
