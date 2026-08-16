@@ -1,13 +1,16 @@
 # Phase D — Real-Video Benchmark + Human-Review Packet
 
-> **Status: the automated-benchmark half of Phase D shipped and run for real twice, against one
-> real clip** — once before this sandbox's detector gaps (§4) were fixed, once after. The fourth
-> and final phase of the "Speedora Editorial Operating System" mission, closing out Phase A
-> (`docs/ai/editorial-director.md`), Phase B (`docs/ai/edit-plan-director.md`), and Phase C1
-> (`docs/ai/render-quality-judge.md`), all merged. The actual **blind human evaluation** — a human
-> watching both rendered outputs and filling in the packet's Rubric section — has NOT happened;
-> that's explicitly not something an agent can perform. Multi-clip/multi-video expansion is a
-> documented non-goal for this first pass, not started.
+> **Status: the automated-benchmark half of Phase D shipped and run for real three times, against
+> one real clip** — Run 1 before this sandbox's detector gaps (§4) were fixed, Run 2 after the
+> camera-motion/model-file fixes but before the Kalman-filter fix, Run 3 after all 3 real pipeline
+> bugs were fixed. Run 3 is the first run to show real `EDIT_BUDGET_ENABLED`/
+> `EFFECT_CONFLICT_RESOLUTION_ENABLED` arbitration and a real physical-output difference between
+> flag states — see §5. The fourth and final phase of the "Speedora Editorial Operating System"
+> mission, closing out Phase A (`docs/ai/editorial-director.md`), Phase B
+> (`docs/ai/edit-plan-director.md`), and Phase C1 (`docs/ai/render-quality-judge.md`), all merged.
+> The actual **blind human evaluation** — a human watching both rendered outputs and filling in the
+> packet's Rubric section — has NOT happened; that's explicitly not something an agent can perform.
+> Multi-clip/multi-video expansion is a documented non-goal for this first pass, not started.
 
 ## 1. What Phase D asks for, and the real scope fork it required
 
@@ -164,16 +167,50 @@ were fixed separately, immediately after, at the user's explicit request (see be
   report-writing step (after the render itself had already succeeded), with Jest tearing down the
   test environment mid-`await`. Bumped to 45 minutes; the next real run (§5) completed cleanly in
   ~39.5 minutes.
-- **A root-cause correction to this doc's own first-run finding**: the original text below
-  attributed `editPlan.suggestions` staying identical across both flag states to "reduced
-  `editingSuggestions` density" from the missing-detector gap. The second real run (§5), with every
-  detector now working, still shows `editPlan.suggestions` identical and empty for this clip — the
-  REAL reason is that this harness never sets any `VISUAL_EMPHASIS_*_ENABLED` flag
-  (`focusShiftEnabled`/`digitalPushEnabled`/`ocrHighlightEnabled`/`reactionHoldEnabled`/
-  `pauseHoldEnabled`/`speakerAwareFocusShiftEnabled` all confirmed `false` in this run's own
-  `CONFIG_RESOLVED` log), so `computeEditingSuggestions()` has nothing to propose regardless of how
-  rich the underlying detector signal is. A real, more precise finding than the original guess —
-  see §6's own non-goal note on this.
+- **A root-cause correction to this doc's own first-run finding, itself later found to be
+  INCOMPLETE — see the Run 3 correction below**: the original text attributed `editPlan.suggestions`
+  staying identical across both flag states to "reduced `editingSuggestions` density" from the
+  missing-detector gap. Run 2, with the camera-motion/model-file fixes in but the Kalman-filter bug
+  (§4, next item) still open, still showed `editPlan.suggestions` identical and empty. At the time
+  this was attributed entirely to the harness never setting any `VISUAL_EMPHASIS_*_ENABLED` flag
+  (`focusShiftEnabled`/`digitalPushEnabled`/etc. all `false` in Run 2's `CONFIG_RESOLVED` log) — a
+  plausible-looking explanation that turned out to be the WRONG mechanism (right symptom, wrong
+  cause): `packages/visual-emphasis/src/from-primary-subject-samples.ts`'s `focus_shift` suggestion
+  generation is itself Phase C1 "data only, always computed" (ADR D8) and does **not** check
+  `isFocusShiftEnabled()` at all — that flag only gates whether `buildCropPath()` acts on an
+  already-computed `focus_shift` suggestion during rendering (Phase C3's own design), never whether
+  the suggestion gets generated or handed to `planEdits()`'s budget/conflict-resolution logic in the
+  first place. Run 3 (§5), with the Kalman-filter fix in and real face-tracking data flowing again,
+  proves this directly: 65 real `focus_shift` candidates and 2 real `reaction_hold` candidates were
+  generated and arbitrated in the flag-on run **despite no `VISUAL_EMPHASIS_*_ENABLED` flag being
+  set anywhere** (`.env` confirmed clean of all of them). The real cause of Run 1/2's empty
+  `editPlan.suggestions` was the Kalman-filter bug silently returning "no face" on every sample
+  (§4's next item), starving `from-primary-subject-samples.ts` of the primary-subject-change input
+  it needs to propose a `focus_shift` candidate at all — not a missing flag.
+- **A 4th real bug, found in the benchmark harness's OWN code, not the pipeline — FIXED after Run
+  3**: `phase-d-report.ts`'s `editPlanSuggestionsIdentical` field compared
+  `JSON.stringify(off.editPlan.suggestions)` against `JSON.stringify(on.editPlan.suggestions)`, but
+  `Clip.editPlan`'s real persisted shape (per `packages/edit-plan-director`'s own documented design,
+  `docs/ai/edit-plan-director.md`'s "Wiring" section) never includes `suggestions` at all — only
+  `{budget, decisions}` (`suggestions` is already covered by the pre-existing
+  `Clip.editingSuggestions` column, so persisting it a second time under `editPlan` would be
+  redundant). The harness's `RunResult.editPlan` is captured straight from the mocked
+  `clip.update()` call's own `data` argument, which correctly mirrors this real persisted shape —
+  so both `off.editPlan.suggestions` and `on.editPlan.suggestions` were always `undefined` at
+  runtime. This was hidden by an unchecked `data.editPlan as EditPlanResult` cast (the full type,
+  which *requires* `suggestions`), so the vacuous `undefined === undefined` comparison silently
+  reported "identical: yes" on every run regardless of what actually happened — caught only because
+  Run 3's real decisions table (65 suppressions) directly contradicted the report's own "editPlan.
+  suggestions identical between runs: yes" invariant-check line. Fixed: `RunResult.editPlan`/
+  `PhaseDRunSummary.editPlan` are now honestly typed `Omit<EditPlanResult, 'suggestions'>`, the cast
+  site matches, and the report's invariant check was replaced with a real, always-correct signal —
+  `editPlanArbitrationFired: on.editPlan.decisions.length > 0` — with the "Invariant checks" markdown
+  template updated to report the real decision count instead of a comparison that could never be
+  true or false in a meaningful sense. Verified via `phase-d-report.spec.ts`'s updated fixtures/
+  assertions and a real `npx jest phase-d-report.spec.ts` pass; `apps/worker` `typecheck` also
+  confirmed green. This finding is analogous in spirit to the pipeline bugs above but lives in test
+  infrastructure, not production code — the same "verify against real data, not just 'doesn't
+  crash'" discipline this whole phase has followed caught it too.
 
 ## 5. Real results, both runs (clip `cmsq3ix8a028e2su80g10w5y6`)
 
@@ -233,20 +270,68 @@ runs, the composition/primary-subject signal feeding `editingSuggestions` scorin
 if indirect, consequence of §4's detector fixes, even though it didn't change `editPlan.suggestions`
 itself (still empty either way — see above) or the physical render.
 
+### Run 3 — 2026-08-16, after the Kalman-filter fix (all 3 real pipeline bugs now fixed)
+
+Full report: `apps/worker/reports/phase-d-benchmark-2026-08-16T01-43-41-534Z.{md,json}` (local
+only, not committed; generated with the pre-fix, buggy `editPlanSuggestionsIdentical` field — see
+§4's 4th finding — its own "editPlan.suggestions identical between runs: yes" line is the very thing
+that turned out to be wrong and got fixed after this run; the real per-run decisions table is
+correct and unaffected). ~39.5 minutes wall time, zero real detector failures (only the
+intentionally-disabled thumbnail/storyboard/hover-preview/animated-preview warnings appeared).
+
+| | Flag off | Flag on |
+|---|---|---|
+| `editorialScore` | 38.8 | 50.9 |
+| `narrativeQuality` | 45.0 | 73.7 |
+| `technicalQuality` | 95.5 | 100.0 |
+| `visualQuality` (proxy) | 36.4 | 35.5 |
+| `compositeScore` | 56.4 | 69.2 |
+| `editPlan.decisions` fired | 0 | **117** (116 `focus_shift` suppressions + 1 `reaction_hold` suppression) |
+| Rendered duration | 124.76s | **128.63s** |
+| Output checksum | `66d40b57...` | `6bc29be8...` (**different**) |
+
+**This is the first Phase D run to show real `EDIT_BUDGET_ENABLED`/`EFFECT_CONFLICT_RESOLUTION_ENABLED`
+arbitration and a real physical-output difference between flag states.** With real face-tracking
+data flowing again (the Kalman-filter fix), `from-primary-subject-samples.ts` generated 65 real
+`focus_shift` candidates (unconditionally — see §4's corrected root-cause finding: this generation
+step doesn't check `isFocusShiftEnabled()` at all) and Speaker Intelligence generated 2 real
+`reaction_hold` candidates. In the flag-on run, `planEdits()`'s adaptive Edit Budget (`maxFocusShifts:
+3` for this clip) correctly suppressed the 62 lowest-scoring `focus_shift` candidates down to the 3
+survivors, and suppressed 1 of the 2 `reaction_hold` candidates down to its own budget cap of 1 —
+each decision correctly citing its real `reasonCode: 'over_budget'`, the losing candidate's own
+score, and the real candidate-pool size it was measured against. This is strong, real confirmatory
+evidence that Phase B's (Edit Plan Director) arbitration logic works correctly against dense,
+real-world data, not just the synthetic/mocked fixtures its own unit tests use.
+
+The physical render finally differs between flag states too: 124.76s (flag off, un-arbitrated) vs
+128.63s (flag on, budget-arbitrated) — a real, non-trivial duration difference, not a rounding
+artifact, consistent with the flag-on run's 3 surviving `focus_shift` suggestions and 1 surviving
+`reaction_hold` suggestion actually reaching `buildReframePlan()`/the Reaction Hold render pass this
+time (previously nothing survived to reach them, since nothing was ever generated).
+
+`editorialScore`'s delta (38.8 → 50.9) and `narrativeQuality`'s delta (45.0 → 73.7) remain
+attributable to the same real LLM-sampling non-determinism as Runs 1-2 (§3's own design note; each
+run makes its own independent real LLM call) — a larger delta than Run 2's, but not distinguishable
+from sampling noise without a 3rd, `graphResult`-replayed run, which this phase's design
+deliberately doesn't attempt (§3). `visualQuality`'s near-identical proxy score (36.4 vs 35.5,
+unlike Run 2's 10.0 → 53.3 jump) is consistent with both runs now sharing the same real, working
+detector inputs — the earlier jump was itself just the Kalman-filter bug's effect showing up
+indirectly through the proxy, not a flag-driven change.
+
 ## 6. Explicit non-goals for this pass
 
 - **The actual blind human evaluation session** — the packet exists; a human hasn't used it yet
-  (now with 2 real report packets to choose from, or use both).
+  (now with 3 real report packets to choose from, Run 3's being the most informative since it's the
+  only one where the two versions actually differ).
 - **Multi-clip/multi-video coverage** — this pass covers 1 real clip, proving the harness end-to-
   end. `BENCHMARK_CLIP_ID` is overridable via `--clipId=` for a cheap future expansion.
-- **Re-running the full benchmark a third time now that the Kalman-filter bug (§4) is fixed too**
-  — a cheap, valuable follow-up (richer real face-tracking data feeding `editingSuggestions`), not
-  done as part of the fix itself.
-- **Enabling `VISUAL_EMPHASIS_*_ENABLED` flags to get a real `editPlan`/`EDIT_BUDGET_ENABLED`/
-  `EFFECT_CONFLICT_RESOLUTION_ENABLED` comparison** — §4/§5's own root-cause finding: neither real
-  run so far has exercised these two flags' actual arbitration behavior, since the harness never
-  turns on any underlying Visual Emphasis technique. A real, valuable next benchmark run, not done
-  here (a genuinely new harness change, not a re-run of the existing one).
+- **Enabling `VISUAL_EMPHASIS_*_ENABLED` flags** — turned out to be unnecessary, not merely
+  undone: §4/§5's own corrected root-cause finding is that those flags gate whether an
+  already-generated suggestion gets ACTED ON during rendering, never whether it gets generated or
+  reaches `planEdits()`'s arbitration in the first place. Run 3 already exercised real
+  `EDIT_BUDGET_ENABLED`/`EFFECT_CONFLICT_RESOLUTION_ENABLED` arbitration against real, dense
+  `focus_shift`/`reaction_hold` candidate pools with every `VISUAL_EMPHASIS_*_ENABLED` flag left
+  off — closing what this section previously listed as a follow-up.
 - **Caching/replaying `graphResult` across runs** — deliberately simplified away (§3); a future
   pass could revisit this if LLM cost/non-determinism becomes a real blocker at multi-clip scale.
 - **Real Brand Kit resolution** (watermark/intro/outro) — the harness job data hardcodes these to

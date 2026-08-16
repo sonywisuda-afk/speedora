@@ -36,8 +36,7 @@ const qualityAssessment: FinalClipQualityAssessment = {
   confidence: 0.75,
 };
 
-const emptyEditPlan: EditPlanResult = {
-  suggestions: [],
+const emptyEditPlan: Omit<EditPlanResult, 'suggestions'> = {
   budget: {
     maxFocusShifts: 2,
     maxSpeakerFocusShifts: 0,
@@ -48,7 +47,7 @@ const emptyEditPlan: EditPlanResult = {
   decisions: [],
 };
 
-const editPlanWithDecisions: EditPlanResult = {
+const editPlanWithDecisions: Omit<EditPlanResult, 'suggestions'> = {
   ...emptyEditPlan,
   decisions: [
     {
@@ -86,7 +85,7 @@ function makeReport(overrides: Partial<PhaseDReport> = {}): PhaseDReport {
     off: makeRun({ flagState: 'off' }),
     on: makeRun({ flagState: 'on', reviewUrl: 'https://storage.example/presigned-on' }),
     editorialDecisionIdentical: true,
-    editPlanSuggestionsIdentical: true,
+    editPlanArbitrationFired: false,
     physicalOutputIdentical: true,
     ...overrides,
   };
@@ -116,13 +115,15 @@ describe('renderMarkdown (Phase D report)', () => {
   it('renders a real decisions table when editPlan.decisions is non-empty', () => {
     const report = makeReport({
       on: makeRun({ flagState: 'on', editPlan: editPlanWithDecisions }),
-      editPlanSuggestionsIdentical: false,
+      editPlanArbitrationFired: true,
     });
     const markdown = renderMarkdown(report);
     expect(markdown).toContain('suppressed');
     expect(markdown).toContain('focus_shift_digital_push_overlap');
     expect(markdown).toContain('digital_push');
-    expect(markdown).toContain('the flags changed the arbitrated suggestion timeline');
+    expect(markdown).toContain(
+      "see the flag-on run's own EditPlan decisions table below (1 decision(s))",
+    );
   });
 
   it('renders every quality dimension with its score, basis, and notes', () => {

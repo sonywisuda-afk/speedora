@@ -22,7 +22,9 @@ export interface PhaseDRunSummary {
   // null only when this clip's own ClipScores were unavailable (same null-semantics as
   // Clip.editorialDecision itself) - never fabricated.
   editorialDecision: EditorialDecision | null;
-  editPlan: EditPlanResult;
+  // NOT the full EditPlanResult - Clip.editPlan's own persisted shape never includes
+  // `suggestions` (see the `editPlanArbitrationFired` field's own comment below for why).
+  editPlan: Omit<EditPlanResult, 'suggestions'>;
   qualityAssessment: FinalClipQualityAssessment;
   renderedDurationSeconds: number | null;
   checksumMd5: string | null;
@@ -49,8 +51,16 @@ export interface PhaseDReport {
   // docs/ai/phase-d-benchmark.md). A SMALL editorialScore delta between runs is expected LLM-
   // sampling noise, not a bug - only a large, unexplained delta is worth investigating.
   editorialDecisionIdentical: boolean;
-  // The one dimension these two flags actually govern - see docs/ai/edit-plan-director.md.
-  editPlanSuggestionsIdentical: boolean;
+  // Whether EDIT_BUDGET_ENABLED/EFFECT_CONFLICT_RESOLUTION_ENABLED actually suppressed/enforced
+  // anything for this clip in the flag-on run (on.editPlan.decisions.length > 0). Deliberately
+  // NOT a comparison of off.editPlan.suggestions vs on.editPlan.suggestions - Clip.editPlan's own
+  // persisted shape never includes `suggestions` at all (packages/edit-plan-director's own
+  // documented design: it's covered by the pre-existing Clip.editingSuggestions instead, see
+  // docs/ai/edit-plan-director.md's "Wiring" section), so that comparison was always vacuously
+  // `undefined === undefined` - a real bug this phase's own 3rd real run caught and fixed (see
+  // docs/ai/phase-d-benchmark.md). `on.editPlan.decisions` is the real, meaningful signal: each
+  // entry names exactly what got suppressed/enforced and why.
+  editPlanArbitrationFired: boolean;
   // Checksum comparison of the two rendered files - "identical" is a real, valid, honestly-
   // reported outcome when this clip's own editingSuggestions never gave the resolver/budget
   // anything to act on (mirrors Editorial Director's own Gate A1 "didn't get a rank-flip
@@ -75,7 +85,7 @@ function renderQualityDimensions(qa: FinalClipQualityAssessment): string {
   );
 }
 
-function renderEditPlanDecisions(editPlan: EditPlanResult): string {
+function renderEditPlanDecisions(editPlan: Omit<EditPlanResult, 'suggestions'>): string {
   if (editPlan.decisions.length === 0) {
     return '_No conflict-resolution or budget-enforcement decisions fired for this run - every suggestion survived unchanged._';
   }
@@ -162,7 +172,7 @@ runs - see docs/ai/phase-d-benchmark.md's own note on this simplification), so E
 is expected to be CLOSE, not necessarily byte-identical, between the two runs._
 
 - EditorialDecision exactly identical between flag-off/flag-on runs: ${r.editorialDecisionIdentical ? '**yes**' : `no (editorialScore ${r.off.editorialDecision?.editorialScore.toFixed(1) ?? 'n/a'} vs ${r.on.editorialDecision?.editorialScore.toFixed(1) ?? 'n/a'} - a small delta here is expected LLM-sampling noise, not necessarily a bug; investigate only if this looks large or systematic)`}
-- editPlan.suggestions identical between runs: ${r.editPlanSuggestionsIdentical ? 'yes (no conflict/budget action fired for this clip - a real, valid outcome)' : '**no - the flags changed the arbitrated suggestion timeline for this clip**'}
+- EDIT_BUDGET_ENABLED/EFFECT_CONFLICT_RESOLUTION_ENABLED actually suppressed/enforced something for this clip: ${r.editPlanArbitrationFired ? `**yes** - see the flag-on run's own EditPlan decisions table below (${r.on.editPlan.decisions.length} decision(s))` : "no - every suggestion survived unchanged for this clip, a real, valid outcome (this clip's own editingSuggestions simply had nothing dense/conflicting enough to trigger suppression)"}
 - Physical rendered output identical (checksum): ${r.physicalOutputIdentical ? 'yes' : '**no - the two mp4 files differ**'}
 
 ## Flag-off run
