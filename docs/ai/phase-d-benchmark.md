@@ -1,12 +1,13 @@
 # Phase D — Real-Video Benchmark + Human-Review Packet
 
-> **Status: the automated-benchmark half of Phase D shipped and run for real once, against one
-> real clip.** The fourth and final phase of the "Speedora Editorial Operating System" mission,
-> closing out Phase A (`docs/ai/editorial-director.md`), Phase B (`docs/ai/edit-plan-director.md`),
-> and Phase C1 (`docs/ai/render-quality-judge.md`), all merged. The actual **blind human
-> evaluation** — a human watching both rendered outputs and filling in the packet's Rubric section
-> — has NOT happened; that's explicitly not something an agent can perform. Multi-clip/multi-video
-> expansion is a documented non-goal for this first pass, not started.
+> **Status: the automated-benchmark half of Phase D shipped and run for real twice, against one
+> real clip** — once before this sandbox's detector gaps (§4) were fixed, once after. The fourth
+> and final phase of the "Speedora Editorial Operating System" mission, closing out Phase A
+> (`docs/ai/editorial-director.md`), Phase B (`docs/ai/edit-plan-director.md`), and Phase C1
+> (`docs/ai/render-quality-judge.md`), all merged. The actual **blind human evaluation** — a human
+> watching both rendered outputs and filling in the packet's Rubric section — has NOT happened;
+> that's explicitly not something an agent can perform. Multi-clip/multi-video expansion is a
+> documented non-goal for this first pass, not started.
 
 ## 1. What Phase D asks for, and the real scope fork it required
 
@@ -129,11 +130,43 @@ were fixed separately, immediately after, at the user's explicit request (see be
   run directly against synthetic test clips, no crash, real output (OCR correctly read rendered
   text at 95.5% confidence; the other 3 correctly returned null/empty against clips with no real
   hands/objects/faces to detect — a correct result, not a failure).
+- **A NEW real bug, found only once the model file above actually loaded — NOT fixed yet**:
+  `detect_face_landmarks.py`'s own Kalman-filter tracker throws a real OpenCV assertion,
+  `cv2.error: ... (-215:Assertion failed) a_size.width == len in function 'cv::gemm'`, inside both
+  `_predicted_box()` and `mark_missed()` — a state/transition-matrix dimension mismatch in the
+  tracker's own `cv2.KalmanFilter` setup. This code path was NEVER exercised before this sandbox
+  had a real `face_landmarker.task` to load (every prior test/harness run either lacked the model
+  file or used synthetic clips with no trackable face), so the bug has been latent since this
+  tracker was written. Caught by the render graph's existing best-effort handling ("face landmark
+  detection failed, continuing without face landmark data"), not fatal — but it means Face
+  Landmarks/Composition Intelligence's primary-subject selection still returns null on a real face-
+  containing clip in this sandbox, for a different reason than before. Logged as open backlog, not
+  fixed as part of this benchmark re-run — a real code bug in the tracker's own matrix dimensions
+  needs its own focused fix, not a drive-by patch.
+- **A harness-only timing finding, FIXED**: the harness's own Jest test timeout (originally 30
+  minutes) was sized against the FIRST real run, where most detectors failed fast (missing file/
+  model). Once the 3 fixes above let every detector actually run to completion, the same benchmark
+  took measurably longer — a second real run hit the 30-minute ceiling right at the final upload/
+  report-writing step (after the render itself had already succeeded), with Jest tearing down the
+  test environment mid-`await`. Bumped to 45 minutes; the next real run (§5) completed cleanly in
+  ~39.5 minutes.
+- **A root-cause correction to this doc's own first-run finding**: the original text below
+  attributed `editPlan.suggestions` staying identical across both flag states to "reduced
+  `editingSuggestions` density" from the missing-detector gap. The second real run (§5), with every
+  detector now working, still shows `editPlan.suggestions` identical and empty for this clip — the
+  REAL reason is that this harness never sets any `VISUAL_EMPHASIS_*_ENABLED` flag
+  (`focusShiftEnabled`/`digitalPushEnabled`/`ocrHighlightEnabled`/`reactionHoldEnabled`/
+  `pauseHoldEnabled`/`speakerAwareFocusShiftEnabled` all confirmed `false` in this run's own
+  `CONFIG_RESOLVED` log), so `computeEditingSuggestions()` has nothing to propose regardless of how
+  rich the underlying detector signal is. A real, more precise finding than the original guess —
+  see §6's own non-goal note on this.
 
-## 5. Real results (2026-08-15 run, clip `cmsq3ix8a028e2su80g10w5y6`)
+## 5. Real results, both runs (clip `cmsq3ix8a028e2su80g10w5y6`)
 
-The full report is `apps/worker/reports/phase-d-benchmark-2026-08-15T21-31-43-256Z.{md,json}`
-(local only, not committed). Summary:
+### Run 1 — 2026-08-15, before §4's detector fixes
+
+Full report: `apps/worker/reports/phase-d-benchmark-2026-08-15T21-31-43-256Z.{md,json}` (local
+only, not committed).
 
 | | Flag off | Flag on |
 |---|---|---|
@@ -145,31 +178,60 @@ The full report is `apps/worker/reports/phase-d-benchmark-2026-08-15T21-31-43-25
 | Rendered duration | 124.76s | 124.76s |
 | Output checksum | `4f61e543...` | `4f61e543...` (**identical**) |
 
-**`editPlan.suggestions` was identical between runs** — no conflict-resolution or budget-
-enforcement decision fired for this clip, a real, valid outcome (this clip's real
-`editingSuggestions` — reduced by §4's missing-detector gap — simply didn't have anything dense or
-conflicting enough for the two flags to act on). The physical rendered output is byte-identical
-(matching MD5 checksums), correctly confirming the flags had zero effect on this specific clip's
-render.
+### Run 2 — 2026-08-16, after §4's detector fixes (gesture/object/face-landmark models +
+Tesseract all working; face-landmark tracker's own Kalman bug still open)
 
-**The `editorialScore`/`narrativeQuality` delta (53.1→65.8, 43.3→75.3) is therefore attributable
-entirely to real LLM sampling non-determinism between the two runs' independent Narrative Graph
-calls**, not to the flags — exactly the tradeoff §3's own design note predicted, now observed in
-practice with a real, non-trivial magnitude (12.7 points on `editorialScore`, 32 points on
-`narrativeQuality`). This is a genuine, useful finding in its own right: Narrative Graph's
-real-world LLM output for this clip is not tightly reproducible run-to-run, which the "scale
-honesty" convention (ADR D4) already anticipates but this is the first real-clip evidence of the
-actual magnitude. Worth a future calibration note, not a bug in this phase's own code.
+Full report: `apps/worker/reports/phase-d-benchmark-2026-08-16T00-16-56-592Z.{md,json}` (local
+only, not committed). ~39.5 minutes wall time (up from ~27 minutes for Run 1 — every detector now
+actually running to completion instead of failing fast costs real time, see §4's timeout note).
+
+| | Flag off | Flag on |
+|---|---|---|
+| `editorialScore` | 59.2 | 57.8 |
+| `narrativeQuality` | 43.3 | 43.3 |
+| `technicalQuality` | 95.5 | 95.5 |
+| `visualQuality` (proxy) | 53.3 | 53.3 |
+| `compositeScore` | 64.2 | 63.8 |
+| Rendered duration | 124.76s | 124.76s |
+| Output checksum | `44a699bc...` | `44a699bc...` (**identical**) |
+
+**Both runs**: `editPlan.suggestions` identical between flag states, physical output byte-
+identical — see §4's root-cause correction: this harness never enables any
+`VISUAL_EMPHASIS_*_ENABLED` flag, so `computeEditingSuggestions()` has nothing to propose
+regardless of detector richness. `EDIT_BUDGET_ENABLED`/`EFFECT_CONFLICT_RESOLUTION_ENABLED` are
+therefore not exercised in EITHER run — a real, still-open first-pass limitation, not something the
+detector fixes could have addressed by themselves.
+
+**Run 1's `editorialScore`/`narrativeQuality` delta (53.1→65.8, 43.3→75.3) was real LLM sampling
+non-determinism** between two independent Narrative Graph calls, not the flags — exactly the
+tradeoff §3's own design note predicted. **Run 2's much smaller `editorialScore` delta (59.2→57.8)
+and IDENTICAL `narrativeQuality` (43.3 both) is consistent with that same explanation** — the two
+runs' independent LLM calls this time happened to land closer together, which is itself expected
+(sampling noise varies run to run, it doesn't have a fixed magnitude). Neither run's delta is
+attributable to the flags, which had zero measurable effect on `editingSuggestions` in either run.
+
+**`visualQuality`'s jump between runs (10.0 → 53.3, in both flag states) is the one number that
+moved for a REAL, understood reason, not noise**: `visualQuality` is a `'proxy'` derived from
+`categories.visualEngagement` (`packages/render-quality-judge`'s own honest-proxy design, see
+`docs/ai/render-quality-judge.md`), which is itself an average of `editingSuggestions[].score`.
+With Composition Intelligence's face-detection input now real (rather than always-empty) between
+runs, the composition/primary-subject signal feeding `editingSuggestions` scoring changed — a real,
+if indirect, consequence of §4's detector fixes, even though it didn't change `editPlan.suggestions`
+itself (still empty either way — see above) or the physical render.
 
 ## 6. Explicit non-goals for this pass
 
-- **The actual blind human evaluation session** — the packet exists; a human hasn't used it yet.
+- **The actual blind human evaluation session** — the packet exists; a human hasn't used it yet
+  (now with 2 real report packets to choose from, or use both).
 - **Multi-clip/multi-video coverage** — this pass covers 1 real clip, proving the harness end-to-
   end. `BENCHMARK_CLIP_ID` is overridable via `--clipId=` for a cheap future expansion.
-- **Re-running the full Phase D benchmark against this environment's now-complete detector set** —
-  both real findings (§4) are fixed, but the one real benchmark run recorded in §5 predates both
-  fixes; re-running to see richer `editingSuggestions` density (real face/gesture/object/OCR
-  signal, not just LLM-only) is a cheap, valuable follow-up, not done as part of either fix.
+- **Fixing `detect_face_landmarks.py`'s own Kalman-filter `cv::gemm` bug** (§4, found in Run 2) —
+  a real, separately-scoped tracker bug, unrelated to Phase A/B/C1/D's own code, left as backlog.
+- **Enabling `VISUAL_EMPHASIS_*_ENABLED` flags to get a real `editPlan`/`EDIT_BUDGET_ENABLED`/
+  `EFFECT_CONFLICT_RESOLUTION_ENABLED` comparison** — §4/§5's own root-cause finding: neither real
+  run so far has exercised these two flags' actual arbitration behavior, since the harness never
+  turns on any underlying Visual Emphasis technique. A real, valuable next benchmark run, not done
+  here (a genuinely new harness change, not a re-run of the existing one).
 - **Caching/replaying `graphResult` across runs** — deliberately simplified away (§3); a future
   pass could revisit this if LLM cost/non-determinism becomes a real blocker at multi-clip scale.
 - **Real Brand Kit resolution** (watermark/intro/outro) — the harness job data hardcodes these to

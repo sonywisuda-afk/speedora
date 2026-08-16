@@ -614,6 +614,12 @@ describeIfFfmpeg(
       // playable output, or the harness itself is broken, not the pipeline under observation.
       expect(off.probe.hasVideoStream && off.probe.hasAudioStream).toBe(true);
       expect(on.probe.hasVideoStream && on.probe.hasAudioStream).toBe(true);
-    }, 1_800_000);
+      // 45 min, up from 30 - once this sandbox's model files were fixed (docs/ai/
+      // phase-d-benchmark.md), every real detector actually runs to completion instead of
+      // failing fast on a missing file, adding real wall-clock time. 30 min was cutting it close
+      // even before that fix; a real run after it hit the old ceiling right at the final upload/
+      // report-writing step (Jest tore the test environment down mid-`await`), after the render
+      // itself had already succeeded - a genuine "needs more headroom" finding, not a hang.
+    }, 2_700_000);
   },
 );
